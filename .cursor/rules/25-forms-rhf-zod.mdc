@@ -1,0 +1,8 @@
+---
+description: Patrón RHF + Zod para formularios
+alwaysApply: true
+---
+
+- Usar `react-hook-form` + `zodResolver` en nuevos formularios complejos.
+- Mensajes al usuario en español.
+- Validar también en servidor.

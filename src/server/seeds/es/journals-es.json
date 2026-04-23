@@ -1,0 +1,7 @@
+[
+  { "code": "VEN", "name": "Diario de ventas" },
+  { "code": "COM", "name": "Diario de compras" },
+  { "code": "BAN", "name": "Diario de bancos" },
+  { "code": "GEN", "name": "Diario general" },
+  { "code": "CIE", "name": "Diario de cierre" }
+]

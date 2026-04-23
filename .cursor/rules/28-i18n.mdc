@@ -1,0 +1,8 @@
+---
+description: Convenciones de internacionalización
+alwaysApply: true
+---
+
+- Mantener `es` y `en` en `messages/`.
+- Formatear fecha y moneda con `Intl`.
+- Mantener claves de traducción estables.

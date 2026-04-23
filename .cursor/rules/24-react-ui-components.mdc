@@ -1,0 +1,83 @@
+---
+description: Patrones de componentes React, Tailwind v4 y shadcn/ui
+globs: src/components/**/*.tsx,src/app/**/*.tsx
+alwaysApply: false
+---
+
+# Componentes React, Tailwind y shadcn/ui
+
+## Server vs Client
+
+- **Server Component por defecto.** Consulta datos y renderiza markup sin JS en cliente.
+- **`"use client"`** solo cuando se necesite: estado, efectos, `useRouter`, `useForm`, eventos `onChange/onClick` con lógica local.
+- Un componente cliente **no** debe importar `db`, `auth`, `ensureUserTenant`, ni nada de `src/server/*`. Comunícate con el servidor vía `fetch("/api/...")` o Server Actions.
+
+## Patrón de formulario (referencia)
+
+Ver `src/components/create-invoice-form.tsx`. Reglas:
+
+- Estado local con `useState` por campo, reset tras éxito.
+- `isLoading` + `error: string | null` para UX de envío.
+- `router.refresh()` después de éxito para refrescar datos del Server Component padre.
+- Mensajes de error al usuario **en español**, extraídos de `payload.message` de la API.
+- Botón con `disabled={isLoading}` y texto dinámico ("Guardando...").
+
+```tsx
+const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  event.preventDefault();
+  setError(null);
+  setIsLoading(true);
+  try {
+    const response = await fetch("/api/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const body = (await response.json()) as { message?: string };
+      throw new Error(body.message ?? "No se pudo completar la operación.");
+    }
+    router.refresh();
+  } catch (e) {
+    setError(e instanceof Error ? e.message : "Error inesperado.");
+  } finally {
+    setIsLoading(false);
+  }
+};
+```
+
+## shadcn/ui
+
+- Primitivas en `src/components/ui/*` (`Button`, `Card`, `Input`, `Label`, ...).
+- Añadir nuevas primitivas vía `npx shadcn add <component>`. No copies/pegues código a mano.
+- Componer shadcn con tus componentes de dominio en `src/components/*.tsx` (ej. `create-invoice-form.tsx`).
+- Usar `buttonVariants({ variant: "outline" })` con `<Link>` cuando necesites un botón que navegue.
+
+## Tailwind v4
+
+- Utilidades directas en JSX. Agrupar por responsabilidad (layout → spacing → color → tipografía).
+- `cn(...)` (en `@/lib/utils`) para combinar clases condicionales.
+- Preferir tokens del diseño (`text-muted-foreground`, `border-input`, `bg-card`) sobre colores crudos (`text-gray-500`).
+- Dark mode: asume que los tokens ya lo soportan; no escribas `dark:...` a menos que sea imprescindible.
+- Breakpoints: mobile-first. Usa `md:`/`lg:` para ampliar.
+
+## Accesibilidad y UX
+
+- Todo `<input>` con su `<Label htmlFor>`.
+- `aria-*` cuando el significado no sea obvio por el DOM.
+- Atajo para acciones destructivas: confirmación explícita (ver `delete-button.tsx`).
+- Estados vacíos con texto útil en español ("Todavía no hay facturas registradas.").
+- Foco visible (no quitar outlines sin reemplazo).
+
+## Organización
+
+- Un componente por archivo, nombre de archivo `kebab-case.tsx`, export nombrado `PascalCase`.
+- Props tipadas en el propio archivo (`type Props = { ... }`) salvo que se reutilicen.
+- No crear carpetas hasta tener ≥ 3 componentes relacionados; entonces agrupa en `src/components/<dominio>/`.
+
+## Prohibido
+
+- Hacer `fetch` a la propia API desde un Server Component (consulta la DB directamente).
+- Usar `<a href>` para navegación interna (usar `next/link`).
+- `useEffect` para cargar datos iniciales si el componente puede ser Server Component.
+- Inline styles (`style={{ ... }}`) salvo valores dinámicos imposibles en Tailwind.

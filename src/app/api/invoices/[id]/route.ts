@@ -1,0 +1,45 @@
+import { and, eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
+
+import { invoice } from "@/db/schema";
+import { getUserSession } from "@/lib/current-user";
+import { db } from "@/lib/db";
+import { can } from "@/lib/rbac";
+import { ensureUserTenant } from "@/lib/tenant";
+import { recordAudit } from "@/server/audit";
+import { updateInvoiceSchema } from "@/server/schemas/forms";
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getUserSession();
+  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+
+  const payload = await request.json();
+  const parsedPayload = updateInvoiceSchema.safeParse(payload);
+  if (!parsedPayload.success) {
+    return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
+  }
+  const values = parsedPayload.data;
+  const { id } = await params;
+  const [updated] = await db
+    .update(invoice)
+    .set({ number: values.number.trim(), status: values.status, notes: values.notes?.trim() || null, updatedAt: new Date() })
+    .where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id)))
+    .returning();
+  if (!updated) return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
+  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "invoice.update", entityName: "invoice", entityId: id, payload: values });
+  return NextResponse.json(updated);
+}
+
+export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getUserSession();
+  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  const { id } = await params;
+  const [deleted] = await db.delete(invoice).where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id))).returning({ id: invoice.id });
+  if (!deleted) return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
+  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "invoice.delete", entityName: "invoice", entityId: id });
+  return NextResponse.json({ ok: true });
+}

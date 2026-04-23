@@ -1,0 +1,59 @@
+---
+description: Arquitectura por capas y dirección de dependencias
+alwaysApply: true
+---
+
+# Arquitectura por capas
+
+Flujo estricto de dependencias (una capa solo puede depender de las inferiores):
+
+```
+src/app  ─────►  src/server  ─────►  src/db
+    │                │                  ▲
+    └────────────►  src/lib  ───────────┘
+```
+
+## Responsabilidades
+
+- **`src/app` (UI + HTTP):** páginas (Server Components) y `route.ts`. Se encargan de sesión, permisos, parseo/validación de input y formateo de respuesta. **No** contienen lógica de negocio ni SQL complejo.
+- **`src/server/<módulo>/service.ts` (dominio):** funciones puras por caso de uso (`listX`, `getX`, `createX`, `updateX`, `deleteX`). Reciben ids ya validados (`companyId`, `tenantId`, `actorUserId`) + `payload`. Aquí viven transacciones, reglas de negocio y auditoría.
+- **`src/db/schema.ts` (persistencia):** solo tablas, enums e índices. Sin lógica.
+- **`src/lib` (infra transversal):** `db`, `auth`, `current-user`, `tenant`, `rbac`, `utils`. Sin dependencias del dominio.
+
+## Reglas duras
+
+- ❌ **NUNCA** queries Drizzle directas dentro de componentes cliente (`"use client"`). El cliente se comunica siempre vía `fetch("/api/...")`.
+- ❌ **NUNCA** imports de `src/app` desde `src/server` o `src/lib`.
+- ❌ **NUNCA** duplicar lógica que ya vive en `src/server/*/service.ts`; importa la función.
+- ✅ Una página/route **orquesta**; el servicio **hace**.
+- ✅ Si una mutación se invoca desde UI y desde otro servicio, extrae la lógica al servicio y reutilízala.
+
+## Ejemplo canónico (patrón a seguir)
+
+`src/app/api/purchases/[id]/route.ts` → `src/server/purchases/service.ts` → `src/db/schema.ts`.
+
+```typescript
+// ❌ BAD: lógica de negocio dentro del route handler
+export async function POST(request: Request) {
+  const payload = await request.json();
+  await db.transaction(async (tx) => { /* ... 40 líneas de reglas ... */ });
+}
+
+// ✅ GOOD: el route orquesta, el service ejecuta
+export async function POST(request: Request) {
+  const ctx = await requireTenantContext("purchase.write");
+  const payload = parsePurchasePayload(await request.json());
+  const created = await createPurchaseOrder(ctx.company.id, ctx.tenant.id, ctx.userId, payload);
+  return NextResponse.json(created, { status: 201 });
+}
+```
+
+## Cuándo crear un nuevo módulo
+
+Si introduces un nuevo dominio (p. ej. `hr`), crea **simultáneamente**:
+
+1. `src/db/schema.ts` → tablas con `companyId` FK.
+2. `src/server/hr/service.ts` → casos de uso.
+3. `src/app/api/hr/route.ts` (+ subrutas dinámicas si aplica).
+4. `src/app/hr/page.tsx` → Server Component.
+5. Claves en `src/lib/rbac.ts` (`hr.read`, `hr.write`, …).

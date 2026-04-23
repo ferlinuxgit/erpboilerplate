@@ -1,0 +1,99 @@
+---
+description: Patrón de servicios de dominio en src/server
+globs: src/server/**/*.ts
+alwaysApply: false
+---
+
+# Servicios de dominio (`src/server/<módulo>/service.ts`)
+
+Contienen toda la lógica de negocio y el acceso a datos vía Drizzle. Exponen funciones puras por caso de uso.
+
+## Firma estándar
+
+```typescript
+// Lecturas: solo companyId (y filtros)
+export async function listInvoices(companyId: string, filters?: InvoiceFilters) { ... }
+export async function getInvoice(companyId: string, id: string) { ... }
+
+// Mutaciones: companyId + tenantId + actorUserId + payload (para auditoría)
+export async function createInvoice(
+  companyId: string,
+  tenantId: string,
+  actorUserId: string,
+  payload: CreateInvoicePayload,
+) { ... }
+```
+
+- **Nunca** acepta ni devuelve `Request`/`NextResponse`. Es agnóstico a HTTP.
+- **Nunca** lee `process.env` directamente (eso vive en `src/lib`).
+- **Siempre** filtra por `companyId` (o `tenantId` para entidades tenant-level).
+
+## Lectura tipo
+
+```typescript
+export async function listPurchaseOrders(companyId: string) {
+  return db
+    .select({
+      id: purchaseOrder.id,
+      number: purchaseOrder.number,
+      status: purchaseOrder.status,
+      supplierName: partner.name,
+      createdAt: purchaseOrder.createdAt,
+    })
+    .from(purchaseOrder)
+    .innerJoin(partner, eq(purchaseOrder.supplierPartnerId, partner.id))
+    .where(eq(purchaseOrder.companyId, companyId))
+    .orderBy(desc(purchaseOrder.createdAt));
+}
+```
+
+- Proyección explícita siempre.
+- `orderBy` determinista (añade un tiebreaker como `id` si la columna puede repetirse).
+- Paginación con `.limit()` + `.offset()` cuando se exponga a UI lista (define límite por defecto razonable, p. ej. 50).
+
+## Mutación tipo (transacción + auditoría)
+
+```typescript
+export async function createPurchaseOrder(
+  companyId: string,
+  tenantId: string,
+  actorUserId: string,
+  payload: { supplierName: string; number: string },
+) {
+  return db.transaction(async (tx) => {
+    // 1) Precondiciones / upserts vinculados
+    const supplierId = await getOrCreateSupplier(tx, companyId, payload.supplierName);
+
+    // 2) Operación principal
+    const [created] = await tx
+      .insert(purchaseOrder)
+      .values({ companyId, supplierPartnerId: supplierId, number: payload.number })
+      .returning({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status });
+
+    // 3) Auditoría dentro de la transacción cuando es crítica
+    await recordAudit({
+      tenantId, companyId, actorUserId,
+      action: "purchase.create",
+      entityName: "purchaseOrder",
+      entityId: created.id,
+      payload,
+    });
+
+    return created;
+  });
+}
+```
+
+## Reglas
+
+- ✅ **Transacciones** (`db.transaction`) para cualquier flujo que escriba más de una tabla o dependa de una lectura previa.
+- ✅ `returning({ ... })` siempre con proyección explícita.
+- ✅ Para `update`/`delete` devuelve `null`/`false` si no hubo match (no lanzar excepción por "no encontrado"; el route lo traduce a 404).
+- ❌ No mezclar reglas de negocio de módulos distintos en el mismo servicio; si hay cruce, un servicio llama al otro.
+- ❌ No hacer `try/catch` genérico dentro del servicio; deja que el error burbujee y que el route lo traduzca.
+
+## Organización
+
+- Un archivo `service.ts` por módulo. Si crece (> ~300 líneas) divide por agregado: `invoices.service.ts`, `invoice-lines.service.ts`.
+- Tipos de payload co-locados en el mismo archivo o en `src/server/<modulo>/types.ts`.
+- Helpers internos del módulo (no exportados fuera) al final del archivo o en `src/server/<modulo>/internal.ts`.

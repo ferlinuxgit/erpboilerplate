@@ -1,0 +1,89 @@
+---
+description: Plantilla y checklist para route handlers HTTP
+globs: src/app/api/**/route.ts
+alwaysApply: false
+---
+
+# API routes (`src/app/api/**/route.ts`)
+
+Un route handler es **delgado**: sesión → tenant → RBAC → validación → delegar al servicio → responder.
+
+## Plantilla canónica
+
+```typescript
+import { NextResponse } from "next/server";
+
+import { getUserSession } from "@/lib/current-user";
+import { can } from "@/lib/rbac";
+import { ensureUserTenant } from "@/lib/tenant";
+import { createInvoice } from "@/server/invoices/service";
+
+export async function POST(request: Request) {
+  const session = await getUserSession();
+  if (!session?.user) {
+    return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  }
+
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "invoice.create")) {
+    return NextResponse.json(
+      { message: "Sin permisos para crear facturas." },
+      { status: 403 },
+    );
+  }
+
+  // Parseo + validación explícita
+  const payload = (await request.json()) as { number?: string; totalAmount?: number; /* ... */ };
+  const number = payload.number?.trim();
+  const totalAmount = Number(payload.totalAmount ?? 0);
+  if (!number || totalAmount <= 0) {
+    return NextResponse.json(
+      { message: "Debes informar número e importe mayor de 0." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const created = await createInvoice(ctx.company.id, ctx.tenant.id, session.user.id, {
+      number,
+      totalAmount,
+    });
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    console.error("invoice.create failed", { error });
+    return NextResponse.json(
+      { message: "No se pudo crear la factura. Revisa los datos o el número." },
+      { status: 400 },
+    );
+  }
+}
+```
+
+## Segmentos dinámicos
+
+```typescript
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params; // params es Promise en Next 16
+  // ...
+}
+```
+
+## Códigos de estado (consistentes)
+
+| Caso | Status |
+|------|--------|
+| Sin sesión | `401` |
+| Sin permisos RBAC | `403` |
+| Input inválido | `400` |
+| Entidad inexistente o cross-tenant | `404` |
+| Recurso creado | `201` |
+| Éxito con payload | `200` |
+| Conflicto (duplicado) | `409` |
+
+## Reglas
+
+- ❌ Nada de lógica de negocio en el handler. Si hay más de 10 líneas después de validar, extrae a `src/server`.
+- ❌ No devolver errores crudos de Drizzle/Postgres.
+- ✅ Mensajes de error **en español**, breves y accionables.
+- ✅ `try/catch` envuelve **solo** la llamada al servicio que puede fallar por constraint DB.
+- ✅ Si la ruta devuelve listas, usa `.select({...})` explícito en el servicio, nunca `select()` sin proyección.

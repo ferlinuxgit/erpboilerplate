@@ -1,0 +1,8 @@
+---
+description: Motor fiscal por providers
+alwaysApply: true
+---
+
+- Implementar interfaz común `FiscalProvider`.
+- Registrar providers en `src/server/fiscal/registry.ts`.
+- No mezclar lógica de países en el mismo archivo.

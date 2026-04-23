@@ -1,0 +1,8 @@
+[
+  { "name": "IVA general 21%", "rate": "21.000" },
+  { "name": "IVA reducido 10%", "rate": "10.000" },
+  { "name": "IVA superreducido 4%", "rate": "4.000" },
+  { "name": "Retencion IRPF 15%", "rate": "15.000" },
+  { "name": "Retencion IRPF 7%", "rate": "7.000" },
+  { "name": "Retencion alquiler 19%", "rate": "19.000" }
+]

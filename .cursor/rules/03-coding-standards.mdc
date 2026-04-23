@@ -1,0 +1,76 @@
+---
+description: Estándares de código, naming, tipado y comentarios
+alwaysApply: true
+---
+
+# Estándares de código
+
+## TypeScript
+
+- `strict` activo. Prohibido `any` implícito o explícito salvo en interoperabilidad acotada y comentada.
+- Preferir `type` a `interface` para payloads y DTOs simples; `interface` sólo cuando se extiende.
+- Modelar estados con uniones literales, no strings libres: `type InvoiceStatus = "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID"`.
+- `readonly` en props de componentes y en DTOs devueltos a UI cuando no deban mutarse.
+- **Nunca** usar `as` para silenciar el compilador; refina el tipo o crea un *type guard*.
+
+## Naming
+
+| Elemento | Convención | Ejemplo |
+|----------|-----------|---------|
+| Archivos React / pages | `kebab-case.tsx` | `create-invoice-form.tsx` |
+| Archivos utilitarios | `kebab-case.ts` | `current-user.ts` |
+| Componentes React | `PascalCase` | `CreateInvoiceForm` |
+| Funciones / variables | `camelCase` | `ensureUserTenant` |
+| Tipos / enums | `PascalCase` | `AppRole`, `PermissionKey` |
+| Constantes globales | `SCREAMING_SNAKE_CASE` | `DEFAULT_TIMEZONE` |
+| Columnas Drizzle | `camelCase` | `companyId`, `issueDate` |
+| Valores de enum PG | `SCREAMING_SNAKE_CASE` | `"SALES_INVOICE"` |
+
+## Imports
+
+Orden (separados por línea en blanco):
+
+1. Builtins y módulos externos (`react`, `next/...`, `drizzle-orm`).
+2. Módulos internos con alias `@/...`.
+3. Imports relativos (`./`, `../`).
+
+```typescript
+import { NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
+
+import { invoice, customer } from "@/db/schema";
+import { db } from "@/lib/db";
+```
+
+## Comentarios (en español de España)
+
+Los comentarios explican **intención**, **contratos** y **por qué**, nunca el **qué** obvio.
+
+```typescript
+// ❌ BAD
+// Incrementa el contador
+counter += 1;
+
+// ❌ BAD: narrar lo que ya dice el código
+// Inserta la factura en la base de datos
+await db.insert(invoice).values(values);
+
+// ✅ GOOD: intención / contrato
+// El número de serie se incrementa dentro de la transacción para evitar huecos
+// en caso de rollback de la inserción de la factura.
+const nextNumber = await reserveDocumentSeriesNumber(tx, companyId, "SALES_INVOICE");
+```
+
+JSDoc solo en APIs públicas no evidentes (servicios exportados con efectos no triviales, helpers reutilizables).
+
+## Errores y logs
+
+- Lanzar errores tipados o devolver `NextResponse.json({ message }, { status })` con mensaje **en español**.
+- Prohibido `console.log` en código de producción. `console.error` sólo para fallos realmente inesperados.
+- No tragarse excepciones silenciosamente (`catch {}` vacío solo si la recuperación es la intención explícita y está comentada).
+
+## Formato
+
+- Comillas dobles, punto y coma al final, indentación de 2 espacios (coincide con el código existente).
+- Una exportación nombrada por responsabilidad; evitar `export default` salvo en `page.tsx` / `layout.tsx` / `route.ts` cuando el framework lo exija.
+- Props desestructurados y ordenados alfabéticamente cuando hay más de 4.

@@ -1,0 +1,72 @@
+---
+description: Seguridad, validación de entrada, secretos y manejo de errores
+alwaysApply: true
+---
+
+# Seguridad y validación
+
+## Validación de entrada (en el borde)
+
+Toda entrada cruzando el borde HTTP (`route.ts`) se valida antes de tocar servicios o DB.
+
+- Parsear con `(await request.json()) as { ... }` y validar explícitamente:
+  - Campos requeridos no vacíos (trimming incluido).
+  - Rangos numéricos (`totalAmount > 0`).
+  - Fechas parseables (`!Number.isNaN(date.getTime())`).
+  - Enums: comparar contra la unión literal declarada.
+- En caso de fallo: `return NextResponse.json({ message: "<mensaje en español>" }, { status: 400 });`
+- **Nunca** exponer traces/errores de Drizzle al cliente; captura y devuelve mensaje amable.
+
+```typescript
+const customerId = payload.customerId?.trim();
+const totalAmount = Number(payload.totalAmount ?? 0);
+if (!customerId || totalAmount <= 0) {
+  return NextResponse.json(
+    { message: "Debes informar cliente e importe mayor de 0." },
+    { status: 400 },
+  );
+}
+```
+
+> Si el proyecto incorpora `zod` en el futuro, centraliza los schemas en `src/server/<modulo>/schemas.ts` y reemplaza el parseo manual. **No** añadas la dependencia sin confirmar con el roadmap.
+
+## Secretos y variables de entorno
+
+- Todas las secrets viven en `.env` (gitignored) y se documentan en `.env.example` con placeholders.
+- Acceso solo vía `process.env.X` en **módulos de servidor** (`src/lib/*`, `src/server/*`, `src/app/api/*`, `src/app/**/page.tsx`).
+- Variables consumidas por cliente deben usar el prefijo `NEXT_PUBLIC_`; asume que todo lo demás es confidencial.
+- Validar presencia al arrancar: `if (!process.env.DATABASE_URL) throw new Error(...)` (patrón ya en `src/lib/db.ts`).
+
+## Autenticación y autorización
+
+- Sesión siempre vía `getUserSession()` / `requireUserSession()` de `@/lib/current-user`.
+- `requireUserSession` ya redirige a `/auth/login`; úsalo en pages.
+- En `route.ts` devuelve `401` con `getUserSession()`, no redirijas.
+- Permisos siempre con `can(role, permission)` de `@/lib/rbac`.
+
+## Salida de datos
+
+- Al devolver datos al cliente, selecciona explícitamente columnas con `.select({ ... })`. No hagas `select().from()` sin proyección: evita filtrar campos sensibles (`password`, `accessToken`, `keyHash`).
+- Nunca devolver filas de `account`, `session`, `verification`, `apiKey.keyHash`.
+
+## Errores
+
+```typescript
+// ✅ GOOD
+try {
+  return await createInvoice(...);
+} catch (error) {
+  // No filtramos detalles internos; el log queda en el servidor para el equipo.
+  console.error("invoice.create failed", { error });
+  return NextResponse.json(
+    { message: "No se pudo crear la factura. Revisa los datos o el número." },
+    { status: 400 },
+  );
+}
+```
+
+## Dependencias
+
+- No añadir librerías sin justificación clara y registro en `documentation/`.
+- Si añades una, fija versión vía `npm install <pkg>@latest`; **nunca** inventes versiones en `package.json`.
+- Preferir la API nativa / lo ya presente (Drizzle, better-auth, shadcn) antes de introducir algo nuevo.

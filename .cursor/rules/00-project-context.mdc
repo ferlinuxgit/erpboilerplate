@@ -1,0 +1,45 @@
+---
+description: Contexto maestro del proyecto ERP SaaS (stack, estructura, idioma, checklist previo)
+alwaysApply: true
+---
+
+# Contexto del proyecto
+
+ERP SaaS multi-tenant construido con:
+
+- **Next.js 16** (App Router, Server Components, `params` asíncronos) — esta versión tiene **breaking changes**; lee `node_modules/next/dist/docs/` si dudas de una API.
+- **React 19** + **TypeScript strict** (`tsconfig.json` con `strict: true`, `@/*` mapeado a `./src/*`).
+- **Tailwind CSS v4** + **shadcn/ui** (componentes en `src/components/ui`, `@base-ui/react`).
+- **better-auth** (email + password) configurado en `src/lib/auth.ts`.
+- **PostgreSQL + Drizzle ORM** (`drizzle-orm/node-postgres`), esquema único en `src/db/schema.ts`.
+
+## Mapa de directorios (memorizar)
+
+| Ruta | Responsabilidad |
+|------|-----------------|
+| `src/app/(modulo)/page.tsx` | Server Component de página. Obtiene sesión, tenant, consulta y renderiza. |
+| `src/app/api/(modulo)/route.ts` | Endpoints HTTP. Validan sesión + RBAC y delegan en `src/server`. |
+| `src/server/(modulo)/service.ts` | Lógica de dominio y acceso a datos vía Drizzle. Emite auditoría. |
+| `src/db/schema.ts` | Única fuente de verdad del modelo relacional (Drizzle). |
+| `src/lib/*` | Infra compartida: `db.ts`, `auth.ts`, `current-user.ts`, `tenant.ts`, `rbac.ts`, `utils.ts`. |
+| `src/components/*` | UI reutilizable (`ui/` = shadcn primitives). |
+| `drizzle/` | Migraciones SQL generadas (no editar a mano). |
+| `documentation/` | Roadmap y decisiones funcionales. |
+
+## Convención de idioma (obligatoria)
+
+- **Código, identificadores, nombres de archivo, ramas y commits en inglés.**
+- **Comentarios, mensajes de error expuestos al usuario, textos de UI y descripciones en español (España).**
+- No mezclar idiomas dentro de un mismo identificador.
+
+## Checklist previo a CUALQUIER cambio
+
+1. Leer las reglas relevantes en `.cursor/rules/` (esta carpeta).
+2. Consultar `documentation/roadmap.md` y archivos de dominio si existen.
+3. Localizar un patrón equivalente ya implementado (`src/app/api/invoices/route.ts`, `src/server/purchases/service.ts`) y replicarlo.
+4. Confirmar impacto en `src/db/schema.ts` → si tocas el esquema, planifica migración (`db:generate` + `db:migrate`).
+
+## Ignorar siempre
+
+- `src/generated/prisma/**` → código Prisma legado, **no** es la fuente de verdad. Usa Drizzle.
+- `.next/`, `node_modules/`, `drizzle/` (salvo para inspeccionar migraciones existentes).

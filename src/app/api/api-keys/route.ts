@@ -1,0 +1,30 @@
+import argon2 from "argon2";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
+
+import { apiKey } from "@/db/schema";
+import { getUserSession } from "@/lib/current-user";
+import { db } from "@/lib/db";
+import { can } from "@/lib/rbac";
+import { ensureUserTenant } from "@/lib/tenant";
+
+export async function GET() {
+  const session = await getUserSession();
+  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "apiKey.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  return NextResponse.json(await db.select({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt }).from(apiKey).where(eq(apiKey.tenantId, ctx.tenant.id)));
+}
+
+export async function POST(request: Request) {
+  const session = await getUserSession();
+  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "apiKey.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  const payload = (await request.json()) as { name?: string };
+  if (!payload.name?.trim()) return NextResponse.json({ message: "Nombre obligatorio." }, { status: 400 });
+  const plainKey = `ak_${crypto.randomUUID().replaceAll("-", "")}`;
+  const keyHash = await argon2.hash(plainKey);
+  const [created] = await db.insert(apiKey).values({ tenantId: ctx.tenant.id, name: payload.name.trim(), keyHash }).returning({ id: apiKey.id, name: apiKey.name });
+  return NextResponse.json({ ...created, plainKey }, { status: 201 });
+}

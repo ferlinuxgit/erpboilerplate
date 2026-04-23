@@ -1,0 +1,64 @@
+---
+description: Patrones de Next.js 16 App Router (pages, layouts, params async)
+globs: src/app/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Next.js 16 — App Router
+
+> Esta versión tiene **breaking changes** respecto a versiones anteriores. Ante cualquier duda de API, consulta `node_modules/next/dist/docs/` antes de escribir código.
+
+## Reglas clave
+
+- **Borde (proxy):** en Next 16 el archivo de borde es `src/proxy.ts` exportando `proxy` (no uses `src/middleware.ts`). Ahí van rate limit, cabeceras o CSRF global.
+- **Server Components por defecto.** Añade `"use client"` solo si necesitas estado, efectos, `useRouter`, handlers onChange o APIs del navegador.
+- **`params` y `searchParams` son `Promise`.** Hay que `await` dentro de la función.
+- **Datos en el servidor**: consulta la DB directamente desde el Server Component (importando `db` y los servicios). No hagas `fetch` a tu propia API desde un Server Component.
+- **Sesión y tenant** al inicio de cada page protegida:
+
+```tsx
+export default async function InvoicesPage() {
+  const session = await requireUserSession();
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  // ...consultas y render
+}
+```
+
+## Segmentos dinámicos (Next 16)
+
+```tsx
+// ✅ GOOD — params como Promise
+export default async function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  // ...
+}
+
+// ✅ En route handlers igual
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+}
+
+// ❌ BAD — no asumas params síncronos como en Next 14
+// export default function Page({ params }: { params: { id: string } }) { ... }
+```
+
+## Revalidación
+
+- Tras una mutación desde un Client Component: `router.refresh()` (ya en uso en `create-invoice-form.tsx`).
+- Para invalidación dirigida desde Server Actions o routes: `revalidatePath("/invoices")` o `revalidateTag(...)`.
+
+## Metadata y layout
+
+- Metadata global en `src/app/layout.tsx`. Metadata por segmento exportando `metadata` desde el `page.tsx` del segmento.
+- No duplicar el shell: cada segmento solo añade lo que diferencia.
+
+## Errores y estados de carga
+
+- Añade `loading.tsx` y `error.tsx` por segmento en rutas donde las consultas puedan tardar o fallar de forma visible.
+- `not-found.tsx` para 404 explícitos (p. ej. `invoice/[id]` cuando no pertenece a la company).
+
+## Server Actions (cuando se usen)
+
+- Archivos marcados con `"use server"` al inicio.
+- Mismas reglas: sesión + tenant + RBAC + auditoría.
+- Prefiero extraer la lógica a `src/server/<modulo>/service.ts` y que la action sea un adaptador delgado.

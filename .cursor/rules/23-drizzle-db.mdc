@@ -1,0 +1,93 @@
+---
+description: Patrones Drizzle ORM, schema y migraciones
+globs: src/db/**/*.ts,src/server/**/*.ts,src/app/api/**/*.ts,drizzle.config.ts
+alwaysApply: false
+---
+
+# Drizzle ORM y base de datos
+
+Fuente única de verdad: `src/db/schema.ts`. Cliente singleton: `src/lib/db.ts`. Config: `drizzle.config.ts` (dialect `postgresql`).
+
+## Definición de tablas
+
+```typescript
+export const invoice = pgTable(
+  "invoice",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+    customerId: text("customerId").notNull().references(() => customer.id, { onDelete: "restrict" }),
+    number: text("number").notNull(),
+    issueDate: timestamp("issueDate", { withTimezone: true, mode: "date" }).notNull(),
+    totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull(),
+    status: invoiceStatusEnum("status").notNull().default("DRAFT"),
+    createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("invoice_company_number_unique").on(table.companyId, table.number),
+    index("invoice_company_customer_idx").on(table.companyId, table.customerId),
+  ],
+);
+```
+
+### Reglas del schema
+
+- **IDs**: `text("id").primaryKey().$defaultFn(() => crypto.randomUUID())`. Nada de `serial`/`bigserial` para entidades de negocio.
+- **Multi-tenant**: toda tabla de negocio lleva `companyId` **NOT NULL** con `references(() => company.id, { onDelete: "cascade" })`. Entidades tenant-level llevan `tenantId`.
+- **Timestamps**: `timestamp(..., { withTimezone: true, mode: "date" })`. `createdAt`/`updatedAt` con `.defaultNow()`.
+- **Decimales monetarios**: `numeric("x", { precision: 12, scale: 2 })`. Cantidades: `precision: 12, scale: 3`.
+- **Enums**: `pgEnum` con valores `SCREAMING_SNAKE_CASE`. Centralizados al inicio de `schema.ts`.
+- **Índices/constraints**: siempre incluir `unique` compuesto cuando la unicidad dependa de `companyId` (ej. `unique on (companyId, number)`), e índices en FKs de consulta frecuente (`(companyId, customerId)`).
+
+## Consultas
+
+Solo usar Drizzle (`and`, `eq`, `inArray`, `desc`, `asc`, `sql`). Prohibido SQL crudo salvo casos excepcionales comentados.
+
+```typescript
+// ✅ GOOD — filtro multi-tenant + proyección explícita
+const [row] = await db
+  .select({ id: invoice.id, number: invoice.number })
+  .from(invoice)
+  .where(and(eq(invoice.companyId, companyId), eq(invoice.id, id)))
+  .limit(1);
+
+// ❌ BAD — sin companyId
+const [row] = await db.select().from(invoice).where(eq(invoice.id, id)).limit(1);
+```
+
+## Valores numéricos
+
+`numeric` se representa como **string** en JS. Convertir en el borde:
+
+```typescript
+// Al escribir
+await db.insert(invoice).values({ totalAmount: totalAmount.toFixed(2), ... });
+
+// Al leer (si UI necesita number)
+const amount = Number(row.totalAmount);
+```
+
+## Transacciones
+
+Usar `db.transaction(async (tx) => { ... })` para cualquier flujo que:
+
+- Escribe en más de una tabla.
+- Depende de una lectura previa para decidir un INSERT/UPDATE.
+- Debe revertirse si cualquier paso falla (p. ej. reserva de número de serie + creación de factura).
+
+Dentro, usa **siempre** `tx`, nunca `db`.
+
+## Migraciones
+
+1. Editar `src/db/schema.ts`.
+2. `npm run db:generate` → revisa el SQL en `drizzle/`.
+3. `npm run db:migrate` para aplicar en local.
+4. **Nunca** editar manualmente los SQL generados ni los metadatos `_journal`.
+5. Para cambios destructivos (drop column/table) con datos reales: añadir un paso intermedio (nueva columna → backfill → swap → drop) y documentar en `documentation/`.
+
+## Prohibido
+
+- `src/generated/prisma/**`: es código legado. **Nunca** importar desde ahí.
+- `drizzle-kit push` en producción (usar migraciones versionadas).
+- `SELECT *` implícito (siempre proyección explícita).

@@ -1,0 +1,56 @@
+---
+description: Flujo de trabajo del agente, calidad y criterios de "hecho"
+alwaysApply: true
+---
+
+# Workflow del agente
+
+## Antes de escribir código
+
+1. **Leer reglas relevantes** en `.cursor/rules/` y `documentation/roadmap.md`.
+2. **Localizar patrón análogo** ya implementado en el repo (busca en `src/server/*/service.ts`, `src/app/api/*/route.ts`, `src/app/*/page.tsx`) y replícalo.
+3. **Explorar el schema** (`src/db/schema.ts`) para entender tablas, FKs y enums implicados.
+4. **Verificar impactos cruzados**: RBAC (`src/lib/rbac.ts`), tenant (`src/lib/tenant.ts`), auditoría (`src/server/audit.ts`).
+5. Si la tarea es ambigua o tiene >3 pasos no triviales, planifica con una lista de subtareas antes de editar.
+
+## Al escribir código
+
+- Haz cambios mínimos y enfocados; si detectas deuda adyacente, anótala pero no la arregles silenciosamente.
+- Sigue los patrones existentes; **no** introduzcas estilos alternativos sin acuerdo.
+- Aplica las reglas de multi-tenant + RBAC + auditoría en **cada** nueva operación.
+- Mensajes de error hacia el usuario: en español, concretos, accionables.
+
+## Cambios de esquema (Drizzle)
+
+Si tocas `src/db/schema.ts`:
+
+1. Ajusta el schema.
+2. Ejecuta `npm run db:generate` para crear la migración SQL en `drizzle/`.
+3. Revisa el SQL generado (debe ser determinista y no destructivo si hay datos).
+4. Documenta brevemente el cambio en `documentation/roadmap.md` si afecta a una fase.
+5. Aplica con `npm run db:migrate` en local. **Nunca** edites a mano ficheros de `drizzle/`.
+
+## Al terminar
+
+- Ejecuta `npm run lint` y corrige cualquier error introducido.
+- Corre `npm run build` si los cambios son estructurales (rutas, layout, tipos exportados).
+- Comprueba que los tres MUST (tenant, RBAC, auditoría) se cumplen para cada mutación nueva.
+- Revisa que no has dejado `console.log`, imports huérfanos, ni `TODO` sin referencia a un issue o línea de roadmap.
+
+## Criterios de "hecho"
+
+Un cambio está terminado cuando:
+
+- [ ] Compila sin errores (`tsc` vía Next) y sin warnings nuevos.
+- [ ] Pasa `npm run lint`.
+- [ ] Respeta la arquitectura por capas.
+- [ ] Multi-tenant, RBAC y auditoría aplicados donde toca.
+- [ ] No añade dependencias sin justificación.
+- [ ] Sin comentarios triviales ni código muerto.
+- [ ] UI (si aplica) accesible y responsive, con textos en español.
+
+## Comunicación con el usuario
+
+- Responder en español (España), conciso y orientado a decisiones.
+- Citar rutas y símbolos con backticks (`src/server/invoices/service.ts`, `createInvoice`).
+- Si hay ambigüedad arquitectural (p. ej. dónde vive una responsabilidad), pregunta antes de asumir.

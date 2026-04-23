@@ -1,0 +1,12 @@
+[
+  { "type": "SALES_QUOTE", "prefix": "PRE-", "nextNumber": 1 },
+  { "type": "SALES_ORDER", "prefix": "PED-", "nextNumber": 1 },
+  { "type": "DELIVERY_NOTE", "prefix": "ALB-", "nextNumber": 1 },
+  { "type": "SALES_INVOICE", "prefix": "FAC-", "nextNumber": 1 },
+  { "type": "CREDIT_NOTE", "prefix": "ABN-", "nextNumber": 1 },
+  { "type": "PURCHASE_ORDER", "prefix": "PRC-", "nextNumber": 1 },
+  { "type": "GOODS_RECEIPT", "prefix": "RCP-", "nextNumber": 1 },
+  { "type": "SUPPLIER_INVOICE", "prefix": "FRP-", "nextNumber": 1 },
+  { "type": "PAYMENT", "prefix": "PAG-", "nextNumber": 1 },
+  { "type": "RECEIPT", "prefix": "REC-", "nextNumber": 1 }
+]

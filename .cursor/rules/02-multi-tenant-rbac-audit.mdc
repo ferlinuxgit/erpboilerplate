@@ -1,0 +1,76 @@
+---
+description: Reglas innegociables de multi-tenant, RBAC y auditoría
+alwaysApply: true
+---
+
+# Multi-tenant, RBAC y auditoría (los tres MUST)
+
+Toda funcionalidad de negocio debe cumplir los tres simultáneamente. Cualquier PR que incumpla uno se rechaza.
+
+## 1. Aislamiento multi-tenant
+
+Jerarquía: `tenant → company → fiscalYear`. Entidades de negocio (`customer`, `invoice`, `partner`, `item`, `warehouse`, `purchaseOrder`, `journal*`, `bankAccount`, `tax`, etc.) **siempre** llevan `companyId` y deben filtrarse por él.
+
+- ✅ Obtener el contexto con `ensureUserTenant({ id, name })` de `@/lib/tenant` al inicio de cada page/route.
+- ✅ Cualquier `select/update/delete` debe incluir `eq(tabla.companyId, ctx.company.id)` (o `tenantId` para entidades tenant-level como `subscription`, `apiKey`).
+- ✅ En `INSERT`, usar SIEMPRE `ctx.company.id` del servidor; **jamás** aceptar `companyId` del cliente.
+- ✅ Verificar pertenencia de FKs cruzadas antes de crear (p. ej. al crear `invoice` comprueba que `customerId` pertenece a la misma company).
+
+```typescript
+// ❌ BAD: confía en el cliente, fuga cross-tenant
+await db.insert(invoice).values({ companyId: payload.companyId, ... });
+
+// ✅ GOOD: companyId siempre del contexto de sesión
+await db.insert(invoice).values({ companyId: ctx.company.id, customerId, ... });
+// Y antes, validar ownership:
+const [owned] = await db.select({ id: customer.id }).from(customer)
+  .where(and(eq(customer.id, customerId), eq(customer.companyId, ctx.company.id)))
+  .limit(1);
+if (!owned) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
+```
+
+## 2. RBAC obligatorio en toda escritura
+
+Roles: `OWNER | ADMIN | MEMBER`. Permisos centralizados en `src/lib/rbac.ts`.
+
+- ✅ Toda operación de escritura comprueba `can(role, "<modulo>.<accion>")` antes de ejecutar.
+- ✅ Toda lectura sensible comprueba `can(role, "<modulo>.read")`.
+- ✅ Si añades un módulo nuevo, **primero** registra las claves en `PermissionKey` y `rolePermissions` dentro de `rbac.ts`.
+- ✅ En UI, además de la protección server-side, oculta acciones no permitidas con helpers tipo `canManageInvoices(role)`.
+
+```typescript
+if (!can(ctx.membership.role, "purchase.write")) {
+  return NextResponse.json(
+    { message: "Sin permisos para editar pedidos de compra." },
+    { status: 403 },
+  );
+}
+```
+
+## 3. Auditoría de mutaciones
+
+Toda mutación con valor de negocio (create/update/delete/post/cancel/...) registra auditoría.
+
+- ✅ Llamar a `recordAudit({ tenantId, companyId, actorUserId, action, entityName, entityId, payload })` de `@/server/audit` dentro de la misma transacción o inmediatamente después.
+- ✅ `action` en formato `"<entidad>.<verbo>"` (`invoice.create`, `purchase.update`, `purchase.delete`).
+- ✅ `entityName` coincide con el nombre de la tabla en `schema.ts` en `camelCase`.
+- ✅ El `payload` se serializa internamente; pasa el objeto crudo.
+
+```typescript
+await recordAudit({
+  tenantId: ctx.tenant.id,
+  companyId: ctx.company.id,
+  actorUserId: ctx.userId,
+  action: "invoice.create",
+  entityName: "invoice",
+  entityId: created.id,
+  payload,
+});
+```
+
+## Antipatrones prohibidos
+
+- ❌ Queries sin `companyId`/`tenantId` en el `where`.
+- ❌ `where(eq(invoice.id, id))` sin emparejar también la company.
+- ❌ Mutaciones sin auditoría "porque es pequeña".
+- ❌ Chequear permisos solo en el cliente.

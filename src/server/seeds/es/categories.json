@@ -1,0 +1,5 @@
+[
+  { "code": "GENERAL", "name": "General" },
+  { "code": "SERVICES", "name": "Servicios" },
+  { "code": "GOODS", "name": "Mercancias" }
+]

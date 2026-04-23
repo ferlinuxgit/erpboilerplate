@@ -1,0 +1,6 @@
+[
+  { "code": "UN", "name": "Unidad" },
+  { "code": "H", "name": "Hora" },
+  { "code": "KG", "name": "Kilogramo" },
+  { "code": "L", "name": "Litro" }
+]

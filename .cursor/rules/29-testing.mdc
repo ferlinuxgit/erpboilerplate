@@ -1,0 +1,8 @@
+---
+description: Reglas de testing
+alwaysApply: true
+---
+
+- Unit tests con Vitest.
+- E2E smoke con Playwright.
+- CI debe ejecutar `lint`, `typecheck`, `test` y `build`.

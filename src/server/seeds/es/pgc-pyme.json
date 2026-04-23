@@ -1,0 +1,11 @@
+[
+  { "code": "430000", "name": "Clientes", "type": "ASSET" },
+  { "code": "410000", "name": "Acreedores por prestaciones de servicios", "type": "LIABILITY" },
+  { "code": "572000", "name": "Bancos e instituciones de credito c/c vista", "type": "ASSET" },
+  { "code": "700000", "name": "Ventas de mercaderias", "type": "REVENUE" },
+  { "code": "600000", "name": "Compras de mercaderias", "type": "EXPENSE" },
+  { "code": "472000", "name": "Hacienda Publica, IVA soportado", "type": "ASSET" },
+  { "code": "477000", "name": "Hacienda Publica, IVA repercutido", "type": "LIABILITY" },
+  { "code": "475100", "name": "Hacienda Publica, acreedora por retenciones practicadas", "type": "LIABILITY" },
+  { "code": "129000", "name": "Resultado del ejercicio", "type": "EQUITY" }
+]

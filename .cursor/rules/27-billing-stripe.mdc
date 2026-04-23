@@ -1,0 +1,8 @@
+---
+description: Convenciones Stripe y webhooks
+alwaysApply: true
+---
+
+- Verificar siempre firma `stripe-signature`.
+- No exponer secretos al cliente.
+- Sincronizar estado de suscripción en backend.

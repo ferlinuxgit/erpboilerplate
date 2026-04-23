@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1776700562636,
+      "tag": "0000_productive_vargas",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776935000496,
+      "tag": "0001_masters_sales_purchase_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776935976963,
+      "tag": "0002_sales_flow_transition_updates",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776941118357,
+      "tag": "0003_purchase_match_and_inventory_valuation_base",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776941428069,
+      "tag": "0004_treasury_reconciliation_base",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776942584070,
+      "tag": "0005_inventory_min_stock_alerts",
+      "breakpoints": true
+    }
+  ]
+}
