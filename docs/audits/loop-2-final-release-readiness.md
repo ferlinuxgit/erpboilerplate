@@ -5,9 +5,9 @@ Reviewer: QA
 Workspace: `/root/projects/erpboilerplate`
 Local branch: `kanban/t_8bf2c95f-customer-to-cash`
 Baseline commit: `61335b8`
-Verdict: **NOT READY / BLOCKED ON CI GREEN RUN**
+Verdict: **READY**
 
-This audit is the final gate for `docs/plans/loop-2-implementation.md` lines 413-427. Local verification passed for the release-critical gates that can be executed in the workspace, including release audit, clean migration verification, typecheck, lint, unit/API tests, production build, full Playwright E2E, health/readiness runtime checks, product smoke screenshots, route-state coverage, and secrets hygiene. The only release blocker left is the required successful GitHub Actions CI run: unauthenticated GitHub API inspection shows the latest remote CI run for `main` at `61335b8` completed with `failure`, and there is no successful CI run for the current uncommitted Loop 2 workspace.
+This audit is the final gate for `docs/plans/loop-2-implementation.md` lines 413-427. Local verification passed for the release-critical gates that can be executed in the workspace, including release audit, clean migration verification, typecheck, lint, unit/API tests, production build, full Playwright E2E, health/readiness runtime checks, product smoke screenshots, route-state coverage, and secrets hygiene. The remote release gate is now green: GitHub Actions CI run `25623262368` passed for branch `kanban/t_8bf2c95f-customer-to-cash` at commit `38727cd591ee397390a544ab24b451c66c1c6035`.
 
 ## Executive gate summary
 
@@ -20,7 +20,7 @@ This audit is the final gate for `docs/plans/loop-2-implementation.md` lines 413
 | Unit/API/component tests | PASS | `/tmp/t_afe00aad/unit.log`: 30 test files passed, 147 tests passed |
 | Production build | PASS | `/tmp/t_afe00aad/build.log`: `next build` completed with redacted/dummy env values |
 | E2E mandatory flows | PASS | `/tmp/t_afe00aad/e2e.log`: 28/28 Playwright tests passed in 2.2m |
-| CI | FAIL_BLOCKED | `/tmp/t_afe00aad/ci-inspection.log` confirms workflow contains required gates; `/tmp/t_afe00aad/github-actions-runs.json` shows latest remote CI run `24845579738` on `main`/`61335b8` concluded `failure`; `gh` is not authenticated and current Loop 2 changes are not represented by a green remote run |
+| CI | PASS | GitHub Actions CI run `25623262368` passed for `kanban/t_8bf2c95f-customer-to-cash` at `38727cd591ee397390a544ab24b451c66c1c6035`: https://github.com/ferlinuxgit/erpboilerplate/actions/runs/25623262368 |
 | Health/readiness | PASS | Runtime curls captured safe JSON: health 200, readyz 503 degraded without DB, health 200 and readyz 200 with PGlite DB |
 | Product demo / first-run UX | PASS | Browser smoke captured `/tmp/t_afe00aad/dashboard-first-run.png` and `/tmp/t_afe00aad/onboarding-first-run.png` |
 | Accessibility/polish | PASS_WITH_NOTES | Component/unit coverage passed; no native `alert`/`confirm`; route states present for core routes. One Base UI uncontrolled FieldControl warning remains non-blocking polish noise. |
@@ -36,7 +36,7 @@ This audit is the final gate for `docs/plans/loop-2-implementation.md` lines 413
 | Build | Production build succeeds with redacted env values | PASS | Yes | Build ran with dummy/redacted `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `NEXT_PUBLIC_BETTER_AUTH_URL`. Log: `/tmp/t_afe00aad/build.log`. |
 | DB migrations | Clean DB migrates from tracked migrations | PASS | Yes | `npm run db:migrate:verify` passed against clean PGlite baseline: 1 migration, 60 public tables. Log: `/tmp/t_afe00aad/db-migrate-verify.log`. |
 | E2E mandatory | No hidden skips for critical journeys | PASS | Yes | Full Playwright matrix passed 28/28 with isolated ports. Log: `/tmp/t_afe00aad/e2e.log`; output dir: `/tmp/t_afe00aad/pw-output`. |
-| CI | GitHub Actions includes DB/migrate/build/E2E gate and artifacts; successful CI run | FAIL_BLOCKED | Yes | Static workflow inspection passed for required gate presence, but latest remote CI run is `failure` and no green run exists for the current workspace changes. This blocks 10/10 release readiness until CI is run successfully after the Loop 2 branch/workspace is committed/pushed. |
+| CI | GitHub Actions includes DB/migrate/build/E2E gate and artifacts; successful CI run | PASS | Yes | Static workflow inspection passed for required gate presence. Remote CI run `25623262368` completed successfully for commit `38727cd591ee397390a544ab24b451c66c1c6035` on the Loop 2 branch. |
 | Health/readiness | Operational endpoints return safe JSON/status | PASS | Yes for health; readiness waiver only when documented | Production `npm start` without DB returned health 200 and readyz 503 degraded with safe JSON/no secret leak. PGlite E2E server returned health 200 and readyz 200. Bodies: `/tmp/t_afe00aad/health-prod-degraded-body.json`, `/tmp/t_afe00aad/readyz-prod-degraded-body.json`, `/tmp/t_afe00aad/health-pglite-body.json`, `/tmp/t_afe00aad/readyz-pglite-body.json`. |
 | Product demo | First-run dashboard and customer-to-cash path work | PASS | Yes | Browser smoke produced dashboard/onboarding screenshots. Customer-to-cash/document path is covered by `tests/e2e/document-pipelines.spec.ts` inside the 28/28 matrix. |
 | Accessibility/polish | Dialogs/forms/lists keyboard and screen-reader basics pass | PASS_WITH_NOTES | Yes for touched core flows | Unit/component tests passed; search found 0 native `window.confirm`, `window.alert`, `confirm(`, or `alert(` in `src`; route states exist: 11 `loading.tsx`, 12 `error.tsx`, 9 `not-found.tsx`. Dev logs still include React dev CSP/eval warnings and one Base UI uncontrolled FieldControl warning, both non-blocking for release but worth monitoring. |
@@ -56,7 +56,7 @@ This audit is the final gate for `docs/plans/loop-2-implementation.md` lines 413
 | Prod health/ready degraded | `npm start` + `curl /api/health` and `curl /api/readyz` with intentionally unavailable DB | `/tmp/t_afe00aad/health-prod-degraded-body.json`, `/tmp/t_afe00aad/readyz-prod-degraded-body.json` | health 200, readyz 503 |
 | PGlite health/ready OK | `node scripts/e2e-with-pglite.mjs` + `curl /api/health` and `curl /api/readyz` | `/tmp/t_afe00aad/health-pglite-body.json`, `/tmp/t_afe00aad/readyz-pglite-body.json` | both 200 |
 | Browser smoke | temporary Playwright browser script | `/tmp/t_afe00aad/browser-review.log`, `/tmp/t_afe00aad/dashboard-first-run.png`, `/tmp/t_afe00aad/onboarding-first-run.png` | 0 |
-| CI workflow inspection | static `.github/workflows/ci.yml` scan + GitHub Actions API | `/tmp/t_afe00aad/ci-inspection.log`, `/tmp/t_afe00aad/github-actions-runs.json` | workflow contents PASS; remote CI FAIL |
+| CI workflow inspection | static `.github/workflows/ci.yml` scan + GitHub Actions API | `/tmp/t_afe00aad/ci-inspection.log`, `/tmp/t_afe00aad/github-actions-runs.json`; run `25623262368` | workflow contents PASS; remote CI PASS |
 | Secrets hygiene | `git diff --check` + changed/untracked file scan | `/tmp/t_afe00aad/secrets-hygiene.log` | 0 |
 
 ## CI blocker details
@@ -76,17 +76,17 @@ Static inspection confirms `.github/workflows/ci.yml` includes the expected CI/r
 - `npm run test:e2e`
 - Playwright artifact upload
 
-However, release readiness requires a successful CI run, not just a valid workflow file. Evidence collected via GitHub API:
+Release readiness requires a successful CI run, not just a valid workflow file. Evidence collected via GitHub API:
 
-- Latest run: `24845579738`
+- Latest run: `25623262368`
 - Workflow: `CI`
-- Branch: `main`
-- Head SHA: `61335b8`
+- Branch: `kanban/t_8bf2c95f-customer-to-cash`
+- Head SHA: `38727cd591ee397390a544ab24b451c66c1c6035`
 - Status: `completed`
-- Conclusion: `failure`
-- URL: `https://github.com/ferlinuxgit/erpboilerplate/actions/runs/24845579738`
+- Conclusion: `success`
+- URL: `https://github.com/ferlinuxgit/erpboilerplate/actions/runs/25623262368`
 
-`gh run list` could not be used because GitHub CLI is not authenticated in this worker. The unauthenticated GitHub API was enough to verify that the latest visible CI run is not green. Because the current workspace contains uncommitted Loop 2 changes, there is no remote CI run proving these exact changes.
+The unauthenticated GitHub API was enough to verify that the latest visible CI run for the Loop 2 branch is green and matches the current release-candidate commit.
 
 ## Non-blocking warnings
 
@@ -98,6 +98,6 @@ However, release readiness requires a successful CI run, not just a valid workfl
 
 Local QA gate: **PASS**.
 
-Remote release gate: **BLOCKED** until a successful GitHub Actions CI run is produced for the Loop 2 release changes.
+Remote release gate: **PASS**. GitHub Actions CI is green for `38727cd591ee397390a544ab24b451c66c1c6035`.
 
-Recommended next action: commit/push the Loop 2 workspace or otherwise trigger CI for the exact release candidate, then re-run/record the green CI URL. Once CI is green, this document can be updated from `NOT READY / BLOCKED ON CI GREEN RUN` to `READY` without repeating the full local matrix unless code changes occur after this audit.
+Release decision: **READY** for Loop 2 closure.
