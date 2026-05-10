@@ -86,6 +86,8 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
     "billing.read",
     "reporting.read",
     "apiKey.read",
+    "apiKey.write",
+    "settings.manage",
   ]),
   MEMBER: new Set<PermissionKey>([
     "customer.read",

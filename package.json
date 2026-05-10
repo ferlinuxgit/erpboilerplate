@@ -4,14 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/check-build-env.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "audit:release": "npm audit --audit-level=moderate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:verify": "node scripts/verify-clean-db-migrations.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
@@ -20,6 +23,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1033.0",
     "@base-ui/react": "^1.4.1",
     "@hookform/resolvers": "^5.2.2",
+    "@next/env": "16.2.4",
     "@react-pdf/renderer": "^4.5.1",
     "@sentry/nextjs": "^10.49.0",
     "@tanstack/react-table": "^8.21.3",
@@ -50,6 +54,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.4.5",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -59,8 +64,14 @@
     "@vitest/ui": "^4.1.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
+    "pglite-server": "^0.1.5",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "@hono/node-server": "1.19.14",
+    "esbuild": ">=0.25.0",
+    "postcss": "8.5.10"
   }
 }

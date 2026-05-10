@@ -4,10 +4,12 @@ import { and, eq } from "drizzle-orm";
 import { customer, invoice, invoiceLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { canManageInvoices } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
+import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import { createInvoiceSchema } from "@/server/schemas/forms";
 
 export async function POST(request: Request) {
@@ -40,7 +42,8 @@ export async function POST(request: Request) {
   const notes = values.notes?.trim() || null;
   const issueDate = values.issueDate ? new Date(values.issueDate) : null;
   const dueDate = values.dueDate ? new Date(values.dueDate) : null;
-  const totalAmount = Number(values.totalAmount ?? 0);
+  const invoiceTotals = calculateInvoiceTotals(values.lines);
+  const totalAmount = invoiceTotals.totalAmount;
 
   if (!customerId || !number || !issueDate || Number.isNaN(issueDate.getTime()) || totalAmount <= 0) {
     return NextResponse.json(
@@ -78,17 +81,7 @@ export async function POST(request: Request) {
           status: invoice.status,
         });
 
-      if (values.lines && values.lines.length > 0) {
-        await tx.insert(invoiceLine).values(
-          values.lines.map((line) => ({
-            invoiceId: created.id,
-            description: line.description,
-            quantity: line.quantity.toFixed(3),
-            unitPrice: line.unitPrice.toFixed(2),
-            lineTotal: (line.quantity * line.unitPrice).toFixed(2),
-          })),
-        );
-      }
+      await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(created.id, values.lines));
 
       await postSalesInvoice({
         tenantId: tenantContext.tenant.id,
@@ -97,9 +90,10 @@ export async function POST(request: Request) {
         invoiceId: created.id,
         postedAt: issueDate,
         reference: `Factura ${created.number}`,
-        subtotal: totalAmount,
-        taxAmount: 0,
+        subtotal: invoiceTotals.subtotal,
+        taxAmount: invoiceTotals.taxAmount,
         totalAmount,
+        dbClient: tx,
       });
 
       return created;

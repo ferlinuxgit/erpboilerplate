@@ -33,8 +33,13 @@ export default async function AccountingPage() {
           <div className="space-y-2">
             <p className="font-medium">Plan contable</p>
             {accounts.map((account) => (
-              <div key={account.id} className="flex items-center justify-between rounded-md border p-2">
-                <p>{account.code} - {account.name} ({account.type})</p>
+              <div key={account.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
+                <div>
+                  <p>{account.code} - {account.name} ({account.type})</p>
+                  <Link className="text-sm text-muted-foreground underline-offset-4 hover:underline" href={`/accounting/ledger/${account.id}`}>
+                    Ver mayor
+                  </Link>
+                </div>
                 <AccountRowActions id={account.id} />
               </div>
             ))}

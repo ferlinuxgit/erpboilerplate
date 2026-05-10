@@ -3,7 +3,9 @@ import { Pool } from "pg";
 
 import * as schema from "@/db/schema";
 
-type AppDb = ReturnType<typeof drizzle>;
+export type AppDb = ReturnType<typeof drizzle>;
+export type AppDbTransaction = Parameters<Parameters<AppDb["transaction"]>[0]>[0];
+export type DbClient = AppDb | AppDbTransaction;
 
 const globalForDb = globalThis as unknown as {
   pool: Pool | undefined;

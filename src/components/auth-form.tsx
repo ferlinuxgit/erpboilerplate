@@ -99,7 +99,9 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
   return (
     <Card className="mx-auto w-full max-w-md">
       <CardHeader>
-        <CardTitle>{content.title}</CardTitle>
+        <CardTitle aria-level={1} role="heading">
+          {content.title}
+        </CardTitle>
         <CardDescription>{content.description}</CardDescription>
       </CardHeader>
       <CardContent>

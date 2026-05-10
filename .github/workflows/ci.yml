@@ -8,6 +8,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: erpboilerplate_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d erpboilerplate_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erpboilerplate_ci
+      BETTER_AUTH_SECRET: ci-build-secret-with-at-least-32-characters
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_BETTER_AUTH_URL: http://127.0.0.1:3000
+      PORT: "3000"
+      E2E_DATABASE_PORT: "55432"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,7 +36,42 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run lint
+      - run: npm run audit:release
+      - run: npx playwright install --with-deps chromium
+      - run: npm run db:migrate:verify
+      - run: npm run db:migrate
       - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
-      - run: npm run test
+      - name: Smoke health/readiness endpoints
+        run: |
+          npm start -- --hostname 127.0.0.1 --port 3000 > /tmp/next-start.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; cat /tmp/next-start.log' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health >/tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/api/health
+          curl -fsS http://127.0.0.1:3000/api/readyz
+      - name: Playwright e2e
+        env:
+          E2E_ALLOWED_SKIPS: ""
+        run: npm run test:e2e
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+      - name: Upload Playwright test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          if-no-files-found: ignore

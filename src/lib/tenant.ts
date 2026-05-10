@@ -56,7 +56,26 @@ async function createUniqueSlug(baseName: string): Promise<string> {
   }
 }
 
+const tenantProvisioningByUserId = new Map<string, Promise<UserTenantContext>>();
+
 export async function ensureUserTenant(user: { id: string; name: string }): Promise<UserTenantContext> {
+  const pendingProvisioning = tenantProvisioningByUserId.get(user.id);
+
+  if (pendingProvisioning) {
+    return pendingProvisioning;
+  }
+
+  const provisioning = ensureUserTenantInternal(user);
+  tenantProvisioningByUserId.set(user.id, provisioning);
+
+  try {
+    return await provisioning;
+  } finally {
+    tenantProvisioningByUserId.delete(user.id);
+  }
+}
+
+async function ensureUserTenantInternal(user: { id: string; name: string }): Promise<UserTenantContext> {
   const existingMembership = await db
     .select({
       membershipId: membership.id,

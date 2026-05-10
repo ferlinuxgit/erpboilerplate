@@ -3,7 +3,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 
 import { customer, invoice } from "@/db/schema";
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
-import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
+import { InvoicesList } from "@/components/invoices/invoices-list";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireContext } from "@/lib/current-context";
@@ -30,6 +30,7 @@ export default async function InvoicesPage() {
       id: invoice.id,
       number: invoice.number,
       status: invoice.status,
+      paymentStatus: invoice.paymentStatus,
       totalAmount: invoice.totalAmount,
       issueDate: invoice.issueDate,
       customerName: customer.name,
@@ -73,24 +74,17 @@ export default async function InvoicesPage() {
           <CardTitle>Listado</CardTitle>
           <CardDescription>Todas las facturas de tu empresa activa.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {invoices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Todavía no hay facturas registradas.</p>
-          ) : (
-            invoices.map((invoice) => (
-              <div className="flex items-start justify-between rounded-md border p-3" key={invoice.id}>
-                <div>
-                  <p className="font-medium">
-                    {invoice.number} - {invoice.customerName}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Estado: {invoice.status}</p>
-                  <p className="text-sm text-muted-foreground">Importe: {formatMoney(invoice.totalAmount.toString(), tenantContext.company.baseCurrencyCode)}</p>
-                  <p className="text-sm text-muted-foreground">Emisión: {formatDate(invoice.issueDate)}</p>
-                </div>
-                <InvoiceRowActions id={invoice.id} />
-              </div>
-            ))
-          )}
+        <CardContent>
+          <InvoicesList
+            rows={invoices.map((invoice) => ({
+              id: invoice.id,
+              number: invoice.number,
+              status: invoice.paymentStatus,
+              totalAmountLabel: formatMoney(invoice.totalAmount.toString(), tenantContext.company.baseCurrencyCode),
+              issueDateLabel: formatDate(invoice.issueDate),
+              customerName: invoice.customerName,
+            }))}
+          />
         </CardContent>
       </Card>
     </main>

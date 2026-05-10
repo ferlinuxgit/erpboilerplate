@@ -1,10 +1,7 @@
 "use client";
-"use no memo";
-
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 
 import { CustomerRowActions } from "@/components/customers/customer-row-actions";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 
 type CustomerRow = {
   id: string;
@@ -18,61 +15,54 @@ type CustomersTableProps = {
   rows: CustomerRow[];
 };
 
-const columns: ColumnDef<CustomerRow>[] = [
+const columns: ResourceListColumn<CustomerRow>[] = [
   {
-    accessorKey: "name",
     header: "Nombre",
+    cell: (customer) => <span className="font-medium">{customer.name}</span>,
   },
   {
-    accessorKey: "status",
     header: "Estado",
+    cell: (customer) => (customer.status === "ACTIVE" ? "Activo" : "Inactivo"),
   },
   {
-    accessorKey: "email",
     header: "Email",
-    cell: ({ row }) => row.original.email ?? "Sin email",
+    cell: (customer) => customer.email ?? "Sin email",
   },
   {
-    accessorKey: "phone",
     header: "Teléfono",
-    cell: ({ row }) => row.original.phone ?? "Sin teléfono",
+    cell: (customer) => customer.phone ?? "Sin teléfono",
   },
   {
-    id: "actions",
     header: "Acciones",
-    cell: ({ row }) => <CustomerRowActions id={row.original.id} />,
+    cell: (customer) => <CustomerRowActions id={customer.id} name={customer.name} />,
+    className: "text-right",
   },
 ];
 
 export function CustomersTable({ rows }: CustomersTableProps) {
-  const table = useReactTable({
-    data: rows,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
   return (
-    <Table>
-      <TableHeader>
-        {table.getHeaderGroups().map((headerGroup) => (
-          <TableRow key={headerGroup.id}>
-            {headerGroup.headers.map((header) => (
-              <TableHead key={header.id}>
-                {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-              </TableHead>
-            ))}
-          </TableRow>
-        ))}
-      </TableHeader>
-      <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <TableRow key={row.id}>
-            {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <ResourceList
+      title="Clientes"
+      items={rows}
+      columns={columns}
+      getRowId={(customer) => customer.id}
+      getRowTestId={(customer) => `customer-row-${customer.id}`}
+      getSearchText={(customer) => [customer.name, customer.status, customer.email, customer.phone].filter(Boolean).join(" ")}
+      emptyTitle="Todavía no hay clientes registrados."
+      emptyDescription="Crea el primer cliente para empezar a emitir facturas."
+      searchPlaceholder="Buscar cliente por nombre, email o teléfono"
+      testId="customers-table"
+      renderMobileCard={(customer) => (
+        <div className="space-y-3">
+          <div>
+            <p className="font-medium">{customer.name}</p>
+            <p className="text-sm text-muted-foreground">{customer.status === "ACTIVE" ? "Activo" : "Inactivo"}</p>
+            <p className="text-sm text-muted-foreground">{customer.email ?? "Sin email"}</p>
+            <p className="text-sm text-muted-foreground">{customer.phone ?? "Sin teléfono"}</p>
+          </div>
+          <CustomerRowActions id={customer.id} name={customer.name} />
+        </div>
+      )}
+    />
   );
 }

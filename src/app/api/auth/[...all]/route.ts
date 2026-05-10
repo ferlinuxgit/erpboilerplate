@@ -1,5 +1,9 @@
-import { toNextJsHandler } from "better-auth/next-js";
+import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
+export function GET() {
+  return NextResponse.json({ error: "Auth endpoint not found." }, { status: 404 });
+}
 
-export const { GET, POST } = toNextJsHandler(auth);
+export function POST() {
+  return NextResponse.json({ error: "Auth endpoint not found." }, { status: 404 });
+}

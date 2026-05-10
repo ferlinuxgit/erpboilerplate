@@ -114,6 +114,8 @@ export async function POST(request: Request) {
     const [header] = await tx.insert(supplierInvoice).values({
       companyId: ctx.company.id,
       supplierPartnerId: parsed.data.supplierPartnerId,
+      purchaseOrderId: parsed.data.purchaseOrderId,
+      goodsReceiptId: parsed.data.goodsReceiptId,
       number,
       totalAmount: totalAmount.toFixed(2),
     }).returning();
@@ -139,6 +141,7 @@ export async function POST(request: Request) {
       subtotal: totalAmount,
       taxAmount: 0,
       totalAmount,
+      dbClient: tx,
     });
 
     return header;

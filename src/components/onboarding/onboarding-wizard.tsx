@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -7,7 +8,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -30,6 +31,8 @@ const steps = [
 
 export function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
+  const isFinalStep = stepIndex === steps.length - 1;
   const {
     register,
     handleSubmit,
@@ -43,6 +46,28 @@ export function OnboardingWizard() {
       inviteEmail: "",
     },
   });
+
+  if (isComplete) {
+    return (
+      <section className="space-y-4 rounded-lg border border-green-300 bg-green-50 p-4 text-green-950" role="status">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide">Configuración inicial lista</p>
+          <h2 className="mt-1 text-lg font-semibold">Onboarding completado</h2>
+          <p className="mt-1 text-sm">
+            Ya aplicamos los seeds base. El siguiente paso recomendado es crear tu primer cliente para alimentar dashboard y reporting.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link className={buttonVariants()} href="/customers">
+            Crear primer cliente
+          </Link>
+          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
+            Volver al dashboard
+          </Link>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <form
@@ -60,20 +85,27 @@ export function OnboardingWizard() {
           return;
         }
 
+        setIsComplete(true);
         toast.success("Onboarding completado. Se han aplicado los seeds base.");
       })}
     >
-      <div className="flex flex-wrap gap-2">
-        {steps.map((step, index) => (
-          <button
-            className={`rounded-md border px-3 py-1 text-xs ${index === stepIndex ? "bg-primary text-primary-foreground" : "bg-background"}`}
-            key={step}
-            onClick={() => setStepIndex(index)}
-            type="button"
-          >
-            {index + 1}. {step}
-          </button>
-        ))}
+      <div className="space-y-2">
+        <p className="text-sm font-medium" aria-live="polite">
+          Paso {stepIndex + 1} de {steps.length}: {steps[stepIndex]}
+        </p>
+        <div className="flex flex-wrap gap-2" aria-label="Pasos de onboarding">
+          {steps.map((step, index) => (
+            <button
+              aria-current={index === stepIndex ? "step" : undefined}
+              className={`rounded-md border px-3 py-1 text-xs ${index === stepIndex ? "bg-primary text-primary-foreground" : "bg-background"}`}
+              key={step}
+              onClick={() => setStepIndex(index)}
+              type="button"
+            >
+              {index + 1}. {step}
+            </button>
+          ))}
+        </div>
       </div>
 
       {stepIndex === 0 ? (
@@ -113,7 +145,7 @@ export function OnboardingWizard() {
         </div>
       ) : null}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           disabled={stepIndex === 0}
           onClick={() => setStepIndex((current) => Math.max(0, current - 1))}
@@ -122,17 +154,20 @@ export function OnboardingWizard() {
         >
           Anterior
         </Button>
-        <Button
-          disabled={stepIndex === steps.length - 1}
-          onClick={() => setStepIndex((current) => Math.min(steps.length - 1, current + 1))}
-          type="button"
-          variant="outline"
-        >
-          Siguiente
-        </Button>
-        <Button disabled={isSubmitting} type="submit">
-          {isSubmitting ? "Aplicando..." : "Finalizar onboarding"}
-        </Button>
+        {!isFinalStep ? (
+          <Button
+            onClick={() => setStepIndex((current) => Math.min(steps.length - 1, current + 1))}
+            type="button"
+            variant="outline"
+          >
+            Siguiente
+          </Button>
+        ) : null}
+        {isFinalStep ? (
+          <Button disabled={isSubmitting} type="submit">
+            {isSubmitting ? "Aplicando..." : "Finalizar onboarding"}
+          </Button>
+        ) : null}
       </div>
     </form>
   );

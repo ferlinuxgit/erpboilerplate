@@ -1,20 +1,16 @@
 import Link from "next/link";
-import { eq } from "drizzle-orm";
 
-import { subscription, tenant } from "@/db/schema";
 import { BillingActions } from "@/components/billing/billing-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUserSession } from "@/lib/current-user";
-import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
+import { getBillingViewModelForTenant } from "@/server/billing/data";
 
 export default async function BillingPage() {
   const session = await requireUserSession();
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-
-  const currentTenant = await db.select().from(tenant).where(eq(tenant.id, ctx.tenant.id)).limit(1);
-  const subs = await db.select().from(subscription).where(eq(subscription.tenantId, ctx.tenant.id)).limit(1);
+  const billing = await getBillingViewModelForTenant(ctx.tenant.id);
 
   return (
     <main className="container mx-auto px-4 py-10">
@@ -23,10 +19,30 @@ export default async function BillingPage() {
           <CardTitle>Operación SaaS</CardTitle>
           <CardDescription>Planes, límites y suscripción del tenant.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
-          <p>Plan tenant: {currentTenant[0]?.plan ?? "free"}</p>
-          <p>Estado suscripción: {subs[0]?.status ?? "sin suscripción"}</p>
-          <BillingActions fallbackPriceId={process.env.NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID ?? "price_placeholder"} />
+        <CardContent className="space-y-5">
+          <dl className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="font-medium text-muted-foreground">Plan</dt>
+              <dd className="text-base font-semibold">
+                {billing.plan.name} <span className="text-muted-foreground">({billing.plan.code})</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium text-muted-foreground">Estado</dt>
+              <dd className="text-base font-semibold">{billing.subscription.statusLabel}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-muted-foreground">Renovación / cancelación</dt>
+              <dd>{billing.subscription.renewalLabel}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-muted-foreground">Límites</dt>
+              <dd>{billing.plan.limits}</dd>
+            </div>
+          </dl>
+
+          <BillingActions checkout={billing.checkout} portal={billing.portal} />
+
           <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
             Volver
           </Link>

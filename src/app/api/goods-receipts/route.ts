@@ -124,21 +124,13 @@ export async function POST(request: Request) {
           movementId: movement.id,
           quantity: Number(line.quantity),
           unitCost: Number(latestInvoiceLine?.unitPrice ?? "0"),
-        });
+        }, tx);
+        await refreshStockLocation({ companyId: ctx.company.id, itemId: line.itemId, warehouseId: ownedWarehouse.id }, tx);
       }
     }
 
     return createdHeader;
   });
-
-  const receiptLines = await db
-    .select({ itemId: goodsReceiptLine.itemId })
-    .from(goodsReceiptLine)
-    .where(eq(goodsReceiptLine.goodsReceiptId, created.id));
-  for (const line of receiptLines) {
-    if (!line.itemId) continue;
-    await refreshStockLocation({ companyId: ctx.company.id, itemId: line.itemId, warehouseId: ownedWarehouse.id });
-  }
 
   return NextResponse.json(created, { status: 201 });
 }

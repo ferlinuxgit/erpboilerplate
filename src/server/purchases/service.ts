@@ -1,9 +1,34 @@
 import { and, desc, eq } from "drizzle-orm";
 
-import { partner, purchaseOrder, purchaseOrderLine } from "@/db/schema";
+import {
+  goodsReceipt,
+  partner,
+  purchaseOrder,
+  purchaseOrderLine,
+  supplierInvoice,
+  supplierPayment,
+} from "@/db/schema";
 import { db } from "@/lib/db";
+import {
+  assertSalesTransitionAllowed,
+  getGoodsReceiptInvoiceTransition,
+  getPurchaseOrderReceiptTransition,
+  getSupplierInvoicePaymentTransition,
+} from "@/lib/document-pipelines";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
+
+export function assertPurchaseOrderCanReceive(input: { status: string; hasReceipt: boolean; hasLines: boolean }) {
+  assertSalesTransitionAllowed(getPurchaseOrderReceiptTransition(input));
+}
+
+export function assertGoodsReceiptCanInvoice(input: { hasSupplierInvoice: boolean; hasLines: boolean }) {
+  assertSalesTransitionAllowed(getGoodsReceiptInvoiceTransition(input));
+}
+
+export function assertSupplierInvoiceCanBePaid(input: { totalAmount: number; paidAmount: number }) {
+  assertSalesTransitionAllowed(getSupplierInvoicePaymentTransition(input));
+}
 
 export async function listPurchaseOrders(companyId: string) {
   return db
@@ -11,6 +36,7 @@ export async function listPurchaseOrders(companyId: string) {
       id: purchaseOrder.id,
       number: purchaseOrder.number,
       status: purchaseOrder.status,
+      supplierPartnerId: purchaseOrder.supplierPartnerId,
       supplierName: partner.name,
       createdAt: purchaseOrder.createdAt,
     })
@@ -18,6 +44,51 @@ export async function listPurchaseOrders(companyId: string) {
     .innerJoin(partner, eq(purchaseOrder.supplierPartnerId, partner.id))
     .where(eq(purchaseOrder.companyId, companyId))
     .orderBy(desc(purchaseOrder.createdAt));
+}
+
+export async function listPurchasePipeline(companyId: string) {
+  const [orders, orderLines, receipts, invoices, payments] = await Promise.all([
+    listPurchaseOrders(companyId),
+    db
+      .select({
+        id: purchaseOrderLine.id,
+        purchaseOrderId: purchaseOrderLine.purchaseOrderId,
+        itemId: purchaseOrderLine.itemId,
+        description: purchaseOrderLine.description,
+        quantity: purchaseOrderLine.quantity,
+        unitPrice: purchaseOrderLine.unitPrice,
+      })
+      .from(purchaseOrderLine)
+      .innerJoin(purchaseOrder, eq(purchaseOrderLine.purchaseOrderId, purchaseOrder.id))
+      .where(eq(purchaseOrder.companyId, companyId)),
+    db
+      .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId, receivedAt: goodsReceipt.receivedAt })
+      .from(goodsReceipt)
+      .innerJoin(purchaseOrder, eq(goodsReceipt.purchaseOrderId, purchaseOrder.id))
+      .where(eq(purchaseOrder.companyId, companyId))
+      .orderBy(desc(goodsReceipt.receivedAt)),
+    db
+      .select({
+        id: supplierInvoice.id,
+        number: supplierInvoice.number,
+        supplierPartnerId: supplierInvoice.supplierPartnerId,
+        purchaseOrderId: supplierInvoice.purchaseOrderId,
+        goodsReceiptId: supplierInvoice.goodsReceiptId,
+        totalAmount: supplierInvoice.totalAmount,
+      })
+      .from(supplierInvoice)
+      .where(eq(supplierInvoice.companyId, companyId)),
+    db
+      .select({
+        id: supplierPayment.id,
+        supplierInvoiceId: supplierPayment.supplierInvoiceId,
+        amount: supplierPayment.amount,
+      })
+      .from(supplierPayment)
+      .where(eq(supplierPayment.companyId, companyId)),
+  ]);
+
+  return { orders, orderLines, receipts, invoices, payments };
 }
 
 export async function getPurchaseOrder(companyId: string, id: string) {
@@ -93,15 +164,18 @@ export async function createPurchaseOrder(
       );
     }
 
-    await recordAudit({
-      tenantId,
-      companyId,
-      actorUserId,
-      action: "purchase.create",
-      entityName: "purchaseOrder",
-      entityId: createdOrder.id,
-      payload,
-    });
+    await recordAudit(
+      {
+        tenantId,
+        companyId,
+        actorUserId,
+        action: "purchase.create",
+        entityName: "purchaseOrder",
+        entityId: createdOrder.id,
+        payload,
+      },
+      tx,
+    );
 
     return createdOrder;
   });
@@ -114,43 +188,53 @@ export async function updatePurchaseOrder(
   id: string,
   payload: { number: string; status: string },
 ) {
-  const [updated] = await db
-    .update(purchaseOrder)
-    .set({ number: payload.number, status: payload.status })
-    .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))
-    .returning({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status });
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(purchaseOrder)
+      .set({ number: payload.number, status: payload.status })
+      .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))
+      .returning({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status });
 
-  if (!updated) return null;
+    if (!updated) return null;
 
-  await recordAudit({
-    tenantId,
-    companyId,
-    actorUserId,
-    action: "purchase.update",
-    entityName: "purchaseOrder",
-    entityId: id,
-    payload,
+    await recordAudit(
+      {
+        tenantId,
+        companyId,
+        actorUserId,
+        action: "purchase.update",
+        entityName: "purchaseOrder",
+        entityId: id,
+        payload,
+      },
+      tx,
+    );
+
+    return updated;
   });
-
-  return updated;
 }
 
 export async function deletePurchaseOrder(companyId: string, tenantId: string, actorUserId: string, id: string) {
-  const [deleted] = await db
-    .delete(purchaseOrder)
-    .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))
-    .returning({ id: purchaseOrder.id });
+  return db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .delete(purchaseOrder)
+      .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))
+      .returning({ id: purchaseOrder.id });
 
-  if (!deleted) return false;
+    if (!deleted) return false;
 
-  await recordAudit({
-    tenantId,
-    companyId,
-    actorUserId,
-    action: "purchase.delete",
-    entityName: "purchaseOrder",
-    entityId: id,
+    await recordAudit(
+      {
+        tenantId,
+        companyId,
+        actorUserId,
+        action: "purchase.delete",
+        entityName: "purchaseOrder",
+        entityId: id,
+      },
+      tx,
+    );
+
+    return true;
   });
-
-  return true;
 }

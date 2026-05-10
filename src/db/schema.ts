@@ -313,6 +313,8 @@ export const stockMovement = pgTable("stock_movement", {
   movementType: stockMovementTypeEnum("movementType").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   movedAt: timestamp("movedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  reason: text("reason").notNull().default("Ajuste operativo"),
+  reference: text("reference"),
 });
 
 export const stockLocation = pgTable(
@@ -365,6 +367,7 @@ export const invoiceLine = pgTable("invoice_line", {
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  taxRate: numeric("taxRate", { precision: 6, scale: 3 }).notNull().default("0"),
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
 });
 
@@ -491,6 +494,8 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   supplierPartnerId: text("supplierPartnerId").notNull().references(() => partner.id, { onDelete: "restrict" }),
+  purchaseOrderId: text("purchaseOrderId").references(() => purchaseOrder.id, { onDelete: "set null" }),
+  goodsReceiptId: text("goodsReceiptId").references(() => goodsReceipt.id, { onDelete: "set null" }),
   number: text("number").notNull(),
   totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull(),
 });
@@ -578,13 +583,36 @@ export const kpiSnapshot = pgTable("kpi_snapshot", {
   capturedAt: timestamp("capturedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
-export const subscription = pgTable("subscription", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
-  plan: text("plan").notNull(),
-  status: text("status").notNull().default("ACTIVE"),
-  currentPeriodEndsAt: timestamp("currentPeriodEndsAt", { withTimezone: true, mode: "date" }),
-});
+export const subscription = pgTable(
+  "subscription",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+    plan: text("plan").notNull(),
+    status: text("status").notNull().default("ACTIVE"),
+    currentPeriodEndsAt: timestamp("currentPeriodEndsAt", { withTimezone: true, mode: "date" }),
+    stripeCustomerId: text("stripeCustomerId"),
+    stripeSubscriptionId: text("stripeSubscriptionId"),
+    cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").notNull().default(false),
+  },
+  (table) => [unique("subscription_tenant_unique").on(table.tenantId)],
+);
+
+export const tenantSecurityPolicy = pgTable(
+  "tenant_security_policy",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+    sessionTimeoutMinutes: integer("sessionTimeoutMinutes"),
+    requireTwoFactor: boolean("requireTwoFactor"),
+    apiKeyRotationDays: integer("apiKeyRotationDays"),
+    allowedDomains: text("allowedDomains"),
+    allowedIpNotes: text("allowedIpNotes"),
+    createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [unique("tenant_security_policy_tenant_unique").on(table.tenantId), index("tenant_security_policy_tenant_idx").on(table.tenantId)],
+);
 
 export const apiKey = pgTable("api_key", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -610,6 +638,7 @@ export const plan = pgTable("plan", {
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   stripePriceId: text("stripePriceId"),
+  limits: text("limits"),
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });

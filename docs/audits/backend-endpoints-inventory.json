@@ -1,0 +1,4131 @@
+{
+  "counts": {
+    "route_files": 56,
+    "methods": {
+      "GET": 38,
+      "POST": 39,
+      "PUT": 1,
+      "PATCH": 9,
+      "DELETE": 8
+    },
+    "requireContext_files": 2,
+    "getUserSession_files": 51,
+    "ensureUserTenant_files": 46,
+    "requestJson_files": 42,
+    "zod_or_validation_files": 20,
+    "direct_db_write_files": 24,
+    "audit_ref_route_files": 2,
+    "server_files": 21,
+    "schema_tables": 52,
+    "findings_total": 63
+  },
+  "routes": [
+    {
+      "file": "src/app/api/accounting/close-year/route.ts",
+      "path": "/api/accounting/close-year",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        12
+      ],
+      "ensureUserTenant": [
+        14
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "update@L23"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/auto-post:postYearEndClosing"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 28
+    },
+    {
+      "file": "src/app/api/accounting/route.ts",
+      "path": "/api/accounting",
+      "methods": [
+        "GET"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9
+      ],
+      "ensureUserTenant": [
+        11
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/service:getTrialBalance"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 16
+    },
+    {
+      "file": "src/app/api/accounts/[id]/route.ts",
+      "path": "/api/accounts/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        20,
+        33
+      ],
+      "ensureUserTenant": [
+        11,
+        22,
+        35
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/service:deleteAccount,getAccount,updateAccount"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 41
+    },
+    {
+      "file": "src/app/api/accounts/route.ts",
+      "path": "/api/accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [
+        8,
+        18
+      ],
+      "getUserSession": [],
+      "ensureUserTenant": [],
+      "requestJson": [
+        22
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/service:createAccount,listAccounts"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "requireContext"
+      ],
+      "loc": 26
+    },
+    {
+      "file": "src/app/api/api-keys/route.ts",
+      "path": "/api/api-keys",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        12,
+        20
+      ],
+      "ensureUserTenant": [
+        14,
+        22
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L28"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 30
+    },
+    {
+      "file": "src/app/api/auth/[...all]/route.ts",
+      "path": "/api/auth/[...all]",
+      "methods": [],
+      "requireContext": [],
+      "getUserSession": [],
+      "ensureUserTenant": [],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 5
+    },
+    {
+      "file": "src/app/api/bank-accounts/[id]/route.ts",
+      "path": "/api/bank-accounts/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        20,
+        36
+      ],
+      "ensureUserTenant": [
+        11,
+        22,
+        38
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/treasury/service:deleteBankAccount,getBankAccount,updateBankAccount"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 44
+    },
+    {
+      "file": "src/app/api/bank-accounts/route.ts",
+      "path": "/api/bank-accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        19
+      ],
+      "ensureUserTenant": [
+        11,
+        21
+      ],
+      "requestJson": [
+        25
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/treasury/service:createBankAccount,listBankAccounts"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 34
+    },
+    {
+      "file": "src/app/api/bank-transactions/[id]/route.ts",
+      "path": "/api/bank-transactions/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        20,
+        40
+      ],
+      "ensureUserTenant": [
+        11,
+        22,
+        42
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/treasury/service:deleteBankTransaction,getBankTransaction,updateBankTransaction"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 48
+    },
+    {
+      "file": "src/app/api/bank-transactions/route.ts",
+      "path": "/api/bank-transactions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        10,
+        18
+      ],
+      "ensureUserTenant": [
+        12,
+        20
+      ],
+      "requestJson": [
+        22
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/auto-post:postBankTransaction",
+        "@/server/treasury/service:createBankTransaction,listBankTransactions"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 42
+    },
+    {
+      "file": "src/app/api/billing/checkout/route.ts",
+      "path": "/api/billing/checkout",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        7
+      ],
+      "ensureUserTenant": [],
+      "requestJson": [
+        9
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/billing/stripe:createCheckoutSession"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 18
+    },
+    {
+      "file": "src/app/api/billing/portal/route.ts",
+      "path": "/api/billing/portal",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        7
+      ],
+      "ensureUserTenant": [],
+      "requestJson": [
+        9
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/billing/stripe:createPortalSession"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 13
+    },
+    {
+      "file": "src/app/api/billing/webhook/route.ts",
+      "path": "/api/billing/webhook",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [],
+      "ensureUserTenant": [],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/billing/stripe:stripe"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 18
+    },
+    {
+      "file": "src/app/api/company-settings/route.ts",
+      "path": "/api/company-settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        22,
+        37
+      ],
+      "ensureUserTenant": [
+        24,
+        39
+      ],
+      "requestJson": [
+        42
+      ],
+      "zodSchemas": [
+        "payloadSchema@L11"
+      ],
+      "validations": [
+        "safeParse@L42"
+      ],
+      "dbOps": [
+        "insert@L65",
+        "update@L53"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 73
+    },
+    {
+      "file": "src/app/api/context/active/route.ts",
+      "path": "/api/context/active",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "requireContext": [
+        21,
+        40
+      ],
+      "getUserSession": [
+        18,
+        33
+      ],
+      "ensureUserTenant": [],
+      "requestJson": [
+        36
+      ],
+      "zodSchemas": [
+        "payloadSchema@L12"
+      ],
+      "validations": [
+        "safeParse@L37"
+      ],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "requireContext"
+      ],
+      "loc": 60
+    },
+    {
+      "file": "src/app/api/customers/[id]/route.ts",
+      "path": "/api/customers/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        13,
+        43
+      ],
+      "ensureUserTenant": [
+        15,
+        45
+      ],
+      "requestJson": [
+        18
+      ],
+      "zodSchemas": [
+        "forms:updateCustomerSchema"
+      ],
+      "validations": [
+        "safeParse@L19"
+      ],
+      "dbOps": [
+        "update@L27",
+        "delete@L48"
+      ],
+      "auditRefs": [
+        38,
+        50
+      ],
+      "serviceImports": [
+        "@/server/audit:recordAudit",
+        "@/server/schemas/forms:updateCustomerSchema"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 52
+    },
+    {
+      "file": "src/app/api/customers/route.ts",
+      "path": "/api/customers",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        11
+      ],
+      "ensureUserTenant": [
+        17
+      ],
+      "requestJson": [
+        29
+      ],
+      "zodSchemas": [
+        "forms:createCustomerSchema"
+      ],
+      "validations": [
+        "safeParse@L30"
+      ],
+      "dbOps": [
+        "insert@L40"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/schemas/forms:createCustomerSchema"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 56
+    },
+    {
+      "file": "src/app/api/delivery-notes/[id]/to-invoice/route.ts",
+      "path": "/api/delivery-notes/[id]/to-invoice",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9
+      ],
+      "ensureUserTenant": [
+        11
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/sales/service:convertDeliveryToInvoice"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 25
+    },
+    {
+      "file": "src/app/api/delivery-notes/route.ts",
+      "path": "/api/delivery-notes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        22,
+        30
+      ],
+      "ensureUserTenant": [
+        24,
+        32
+      ],
+      "requestJson": [
+        35
+      ],
+      "zodSchemas": [
+        "payloadSchema@L13"
+      ],
+      "validations": [
+        "safeParse@L35"
+      ],
+      "dbOps": [
+        "insert@L66",
+        "insert@L81",
+        "insert@L91",
+        "update@L102",
+        "transaction@L57"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/documents/series:reserveSeriesNumber",
+        "@/server/inventory/stock-location:refreshStockLocation"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 120
+    },
+    {
+      "file": "src/app/api/document-series/route.ts",
+      "path": "/api/document-series",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        11,
+        20
+      ],
+      "ensureUserTenant": [
+        13,
+        22
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L27"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 31
+    },
+    {
+      "file": "src/app/api/fiscal-reports/[id]/pdf/route.ts",
+      "path": "/api/fiscal-reports/[id]/pdf",
+      "methods": [
+        "GET"
+      ],
+      "requireContext": [],
+      "getUserSession": [],
+      "ensureUserTenant": [],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 5
+    },
+    {
+      "file": "src/app/api/fiscal-reports/[id]/route.ts",
+      "path": "/api/fiscal-reports/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        20,
+        33
+      ],
+      "ensureUserTenant": [
+        11,
+        22,
+        35
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/fiscal/service:deleteFiscalReport,getFiscalReport,updateFiscalReport"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 41
+    },
+    {
+      "file": "src/app/api/fiscal-reports/route.ts",
+      "path": "/api/fiscal-reports",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        17
+      ],
+      "ensureUserTenant": [
+        11,
+        19
+      ],
+      "requestJson": [
+        21
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/fiscal/service:createFiscalReport,listFiscalReports"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 25
+    },
+    {
+      "file": "src/app/api/goods-receipts/route.ts",
+      "path": "/api/goods-receipts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        27,
+        46
+      ],
+      "ensureUserTenant": [
+        29,
+        48
+      ],
+      "requestJson": [
+        51
+      ],
+      "zodSchemas": [
+        "payloadSchema@L12"
+      ],
+      "validations": [
+        "safeParse@L51"
+      ],
+      "dbOps": [
+        "insert@L76",
+        "insert@L102",
+        "insert@L105",
+        "transaction@L74"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/inventory/stock-location:refreshStockLocation,registerInMovementCost"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 144
+    },
+    {
+      "file": "src/app/api/inventory/alerts/route.ts",
+      "path": "/api/inventory/alerts",
+      "methods": [
+        "GET"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        8
+      ],
+      "ensureUserTenant": [
+        10
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/inventory/service:getLowStockAlerts"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 13
+    },
+    {
+      "file": "src/app/api/inventory/route.ts",
+      "path": "/api/inventory",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        12,
+        20
+      ],
+      "ensureUserTenant": [
+        14,
+        22
+      ],
+      "requestJson": [
+        27
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L33",
+        "insert@L41",
+        "insert@L51"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/inventory/service:getStockSnapshot"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 62
+    },
+    {
+      "file": "src/app/api/invitations/[id]/accept/route.ts",
+      "path": "/api/invitations/[id]/accept",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        7
+      ],
+      "ensureUserTenant": [],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/team/service:acceptInvitation"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 13
+    },
+    {
+      "file": "src/app/api/invitations/route.ts",
+      "path": "/api/invitations",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9
+      ],
+      "ensureUserTenant": [
+        11
+      ],
+      "requestJson": [
+        13
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/team/service:createInvitation"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 17
+    },
+    {
+      "file": "src/app/api/invoice-payments/route.ts",
+      "path": "/api/invoice-payments",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        19,
+        27
+      ],
+      "ensureUserTenant": [
+        21,
+        29
+      ],
+      "requestJson": [
+        32
+      ],
+      "zodSchemas": [
+        "payloadSchema@L12"
+      ],
+      "validations": [
+        "safeParse@L32"
+      ],
+      "dbOps": [
+        "insert@L42",
+        "insert@L49"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/auto-post:postCustomerPayment"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 67
+    },
+    {
+      "file": "src/app/api/invoices/[id]/pdf/route.ts",
+      "path": "/api/invoices/[id]/pdf",
+      "methods": [
+        "GET"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        11
+      ],
+      "ensureUserTenant": [
+        13
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/pdf/render:renderInvoicePdf"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 36
+    },
+    {
+      "file": "src/app/api/invoices/[id]/route.ts",
+      "path": "/api/invoices/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        13,
+        36
+      ],
+      "ensureUserTenant": [
+        15,
+        38
+      ],
+      "requestJson": [
+        18
+      ],
+      "zodSchemas": [
+        "forms:updateInvoiceSchema"
+      ],
+      "validations": [
+        "safeParse@L19"
+      ],
+      "dbOps": [
+        "update@L26",
+        "delete@L41"
+      ],
+      "auditRefs": [
+        31,
+        43
+      ],
+      "serviceImports": [
+        "@/server/audit:recordAudit",
+        "@/server/schemas/forms:updateInvoiceSchema"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 45
+    },
+    {
+      "file": "src/app/api/invoices/route.ts",
+      "path": "/api/invoices",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        14
+      ],
+      "ensureUserTenant": [
+        20
+      ],
+      "requestJson": [
+        32
+      ],
+      "zodSchemas": [
+        "forms:createInvoiceSchema"
+      ],
+      "validations": [
+        "safeParse@L33"
+      ],
+      "dbOps": [
+        "insert@L65",
+        "insert@L82",
+        "transaction@L63"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/auto-post:postSalesInvoice",
+        "@/server/schemas/forms:createInvoiceSchema"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 116
+    },
+    {
+      "file": "src/app/api/item-categories/route.ts",
+      "path": "/api/item-categories",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        17,
+        30
+      ],
+      "ensureUserTenant": [
+        19,
+        32
+      ],
+      "requestJson": [
+        35
+      ],
+      "zodSchemas": [
+        "payloadSchema@L11"
+      ],
+      "validations": [
+        "safeParse@L35"
+      ],
+      "dbOps": [
+        "insert@L39"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 48
+    },
+    {
+      "file": "src/app/api/items/route.ts",
+      "path": "/api/items",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        11,
+        19
+      ],
+      "ensureUserTenant": [
+        13,
+        21
+      ],
+      "requestJson": [
+        23
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L25"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 27
+    },
+    {
+      "file": "src/app/api/journal-entries/[id]/route.ts",
+      "path": "/api/journal-entries/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        20,
+        41
+      ],
+      "ensureUserTenant": [
+        11,
+        22,
+        43
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/service:deleteJournalEntry,getJournalEntry,updateJournalEntry"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 49
+    },
+    {
+      "file": "src/app/api/journal-entries/route.ts",
+      "path": "/api/journal-entries",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        17
+      ],
+      "ensureUserTenant": [
+        11,
+        19
+      ],
+      "requestJson": [
+        21
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/service:createJournalEntry,listJournalEntries"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 33
+    },
+    {
+      "file": "src/app/api/onboarding/seed/route.ts",
+      "path": "/api/onboarding/seed",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        15
+      ],
+      "ensureUserTenant": [
+        18
+      ],
+      "requestJson": [
+        23
+      ],
+      "zodSchemas": [
+        "payloadSchema@L9"
+      ],
+      "validations": [
+        "safeParse@L24"
+      ],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/seeds/apply:applyEsSeeds"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 38
+    },
+    {
+      "file": "src/app/api/payment-methods/route.ts",
+      "path": "/api/payment-methods",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        18,
+        26
+      ],
+      "ensureUserTenant": [
+        20,
+        28
+      ],
+      "requestJson": [
+        31
+      ],
+      "zodSchemas": [
+        "payloadSchema@L11"
+      ],
+      "validations": [
+        "safeParse@L31"
+      ],
+      "dbOps": [
+        "insert@L34"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 36
+    },
+    {
+      "file": "src/app/api/purchases/[id]/pdf/route.ts",
+      "path": "/api/purchases/[id]/pdf",
+      "methods": [
+        "GET"
+      ],
+      "requireContext": [],
+      "getUserSession": [],
+      "ensureUserTenant": [],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 5
+    },
+    {
+      "file": "src/app/api/purchases/[id]/route.ts",
+      "path": "/api/purchases/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9,
+        23,
+        45
+      ],
+      "ensureUserTenant": [
+        11,
+        25,
+        47
+      ],
+      "requestJson": [
+        30
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/purchases/service:deletePurchaseOrder,getPurchaseOrder,updatePurchaseOrder"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 56
+    },
+    {
+      "file": "src/app/api/purchases/route.ts",
+      "path": "/api/purchases",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        25,
+        33
+      ],
+      "ensureUserTenant": [
+        27,
+        35
+      ],
+      "requestJson": [
+        40
+      ],
+      "zodSchemas": [
+        "payloadSchema@L9"
+      ],
+      "validations": [
+        "safeParse@L40"
+      ],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/purchases/service:createPurchaseOrder,listPurchaseOrders"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 51
+    },
+    {
+      "file": "src/app/api/reporting/export/route.ts",
+      "path": "/api/reporting/export",
+      "methods": [
+        "GET"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        8
+      ],
+      "ensureUserTenant": [
+        10
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/reporting/service:exportKpisExcel"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 18
+    },
+    {
+      "file": "src/app/api/sales-orders/[id]/to-delivery/route.ts",
+      "path": "/api/sales-orders/[id]/to-delivery",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9
+      ],
+      "ensureUserTenant": [
+        11
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/sales/service:convertOrderToDelivery"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 25
+    },
+    {
+      "file": "src/app/api/sales-orders/route.ts",
+      "path": "/api/sales-orders",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        24,
+        32
+      ],
+      "ensureUserTenant": [
+        26,
+        34
+      ],
+      "requestJson": [
+        37
+      ],
+      "zodSchemas": [
+        "payloadSchema@L12"
+      ],
+      "validations": [
+        "safeParse@L37"
+      ],
+      "dbOps": [
+        "insert@L56",
+        "insert@L74",
+        "update@L89",
+        "transaction@L47"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/documents/series:reserveSeriesNumber"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 98
+    },
+    {
+      "file": "src/app/api/sales-quotes/[id]/to-order/route.ts",
+      "path": "/api/sales-quotes/[id]/to-order",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9
+      ],
+      "ensureUserTenant": [
+        11
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/sales/service:convertQuoteToOrder"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 25
+    },
+    {
+      "file": "src/app/api/sales-quotes/route.ts",
+      "path": "/api/sales-quotes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        35,
+        43
+      ],
+      "ensureUserTenant": [
+        37,
+        45
+      ],
+      "requestJson": [
+        48
+      ],
+      "zodSchemas": [
+        "lineSchema@L13",
+        "payloadSchema@L21"
+      ],
+      "validations": [
+        "safeParse@L48"
+      ],
+      "dbOps": [
+        "insert@L68",
+        "insert@L80",
+        "transaction@L59"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/documents/series:reserveSeriesNumber",
+        "@/server/taxation/engine:computeDocumentTotals"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 98
+    },
+    {
+      "file": "src/app/api/stock-movements/route.ts",
+      "path": "/api/stock-movements",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        12,
+        20
+      ],
+      "ensureUserTenant": [
+        14,
+        22
+      ],
+      "requestJson": [
+        24
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L34"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/inventory/stock-location:refreshStockLocation"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 49
+    },
+    {
+      "file": "src/app/api/storage/presign/route.ts",
+      "path": "/api/storage/presign",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        7
+      ],
+      "ensureUserTenant": [],
+      "requestJson": [
+        9
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/storage/s3:createUploadUrl"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [],
+      "loc": 16
+    },
+    {
+      "file": "src/app/api/supplier-invoices/route.ts",
+      "path": "/api/supplier-invoices",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        29,
+        37
+      ],
+      "ensureUserTenant": [
+        31,
+        39
+      ],
+      "requestJson": [
+        42
+      ],
+      "zodSchemas": [
+        "payloadSchema@L13"
+      ],
+      "validations": [
+        "safeParse@L42"
+      ],
+      "dbOps": [
+        "insert@L114",
+        "insert@L121",
+        "transaction@L104"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/auto-post:postSupplierInvoice",
+        "@/server/documents/series:reserveSeriesNumber"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 148
+    },
+    {
+      "file": "src/app/api/supplier-payments/route.ts",
+      "path": "/api/supplier-payments",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        19,
+        27
+      ],
+      "ensureUserTenant": [
+        21,
+        29
+      ],
+      "requestJson": [
+        32
+      ],
+      "zodSchemas": [
+        "payloadSchema@L12"
+      ],
+      "validations": [
+        "safeParse@L32"
+      ],
+      "dbOps": [
+        "insert@L42",
+        "insert@L49"
+      ],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/accounting/auto-post:postSupplierPayment"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write",
+        "sensitive-domain"
+      ],
+      "loc": 67
+    },
+    {
+      "file": "src/app/api/tax-retentions/route.ts",
+      "path": "/api/tax-retentions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        17,
+        25
+      ],
+      "ensureUserTenant": [
+        19,
+        27
+      ],
+      "requestJson": [
+        30
+      ],
+      "zodSchemas": [
+        "payloadSchema@L11"
+      ],
+      "validations": [
+        "safeParse@L30"
+      ],
+      "dbOps": [
+        "insert@L34"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 38
+    },
+    {
+      "file": "src/app/api/taxes/route.ts",
+      "path": "/api/taxes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        11,
+        18
+      ],
+      "ensureUserTenant": [
+        13,
+        20
+      ],
+      "requestJson": [
+        22
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L24"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 26
+    },
+    {
+      "file": "src/app/api/treasury/import-csv/route.ts",
+      "path": "/api/treasury/import-csv",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        15
+      ],
+      "ensureUserTenant": [
+        17
+      ],
+      "requestJson": [
+        20
+      ],
+      "zodSchemas": [
+        "payloadSchema@L9"
+      ],
+      "validations": [
+        "safeParse@L20"
+      ],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/treasury/reconciliation:importBankCsv"
+      ],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "sensitive-domain"
+      ],
+      "loc": 25
+    },
+    {
+      "file": "src/app/api/treasury/reconcile/route.ts",
+      "path": "/api/treasury/reconcile",
+      "methods": [
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        9
+      ],
+      "ensureUserTenant": [
+        11
+      ],
+      "requestJson": [],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [],
+      "auditRefs": [],
+      "serviceImports": [
+        "@/server/treasury/reconciliation:autoReconcileBankTransactions"
+      ],
+      "mutationCalls": [
+        "autoReconcileBankTransactions@L14"
+      ],
+      "criticalReasons": [
+        "mutation-service-call",
+        "sensitive-domain"
+      ],
+      "loc": 16
+    },
+    {
+      "file": "src/app/api/unit-of-measure/route.ts",
+      "path": "/api/unit-of-measure",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        17,
+        26
+      ],
+      "ensureUserTenant": [
+        19,
+        28
+      ],
+      "requestJson": [
+        31
+      ],
+      "zodSchemas": [
+        "payloadSchema@L11"
+      ],
+      "validations": [
+        "safeParse@L31"
+      ],
+      "dbOps": [
+        "insert@L35"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 44
+    },
+    {
+      "file": "src/app/api/warehouses/route.ts",
+      "path": "/api/warehouses",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "requireContext": [],
+      "getUserSession": [
+        11,
+        19
+      ],
+      "ensureUserTenant": [
+        13,
+        21
+      ],
+      "requestJson": [
+        23
+      ],
+      "zodSchemas": [],
+      "validations": [],
+      "dbOps": [
+        "insert@L25"
+      ],
+      "auditRefs": [],
+      "serviceImports": [],
+      "mutationCalls": [],
+      "criticalReasons": [
+        "direct-db-write"
+      ],
+      "loc": 27
+    }
+  ],
+  "services": [
+    {
+      "file": "src/server/accounting/auto-post.ts",
+      "functions": [
+        [
+          "postSalesInvoice",
+          108
+        ],
+        [
+          "postSupplierInvoice",
+          123
+        ],
+        [
+          "postCustomerPayment",
+          140
+        ],
+        [
+          "postSupplierPayment",
+          154
+        ],
+        [
+          "postBankTransaction",
+          168
+        ],
+        [
+          "postYearEndClosing",
+          188
+        ]
+      ],
+      "writes": [
+        "insert@L79",
+        "insert@L88",
+        "recordAudit@L97"
+      ]
+    },
+    {
+      "file": "src/server/accounting/service.ts",
+      "functions": [
+        [
+          "getTrialBalance",
+          7
+        ],
+        [
+          "listAccounts",
+          20
+        ],
+        [
+          "getAccount",
+          24
+        ],
+        [
+          "createAccount",
+          29
+        ],
+        [
+          "updateAccount",
+          35
+        ],
+        [
+          "deleteAccount",
+          42
+        ],
+        [
+          "ensureDefaultJournal",
+          49
+        ],
+        [
+          "listJournalEntries",
+          56
+        ],
+        [
+          "getJournalEntry",
+          72
+        ],
+        [
+          "createJournalEntry",
+          88
+        ],
+        [
+          "updateJournalEntry",
+          107
+        ],
+        [
+          "deleteJournalEntry",
+          125
+        ],
+        [
+          "getLedgerByAccount",
+          132
+        ]
+      ],
+      "writes": [
+        "insert@L30",
+        "insert@L52",
+        "insert@L100",
+        "insert@L101",
+        "insert@L119",
+        "update@L36",
+        "update@L116",
+        "delete@L43",
+        "delete@L118",
+        "delete@L126",
+        "transaction@L98",
+        "transaction@L115",
+        "recordAudit@L31",
+        "recordAudit@L38",
+        "recordAudit@L45",
+        "recordAudit@L102",
+        "recordAudit@L120",
+        "recordAudit@L128"
+      ]
+    },
+    {
+      "file": "src/server/audit.ts",
+      "functions": [
+        [
+          "recordAudit",
+          14
+        ]
+      ],
+      "writes": [
+        "insert@L15",
+        "recordAudit@L14"
+      ]
+    },
+    {
+      "file": "src/server/billing/stripe.ts",
+      "functions": [
+        [
+          "stripe",
+          5
+        ],
+        [
+          "createCheckoutSession",
+          7
+        ],
+        [
+          "createPortalSession",
+          18
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/documents/series.ts",
+      "functions": [
+        [
+          "reserveSeriesNumber",
+          17
+        ]
+      ],
+      "writes": [
+        "update@L39"
+      ]
+    },
+    {
+      "file": "src/server/email/send.ts",
+      "functions": [
+        [
+          "sendEmail",
+          6
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/fiscal/registry.ts",
+      "functions": [
+        [
+          "getFiscalProvider",
+          12
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/fiscal/service.ts",
+      "functions": [
+        [
+          "listFiscalReports",
+          7
+        ],
+        [
+          "getFiscalReport",
+          11
+        ],
+        [
+          "createFiscalReport",
+          16
+        ],
+        [
+          "updateFiscalReport",
+          22
+        ],
+        [
+          "deleteFiscalReport",
+          29
+        ]
+      ],
+      "writes": [
+        "insert@L17",
+        "update@L23",
+        "delete@L32",
+        "recordAudit@L18",
+        "recordAudit@L25",
+        "recordAudit@L33"
+      ]
+    },
+    {
+      "file": "src/server/inventory/service.ts",
+      "functions": [
+        [
+          "getStockSnapshot",
+          6
+        ],
+        [
+          "getLowStockAlerts",
+          27
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/inventory/stock-location.ts",
+      "functions": [
+        [
+          "refreshStockLocation",
+          17
+        ],
+        [
+          "registerInMovementCost",
+          62
+        ]
+      ],
+      "writes": [
+        "insert@L43",
+        "insert@L107",
+        "update@L103"
+      ]
+    },
+    {
+      "file": "src/server/pdf/render.ts",
+      "functions": [
+        [
+          "renderInvoicePdf",
+          6
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/purchases/service.ts",
+      "functions": [
+        [
+          "listPurchaseOrders",
+          8
+        ],
+        [
+          "getPurchaseOrder",
+          23
+        ],
+        [
+          "createPurchaseOrder",
+          46
+        ],
+        [
+          "updatePurchaseOrder",
+          110
+        ],
+        [
+          "deletePurchaseOrder",
+          138
+        ]
+      ],
+      "writes": [
+        "insert@L63",
+        "insert@L69",
+        "insert@L84",
+        "update@L118",
+        "delete@L140",
+        "transaction@L52",
+        "recordAudit@L96",
+        "recordAudit@L125",
+        "recordAudit@L146"
+      ]
+    },
+    {
+      "file": "src/server/reporting/service.ts",
+      "functions": [
+        [
+          "listKpis",
+          7
+        ],
+        [
+          "exportKpisExcel",
+          11
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/sales/service.ts",
+      "functions": [
+        [
+          "convertQuoteToOrder",
+          39
+        ],
+        [
+          "convertOrderToDelivery",
+          78
+        ],
+        [
+          "convertDeliveryToInvoice",
+          113
+        ],
+        [
+          "assertCustomerOwnership",
+          164
+        ]
+      ],
+      "writes": [
+        "insert@L54",
+        "insert@L93",
+        "insert@L136",
+        "update@L32",
+        "update@L70",
+        "update@L105",
+        "update@L149",
+        "update@L155",
+        "transaction@L44",
+        "transaction@L83",
+        "transaction@L118"
+      ]
+    },
+    {
+      "file": "src/server/schemas/forms.ts",
+      "functions": [
+        [
+          "authSignInSchema",
+          3
+        ],
+        [
+          "authSignUpSchema",
+          8
+        ],
+        [
+          "customerStatusSchema",
+          12
+        ],
+        [
+          "createCustomerSchema",
+          14
+        ],
+        [
+          "updateCustomerSchema",
+          25
+        ],
+        [
+          "invoiceStatusSchema",
+          29
+        ],
+        [
+          "createInvoiceSchema",
+          37
+        ],
+        [
+          "updateInvoiceSchema",
+          47
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/seeds/apply.ts",
+      "functions": [
+        [
+          "applyEsSeeds",
+          42
+        ]
+      ],
+      "writes": [
+        "insert@L75",
+        "insert@L92",
+        "insert@L108",
+        "insert@L131",
+        "update@L58",
+        "transaction@L55",
+        "recordAudit@L142"
+      ]
+    },
+    {
+      "file": "src/server/storage/s3.ts",
+      "functions": [
+        [
+          "createUploadUrl",
+          18
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/taxation/engine.ts",
+      "functions": [
+        [
+          "computeLineAmounts",
+          20
+        ],
+        [
+          "computeDocumentTotals",
+          34
+        ]
+      ],
+      "writes": []
+    },
+    {
+      "file": "src/server/team/service.ts",
+      "functions": [
+        [
+          "listTeamMembers",
+          7
+        ],
+        [
+          "createInvitation",
+          21
+        ],
+        [
+          "acceptInvitation",
+          36
+        ]
+      ],
+      "writes": [
+        "insert@L23",
+        "insert@L42",
+        "update@L47",
+        "recordAudit@L32"
+      ]
+    },
+    {
+      "file": "src/server/treasury/reconciliation.ts",
+      "functions": [
+        [
+          "parseBankCsv",
+          12
+        ],
+        [
+          "importBankCsv",
+          32
+        ],
+        [
+          "autoReconcileBankTransactions",
+          49
+        ]
+      ],
+      "writes": [
+        "insert@L44",
+        "update@L80",
+        "update@L107",
+        "update@L127",
+        "update@L154"
+      ]
+    },
+    {
+      "file": "src/server/treasury/service.ts",
+      "functions": [
+        [
+          "listTreasury",
+          7
+        ],
+        [
+          "listBankAccounts",
+          22
+        ],
+        [
+          "getBankAccount",
+          26
+        ],
+        [
+          "createBankAccount",
+          35
+        ],
+        [
+          "updateBankAccount",
+          41
+        ],
+        [
+          "deleteBankAccount",
+          52
+        ],
+        [
+          "listBankTransactions",
+          59
+        ],
+        [
+          "getBankTransaction",
+          84
+        ],
+        [
+          "createBankTransaction",
+          89
+        ],
+        [
+          "updateBankTransaction",
+          102
+        ],
+        [
+          "deleteBankTransaction",
+          117
+        ]
+      ],
+      "writes": [
+        "insert@L36",
+        "insert@L97",
+        "update@L43",
+        "update@L111",
+        "delete@L53",
+        "delete@L120",
+        "recordAudit@L37",
+        "recordAudit@L48",
+        "recordAudit@L55",
+        "recordAudit@L98",
+        "recordAudit@L113",
+        "recordAudit@L121"
+      ]
+    }
+  ],
+  "schemaTables": [
+    [
+      "user",
+      "user",
+      28
+    ],
+    [
+      "session",
+      "session",
+      38
+    ],
+    [
+      "tenant",
+      "tenant",
+      82
+    ],
+    [
+      "company",
+      "company",
+      105
+    ],
+    [
+      "fiscalYear",
+      "fiscal_year",
+      118
+    ],
+    [
+      "country",
+      "country",
+      127
+    ],
+    [
+      "currency",
+      "currency",
+      132
+    ],
+    [
+      "permission",
+      "permission",
+      152
+    ],
+    [
+      "auditLog",
+      "audit_log",
+      168
+    ],
+    [
+      "documentSeries",
+      "document_series",
+      180
+    ],
+    [
+      "documentAttachment",
+      "document_attachment",
+      189
+    ],
+    [
+      "itemCategory",
+      "item_category",
+      199
+    ],
+    [
+      "unitOfMeasure",
+      "unit_of_measure",
+      208
+    ],
+    [
+      "paymentMethod",
+      "payment_method",
+      217
+    ],
+    [
+      "taxRetention",
+      "tax_retention",
+      227
+    ],
+    [
+      "companySettings",
+      "company_settings",
+      236
+    ],
+    [
+      "partner",
+      "partner",
+      250
+    ],
+    [
+      "customer",
+      "customer",
+      271
+    ],
+    [
+      "item",
+      "item",
+      283
+    ],
+    [
+      "warehouse",
+      "warehouse",
+      301
+    ],
+    [
+      "stockMovement",
+      "stock_movement",
+      308
+    ],
+    [
+      "itemCostHistory",
+      "item_cost_history",
+      332
+    ],
+    [
+      "invoiceLine",
+      "invoice_line",
+      361
+    ],
+    [
+      "salesQuote",
+      "sales_quote",
+      371
+    ],
+    [
+      "salesQuoteLine",
+      "sales_quote_line",
+      387
+    ],
+    [
+      "salesOrder",
+      "sales_order",
+      400
+    ],
+    [
+      "salesOrderLine",
+      "sales_order_line",
+      416
+    ],
+    [
+      "deliveryNote",
+      "delivery_note",
+      429
+    ],
+    [
+      "deliveryNoteLine",
+      "delivery_note_line",
+      441
+    ],
+    [
+      "invoicePayment",
+      "invoice_payment",
+      449
+    ],
+    [
+      "purchaseOrder",
+      "purchase_order",
+      458
+    ],
+    [
+      "purchaseOrderLine",
+      "purchase_order_line",
+      467
+    ],
+    [
+      "goodsReceipt",
+      "goods_receipt",
+      477
+    ],
+    [
+      "goodsReceiptLine",
+      "goods_receipt_line",
+      483
+    ],
+    [
+      "supplierInvoice",
+      "supplier_invoice",
+      490
+    ],
+    [
+      "supplierInvoiceLine",
+      "supplier_invoice_line",
+      498
+    ],
+    [
+      "journal",
+      "journal",
+      508
+    ],
+    [
+      "accountChart",
+      "account_chart",
+      515
+    ],
+    [
+      "journalEntry",
+      "journal_entry",
+      523
+    ],
+    [
+      "journalLine",
+      "journal_line",
+      531
+    ],
+    [
+      "bankAccount",
+      "bank_account",
+      539
+    ],
+    [
+      "bankTransaction",
+      "bank_transaction",
+      546
+    ],
+    [
+      "tax",
+      "tax",
+      558
+    ],
+    [
+      "fiscalReport",
+      "fiscal_report",
+      565
+    ],
+    [
+      "kpiSnapshot",
+      "kpi_snapshot",
+      573
+    ],
+    [
+      "subscription",
+      "subscription",
+      581
+    ],
+    [
+      "apiKey",
+      "api_key",
+      589
+    ],
+    [
+      "invitation",
+      "invitation",
+      597
+    ],
+    [
+      "plan",
+      "plan",
+      608
+    ],
+    [
+      "payment",
+      "payment",
+      617
+    ],
+    [
+      "supplierPayment",
+      "supplier_payment",
+      626
+    ],
+    [
+      "supplierInvoicePayment",
+      "supplier_invoice_payment",
+      635
+    ]
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "file": "src/app/api/accounting/close-year/route.ts",
+      "path": "/api/accounting/close-year",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          12
+        ],
+        "ensureUserTenant": [
+          14
+        ],
+        "requestJson": [],
+        "dbOps": [
+          "update@L23"
+        ],
+        "serviceImports": [
+          "@/server/accounting/auto-post:postYearEndClosing"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/accounts/[id]/route.ts",
+      "path": "/api/accounts/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          20,
+          33
+        ],
+        "ensureUserTenant": [
+          11,
+          22,
+          35
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/accounting/service:deleteAccount,getAccount,updateAccount"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/accounts/[id]/route.ts",
+      "path": "/api/accounts/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/accounts/route.ts",
+      "path": "/api/accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          22
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/api-keys/route.ts",
+      "path": "/api/api-keys",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          12,
+          20
+        ],
+        "ensureUserTenant": [
+          14,
+          22
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [
+          "insert@L28"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/api-keys/route.ts",
+      "path": "/api/api-keys",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/bank-accounts/[id]/route.ts",
+      "path": "/api/bank-accounts/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          20,
+          36
+        ],
+        "ensureUserTenant": [
+          11,
+          22,
+          38
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/treasury/service:deleteBankAccount,getBankAccount,updateBankAccount"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/bank-accounts/[id]/route.ts",
+      "path": "/api/bank-accounts/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/bank-accounts/route.ts",
+      "path": "/api/bank-accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          19
+        ],
+        "ensureUserTenant": [
+          11,
+          21
+        ],
+        "requestJson": [
+          25
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/treasury/service:createBankAccount,listBankAccounts"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/bank-accounts/route.ts",
+      "path": "/api/bank-accounts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          25
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/bank-transactions/[id]/route.ts",
+      "path": "/api/bank-transactions/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          20,
+          40
+        ],
+        "ensureUserTenant": [
+          11,
+          22,
+          42
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/treasury/service:deleteBankTransaction,getBankTransaction,updateBankTransaction"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/bank-transactions/[id]/route.ts",
+      "path": "/api/bank-transactions/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/bank-transactions/route.ts",
+      "path": "/api/bank-transactions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          10,
+          18
+        ],
+        "ensureUserTenant": [
+          12,
+          20
+        ],
+        "requestJson": [
+          22
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/accounting/auto-post:postBankTransaction",
+          "@/server/treasury/service:createBankTransaction,listBankTransactions"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/bank-transactions/route.ts",
+      "path": "/api/bank-transactions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          22
+        ]
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/billing/checkout/route.ts",
+      "path": "/api/billing/checkout",
+      "methods": [
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          9
+        ]
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/billing/portal/route.ts",
+      "path": "/api/billing/portal",
+      "methods": [
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          9
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/company-settings/route.ts",
+      "path": "/api/company-settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          22,
+          37
+        ],
+        "ensureUserTenant": [
+          24,
+          39
+        ],
+        "requestJson": [
+          42
+        ],
+        "dbOps": [
+          "insert@L65",
+          "update@L53"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/customers/[id]/route.ts",
+      "path": "/api/customers/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          13,
+          43
+        ],
+        "ensureUserTenant": [
+          15,
+          45
+        ],
+        "requestJson": [
+          18
+        ],
+        "dbOps": [
+          "update@L27",
+          "delete@L48"
+        ],
+        "serviceImports": [
+          "@/server/audit:recordAudit",
+          "@/server/schemas/forms:updateCustomerSchema"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/customers/route.ts",
+      "path": "/api/customers",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          11
+        ],
+        "ensureUserTenant": [
+          17
+        ],
+        "requestJson": [
+          29
+        ],
+        "dbOps": [
+          "insert@L40"
+        ],
+        "serviceImports": [
+          "@/server/schemas/forms:createCustomerSchema"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/delivery-notes/[id]/to-invoice/route.ts",
+      "path": "/api/delivery-notes/[id]/to-invoice",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9
+        ],
+        "ensureUserTenant": [
+          11
+        ],
+        "requestJson": [],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/sales/service:convertDeliveryToInvoice"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/delivery-notes/route.ts",
+      "path": "/api/delivery-notes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          22,
+          30
+        ],
+        "ensureUserTenant": [
+          24,
+          32
+        ],
+        "requestJson": [
+          35
+        ],
+        "dbOps": [
+          "insert@L66",
+          "insert@L81",
+          "insert@L91"
+        ],
+        "serviceImports": [
+          "@/server/documents/series:reserveSeriesNumber",
+          "@/server/inventory/stock-location:refreshStockLocation"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/document-series/route.ts",
+      "path": "/api/document-series",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          11,
+          20
+        ],
+        "ensureUserTenant": [
+          13,
+          22
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [
+          "insert@L27"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/document-series/route.ts",
+      "path": "/api/document-series",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/fiscal-reports/[id]/route.ts",
+      "path": "/api/fiscal-reports/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          20,
+          33
+        ],
+        "ensureUserTenant": [
+          11,
+          22,
+          35
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/fiscal/service:deleteFiscalReport,getFiscalReport,updateFiscalReport"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/fiscal-reports/[id]/route.ts",
+      "path": "/api/fiscal-reports/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/fiscal-reports/route.ts",
+      "path": "/api/fiscal-reports",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          17
+        ],
+        "ensureUserTenant": [
+          11,
+          19
+        ],
+        "requestJson": [
+          21
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/fiscal/service:createFiscalReport,listFiscalReports"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/fiscal-reports/route.ts",
+      "path": "/api/fiscal-reports",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          21
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/goods-receipts/route.ts",
+      "path": "/api/goods-receipts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          27,
+          46
+        ],
+        "ensureUserTenant": [
+          29,
+          48
+        ],
+        "requestJson": [
+          51
+        ],
+        "dbOps": [
+          "insert@L76",
+          "insert@L102",
+          "insert@L105"
+        ],
+        "serviceImports": [
+          "@/server/inventory/stock-location:refreshStockLocation,registerInMovementCost"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/inventory/route.ts",
+      "path": "/api/inventory",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          12,
+          20
+        ],
+        "ensureUserTenant": [
+          14,
+          22
+        ],
+        "requestJson": [
+          27
+        ],
+        "dbOps": [
+          "insert@L33",
+          "insert@L41",
+          "insert@L51"
+        ],
+        "serviceImports": [
+          "@/server/inventory/service:getStockSnapshot"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/inventory/route.ts",
+      "path": "/api/inventory",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          27
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/invitations/[id]/accept/route.ts",
+      "path": "/api/invitations/[id]/accept",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          7
+        ],
+        "ensureUserTenant": [],
+        "requestJson": [],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/team/service:acceptInvitation"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/invitations/route.ts",
+      "path": "/api/invitations",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9
+        ],
+        "ensureUserTenant": [
+          11
+        ],
+        "requestJson": [
+          13
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/team/service:createInvitation"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/invitations/route.ts",
+      "path": "/api/invitations",
+      "methods": [
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          13
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/invoice-payments/route.ts",
+      "path": "/api/invoice-payments",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          19,
+          27
+        ],
+        "ensureUserTenant": [
+          21,
+          29
+        ],
+        "requestJson": [
+          32
+        ],
+        "dbOps": [
+          "insert@L42",
+          "insert@L49"
+        ],
+        "serviceImports": [
+          "@/server/accounting/auto-post:postCustomerPayment"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/invoices/[id]/route.ts",
+      "path": "/api/invoices/[id]",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          13,
+          36
+        ],
+        "ensureUserTenant": [
+          15,
+          38
+        ],
+        "requestJson": [
+          18
+        ],
+        "dbOps": [
+          "update@L26",
+          "delete@L41"
+        ],
+        "serviceImports": [
+          "@/server/audit:recordAudit",
+          "@/server/schemas/forms:updateInvoiceSchema"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/invoices/route.ts",
+      "path": "/api/invoices",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          14
+        ],
+        "ensureUserTenant": [
+          20
+        ],
+        "requestJson": [
+          32
+        ],
+        "dbOps": [
+          "insert@L65",
+          "insert@L82",
+          "transaction@L63"
+        ],
+        "serviceImports": [
+          "@/server/accounting/auto-post:postSalesInvoice",
+          "@/server/schemas/forms:createInvoiceSchema"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/item-categories/route.ts",
+      "path": "/api/item-categories",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          17,
+          30
+        ],
+        "ensureUserTenant": [
+          19,
+          32
+        ],
+        "requestJson": [
+          35
+        ],
+        "dbOps": [
+          "insert@L39"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/items/route.ts",
+      "path": "/api/items",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          11,
+          19
+        ],
+        "ensureUserTenant": [
+          13,
+          21
+        ],
+        "requestJson": [
+          23
+        ],
+        "dbOps": [
+          "insert@L25"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/items/route.ts",
+      "path": "/api/items",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          23
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/journal-entries/[id]/route.ts",
+      "path": "/api/journal-entries/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          20,
+          41
+        ],
+        "ensureUserTenant": [
+          11,
+          22,
+          43
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/accounting/service:deleteJournalEntry,getJournalEntry,updateJournalEntry"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/journal-entries/[id]/route.ts",
+      "path": "/api/journal-entries/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/journal-entries/route.ts",
+      "path": "/api/journal-entries",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          17
+        ],
+        "ensureUserTenant": [
+          11,
+          19
+        ],
+        "requestJson": [
+          21
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/accounting/service:createJournalEntry,listJournalEntries"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/journal-entries/route.ts",
+      "path": "/api/journal-entries",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          21
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/payment-methods/route.ts",
+      "path": "/api/payment-methods",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          18,
+          26
+        ],
+        "ensureUserTenant": [
+          20,
+          28
+        ],
+        "requestJson": [
+          31
+        ],
+        "dbOps": [
+          "insert@L34"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/purchases/[id]/route.ts",
+      "path": "/api/purchases/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9,
+          23,
+          45
+        ],
+        "ensureUserTenant": [
+          11,
+          25,
+          47
+        ],
+        "requestJson": [
+          30
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/purchases/service:deletePurchaseOrder,getPurchaseOrder,updatePurchaseOrder"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/purchases/[id]/route.ts",
+      "path": "/api/purchases/[id]",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          30
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/purchases/route.ts",
+      "path": "/api/purchases",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          25,
+          33
+        ],
+        "ensureUserTenant": [
+          27,
+          35
+        ],
+        "requestJson": [
+          40
+        ],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/purchases/service:createPurchaseOrder,listPurchaseOrders"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/sales-orders/[id]/to-delivery/route.ts",
+      "path": "/api/sales-orders/[id]/to-delivery",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9
+        ],
+        "ensureUserTenant": [
+          11
+        ],
+        "requestJson": [],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/sales/service:convertOrderToDelivery"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/sales-orders/route.ts",
+      "path": "/api/sales-orders",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          24,
+          32
+        ],
+        "ensureUserTenant": [
+          26,
+          34
+        ],
+        "requestJson": [
+          37
+        ],
+        "dbOps": [
+          "insert@L56",
+          "insert@L74",
+          "update@L89"
+        ],
+        "serviceImports": [
+          "@/server/documents/series:reserveSeriesNumber"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/sales-quotes/[id]/to-order/route.ts",
+      "path": "/api/sales-quotes/[id]/to-order",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9
+        ],
+        "ensureUserTenant": [
+          11
+        ],
+        "requestJson": [],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/sales/service:convertQuoteToOrder"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/sales-quotes/route.ts",
+      "path": "/api/sales-quotes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          35,
+          43
+        ],
+        "ensureUserTenant": [
+          37,
+          45
+        ],
+        "requestJson": [
+          48
+        ],
+        "dbOps": [
+          "insert@L68",
+          "insert@L80",
+          "transaction@L59"
+        ],
+        "serviceImports": [
+          "@/server/documents/series:reserveSeriesNumber",
+          "@/server/taxation/engine:computeDocumentTotals"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/stock-movements/route.ts",
+      "path": "/api/stock-movements",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          12,
+          20
+        ],
+        "ensureUserTenant": [
+          14,
+          22
+        ],
+        "requestJson": [
+          24
+        ],
+        "dbOps": [
+          "insert@L34"
+        ],
+        "serviceImports": [
+          "@/server/inventory/stock-location:refreshStockLocation"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/stock-movements/route.ts",
+      "path": "/api/stock-movements",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          24
+        ]
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/storage/presign/route.ts",
+      "path": "/api/storage/presign",
+      "methods": [
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          9
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/supplier-invoices/route.ts",
+      "path": "/api/supplier-invoices",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          29,
+          37
+        ],
+        "ensureUserTenant": [
+          31,
+          39
+        ],
+        "requestJson": [
+          42
+        ],
+        "dbOps": [
+          "insert@L114",
+          "insert@L121",
+          "transaction@L104"
+        ],
+        "serviceImports": [
+          "@/server/accounting/auto-post:postSupplierInvoice",
+          "@/server/documents/series:reserveSeriesNumber"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/supplier-payments/route.ts",
+      "path": "/api/supplier-payments",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          19,
+          27
+        ],
+        "ensureUserTenant": [
+          21,
+          29
+        ],
+        "requestJson": [
+          32
+        ],
+        "dbOps": [
+          "insert@L42",
+          "insert@L49"
+        ],
+        "serviceImports": [
+          "@/server/accounting/auto-post:postSupplierPayment"
+        ],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/tax-retentions/route.ts",
+      "path": "/api/tax-retentions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          17,
+          25
+        ],
+        "ensureUserTenant": [
+          19,
+          27
+        ],
+        "requestJson": [
+          30
+        ],
+        "dbOps": [
+          "insert@L34"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/taxes/route.ts",
+      "path": "/api/taxes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          11,
+          18
+        ],
+        "ensureUserTenant": [
+          13,
+          20
+        ],
+        "requestJson": [
+          22
+        ],
+        "dbOps": [
+          "insert@L24"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/taxes/route.ts",
+      "path": "/api/taxes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          22
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/treasury/reconcile/route.ts",
+      "path": "/api/treasury/reconcile",
+      "methods": [
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          9
+        ],
+        "ensureUserTenant": [
+          11
+        ],
+        "requestJson": [],
+        "dbOps": [],
+        "serviceImports": [
+          "@/server/treasury/reconciliation:autoReconcileBankTransactions"
+        ],
+        "mutationCalls": [
+          "autoReconcileBankTransactions@L14"
+        ]
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/unit-of-measure/route.ts",
+      "path": "/api/unit-of-measure",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          17,
+          26
+        ],
+        "ensureUserTenant": [
+          19,
+          28
+        ],
+        "requestJson": [
+          31
+        ],
+        "dbOps": [
+          "insert@L35"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "high",
+      "file": "src/app/api/warehouses/route.ts",
+      "path": "/api/warehouses",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "mutation endpoint without requireContext() in route",
+      "evidence": {
+        "getUserSession": [
+          11,
+          19
+        ],
+        "ensureUserTenant": [
+          13,
+          21
+        ],
+        "requestJson": [
+          23
+        ],
+        "dbOps": [
+          "insert@L25"
+        ],
+        "serviceImports": [],
+        "mutationCalls": []
+      }
+    },
+    {
+      "severity": "medium",
+      "file": "src/app/api/warehouses/route.ts",
+      "path": "/api/warehouses",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "issue": "request.json() without visible zod parse/safeParse in route",
+      "evidence": {
+        "requestJson": [
+          23
+        ]
+      }
+    }
+  ]
+}

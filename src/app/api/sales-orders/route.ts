@@ -44,6 +44,23 @@ export async function POST(request: Request) {
     .limit(1);
   if (!ownedCustomer) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
 
+  const [ownedQuote] = parsed.data.salesQuoteId
+    ? await db
+        .select({ id: salesQuote.id })
+        .from(salesQuote)
+        .where(
+          and(
+            eq(salesQuote.id, parsed.data.salesQuoteId),
+            eq(salesQuote.companyId, ctx.company.id),
+            eq(salesQuote.customerId, parsed.data.customerId),
+          ),
+        )
+        .limit(1)
+    : [];
+  if (parsed.data.salesQuoteId && !ownedQuote) {
+    return NextResponse.json({ message: "Presupuesto no encontrado." }, { status: 404 });
+  }
+
   const created = await db.transaction(async (tx) => {
     const number =
       parsed.data.number?.trim() ||
@@ -88,7 +105,7 @@ export async function POST(request: Request) {
       await tx
         .update(salesQuote)
         .set({ status: "CONFIRMED", updatedAt: new Date() })
-        .where(eq(salesQuote.id, parsed.data.salesQuoteId));
+        .where(and(eq(salesQuote.id, parsed.data.salesQuoteId), eq(salesQuote.companyId, ctx.company.id)));
     }
 
     return header;

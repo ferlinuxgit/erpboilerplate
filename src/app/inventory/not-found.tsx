@@ -1,0 +1,5 @@
+import { RouteNotFoundState } from "@/components/route-state";
+
+export default function NotFound() {
+  return <RouteNotFoundState title="Recurso de inventario no encontrado" description="El recurso solicitado no existe o no pertenece a tu empresa activa." />;
+}

@@ -54,6 +54,23 @@ export async function POST(request: Request) {
         .limit(1);
   if (!ownedWarehouse) return NextResponse.json({ message: "Almacén no encontrado." }, { status: 404 });
 
+  const [ownedOrder] = parsed.data.salesOrderId
+    ? await db
+        .select({ id: salesOrder.id })
+        .from(salesOrder)
+        .where(
+          and(
+            eq(salesOrder.id, parsed.data.salesOrderId),
+            eq(salesOrder.companyId, ctx.company.id),
+            eq(salesOrder.customerId, parsed.data.customerId),
+          ),
+        )
+        .limit(1)
+    : [];
+  if (parsed.data.salesOrderId && !ownedOrder) {
+    return NextResponse.json({ message: "Pedido no encontrado." }, { status: 404 });
+  }
+
   const created = await db.transaction(async (tx) => {
     const number =
       parsed.data.number?.trim() ||
@@ -96,25 +113,17 @@ export async function POST(request: Request) {
             quantity: line.quantity,
             movedAt: new Date(parsed.data.issuedAt),
           });
+          await refreshStockLocation({ companyId: ctx.company.id, itemId: line.itemId, warehouseId: ownedWarehouse.id }, tx);
         }
       }
       await tx
         .update(salesOrder)
         .set({ status: "DELIVERED", updatedAt: new Date() })
-        .where(eq(salesOrder.id, parsed.data.salesOrderId));
+        .where(and(eq(salesOrder.id, parsed.data.salesOrderId), eq(salesOrder.companyId, ctx.company.id)));
     }
 
     return header;
   });
-
-  const createdLines = await db
-    .select({ itemId: deliveryNoteLine.itemId })
-    .from(deliveryNoteLine)
-    .where(eq(deliveryNoteLine.deliveryNoteId, created.id));
-  for (const line of createdLines) {
-    if (!line.itemId) continue;
-    await refreshStockLocation({ companyId: ctx.company.id, itemId: line.itemId, warehouseId: ownedWarehouse.id });
-  }
 
   return NextResponse.json(created, { status: 201 });
 }

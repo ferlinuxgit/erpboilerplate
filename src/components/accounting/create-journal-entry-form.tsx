@@ -1,57 +1,124 @@
 "use client";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { calculateJournalTotals, canSubmitJournalEntry, updateJournalLineAmount, type JournalFormLine } from "@/components/accounting/journal-entry-utils";
 
 type AccountOption = { id: string; code: string; name: string };
-type EntryLine = { accountId: string; debit: string; credit: string };
+
+function emptyLine(accounts: AccountOption[]): JournalFormLine {
+  return { accountId: accounts[0]?.id ?? "", debit: "", credit: "" };
+}
 
 export function CreateJournalEntryForm({ accounts }: { accounts: AccountOption[] }) {
   const router = useRouter();
   const [postedAt, setPostedAt] = useState("");
   const [reference, setReference] = useState("");
-  const [lines, setLines] = useState<EntryLine[]>([
-    { accountId: accounts[0]?.id ?? "", debit: "", credit: "" },
-    { accountId: accounts[0]?.id ?? "", debit: "", credit: "" },
-  ]);
+  const [lines, setLines] = useState<JournalFormLine[]>([emptyLine(accounts), emptyLine(accounts)]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const totalDebit = useMemo(() => lines.reduce((acc, l) => acc + Number(l.debit || 0), 0), [lines]);
-  const totalCredit = useMemo(() => lines.reduce((acc, l) => acc + Number(l.credit || 0), 0), [lines]);
-  const isBalanced = Number(totalDebit.toFixed(2)) === Number(totalCredit.toFixed(2)) && totalDebit > 0;
-  const hasEmpty = lines.some((line) => !line.accountId || (!line.debit && !line.credit));
+  const totals = useMemo(() => calculateJournalTotals(lines), [lines]);
+  const canSubmit = canSubmitJournalEntry({ postedAt, lines });
+  const errorId = error ? "create-journal-entry-error" : undefined;
+
+  function updateLine(index: number, next: Partial<JournalFormLine>) {
+    setLines((prev) => prev.map((line, lineIndex) => lineIndex === index ? { ...line, ...next } : line));
+  }
 
   return (
-    <form className="space-y-3" onSubmit={async (event) => {
+    <form className="space-y-4" onSubmit={async (event) => {
       event.preventDefault();
-      setLoading(true); setError(null);
+      if (!canSubmit) {
+        setError("El asiento debe tener fecha, lineas validas y estar balanceado antes de guardar.");
+        return;
+      }
+      setLoading(true);
+      setError(null);
       try {
-        const res = await fetch("/api/journal-entries", { method: "POST", headers: { "Content-Type": "application/json", ...getCsrfHeader() }, body: JSON.stringify({ postedAt, reference, lines }) });
-        if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");
-        setReference(""); setPostedAt(""); router.refresh();
-      } catch (e) { setError(e instanceof Error ? e.message : "Error inesperado."); } finally { setLoading(false); }
+        const res = await fetch("/api/journal-entries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+          body: JSON.stringify({ postedAt, reference, lines }),
+        });
+        if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "No se pudo crear el asiento.");
+        setReference("");
+        setPostedAt("");
+        setLines([emptyLine(accounts), emptyLine(accounts)]);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Error inesperado.");
+      } finally {
+        setLoading(false);
+      }
     }}>
-      <div className="grid gap-2 md:grid-cols-2">
-        <Input type="date" value={postedAt} onChange={(e) => setPostedAt(e.target.value)} required />
-        <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Referencia" />
-      </div>
-      {lines.map((line, index) => (
-        <div key={index} className="grid gap-2 md:grid-cols-4">
-          <select className="h-8 rounded-md border px-2 text-sm" value={line.accountId} onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? { ...x, accountId: e.target.value } : x))}>
-            {accounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
-          </select>
-          <Input type="number" step="0.01" placeholder="Debe" value={line.debit} onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? { ...x, debit: e.target.value } : x))} />
-          <Input type="number" step="0.01" placeholder="Haber" value={line.credit} onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? { ...x, credit: e.target.value } : x))} />
-          <Button type="button" variant="outline" disabled={lines.length <= 2} onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>Eliminar linea</Button>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="journal-posted-at">Fecha</Label>
+          <Input id="journal-posted-at" type="date" value={postedAt} onChange={(e) => setPostedAt(e.target.value)} required aria-describedby={errorId} />
         </div>
-      ))}
-      <Button type="button" variant="outline" onClick={() => setLines((prev) => [...prev, { accountId: accounts[0]?.id ?? "", debit: "", credit: "" }])}>Anadir linea</Button>
-      <p className={`text-sm ${isBalanced ? "text-emerald-700" : "text-amber-700"}`}>Debe: {totalDebit.toFixed(2)} | Haber: {totalCredit.toFixed(2)} | {isBalanced ? "Balanceado" : "Desbalanceado"}</p>
-      <Button type="submit" disabled={loading || hasEmpty || !isBalanced}>{loading ? "Guardando..." : "Crear asiento"}</Button>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        <div className="space-y-2">
+          <Label htmlFor="journal-reference">Referencia</Label>
+          <Input id="journal-reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Referencia" aria-describedby={errorId} />
+        </div>
+      </div>
+      <div className="space-y-3" aria-label="Lineas del asiento">
+        {lines.map((line, index) => (
+          <div key={index} className="grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_auto]">
+            <div className="space-y-2">
+              <Label htmlFor={`journal-line-${index}-account`}>Cuenta linea {index + 1}</Label>
+              <select
+                id={`journal-line-${index}-account`}
+                className="h-9 w-full rounded-md border px-2 text-sm"
+                value={line.accountId}
+                onChange={(e) => updateLine(index, { accountId: e.target.value })}
+                aria-describedby={errorId}
+              >
+                {accounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`journal-line-${index}-debit`}>Debe</Label>
+              <Input
+                id={`journal-line-${index}-debit`}
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                type="number"
+                value={line.debit}
+                onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? updateJournalLineAmount(x, "debit", e.target.value) : x))}
+                aria-describedby={errorId}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`journal-line-${index}-credit`}>Haber</Label>
+              <Input
+                id={`journal-line-${index}-credit`}
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                type="number"
+                value={line.credit}
+                onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? updateJournalLineAmount(x, "credit", e.target.value) : x))}
+                aria-describedby={errorId}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button type="button" variant="outline" disabled={lines.length <= 2} onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>Eliminar linea</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <Button type="button" variant="outline" onClick={() => setLines((prev) => [...prev, emptyLine(accounts)])}>Anadir linea</Button>
+      <p className={`text-sm ${totals.isBalanced ? "text-emerald-700" : "text-amber-700"}`} aria-live="polite">
+        Debe: {totals.totalDebit.toFixed(2)} | Haber: {totals.totalCredit.toFixed(2)} | Diferencia: {totals.difference.toFixed(2)} | {totals.isBalanced ? "Balanceado" : "Desbalanceado"}
+      </p>
+      {error ? <p id="create-journal-entry-error" className="text-sm text-red-600" role="alert">{error}</p> : null}
+      <Button type="submit" disabled={loading || !canSubmit}>{loading ? "Guardando..." : "Crear asiento"}</Button>
     </form>
   );
 }

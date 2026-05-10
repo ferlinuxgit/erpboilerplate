@@ -1,7 +1,7 @@
 import { and, eq, gte, ilike, lte, sql } from "drizzle-orm";
 
 import { accountChart, companySettings, fiscalYear, journalEntry, journalLine } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 import { ensureDefaultJournal } from "@/server/accounting/service";
 import { recordAudit } from "@/server/audit";
 
@@ -11,6 +11,7 @@ type PostingInput = {
   actorUserId: string;
   postedAt: Date;
   reference: string;
+  dbClient?: DbClient;
 };
 
 type AccountsMap = {
@@ -24,8 +25,8 @@ type AccountsMap = {
   retention: string;
 };
 
-async function resolveAccountId(companyId: string, code: string) {
-  const [account] = await db
+async function resolveAccountId(client: DbClient, companyId: string, code: string) {
+  const [account] = await client
     .select({ id: accountChart.id })
     .from(accountChart)
     .where(and(eq(accountChart.companyId, companyId), eq(accountChart.code, code)))
@@ -36,8 +37,8 @@ async function resolveAccountId(companyId: string, code: string) {
   return account.id;
 }
 
-async function resolveAccounts(companyId: string): Promise<AccountsMap> {
-  const [settings] = await db
+async function resolveAccounts(companyId: string, client: DbClient = db): Promise<AccountsMap> {
+  const [settings] = await client
     .select()
     .from(companySettings)
     .where(eq(companySettings.companyId, companyId))
@@ -55,14 +56,14 @@ async function resolveAccounts(companyId: string): Promise<AccountsMap> {
   };
 
   return {
-    customer: await resolveAccountId(companyId, defaults.customer),
-    supplier: await resolveAccountId(companyId, defaults.supplier),
-    sales: await resolveAccountId(companyId, defaults.sales),
-    purchase: await resolveAccountId(companyId, defaults.purchase),
-    bank: await resolveAccountId(companyId, defaults.bank),
-    vatOutput: await resolveAccountId(companyId, defaults.vatOutput),
-    vatInput: await resolveAccountId(companyId, defaults.vatInput),
-    retention: await resolveAccountId(companyId, defaults.retention),
+    customer: await resolveAccountId(client, companyId, defaults.customer),
+    supplier: await resolveAccountId(client, companyId, defaults.supplier),
+    sales: await resolveAccountId(client, companyId, defaults.sales),
+    purchase: await resolveAccountId(client, companyId, defaults.purchase),
+    bank: await resolveAccountId(client, companyId, defaults.bank),
+    vatOutput: await resolveAccountId(client, companyId, defaults.vatOutput),
+    vatInput: await resolveAccountId(client, companyId, defaults.vatInput),
+    retention: await resolveAccountId(client, companyId, defaults.retention),
   };
 }
 
@@ -74,8 +75,9 @@ async function createEntry(
     entityId: string;
   },
 ) {
-  const defaultJournal = await ensureDefaultJournal(input.companyId);
-  const [createdEntry] = await db
+  const client = input.dbClient ?? db;
+  const defaultJournal = await ensureDefaultJournal(input.companyId, client);
+  const [createdEntry] = await client
     .insert(journalEntry)
     .values({
       companyId: input.companyId,
@@ -85,7 +87,7 @@ async function createEntry(
     })
     .returning({ id: journalEntry.id });
 
-  await db.insert(journalLine).values(
+  await client.insert(journalLine).values(
     input.lines.map((line) => ({
       journalEntryId: createdEntry.id,
       accountId: line.accountId,
@@ -94,36 +96,45 @@ async function createEntry(
     })),
   );
 
-  await recordAudit({
-    tenantId: input.tenantId,
-    companyId: input.companyId,
-    actorUserId: input.actorUserId,
-    action: input.action,
-    entityName: input.entityName,
-    entityId: input.entityId,
-    payload: { journalEntryId: createdEntry.id, reference: input.reference },
-  });
+  await recordAudit(
+    {
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      actorUserId: input.actorUserId,
+      action: input.action,
+      entityName: input.entityName,
+      entityId: input.entityId,
+      payload: { journalEntryId: createdEntry.id, reference: input.reference },
+    },
+    client,
+  );
 }
 
-export async function postSalesInvoice(input: PostingInput & { invoiceId: string; subtotal: number; taxAmount: number; totalAmount: number }) {
-  const accounts = await resolveAccounts(input.companyId);
+export async function postSalesInvoice(
+  input: PostingInput & { invoiceId: string; subtotal: number; taxAmount: number; totalAmount: number; retentionAmount?: number },
+) {
+  const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
+  const retentionAmount = input.retentionAmount && input.retentionAmount > 0 ? input.retentionAmount : 0;
+  const lines = [
+    { accountId: accounts.customer, debit: input.totalAmount.toFixed(2), credit: "0.00" },
+    { accountId: accounts.sales, debit: "0.00", credit: input.subtotal.toFixed(2) },
+    { accountId: accounts.vatOutput, debit: "0.00", credit: input.taxAmount.toFixed(2) },
+    ...(retentionAmount > 0 ? [{ accountId: accounts.retention, debit: retentionAmount.toFixed(2), credit: "0.00" }] : []),
+  ];
+
   await createEntry({
     ...input,
     action: "accounting.autopost.salesInvoice",
     entityName: "invoice",
     entityId: input.invoiceId,
-    lines: [
-      { accountId: accounts.customer, debit: input.totalAmount.toFixed(2), credit: "0.00" },
-      { accountId: accounts.sales, debit: "0.00", credit: input.subtotal.toFixed(2) },
-      { accountId: accounts.vatOutput, debit: "0.00", credit: input.taxAmount.toFixed(2) },
-    ],
+    lines,
   });
 }
 
 export async function postSupplierInvoice(
   input: PostingInput & { supplierInvoiceId: string; subtotal: number; taxAmount: number; totalAmount: number },
 ) {
-  const accounts = await resolveAccounts(input.companyId);
+  const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
   await createEntry({
     ...input,
     action: "accounting.autopost.supplierInvoice",
@@ -138,7 +149,7 @@ export async function postSupplierInvoice(
 }
 
 export async function postCustomerPayment(input: PostingInput & { paymentId: string; amount: number }) {
-  const accounts = await resolveAccounts(input.companyId);
+  const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
   await createEntry({
     ...input,
     action: "accounting.autopost.customerPayment",
@@ -152,7 +163,7 @@ export async function postCustomerPayment(input: PostingInput & { paymentId: str
 }
 
 export async function postSupplierPayment(input: PostingInput & { supplierPaymentId: string; amount: number }) {
-  const accounts = await resolveAccounts(input.companyId);
+  const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
   await createEntry({
     ...input,
     action: "accounting.autopost.supplierPayment",
@@ -166,7 +177,7 @@ export async function postSupplierPayment(input: PostingInput & { supplierPaymen
 }
 
 export async function postBankTransaction(input: PostingInput & { bankTransactionId: string; amount: number }) {
-  const accounts = await resolveAccounts(input.companyId);
+  const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
   const isDeposit = input.amount >= 0;
   await createEntry({
     ...input,

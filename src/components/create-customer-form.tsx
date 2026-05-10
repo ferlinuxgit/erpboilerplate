@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
+import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
@@ -55,39 +55,42 @@ export function CreateCustomerForm() {
   });
 
   return (
-    <form className="grid gap-4 md:grid-cols-4" onSubmit={onSubmit}>
-      <div className="space-y-2">
-        <Label htmlFor="customer-name">Nombre</Label>
+    <form className="grid gap-4 md:grid-cols-4" data-testid="customer-create-form" onSubmit={onSubmit}>
+      <AccessibleField id="customer-name" label="Nombre" required error={errors.name?.message} helperText="Nombre fiscal o comercial del cliente.">
         <Input
+          data-testid="customer-name-input"
           id="customer-name"
           minLength={2}
           placeholder="Ej: Acme S.L."
           required
+          aria-invalid={Boolean(errors.name)}
+          aria-describedby={errors.name ? "customer-name-error" : "customer-name-helper"}
           {...register("name")}
         />
-        {errors.name ? <p className="text-sm text-red-600">{errors.name.message}</p> : null}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="customer-email">Email</Label>
+      </AccessibleField>
+      <AccessibleField id="customer-email" label="Email" error={errors.email?.message} helperText="Opcional; se usará para comunicaciones comerciales.">
         <Input
+          data-testid="customer-email-input"
           id="customer-email"
           placeholder="contacto@acme.com"
           type="email"
+          aria-invalid={Boolean(errors.email)}
+          aria-describedby={errors.email ? "customer-email-error" : "customer-email-helper"}
           {...register("email")}
         />
-        {errors.email ? <p className="text-sm text-red-600">{errors.email.message}</p> : null}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="customer-phone">Teléfono</Label>
+      </AccessibleField>
+      <AccessibleField id="customer-phone" label="Teléfono" error={errors.phone?.message} helperText="Opcional; incluye prefijo si aplica.">
         <Input
+          data-testid="customer-phone-input"
           id="customer-phone"
           placeholder="+34 600 000 000"
+          aria-invalid={Boolean(errors.phone)}
+          aria-describedby={errors.phone ? "customer-phone-error" : "customer-phone-helper"}
           {...register("phone")}
         />
-        {errors.phone ? <p className="text-sm text-red-600">{errors.phone.message}</p> : null}
-      </div>
+      </AccessibleField>
       <div className="space-y-2 self-end">
-        <Button className="w-full" disabled={isSubmitting} type="submit">
+        <Button className="w-full" data-testid="customer-create-submit" disabled={isSubmitting} type="submit">
           {isSubmitting ? "Guardando..." : "Crear cliente"}
         </Button>
       </div>

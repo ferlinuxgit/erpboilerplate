@@ -14,7 +14,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const { id } = await params;
   try {
     const created = await convertDeliveryToInvoice({
+      tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
+      actorUserId: session.user.id,
       fiscalYearId: ctx.fiscalYear.id,
       deliveryNoteId: id,
     });

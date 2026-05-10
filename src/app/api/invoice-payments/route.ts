@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
   const [ownedInvoice] = await db
-    .select({ id: invoice.id })
+    .select({ id: invoice.id, totalAmount: invoice.totalAmount })
     .from(invoice)
     .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)))
     .limit(1);
@@ -52,6 +52,17 @@ export async function POST(request: Request) {
     paymentId: createdPayment.id,
     amountApplied: parsed.data.amountApplied.toFixed(2),
   }).returning();
+
+  const appliedPayments = await db
+    .select({ amountApplied: invoicePayment.amountApplied })
+    .from(invoicePayment)
+    .where(and(eq(invoicePayment.invoiceId, parsed.data.invoiceId), eq(invoicePayment.companyId, ctx.company.id)));
+  const paidAmount = appliedPayments.reduce((total, payment) => total + Number(payment.amountApplied), 0);
+  const invoiceTotal = Number(ownedInvoice.totalAmount);
+  await db
+    .update(invoice)
+    .set({ paymentStatus: paidAmount >= invoiceTotal ? "PAID" : "PARTIAL", updatedAt: new Date() })
+    .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)));
 
   await postCustomerPayment({
     tenantId: ctx.tenant.id,

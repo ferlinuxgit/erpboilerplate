@@ -1,8 +1,9 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { accountChart, company, journal, journalEntry, journalLine } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
+import { validateJournalLines, type JournalLineInput } from "@/server/accounting/journal-validation";
 
 export async function getTrialBalance(companyId: string) {
   return db
@@ -46,10 +47,10 @@ export async function deleteAccount(companyId: string, tenantId: string, actorUs
   return true;
 }
 
-export async function ensureDefaultJournal(companyId: string) {
-  const existing = await db.select().from(journal).where(eq(journal.companyId, companyId)).limit(1);
+export async function ensureDefaultJournal(companyId: string, client: DbClient = db) {
+  const existing = await client.select().from(journal).where(eq(journal.companyId, companyId)).limit(1);
   if (existing[0]) return existing[0];
-  const [created] = await db.insert(journal).values({ companyId, code: "GEN", name: "Diario general" }).returning();
+  const [created] = await client.insert(journal).values({ companyId, code: "GEN", name: "Diario general" }).returning();
   return created;
 }
 
@@ -76,32 +77,30 @@ export async function getJournalEntry(companyId: string, id: string) {
   return { ...entries[0], lines };
 }
 
-function validateLines(lines: Array<{ accountId: string; debit: string; credit: string }>) {
-  if (lines.length < 2) throw new Error("El asiento debe tener al menos dos lineas.");
-  const totalDebit = lines.reduce((acc, line) => acc + Number(line.debit || 0), 0);
-  const totalCredit = lines.reduce((acc, line) => acc + Number(line.credit || 0), 0);
-  if (totalDebit <= 0 || totalCredit <= 0 || Number(totalDebit.toFixed(2)) !== Number(totalCredit.toFixed(2))) {
-    throw new Error("El asiento debe estar balanceado (debe = haber).");
-  }
+async function assertAccountsBelongToCompany(companyId: string, lines: Array<{ accountId: string }>) {
+  const allowedAccounts = await db.select({ id: accountChart.id }).from(accountChart).where(eq(accountChart.companyId, companyId));
+  const allowedSet = new Set(allowedAccounts.map((account) => account.id));
+  if (lines.some((line) => !allowedSet.has(line.accountId))) throw new Error("Cuenta contable invalida.");
 }
 
 export async function createJournalEntry(
   companyId: string,
   tenantId: string,
   actorUserId: string,
-  payload: { postedAt: Date; reference?: string; lines: Array<{ accountId: string; debit: string; credit: string }> },
+  payload: { postedAt: Date; reference?: string; lines: JournalLineInput[] },
 ) {
-  validateLines(payload.lines);
-  const allowedAccounts = await db.select({ id: accountChart.id }).from(accountChart).where(eq(accountChart.companyId, companyId));
-  const allowedSet = new Set(allowedAccounts.map((a) => a.id));
-  if (payload.lines.some((line) => !allowedSet.has(line.accountId))) throw new Error("Cuenta contable invalida.");
-  return db.transaction(async (tx) => {
-    const defaultJournal = await ensureDefaultJournal(companyId);
-    const [entry] = await tx.insert(journalEntry).values({ companyId, journalId: defaultJournal.id, postedAt: payload.postedAt, reference: payload.reference ?? null }).returning();
-    await tx.insert(journalLine).values(payload.lines.map((line) => ({ journalEntryId: entry.id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
-    await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.create", entityName: "journalEntry", entityId: entry.id, payload });
-    return entry;
+  const { lines } = validateJournalLines(payload.lines);
+  await assertAccountsBelongToCompany(companyId, lines);
+  const defaultJournal = await ensureDefaultJournal(companyId);
+
+  const entry = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(journalEntry).values({ companyId, journalId: defaultJournal.id, postedAt: payload.postedAt, reference: payload.reference ?? null }).returning();
+    await tx.insert(journalLine).values(lines.map((line) => ({ journalEntryId: created.id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
+    return created;
   });
+
+  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.create", entityName: "journalEntry", entityId: entry.id, payload: { ...payload, lines } });
+  return entry;
 }
 
 export async function updateJournalEntry(
@@ -109,17 +108,22 @@ export async function updateJournalEntry(
   tenantId: string,
   actorUserId: string,
   id: string,
-  payload: { postedAt: Date; reference?: string; lines: Array<{ accountId: string; debit: string; credit: string }> },
+  payload: { postedAt: Date; reference?: string; lines: JournalLineInput[] },
 ) {
-  validateLines(payload.lines);
-  return db.transaction(async (tx) => {
-    const [updated] = await tx.update(journalEntry).set({ postedAt: payload.postedAt, reference: payload.reference ?? null }).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).returning();
-    if (!updated) return null;
+  const { lines } = validateJournalLines(payload.lines);
+  await assertAccountsBelongToCompany(companyId, lines);
+
+  const updated = await db.transaction(async (tx) => {
+    const [entry] = await tx.update(journalEntry).set({ postedAt: payload.postedAt, reference: payload.reference ?? null }).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).returning();
+    if (!entry) return null;
     await tx.delete(journalLine).where(eq(journalLine.journalEntryId, id));
-    await tx.insert(journalLine).values(payload.lines.map((line) => ({ journalEntryId: id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
-    await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.update", entityName: "journalEntry", entityId: id, payload });
-    return updated;
+    await tx.insert(journalLine).values(lines.map((line) => ({ journalEntryId: id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
+    return entry;
   });
+
+  if (!updated) return null;
+  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.update", entityName: "journalEntry", entityId: id, payload: { ...payload, lines } });
+  return updated;
 }
 
 export async function deleteJournalEntry(companyId: string, tenantId: string, actorUserId: string, id: string) {
@@ -132,6 +136,7 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
 export async function getLedgerByAccount(companyId: string, accountId: string) {
   return db
     .select({
+      lineId: journalLine.id,
       entryId: journalEntry.id,
       postedAt: journalEntry.postedAt,
       reference: journalEntry.reference,

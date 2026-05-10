@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import { item, itemCostHistory, stockLocation, stockMovement } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 
 function quantityExpression() {
   return sql<string>`coalesce(sum(
@@ -14,12 +14,15 @@ function quantityExpression() {
   ), '0')`;
 }
 
-export async function refreshStockLocation(input: {
-  companyId: string;
-  itemId: string;
-  warehouseId: string;
-}) {
-  const [snapshot] = await db
+export async function refreshStockLocation(
+  input: {
+    companyId: string;
+    itemId: string;
+    warehouseId: string;
+  },
+  client: DbClient = db,
+) {
+  const [snapshot] = await client
     .select({
       quantity: quantityExpression(),
       averageCost: item.averageCost,
@@ -39,7 +42,7 @@ export async function refreshStockLocation(input: {
 
   if (!snapshot) return;
 
-  await db
+  await client
     .insert(stockLocation)
     .values({
       companyId: input.companyId,
@@ -59,16 +62,19 @@ export async function refreshStockLocation(input: {
     });
 }
 
-export async function registerInMovementCost(input: {
-  companyId: string;
-  itemId: string;
-  movementId: string;
-  quantity: number;
-  unitCost: number;
-}) {
+export async function registerInMovementCost(
+  input: {
+    companyId: string;
+    itemId: string;
+    movementId: string;
+    quantity: number;
+    unitCost: number;
+  },
+  client: DbClient = db,
+) {
   if (input.quantity <= 0 || input.unitCost < 0) return;
 
-  const [currentItem] = await db
+  const [currentItem] = await client
     .select({ averageCost: item.averageCost })
     .from(item)
     .where(and(eq(item.id, input.itemId), eq(item.companyId, input.companyId)))
@@ -76,7 +82,7 @@ export async function registerInMovementCost(input: {
 
   if (!currentItem) return;
 
-  const [currentStock] = await db
+  const [currentStock] = await client
     .select({
       quantity: sql<string>`coalesce(sum(
         case
@@ -99,12 +105,12 @@ export async function registerInMovementCost(input: {
       ? ((stockBefore * oldAvg + input.quantity * input.unitCost) / (stockBefore + input.quantity)).toFixed(2)
       : oldAvg.toFixed(2);
 
-  await db
+  await client
     .update(item)
     .set({ averageCost: newAvg })
     .where(and(eq(item.id, input.itemId), eq(item.companyId, input.companyId)));
 
-  await db.insert(itemCostHistory).values({
+  await client.insert(itemCostHistory).values({
     companyId: input.companyId,
     itemId: input.itemId,
     movementId: input.movementId,

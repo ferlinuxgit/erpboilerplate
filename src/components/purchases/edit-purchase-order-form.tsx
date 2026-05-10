@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getCsrfHeader } from "@/lib/csrf-client";
 
 type Props = {
   orderId: string;
@@ -19,6 +21,7 @@ export function EditPurchaseOrderForm({ orderId, defaultNumber, defaultStatus }:
   const [status, setStatus] = useState(defaultStatus);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorId = error ? "edit-purchase-order-error" : undefined;
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -27,17 +30,20 @@ export function EditPurchaseOrderForm({ orderId, defaultNumber, defaultStatus }:
     try {
       const response = await fetch(`/api/purchases/${orderId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
         body: JSON.stringify({ number, status }),
       });
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string };
         throw new Error(payload.message ?? "No se pudo actualizar el pedido.");
       }
+      toast.success("Pedido actualizado correctamente.");
       router.push("/purchases");
       router.refresh();
     } catch (submissionError) {
-      setError(submissionError instanceof Error ? submissionError.message : "Error inesperado.");
+      const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -47,18 +53,30 @@ export function EditPurchaseOrderForm({ orderId, defaultNumber, defaultStatus }:
     <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
       <div className="space-y-2">
         <Label htmlFor="edit-po-number">Numero</Label>
-        <Input id="edit-po-number" value={number} onChange={(event) => setNumber(event.target.value)} required />
+        <Input
+          id="edit-po-number"
+          value={number}
+          onChange={(event) => setNumber(event.target.value)}
+          required
+          aria-describedby={errorId}
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="edit-po-status">Estado</Label>
-        <Input id="edit-po-status" value={status} onChange={(event) => setStatus(event.target.value)} required />
+        <Input
+          id="edit-po-status"
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+          required
+          aria-describedby={errorId}
+        />
       </div>
       <div className="md:col-span-2">
         <Button type="submit" disabled={isLoading}>
           {isLoading ? "Guardando..." : "Guardar cambios"}
         </Button>
       </div>
-      {error ? <p className="text-sm text-red-600 md:col-span-2">{error}</p> : null}
+      {error ? <p id="edit-purchase-order-error" className="text-sm text-red-600 md:col-span-2" role="alert">{error}</p> : null}
     </form>
   );
 }

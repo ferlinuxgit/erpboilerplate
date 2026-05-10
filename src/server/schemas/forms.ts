@@ -28,10 +28,11 @@ export const updateCustomerSchema = createCustomerSchema.extend({
 
 export const invoiceStatusSchema = z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"]);
 
-const invoiceLineSchema = z.object({
+export const invoiceLineFormSchema = z.object({
   description: z.string().trim().min(1, "La línea debe tener descripción."),
   quantity: z.number().positive("La cantidad debe ser mayor que 0."),
   unitPrice: z.number().nonnegative("El precio no puede ser negativo."),
+  taxRate: z.number().min(0, "El IVA no puede ser negativo.").max(100, "El IVA no puede superar el 100%."),
 });
 
 export const createInvoiceSchema = z.object({
@@ -41,11 +42,13 @@ export const createInvoiceSchema = z.object({
   dueDate: z.string().trim().optional().or(z.literal("")),
   totalAmount: z.number().positive("El importe debe ser mayor que 0."),
   notes: z.string().trim().optional().or(z.literal("")),
-  lines: z.array(invoiceLineSchema).optional(),
+  lines: z.array(invoiceLineFormSchema).min(1, "Debes añadir al menos una línea."),
 });
 
 export const updateInvoiceSchema = z.object({
   number: z.string().trim().min(1, "Debes indicar un número de factura."),
   status: invoiceStatusSchema,
   notes: z.string().trim().optional().or(z.literal("")),
+  totalAmount: z.number().positive("El importe debe ser mayor que 0."),
+  lines: z.array(invoiceLineFormSchema).min(1, "Debes añadir al menos una línea."),
 });

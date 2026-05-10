@@ -1,34 +1,38 @@
-import Link from "next/link";
+import { SecurityPolicyForm } from "@/app/settings/security/security-policy-form";
+import { requireUserSession } from "@/lib/current-user";
+import { can } from "@/lib/rbac";
+import { ensureUserTenant } from "@/lib/tenant";
+import { getTenantSecurityPolicyState } from "@/server/security-policy";
 
-import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+export default async function SecuritySettingsPage() {
+  const session = await requireUserSession();
+  const ctx = await ensureUserTenant(session.user);
+  const state = await getTenantSecurityPolicyState(ctx.tenant.id);
+  const canManage = can(ctx.membership.role, "settings.manage");
 
-export default function SecuritySettingsPage() {
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Hardening y Seguridad</CardTitle>
-          <CardDescription>
-            Checklist de 2FA/SSO, rate limiting, backups, GDPR y pruebas e2e preparado para activar.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>- 2FA y SSO: preparado para siguiente iteración.</p>
-          <p>- Rate limiting: integrado en el proxy de borde (`src/proxy.ts`) con Upstash (opcional por entorno).</p>
-          <p>- CSRF: validación disponible mediante ENABLE_CSRF.</p>
-          <p>- Logs y auditoría: revisable en la sección de auditoría.</p>
-          <Link className={buttonVariants({ variant: "outline" })} href="/settings/audit">
-            Ver auditoría
-          </Link>
-          <Link className={buttonVariants({ variant: "outline" })} href="/settings/api-keys">
-            Gestionar API Keys
-          </Link>
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver
-          </Link>
-        </CardContent>
-      </Card>
-    </main>
+    <div className="space-y-6">
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Settings · Security</p>
+        <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold text-zinc-950">Tenant security controls</h1>
+            <p className="mt-2 max-w-2xl text-sm text-zinc-600">
+              Configure session, two-factor, API key, domain and IP policy controls for {ctx.tenant.name}.
+            </p>
+          </div>
+          <div className="rounded-xl border bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+            <p>
+              Role: <span className="font-semibold">{ctx.membership.role}</span>
+            </p>
+            <p>
+              Access: <span className="font-semibold">{canManage ? "Admin controls enabled" : "Read-only"}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <SecurityPolicyForm initialPolicy={state} canManage={canManage} />
+    </div>
   );
 }
