@@ -59,6 +59,12 @@ jobs:
           curl -fsS http://127.0.0.1:3000/api/readyz
       - name: Playwright e2e
         env:
+          # Keep Playwright on a separate port from the smoke server above. The
+          # smoke step starts `next start`; killing the npm wrapper can leave the
+          # child Next process bound to 3000 on GitHub-hosted runners.
+          PORT: "3001"
+          BETTER_AUTH_URL: http://127.0.0.1:3001
+          NEXT_PUBLIC_BETTER_AUTH_URL: http://127.0.0.1:3001
           E2E_ALLOWED_SKIPS: ""
         run: npm run test:e2e
       - name: Upload Playwright HTML report
