@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InlineAlert } from "@/components/ui/page";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { spanishFiscalModels } from "@/lib/fiscal-spain";
 
@@ -50,8 +52,7 @@ export function CreateFiscalReportForm() {
     }}>
       <div className="space-y-2">
         <Label htmlFor="fiscal-report-code">Modelo</Label>
-        <select
-          className="h-8 w-full rounded-lg border bg-background px-2 text-sm"
+        <Select
           id="fiscal-report-code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
@@ -63,7 +64,7 @@ export function CreateFiscalReportForm() {
               {model.name} - {model.shortName}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="space-y-2">
         <Label htmlFor="fiscal-report-period">Periodo</Label>
@@ -78,18 +79,17 @@ export function CreateFiscalReportForm() {
       </div>
       <div className="space-y-2">
         <Label htmlFor="fiscal-report-status">Estado</Label>
-        <select
+        <Select
           id="fiscal-report-status"
-          className="h-8 rounded-md border px-2 text-sm"
           value={status}
           onChange={(e) => setStatus(e.target.value as (typeof statuses)[number])}
           aria-describedby={errorId}
         >
           {statuses.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
+        </Select>
       </div>
       <Button className="self-end" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear borrador"}</Button>
-      {error ? <p id="fiscal-report-error" className="text-sm text-red-600 md:col-span-4" role="alert">{error}</p> : null}
+      {error ? <InlineAlert id="fiscal-report-error" className="md:col-span-4" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

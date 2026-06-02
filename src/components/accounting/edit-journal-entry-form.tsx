@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { calculateJournalTotals, canSubmitJournalEntry, updateJournalLineAmount, type JournalFormLine } from "@/components/accounting/journal-entry-utils";
 
@@ -90,15 +91,15 @@ export function EditJournalEntryForm({
           <div key={index} className="grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_auto]">
             <div className="space-y-2">
               <Label htmlFor={`journal-line-${index}-account`}>Cuenta linea {index + 1}</Label>
-              <select
+              <Select
                 id={`journal-line-${index}-account`}
-                className="h-9 w-full rounded-md border px-2 text-sm"
+                className="h-9"
                 value={line.accountId}
                 onChange={(e) => updateLine(index, { accountId: e.target.value })}
                 aria-describedby={errorId}
               >
                 {accounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
-              </select>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor={`journal-line-${index}-debit`}>Debe</Label>

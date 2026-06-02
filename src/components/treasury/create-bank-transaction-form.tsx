@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InlineAlert } from "@/components/ui/page";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 type AccountOption = { id: string; bankName: string; iban: string };
@@ -50,9 +52,8 @@ export function CreateBankTransactionForm({ accounts }: { accounts: AccountOptio
     >
       <div className="space-y-2">
         <Label htmlFor="bank-transaction-account">Cuenta bancaria</Label>
-        <select
+        <Select
           id="bank-transaction-account"
-          className="h-8 rounded-md border px-2 text-sm"
           value={bankAccountId}
           onChange={(e) => setBankAccountId(e.target.value)}
           required
@@ -61,7 +62,7 @@ export function CreateBankTransactionForm({ accounts }: { accounts: AccountOptio
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>{a.bankName} - {a.iban}</option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="space-y-2">
         <Label htmlFor="bank-transaction-amount">Importe</Label>
@@ -76,7 +77,7 @@ export function CreateBankTransactionForm({ accounts }: { accounts: AccountOptio
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="bank-transaction-description">Descripcion</Label>
+        <Label htmlFor="bank-transaction-description">Descripción</Label>
         <Input
           id="bank-transaction-description"
           value={description}
@@ -97,7 +98,7 @@ export function CreateBankTransactionForm({ accounts }: { accounts: AccountOptio
         />
       </div>
       <Button className="md:col-span-4" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear movimiento"}</Button>
-      {error ? <p id="bank-transaction-error" className="text-sm text-red-600 md:col-span-4" role="alert">{error}</p> : null}
+      {error ? <InlineAlert id="bank-transaction-error" className="md:col-span-4" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

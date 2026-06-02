@@ -6,10 +6,11 @@ import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { canManageInvoices } from "@/lib/rbac";
+import { canManageCustomers, canManageInvoices } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
+import { createCustomerWithPartner } from "@/server/customers/service";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import { createInvoiceSchema } from "@/server/schemas/forms";
@@ -41,34 +42,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
   const values = parsedPayload.data;
-  const customerId = values.customerId.trim();
+  let customerId = values.customerId?.trim() ?? "";
   const number = values.number.trim();
   const notes = values.notes?.trim() || null;
   const issueDate = values.issueDate ? new Date(values.issueDate) : null;
   const dueDate = values.dueDate ? new Date(values.dueDate) : null;
   const invoiceTotals = calculateInvoiceTotals(values.lines);
   const totalAmount = invoiceTotals.totalAmount;
+  const shouldCreateCustomer = !customerId && Boolean(values.newCustomer);
 
-  if (!customerId || !number || !issueDate || Number.isNaN(issueDate.getTime()) || totalAmount <= 0) {
+  if (!number || !issueDate || Number.isNaN(issueDate.getTime()) || totalAmount <= 0) {
     return NextResponse.json(
-      { message: "Debes informar cliente, número, fecha válida e importe mayor de 0." },
+      { message: "Debes informar número, fecha válida e importe mayor de 0." },
       { status: 400 },
     );
   }
 
-  const existingCustomer = await db
-    .select({ id: customer.id })
-    .from(customer)
-    .where(and(eq(customer.id, customerId), eq(customer.companyId, tenantContext.company.id)))
-    .limit(1);
+  if (shouldCreateCustomer && !canManageCustomers(tenantContext.membership.role)) {
+    return NextResponse.json(
+      { message: "No tienes permisos para crear clientes en esta empresa." },
+      { status: 403 },
+    );
+  }
 
-  if (existingCustomer.length === 0) {
-    return NextResponse.json({ message: "Cliente no encontrado en la empresa activa." }, { status: 404 });
+  if (!customerId && !values.newCustomer) {
+    return NextResponse.json({ message: "Debes seleccionar un cliente o crear uno nuevo." }, { status: 400 });
+  }
+
+  if (customerId) {
+    const existingCustomer = await db
+      .select({ id: customer.id })
+      .from(customer)
+      .where(and(eq(customer.id, customerId), eq(customer.companyId, tenantContext.company.id)))
+      .limit(1);
+
+    if (existingCustomer.length === 0) {
+      return NextResponse.json({ message: "Cliente no encontrado en la empresa activa." }, { status: 404 });
+    }
   }
 
   try {
     const createdInvoice = await db.transaction(async (tx) => {
       await assertFiscalPeriodOpen(tenantContext.company.id, issueDate, tx);
+
+      const createdCustomer = shouldCreateCustomer && values.newCustomer
+        ? await createCustomerWithPartner(tx, tenantContext.company.id, values.newCustomer)
+        : null;
+      customerId = createdCustomer?.id ?? customerId;
 
       const [created] = await tx
         .insert(invoice)
@@ -102,7 +122,10 @@ export async function POST(request: Request) {
         dbClient: tx,
       });
 
-      return created;
+      return {
+        ...created,
+        customer: createdCustomer ? { id: createdCustomer.id, name: createdCustomer.name } : null,
+      };
     });
 
     return NextResponse.json(createdInvoice, { status: 201 });

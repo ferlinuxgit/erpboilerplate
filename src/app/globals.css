@@ -72,6 +72,14 @@
   --chart-3: oklch(0.62 0.16 25);
   --chart-4: oklch(0.58 0.12 250);
   --chart-5: oklch(0.56 0.1 145);
+  --surface-subtle: oklch(0.985 0.01 190);
+  --surface-raised: oklch(0.995 0.004 190);
+  --success: oklch(0.62 0.13 150);
+  --success-foreground: oklch(0.2 0.04 150);
+  --warning: oklch(0.74 0.14 70);
+  --warning-foreground: oklch(0.28 0.07 55);
+  --info: oklch(0.62 0.12 220);
+  --info-foreground: oklch(0.22 0.05 220);
   --radius: 0.5rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
@@ -107,6 +115,14 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  --surface-subtle: oklch(0.18 0 0);
+  --surface-raised: oklch(0.205 0 0);
+  --success: oklch(0.72 0.13 150);
+  --success-foreground: oklch(0.15 0.03 150);
+  --warning: oklch(0.78 0.12 70);
+  --warning-foreground: oklch(0.18 0.04 55);
+  --info: oklch(0.72 0.12 220);
+  --info-foreground: oklch(0.16 0.04 220);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -125,6 +141,9 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1, "tnum" 1;
     text-rendering: optimizeLegibility;
+  }
+  main {
+    min-width: 0;
   }
   html {
     @apply font-sans;

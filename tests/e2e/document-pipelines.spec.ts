@@ -26,6 +26,11 @@ test("sales pipeline guides quote to order to delivery to invoice", async ({ pag
 
   await page.goto("/customers");
   await page.getByLabel("Nombre").fill(customerName);
+  await page.getByLabel("CIF/NIF/VAT").fill("B12345674");
+  await page.getByLabel("Dirección fiscal").fill("Calle Pipeline 1");
+  await page.getByLabel("Código postal").fill("28013");
+  await page.getByLabel("Ciudad").fill("Madrid");
+  await page.getByLabel("Provincia").fill("Madrid");
   await page.getByLabel("Email").fill(`cliente-pipeline-${runId}@example.test`);
   await page.getByRole("button", { name: "Crear cliente" }).click();
   await expect(page.getByTestId("customers-table")).toContainText(customerName);

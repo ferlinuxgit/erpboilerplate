@@ -12,6 +12,11 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
 
   await page.goto("/customers");
   await page.getByLabel("Nombre").fill(customerName);
+  await page.getByLabel("CIF/NIF/VAT").fill("B12345674");
+  await page.getByLabel("Dirección fiscal").fill("Calle Líneas 1");
+  await page.getByLabel("Código postal").fill("28013");
+  await page.getByLabel("Ciudad").fill("Madrid");
+  await page.getByLabel("Provincia").fill("Madrid");
   await page.getByLabel("Email").fill(`cliente-${runId}@example.test`);
   await page.getByRole("button", { name: "Crear cliente" }).click();
   await expect(page.locator("tr", { hasText: customerName })).toBeVisible();
@@ -55,4 +60,33 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
     { description: "Consultoría", quantity: "2.000", unitPrice: "100.00", taxRate: "21.000", lineTotal: "242.00" },
     { description: "Soporte", quantity: "1.500", unitPrice: "80.00", taxRate: "10.000", lineTotal: "132.00" },
   ]);
+});
+
+test("crear factura permite crear cliente fiscal inline si no existe", async ({ page }) => {
+  const runId = Date.now();
+  const customerName = `Cliente inline ${runId}`;
+  const invoiceNumber = `FAC-INLINE-${runId}`;
+
+  await registerAndSignIn(page, "Invoice Inline Customer E2E");
+  await completeOnboarding(page, "Empresa inline E2E S.L.");
+
+  await page.goto("/invoices");
+  await expect(page.getByTestId("invoice-new-customer-name-input")).toBeVisible();
+  await page.getByTestId("invoice-new-customer-name-input").fill(customerName);
+  await page.getByTestId("invoice-new-customer-tax-id-input").fill("B12345674");
+  await page.getByTestId("invoice-new-customer-address-input").fill("Calle Inline 1");
+  await page.getByTestId("invoice-new-customer-postal-code-input").fill("28013");
+  await page.getByTestId("invoice-new-customer-city-input").fill("Madrid");
+  await page.getByTestId("invoice-new-customer-province-input").fill("Madrid");
+  await page.getByTestId("invoice-number-input").fill(invoiceNumber);
+  await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
+  await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
+  await page.getByTestId("invoice-line-1-quantity").fill("1");
+  await page.getByTestId("invoice-line-1-unit-price").fill("100");
+  await page.getByTestId("invoice-line-1-tax-rate").fill("21");
+
+  await page.getByRole("button", { name: "Crear factura" }).click();
+  const invoiceRow = page.locator("tr", { hasText: invoiceNumber });
+  await expect(invoiceRow).toBeVisible();
+  await expect(invoiceRow.getByText(customerName)).toBeVisible();
 });

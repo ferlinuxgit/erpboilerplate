@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 type CustomerOption = { id: string; name: string };
 type QuoteOption = { id: string; number: string; status: SalesDocumentStatus };
@@ -80,13 +81,13 @@ function FirstEligibleSelect<T extends { id: string; number: string; status: Sal
 }) {
   if (items.length === 0) return <p className="rounded-md border border-dashed p-2 text-sm text-amber-700">{emptyMessage}</p>;
   return (
-    <select className="h-8 rounded-md border px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
+    <Select onChange={(event) => onChange(event.target.value)} value={value}>
       {items.map((item) => (
         <option key={item.id} value={item.id}>
           {item.number} · {item.status}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -184,9 +185,8 @@ export function SalesFlowActions({
             <label className="sr-only" htmlFor="sales-quote-customer">
               Cliente para presupuesto
             </label>
-            <select
+            <Select
               id="sales-quote-customer"
-              className="h-8 rounded-md border px-2 text-sm"
               onChange={(event) => setCustomerId(event.target.value)}
               value={customerId}
             >
@@ -195,7 +195,7 @@ export function SalesFlowActions({
                   {customer.name}
                 </option>
               ))}
-            </select>
+            </Select>
             <Input onChange={(event) => setQuoteNumber(event.target.value)} placeholder="PRE-000001" value={quoteNumber} />
             <Button
               disabled={loading || !customerId}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, deliveryNote, invoice, salesOrder, salesQuote } from "@/db/schema";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -48,18 +48,24 @@ export default async function SalesPage({
     .where(eq(invoice.companyId, ctx.company.id));
 
   return (
-    <main className="container mx-auto space-y-6 px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Ciclo de ventas</CardTitle>
-          <CardDescription>
-            Flujo presupuesto → pedido → albarán → factura con acciones bloqueadas cuando falta el prerrequisito.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <PageShell>
+      <PageHeader
+        eyebrow="Operación"
+        title="Ciclo de ventas"
+        description="Flujo presupuesto -> pedido -> albarán -> factura con acciones bloqueadas cuando falta el prerrequisito."
+        backHref="/dashboard"
+        backLabel="Volver al panel"
+      />
+      <PageSection
+        title="Pipeline comercial"
+        description="Ejecuta la siguiente acción disponible y revisa el estado de presupuestos, pedidos, albaranes y facturas."
+        actions={
           <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al dashboard
+            Volver al panel
           </Link>
+        }
+        contentClassName="space-y-4"
+      >
           <SalesFlowActions
             customers={customers}
             deliveryNotes={deliveryNotes}
@@ -68,8 +74,7 @@ export default async function SalesPage({
             orders={orders}
             quotes={quotes}
           />
-        </CardContent>
-      </Card>
-    </main>
+      </PageSection>
+    </PageShell>
   );
 }

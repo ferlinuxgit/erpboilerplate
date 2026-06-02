@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getLedgerByAccount } from "@/server/accounting/service";
@@ -12,11 +12,10 @@ export default async function LedgerPage({ params }: { params: Promise<{ account
   const rows = await getLedgerByAccount(ctx.company.id, accountId);
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader><CardTitle>Libro mayor</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {rows.length === 0 ? <p className="text-sm text-muted-foreground">No hay movimientos para esta cuenta.</p> : null}
+    <PageShell>
+      <PageHeader eyebrow="Contabilidad" title="Libro mayor" description="Movimientos de la cuenta seleccionada." backHref="/accounting" backLabel="Volver a contabilidad" />
+      <PageSection title="Movimientos" description="Debe, haber y referencia del asiento asociado." contentClassName="space-y-2">
+          {rows.length === 0 ? <EmptyState title="Sin movimientos" description="No hay movimientos para esta cuenta." /> : null}
           {rows.map((row) => {
             const reference = row.reference ?? "sin referencia";
 
@@ -31,8 +30,7 @@ export default async function LedgerPage({ params }: { params: Promise<{ account
               </div>
             );
           })}
-        </CardContent>
-      </Card>
-    </main>
+      </PageSection>
+    </PageShell>
   );
 }

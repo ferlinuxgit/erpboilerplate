@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { EditPurchaseOrderForm } from "@/components/purchases/edit-purchase-order-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -17,15 +17,11 @@ export default async function EditPurchasePage({ params }: { params: Promise<{ i
   if (!order) notFound();
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Editar pedido de compra</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EditPurchaseOrderForm orderId={order.id} defaultNumber={order.number} defaultStatus={order.status} />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader eyebrow="Compras" title="Editar pedido de compra" description={order.number} backHref="/purchases" backLabel="Volver a compras" />
+      <PageSection title="Datos del pedido" description="Ajusta número y estado del pedido de compra.">
+        <EditPurchaseOrderForm orderId={order.id} defaultNumber={order.number} defaultStatus={order.status} />
+      </PageSection>
+    </PageShell>
   );
 }

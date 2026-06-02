@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 export type FiscalSettingsFormValues = {
@@ -69,20 +70,20 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <label className="grid gap-1 text-sm">
           <span className="text-muted-foreground">Régimen fiscal</span>
-          <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={values.fiscalRegime} onChange={(event) => setValue("fiscalRegime", event.target.value as FiscalSettingsFormValues["fiscalRegime"])}>
+          <Select value={values.fiscalRegime} onChange={(event) => setValue("fiscalRegime", event.target.value as FiscalSettingsFormValues["fiscalRegime"])}>
             <option value="general">General</option>
             <option value="recargo_equivalencia">Recargo de equivalencia</option>
             <option value="cash_accounting">Criterio de caja</option>
             <option value="exempt">Exento</option>
-          </select>
+          </Select>
         </label>
 
         <label className="grid gap-1 text-sm">
           <span className="text-muted-foreground">Periodicidad</span>
-          <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={values.taxPeriodicity} onChange={(event) => setValue("taxPeriodicity", event.target.value as FiscalSettingsFormValues["taxPeriodicity"])}>
+          <Select value={values.taxPeriodicity} onChange={(event) => setValue("taxPeriodicity", event.target.value as FiscalSettingsFormValues["taxPeriodicity"])}>
             <option value="quarterly">Trimestral</option>
             <option value="monthly">Mensual</option>
-          </select>
+          </Select>
         </label>
 
         <label className="grid gap-1 text-sm">
@@ -92,11 +93,11 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
 
         <label className="grid gap-1 text-sm">
           <span className="text-muted-foreground">VERI*FACTU</span>
-          <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={values.verifactuMode} onChange={(event) => setValue("verifactuMode", event.target.value as FiscalSettingsFormValues["verifactuMode"])}>
+          <Select value={values.verifactuMode} onChange={(event) => setValue("verifactuMode", event.target.value as FiscalSettingsFormValues["verifactuMode"])}>
             <option value="pending">Pendiente</option>
             <option value="verifactu">VERI*FACTU</option>
             <option value="non_verifactu">NO VERI*FACTU</option>
-          </select>
+          </Select>
         </label>
 
         <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">

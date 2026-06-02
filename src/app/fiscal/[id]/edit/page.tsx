@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { EditFiscalReportForm } from "@/components/fiscal/edit-fiscal-report-form";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { getFiscalReport } from "@/server/fiscal/service";
 
@@ -11,10 +11,11 @@ export default async function EditFiscalPage({ params }: { params: Promise<{ id:
   const report = await getFiscalReport(ctx.company.id, id);
   if (!report) notFound();
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card><CardHeader><CardTitle>Editar modelo fiscal</CardTitle><CardDescription>Ajusta el periodo, estado y modelo del borrador español.</CardDescription></CardHeader><CardContent>
+    <PageShell>
+      <PageHeader eyebrow="Fiscalidad" title="Editar modelo fiscal" description={`${report.code} - ${report.period}`} backHref="/fiscal" backLabel="Volver a fiscalidad" />
+      <PageSection title="Datos del modelo" description="Ajusta periodo, estado y modelo del borrador español.">
         <EditFiscalReportForm id={report.id} defaultCode={report.code} defaultPeriod={report.period} defaultStatus={report.status} />
-      </CardContent></Card>
-    </main>
+      </PageSection>
+    </PageShell>
   );
 }

@@ -1,5 +1,6 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { requireUserSession } from "@/lib/current-user";
 import { ensureUserTenant } from "@/lib/tenant";
 
@@ -8,21 +9,22 @@ export default async function OnboardingPage() {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Onboarding</CardTitle>
-          <CardDescription>Completa la configuración inicial de empresa y ejercicio.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 space-y-1 text-sm text-muted-foreground">
-            <p>Tenant: {ctx.tenant.name}</p>
-            <p>Empresa: {ctx.company.name}</p>
-            <p>Ejercicio: {ctx.fiscalYear.code}</p>
-          </div>
-          <OnboardingWizard />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader
+        eyebrow="Configuración inicial"
+        title="Onboarding"
+        description="Completa la configuración inicial de empresa y ejercicio."
+        meta={
+          <>
+            <StatusBadge tone="neutral">Tenant: {ctx.tenant.name}</StatusBadge>
+            <StatusBadge tone="neutral">Empresa: {ctx.company.name}</StatusBadge>
+            <StatusBadge tone="neutral">Ejercicio: {ctx.fiscalYear.code}</StatusBadge>
+          </>
+        }
+      />
+      <PageSection title="Asistente de configuración" description="Aplica seeds base, revisa contexto y prepara la operación inicial.">
+        <OnboardingWizard />
+      </PageSection>
+    </PageShell>
   );
 }

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InlineAlert, PageSection } from "@/components/ui/page";
+import { StatusBadge as SharedStatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import type { SecurityPolicyState } from "@/server/security-policy";
@@ -21,25 +23,25 @@ type SubmitState =
 
 type ControlStatus = SecurityPolicyState["controls"][number]["status"];
 
-const statusCopy: Record<ControlStatus, { label: string; className: string }> = {
+const statusCopy: Record<ControlStatus, { label: string; tone: "success" | "neutral" | "warning" }> = {
   enabled: {
-    label: "Enabled",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    label: "Activo",
+    tone: "success",
   },
   disabled: {
-    label: "Disabled",
-    className: "border-zinc-200 bg-zinc-50 text-zinc-600",
+    label: "Inactivo",
+    tone: "neutral",
   },
   not_configured: {
-    label: "Not configured",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
+    label: "Sin configurar",
+    tone: "warning",
   },
 };
 
 function StatusBadge({ status }: { status: ControlStatus }) {
   const copy = statusCopy[status];
 
-  return <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${copy.className}`}>{copy.label}</span>;
+  return <SharedStatusBadge tone={copy.tone}>{copy.label}</SharedStatusBadge>;
 }
 
 export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
@@ -79,12 +81,12 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
     const body = (await response.json()) as { error?: string; policy?: SecurityPolicyState; changes?: unknown[] };
 
     if (!response.ok || !body.policy) {
-      setState({ type: "error", message: body.error ?? "Could not save the security policy." });
+      setState({ type: "error", message: body.error ?? "No se pudo guardar la política de seguridad." });
       return;
     }
 
     setPolicy(body.policy);
-    setState({ type: "success", message: body.changes?.length ? "Security policy updated and audited." : "No policy changes detected." });
+    setState({ type: "success", message: body.changes?.length ? "Política actualizada y auditada." : "No se detectaron cambios." });
     router.refresh();
   }
 
@@ -92,12 +94,12 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
     <div className="space-y-6">
       <section className="grid gap-3 md:grid-cols-3">
         {controlRows.map((control) => (
-          <div key={control.key} className="rounded-xl border bg-white p-4 shadow-sm">
+          <div key={control.key} className="rounded-lg border bg-card p-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-zinc-900">{control.label}</h2>
+              <h2 className="text-sm font-semibold">{control.label}</h2>
               <StatusBadge status={control.status} />
             </div>
-            <p className="mt-2 text-sm text-zinc-600">{control.summary}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{control.summary}</p>
           </div>
         ))}
       </section>
@@ -108,106 +110,105 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
             void onSubmit(formData);
           });
         }}
-        className="space-y-5 rounded-2xl border bg-white p-6 shadow-sm"
+        className="space-y-5 rounded-lg border bg-card p-4"
       >
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium text-zinc-800">Session timeout (minutes)</span>
+            <span className="text-sm font-medium">Tiempo de sesión (minutos)</span>
             <Input
               name="sessionTimeoutMinutes"
               type="number"
               min={5}
               max={1440}
               defaultValue={policy.record.sessionTimeoutMinutes ?? ""}
-              placeholder="Not configured"
+              placeholder="Sin configurar"
               disabled={!canManage || isPending}
             />
-            <span className="text-xs text-zinc-500">Leave blank to mark this control as not configured.</span>
+            <span className="text-xs text-muted-foreground">Déjalo vacío para marcar el control como no configurado.</span>
           </label>
 
           <label className="space-y-2">
-            <span className="text-sm font-medium text-zinc-800">API key rotation (days)</span>
+            <span className="text-sm font-medium">Rotación de claves API (días)</span>
             <Input
               name="apiKeyRotationDays"
               type="number"
               min={1}
               max={365}
               defaultValue={policy.record.apiKeyRotationDays ?? ""}
-              placeholder="Not configured"
+              placeholder="Sin configurar"
               disabled={!canManage || isPending}
             />
-            <span className="text-xs text-zinc-500">Set a value to require periodic API key rotation.</span>
+            <span className="text-xs text-muted-foreground">Define un valor para exigir rotación periódica.</span>
           </label>
         </div>
 
         <fieldset className="space-y-2" disabled={!canManage || isPending}>
-          <legend className="text-sm font-medium text-zinc-800">Require two-factor authentication</legend>
-          <div className="flex flex-wrap gap-3 text-sm text-zinc-700">
+          <legend className="text-sm font-medium">Doble factor obligatorio</legend>
+          <div className="flex flex-wrap gap-3 text-sm">
             <label className="flex items-center gap-2 rounded-lg border px-3 py-2">
               <input type="radio" name="requireTwoFactor" value="not_configured" defaultChecked={policy.record.requireTwoFactor === null} />
-              Not configured
+              Sin configurar
             </label>
             <label className="flex items-center gap-2 rounded-lg border px-3 py-2">
               <input type="radio" name="requireTwoFactor" value="enabled" defaultChecked={policy.record.requireTwoFactor === true} />
-              Enabled
+              Activo
             </label>
             <label className="flex items-center gap-2 rounded-lg border px-3 py-2">
               <input type="radio" name="requireTwoFactor" value="disabled" defaultChecked={policy.record.requireTwoFactor === false} />
-              Disabled
+              Inactivo
             </label>
           </div>
         </fieldset>
 
         <label className="space-y-2 block">
-          <span className="text-sm font-medium text-zinc-800">Allowed email domains</span>
+          <span className="text-sm font-medium">Dominios de email permitidos</span>
           <Textarea
             name="allowedDomains"
             defaultValue={policy.record.allowedDomains ?? ""}
             placeholder="example.com, customer.example"
             disabled={!canManage || isPending}
           />
-          <span className="text-xs text-zinc-500">Comma or newline separated domains. Blank means not configured.</span>
+          <span className="text-xs text-muted-foreground">Dominios separados por coma o salto de línea. Vacío significa sin configurar.</span>
         </label>
 
         <label className="space-y-2 block">
-          <span className="text-sm font-medium text-zinc-800">Allowed IP policy notes</span>
+          <span className="text-sm font-medium">Notas de política IP</span>
           <Textarea
             name="allowedIpNotes"
             defaultValue={policy.record.allowedIpNotes ?? ""}
-            placeholder="VPN CIDRs, office IPs, review notes…"
+            placeholder="CIDR de VPN, IPs de oficina, notas de revisión..."
             disabled={!canManage || isPending}
           />
-          <span className="text-xs text-zinc-500">Document IP restrictions or leave blank when not configured.</span>
+          <span className="text-xs text-muted-foreground">Documenta restricciones IP o déjalo vacío si aún no aplica.</span>
         </label>
 
         {state.type !== "idle" ? (
-          <p className={state.type === "success" ? "text-sm text-emerald-700" : "text-sm text-red-700"}>{state.message}</p>
+          <InlineAlert tone={state.type === "success" ? "success" : "danger"}>{state.message}</InlineAlert>
         ) : null}
 
         <div className="flex items-center justify-between gap-4">
-          <p className="text-xs text-zinc-500">
-            {canManage ? "Saving creates an audit log entry for every changed field." : "Read-only: admin or owner access is required to change controls."}
+          <p className="text-xs text-muted-foreground">
+            {canManage ? "Guardar crea una entrada de auditoría por cada campo modificado." : "Solo lectura: necesitas rol admin u owner para cambiar controles."}
           </p>
           <Button type="submit" disabled={!canManage || isPending}>
-            {isPending ? "Saving…" : "Save security policy"}
+            {isPending ? "Guardando..." : "Guardar política"}
           </Button>
         </div>
       </form>
 
-      <section className="rounded-2xl border bg-white p-6 shadow-sm" aria-label="Current security policy state">
-        <h2 className="text-lg font-semibold text-zinc-900">Current policy state</h2>
-        <dl className="mt-4 grid gap-3 md:grid-cols-2">
+      <PageSection title="Estado actual" description="Resumen auditable de los controles aplicados al tenant.">
+        <dl className="grid gap-3 md:grid-cols-2">
           {controlRows.map((control) => (
             <div key={control.key} className="rounded-lg border p-3">
-              <dt className="flex items-center justify-between gap-3 text-sm font-medium text-zinc-800">
+              <dt className="flex items-center justify-between gap-3 text-sm font-medium">
                 {control.label}
                 <StatusBadge status={control.status} />
               </dt>
-              <dd className="mt-1 text-sm text-zinc-600">{control.summary}</dd>
+              <dd className="mt-1 text-sm text-muted-foreground">{control.summary}</dd>
             </div>
           ))}
         </dl>
-      </section>
+      </PageSection>
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TeamMembersList } from "@/components/settings/team-members-list";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { listTeamMembers } from "@/server/team/service";
 
@@ -8,13 +8,15 @@ export default async function TeamSettingsPage() {
   const members = await listTeamMembers(ctx.tenant.id);
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader><CardTitle>Equipo</CardTitle></CardHeader>
-        <CardContent>
-          <TeamMembersList rows={members} />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader
+        eyebrow="Administración"
+        title="Equipo"
+        description={`Miembros y roles con acceso al tenant ${ctx.tenant.name}.`}
+      />
+      <PageSection title="Miembros" description="Controla quién puede operar, auditar o administrar la empresa activa.">
+        <TeamMembersList rows={members} />
+      </PageSection>
+    </PageShell>
   );
 }

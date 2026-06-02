@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { EditBankTransactionForm } from "@/components/treasury/edit-bank-transaction-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -17,20 +17,18 @@ export default async function EditBankTransactionPage({ params }: { params: Prom
   const accounts = await listBankAccounts(ctx.company.id);
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader><CardTitle>Editar movimiento bancario</CardTitle></CardHeader>
-        <CardContent>
-          <EditBankTransactionForm
-            id={transaction.id}
-            accounts={accounts}
-            defaultBankAccountId={transaction.bankAccountId}
-            defaultAmount={transaction.amount.toString()}
-            defaultDescription={transaction.description}
-            defaultPostedAt={transaction.postedAt.toISOString().slice(0, 10)}
-          />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader eyebrow="Tesorería" title="Editar movimiento bancario" description={transaction.description} backHref="/treasury" backLabel="Volver a tesorería" />
+      <PageSection title="Datos del movimiento" description="Actualiza cuenta, fecha, importe y descripción.">
+        <EditBankTransactionForm
+          id={transaction.id}
+          accounts={accounts}
+          defaultBankAccountId={transaction.bankAccountId}
+          defaultAmount={transaction.amount.toString()}
+          defaultDescription={transaction.description}
+          defaultPostedAt={transaction.postedAt.toISOString().slice(0, 10)}
+        />
+      </PageSection>
+    </PageShell>
   );
 }

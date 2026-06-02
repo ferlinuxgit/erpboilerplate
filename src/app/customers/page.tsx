@@ -2,10 +2,11 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 
 import { CustomersTable } from "@/components/customers/customers-table";
-import { customer } from "@/db/schema";
+import { customer, partner } from "@/db/schema";
 import { CreateCustomerForm } from "@/components/create-customer-form";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -16,51 +17,59 @@ export default async function CustomersPage() {
   const tenantContext = await requireContext("customer.read");
 
   const customers = await db
-    .select()
+    .select({
+      id: customer.id,
+      name: customer.name,
+      status: customer.status,
+      email: customer.email,
+      phone: customer.phone,
+      taxId: partner.taxId,
+      postalCode: partner.postalCode,
+      city: partner.city,
+      province: partner.province,
+      countryCode: partner.countryCode,
+    })
     .from(customer)
+    .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(eq(customer.companyId, tenantContext.company.id))
     .orderBy(desc(customer.createdAt));
 
   const canCreateCustomer = canManageCustomers(tenantContext.membership.role);
 
   return (
-    <main className="container mx-auto space-y-6 px-4 py-10">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div className="space-y-1">
-            <CardTitle>Clientes</CardTitle>
-            <CardDescription>
-              Empresa: {tenantContext.company.name} ({tenantContext.membership.role})
-            </CardDescription>
-          </div>
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al dashboard
-          </Link>
-        </CardHeader>
-        <CardContent>
-          {canCreateCustomer ? (
-            <CreateCustomerForm />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Tu rol actual es de solo lectura para clientes.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+    <PageShell>
+      <PageHeader
+        eyebrow="Operación"
+        title="Clientes"
+        description={`Cartera comercial de ${tenantContext.company.name}.`}
+        meta={<StatusBadge tone="neutral">Rol: {tenantContext.membership.role}</StatusBadge>}
+        backHref="/dashboard"
+        backLabel="Volver al panel"
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Listado</CardTitle>
-          <CardDescription>Todos los clientes de tu empresa activa.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {customers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Todavía no hay clientes registrados.</p>
-          ) : (
-            <CustomersTable rows={customers} />
-          )}
-        </CardContent>
-      </Card>
-    </main>
+      <PageSection title="Alta rápida" description="Crea clientes activos para facturación, ventas y reporting.">
+        {canCreateCustomer ? (
+          <CreateCustomerForm />
+        ) : (
+          <EmptyState title="Solo lectura" description="Tu rol actual no permite crear ni editar clientes." />
+        )}
+      </PageSection>
+
+      <PageSection
+        title="Listado"
+        description="Todos los clientes de la empresa activa."
+        actions={
+          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
+            Volver al panel
+          </Link>
+        }
+      >
+        {customers.length === 0 ? (
+          <EmptyState title="Todavía no hay clientes" description="Crea el primer cliente para alimentar facturas, ventas y reporting." />
+        ) : (
+          <CustomersTable rows={customers} />
+        )}
+      </PageSection>
+    </PageShell>
   );
 }

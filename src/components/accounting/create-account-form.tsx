@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"] as const;
@@ -27,9 +28,9 @@ export function CreateAccountForm() {
     }}>
       <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Codigo" required />
       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" required />
-      <select className="h-8 rounded-md border px-2 text-sm" value={type} onChange={(e) => setType(e.target.value as (typeof accountTypes)[number])}>
+      <Select value={type} onChange={(e) => setType(e.target.value as (typeof accountTypes)[number])}>
         {accountTypes.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
+      </Select>
       <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear cuenta"}</Button>
       {error ? <p className="text-sm text-red-600 md:col-span-4">{error}</p> : null}
     </form>

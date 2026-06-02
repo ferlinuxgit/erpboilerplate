@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { invoice, invoiceLine } from "@/db/schema";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -32,20 +32,18 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
   }));
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader><CardTitle>Editar factura</CardTitle></CardHeader>
-        <CardContent>
-          <EditInvoiceForm
-            id={data.id}
-            defaultLines={defaultLines}
-            defaultNumber={data.number}
-            defaultStatus={data.status}
-            defaultNotes={data.notes}
-            defaultTotalAmount={Number(data.totalAmount)}
-          />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader eyebrow="Facturas" title="Editar factura" description={data.number} backHref="/invoices" backLabel="Volver a facturas" />
+      <PageSection title="Datos de factura" description="Actualiza líneas, estado, importe y notas del documento.">
+        <EditInvoiceForm
+          id={data.id}
+          defaultLines={defaultLines}
+          defaultNumber={data.number}
+          defaultStatus={data.status}
+          defaultNotes={data.notes}
+          defaultTotalAmount={Number(data.totalAmount)}
+        />
+      </PageSection>
+    </PageShell>
   );
 }

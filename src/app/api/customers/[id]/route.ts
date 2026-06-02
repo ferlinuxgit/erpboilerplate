@@ -8,6 +8,7 @@ import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
+import { updateCustomerWithPartner } from "@/server/customers/service";
 import { updateCustomerSchema } from "@/server/schemas/forms";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -26,17 +27,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const values = parsedPayload.data;
   const { id } = await params;
-  const [updated] = await db
-    .update(customer)
-    .set({
-      name: values.name.trim(),
-      email: values.email?.trim() || null,
-      phone: values.phone?.trim() || null,
-      status: values.status ?? "ACTIVE",
-      updatedAt: new Date(),
-    })
+  const existingCustomers = await db
+    .select({ id: customer.id, partnerId: customer.partnerId })
+    .from(customer)
     .where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id)))
-    .returning();
+    .limit(1);
+  if (!existingCustomers[0]) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
+
+  const updated = await db.transaction((tx) =>
+    updateCustomerWithPartner(tx, ctx.company.id, id, existingCustomers[0].partnerId, values),
+  );
   if (!updated) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
   await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "customer.update", entityName: "customer", entityId: id, payload: values });
   return NextResponse.json(updated);

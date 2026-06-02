@@ -24,6 +24,13 @@ export function CreateCustomerForm() {
     resolver: zodResolver(createCustomerSchema),
     defaultValues: {
       name: "",
+      taxId: "",
+      address: "",
+      addressLine2: "",
+      postalCode: "",
+      city: "",
+      province: "",
+      countryCode: "ES",
       email: "",
       phone: "",
     },
@@ -55,7 +62,7 @@ export function CreateCustomerForm() {
   });
 
   return (
-    <form className="grid gap-4 md:grid-cols-4" data-testid="customer-create-form" onSubmit={onSubmit}>
+    <form className="grid gap-4 md:grid-cols-6" data-testid="customer-create-form" onSubmit={onSubmit}>
       <AccessibleField id="customer-name" label="Nombre" required error={errors.name?.message} helperText="Nombre fiscal o comercial del cliente.">
         <Input
           data-testid="customer-name-input"
@@ -66,6 +73,83 @@ export function CreateCustomerForm() {
           aria-invalid={Boolean(errors.name)}
           aria-describedby={errors.name ? "customer-name-error" : "customer-name-helper"}
           {...register("name")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-tax-id" label="CIF/NIF/VAT" required error={errors.taxId?.message} helperText="Se normaliza sin espacios ni guiones.">
+        <Input
+          data-testid="customer-tax-id-input"
+          id="customer-tax-id"
+          placeholder="B12345674"
+          required
+          aria-invalid={Boolean(errors.taxId)}
+          aria-describedby={errors.taxId ? "customer-tax-id-error" : "customer-tax-id-helper"}
+          {...register("taxId")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-address" label="Dirección fiscal" required className="md:col-span-2" error={errors.address?.message}>
+        <Input
+          data-testid="customer-address-input"
+          id="customer-address"
+          placeholder="Calle Mayor 1, 2A"
+          required
+          aria-invalid={Boolean(errors.address)}
+          aria-describedby={errors.address ? "customer-address-error" : undefined}
+          {...register("address")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-address-line-2" label="Dirección 2" className="md:col-span-2" error={errors.addressLine2?.message}>
+        <Input
+          data-testid="customer-address-line-2-input"
+          id="customer-address-line-2"
+          placeholder="Polígono, edificio o referencia"
+          aria-invalid={Boolean(errors.addressLine2)}
+          aria-describedby={errors.addressLine2 ? "customer-address-line-2-error" : undefined}
+          {...register("addressLine2")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-postal-code" label="Código postal" required error={errors.postalCode?.message}>
+        <Input
+          data-testid="customer-postal-code-input"
+          id="customer-postal-code"
+          placeholder="28013"
+          required
+          aria-invalid={Boolean(errors.postalCode)}
+          aria-describedby={errors.postalCode ? "customer-postal-code-error" : undefined}
+          {...register("postalCode")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-city" label="Ciudad" required error={errors.city?.message}>
+        <Input
+          data-testid="customer-city-input"
+          id="customer-city"
+          placeholder="Madrid"
+          required
+          aria-invalid={Boolean(errors.city)}
+          aria-describedby={errors.city ? "customer-city-error" : undefined}
+          {...register("city")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-province" label="Provincia" required error={errors.province?.message}>
+        <Input
+          data-testid="customer-province-input"
+          id="customer-province"
+          placeholder="Madrid"
+          required
+          aria-invalid={Boolean(errors.province)}
+          aria-describedby={errors.province ? "customer-province-error" : undefined}
+          {...register("province")}
+        />
+      </AccessibleField>
+      <AccessibleField id="customer-country-code" label="País" required error={errors.countryCode?.message}>
+        <Input
+          data-testid="customer-country-code-input"
+          id="customer-country-code"
+          maxLength={2}
+          placeholder="ES"
+          required
+          aria-invalid={Boolean(errors.countryCode)}
+          aria-describedby={errors.countryCode ? "customer-country-code-error" : undefined}
+          {...register("countryCode")}
         />
       </AccessibleField>
       <AccessibleField id="customer-email" label="Email" error={errors.email?.message} helperText="Opcional; se usará para comunicaciones comerciales.">

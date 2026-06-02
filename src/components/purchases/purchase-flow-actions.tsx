@@ -15,6 +15,7 @@ import {
   type TransitionResult,
 } from "@/lib/document-pipelines";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 
 type Order = {
   id: string;
@@ -75,13 +76,13 @@ function PipelineSelect<T extends { id: string }>({
 }) {
   if (items.length === 0) return <p className="rounded-md border border-dashed p-2 text-sm text-amber-700">{emptyMessage}</p>;
   return (
-    <select className="h-8 rounded-md border px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
+    <Select onChange={(event) => onChange(event.target.value)} value={value}>
       {items.map((item) => (
         <option key={item.id} value={item.id}>
           {format(item)}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { customer } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { canManageCustomers } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
+import { createCustomerWithPartner } from "@/server/customers/service";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
 export async function POST(request: Request) {
@@ -35,25 +35,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
 
-  const name = parsedPayload.data.name.trim();
-  const email = parsedPayload.data.email?.trim() || null;
-  const phone = parsedPayload.data.phone?.trim() || null;
+  const createdCustomer = await db.transaction((tx) =>
+    createCustomerWithPartner(tx, tenantContext.company.id, parsedPayload.data),
+  );
 
-  const createdCustomers = await db
-    .insert(customer)
-    .values({
-      name,
-      email,
-      phone,
-      companyId: tenantContext.company.id,
-    })
-    .returning({
-      id: customer.id,
-      name: customer.name,
-      email: customer.email,
-      phone: customer.phone,
-      status: customer.status,
-    });
-
-  return NextResponse.json(createdCustomers[0], { status: 201 });
+  return NextResponse.json(createdCustomer, { status: 201 });
 }

@@ -11,6 +11,12 @@ test("una declaración presentada bloquea facturas dentro del periodo fiscal", a
   const customerResponse = await postJson(page, "/api/customers", {
     body: {
       name: `Cliente cierre fiscal ${runId}`,
+      taxId: "B12345674",
+      address: "Calle Cierre 1",
+      postalCode: "28013",
+      city: "Madrid",
+      province: "Madrid",
+      countryCode: "ES",
       email: `cliente-cierre-${runId}@example.test`,
     },
   });

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { EditJournalEntryForm } from "@/components/accounting/edit-journal-entry-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -17,8 +17,9 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
   const accounts = await listAccounts(ctx.company.id);
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card><CardHeader><CardTitle>Editar asiento</CardTitle></CardHeader><CardContent>
+    <PageShell>
+      <PageHeader eyebrow="Contabilidad" title="Editar asiento" description={entry.reference ?? "Sin referencia"} backHref="/accounting" backLabel="Volver a contabilidad" />
+      <PageSection title="Datos del asiento" description="Actualiza fecha, referencia y líneas contables.">
         <EditJournalEntryForm
           id={entry.id}
           accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))}
@@ -26,7 +27,7 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
           defaultReference={entry.reference ?? ""}
           defaultLines={entry.lines.map((line) => ({ accountId: line.accountId, debit: line.debit.toString(), credit: line.credit.toString() }))}
         />
-      </CardContent></Card>
-    </main>
+      </PageSection>
+    </PageShell>
   );
 }

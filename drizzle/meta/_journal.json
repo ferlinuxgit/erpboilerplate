@@ -8,6 +8,13 @@
       "when": 1780078575392,
       "tag": "0000_authoritative_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780390338300,
+      "tag": "0001_partner_fiscal_address",
+      "breakpoints": true
     }
   ]
 }

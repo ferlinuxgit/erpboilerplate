@@ -2,7 +2,8 @@ import { CreateFiscalReportForm } from "@/components/fiscal/create-fiscal-report
 import { FiscalSettingsForm, type FiscalSettingsFormValues } from "@/components/fiscal/fiscal-settings-form";
 import { FiscalReportsList } from "@/components/fiscal/fiscal-reports-list";
 import { SpanishTaxSummary } from "@/components/fiscal/spanish-tax-summary";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { companySettings } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -61,19 +62,25 @@ export default async function FiscalPage() {
   const canWrite = await canFromDb(ctx.membership.role, "fiscal.write");
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Fiscalidad España</CardTitle>
-          <CardDescription>Control operativo de modelos 303, 390, 347, 111 y 115 con cálculo de IVA desde facturación emitida.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <SpanishTaxSummary reports={reports} />
-          {canWrite ? <FiscalSettingsForm initialValues={fiscalSettings} /> : null}
-          {canWrite ? <CreateFiscalReportForm /> : null}
-          <FiscalReportsList canWrite={canWrite} reports={reports} />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader
+        eyebrow="Operación"
+        title="Fiscalidad España"
+        description="Control operativo de modelos 303, 390, 347, 111 y 115 con cálculo de IVA desde facturación emitida."
+        meta={<StatusBadge tone={canWrite ? "success" : "warning"}>{canWrite ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
+      />
+      <PageSection title="Resumen fiscal" description="Señales de cumplimiento, modelos, automatización y conciliación fiscal.">
+        <SpanishTaxSummary reports={reports} />
+      </PageSection>
+      <PageSection title="Configuración fiscal" description="Perfil fiscal, periodicidad, SII/Verifactu y cuentas contables por defecto.">
+        {canWrite ? <FiscalSettingsForm initialValues={fiscalSettings} /> : <EmptyState title="Solo lectura" description="Tu rol actual no permite modificar configuración fiscal." />}
+      </PageSection>
+      <PageSection title="Nuevo modelo" description="Crea borradores fiscales para los modelos soportados.">
+        {canWrite ? <CreateFiscalReportForm /> : <EmptyState title="Solo lectura" description="Necesitas permisos de escritura para crear modelos fiscales." />}
+      </PageSection>
+      <PageSection title="Modelos fiscales" description="Borradores, presentados y modelos pendientes de revisión.">
+        <FiscalReportsList canWrite={canWrite} reports={reports} />
+      </PageSection>
+    </PageShell>
   );
 }

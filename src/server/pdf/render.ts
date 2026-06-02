@@ -5,9 +5,29 @@ import { FiscalReportPdfTemplate } from "@/server/pdf/templates/fiscal-report-te
 import { InvoicePdfTemplate } from "@/server/pdf/templates/invoice-template";
 import type { SpanishFiscalSummary } from "@/server/fiscal/spain";
 
-export async function renderInvoicePdf(input: { number: string; customerName: string; amount: string }) {
+export type InvoicePdfInput = {
+  number: string;
+  amount: string;
+  company: {
+    name: string;
+    legalName: string | null;
+    vatNumber: string | null;
+  };
+  customer: {
+    name: string;
+    taxId: string | null;
+    address: string | null;
+    addressLine2: string | null;
+    postalCode: string | null;
+    city: string | null;
+    province: string | null;
+    countryCode: string | null;
+  };
+};
+
+export async function renderInvoicePdf(input: InvoicePdfInput) {
   return renderToBuffer(
-    createElement(InvoicePdfTemplate, { number: input.number, customerName: input.customerName, amount: input.amount }) as never,
+    createElement(InvoicePdfTemplate, input) as never,
   );
 }
 

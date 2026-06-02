@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageShell } from "@/components/ui/page";
 import { customer, deliveryNote, invoice, invoicePayment, item, salesOrder, salesQuote, stockLocation } from "@/db/schema";
 import { buildDashboardCockpit, type DashboardCockpitInput } from "@/lib/dashboard-cockpit";
 import { requireUserSession } from "@/lib/current-user";
@@ -14,9 +15,9 @@ const moduleLinks = [
   { href: "/accounting", label: "Contabilidad" },
   { href: "/treasury", label: "Tesorería" },
   { href: "/fiscal", label: "Fiscal" },
-  { href: "/reporting", label: "Reporting" },
-  { href: "/billing", label: "Operación SaaS" },
-  { href: "/settings/security", label: "Hardening" },
+  { href: "/reporting", label: "Informes" },
+  { href: "/billing", label: "Suscripción" },
+  { href: "/settings/security", label: "Seguridad" },
 ];
 
 function toNumber(value: string | number) {
@@ -112,7 +113,7 @@ export default async function DashboardPage() {
   const cockpit = buildDashboardCockpit(input);
 
   return (
-    <main className="container mx-auto space-y-6 px-4 py-10">
+    <PageShell>
       <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
         <Card>
           <CardHeader className="space-y-3">
@@ -277,6 +278,6 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </section>
-    </main>
+    </PageShell>
   );
 }

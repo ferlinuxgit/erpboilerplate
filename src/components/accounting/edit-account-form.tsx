@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"] as const;
@@ -67,15 +68,14 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType }: {
       </div>
       <div className="space-y-2">
         <Label htmlFor="edit-account-type">Tipo</Label>
-        <select
+        <Select
           id="edit-account-type"
-          className="h-8 rounded-md border px-2 text-sm"
           value={type}
           onChange={(e) => setType(e.target.value as (typeof accountTypes)[number])}
           aria-describedby={errorId}
         >
           {accountTypes.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
+        </Select>
       </div>
       <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Guardar cambios"}</Button>
       {error ? <p id="edit-account-error" className="text-sm text-red-600" role="alert">{error}</p> : null}

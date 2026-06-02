@@ -5,7 +5,7 @@ import { CreateAccountForm } from "@/components/accounting/create-account-form";
 import { CreateJournalEntryForm } from "@/components/accounting/create-journal-entry-form";
 import { JournalEntryRowActions } from "@/components/accounting/journal-entry-row-actions";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getTrialBalance, listAccounts, listJournalEntries } from "@/server/accounting/service";
@@ -18,46 +18,78 @@ export default async function AccountingPage() {
   const entries = await listJournalEntries(ctx.company.id);
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Contabilidad</CardTitle>
-          <CardDescription>Plan contable, asientos y balance de comprobacion.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <PageShell>
+      <PageHeader
+        eyebrow="Operación"
+        title="Contabilidad"
+        description="Plan contable, asientos, libro mayor y balance de comprobación de la empresa activa."
+        backHref="/dashboard"
+        backLabel="Volver al panel"
+      />
+
+      <section className="grid gap-3 md:grid-cols-3">
+        <MetricCard label="Asientos" value={balance?.entries ?? 0} helper="Movimientos contabilizados" />
+        <MetricCard label="Debe" value={balance?.debit ?? "0"} helper="Balance de comprobación" />
+        <MetricCard label="Haber" value={balance?.credit ?? "0"} helper="Balance de comprobación" />
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-2">
+        <PageSection title="Nueva cuenta" description="Añade cuentas al plan contable activo.">
           <CreateAccountForm />
-          {accounts.length > 0 ? <CreateJournalEntryForm accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))} /> : null}
+        </PageSection>
+        <PageSection title="Nuevo asiento" description="Registra apuntes contables cuando ya exista al menos una cuenta.">
+          {accounts.length > 0 ? (
+            <CreateJournalEntryForm accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))} />
+          ) : (
+            <EmptyState title="Sin cuentas contables" description="Crea una cuenta antes de registrar asientos." />
+          )}
+        </PageSection>
+      </section>
+
+      <PageSection
+        title="Plan contable"
+        description="Cuentas disponibles y acceso directo al libro mayor."
+        actions={
           <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver
+            Volver al panel
           </Link>
-          <div className="space-y-2">
-            <p className="font-medium">Plan contable</p>
-            {accounts.map((account) => (
-              <div key={account.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
-                <div>
-                  <p>{account.code} - {account.name} ({account.type})</p>
-                  <Link className="text-sm text-muted-foreground underline-offset-4 hover:underline" href={`/accounting/ledger/${account.id}`}>
-                    Ver mayor
-                  </Link>
-                </div>
-                <AccountRowActions id={account.id} />
+        }
+        contentClassName="space-y-2"
+      >
+        {accounts.length === 0 ? (
+          <EmptyState title="Plan contable vacío" description="Añade la primera cuenta para empezar a registrar asientos." />
+        ) : (
+          accounts.map((account) => (
+            <div key={account.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <div className="min-w-0">
+                <p className="truncate font-medium">
+                  {account.code} - {account.name}
+                </p>
+                <p className="text-sm text-muted-foreground">{account.type}</p>
+                <Link className="text-sm text-primary underline-offset-4 hover:underline" href={`/accounting/ledger/${account.id}`}>
+                  Ver mayor
+                </Link>
               </div>
-            ))}
-          </div>
-          <div className="space-y-2">
-            <p className="font-medium">Asientos</p>
-            {entries.map((entry) => (
-              <div key={entry.id} className="flex items-center justify-between rounded-md border p-2">
-                <p>{entry.postedAt.toISOString().slice(0, 10)} - {entry.reference ?? "-"} - {entry.debit}/{entry.credit}</p>
-                <JournalEntryRowActions id={entry.id} />
-              </div>
-            ))}
-          </div>
-          <p>Asientos: {balance?.entries ?? 0}</p>
-          <p>Debe: {balance?.debit ?? "0"}</p>
-          <p>Haber: {balance?.credit ?? "0"}</p>
-        </CardContent>
-      </Card>
-    </main>
+              <AccountRowActions id={account.id} />
+            </div>
+          ))
+        )}
+      </PageSection>
+
+      <PageSection title="Asientos" description="Últimos asientos registrados." contentClassName="space-y-2">
+        {entries.length === 0 ? (
+          <EmptyState title="Sin asientos" description="Registra el primer asiento para alimentar el balance." />
+        ) : (
+          entries.map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <p className="min-w-0 truncate text-sm">
+                <span className="font-medium">{entry.postedAt.toISOString().slice(0, 10)}</span> - {entry.reference ?? "Sin referencia"} - {entry.debit}/{entry.credit}
+              </p>
+              <JournalEntryRowActions id={entry.id} />
+            </div>
+          ))
+        )}
+      </PageSection>
+    </PageShell>
   );
 }

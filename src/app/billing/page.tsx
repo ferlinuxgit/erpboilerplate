@@ -2,7 +2,8 @@ import Link from "next/link";
 
 import { BillingActions } from "@/components/billing/billing-actions";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { getBillingViewModelForTenant } from "@/server/billing/data";
 
@@ -11,41 +12,32 @@ export default async function BillingPage() {
   const billing = await getBillingViewModelForTenant(ctx.tenant.id);
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Operación SaaS</CardTitle>
-          <CardDescription>Planes, límites y suscripción del tenant.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <dl className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="font-medium text-muted-foreground">Plan</dt>
-              <dd className="text-base font-semibold">
-                {billing.plan.name} <span className="text-muted-foreground">({billing.plan.code})</span>
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium text-muted-foreground">Estado</dt>
-              <dd className="text-base font-semibold">{billing.subscription.statusLabel}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-muted-foreground">Renovación / cancelación</dt>
-              <dd>{billing.subscription.renewalLabel}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-muted-foreground">Límites</dt>
-              <dd>{billing.plan.limits}</dd>
-            </div>
-          </dl>
-
-          <BillingActions checkout={billing.checkout} portal={billing.portal} />
-
+    <PageShell>
+      <PageHeader
+        eyebrow="Administración"
+        title="Suscripción"
+        description="Planes, límites y operación SaaS del tenant activo."
+        backHref="/dashboard"
+        backLabel="Volver al panel"
+        meta={<StatusBadge tone="info">{billing.subscription.statusLabel}</StatusBadge>}
+      />
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Plan" value={billing.plan.name} helper={billing.plan.code} />
+        <MetricCard label="Estado" value={billing.subscription.statusLabel} helper="Suscripción actual" />
+        <MetricCard label="Renovación / cancelación" value={billing.subscription.renewalLabel} />
+        <MetricCard label="Límites" value={billing.plan.limits} />
+      </section>
+      <PageSection
+        title="Gestión de facturación"
+        description="Abre checkout o portal de cliente según el estado actual de la suscripción."
+        actions={
           <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver
+            Volver al panel
           </Link>
-        </CardContent>
-      </Card>
-    </main>
+        }
+      >
+        <BillingActions checkout={billing.checkout} portal={billing.portal} />
+      </PageSection>
+    </PageShell>
   );
 }

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { EditBankAccountForm } from "@/components/treasury/edit-bank-account-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -16,13 +16,11 @@ export default async function EditBankAccountPage({ params }: { params: Promise<
   if (!account) notFound();
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <Card>
-        <CardHeader><CardTitle>Editar cuenta bancaria</CardTitle></CardHeader>
-        <CardContent>
-          <EditBankAccountForm id={account.id} defaultBankName={account.bankName} defaultIban={account.iban} />
-        </CardContent>
-      </Card>
-    </main>
+    <PageShell>
+      <PageHeader eyebrow="Tesorería" title="Editar cuenta bancaria" description={account.bankName} backHref="/treasury" backLabel="Volver a tesorería" />
+      <PageSection title="Datos bancarios" description="Actualiza banco e IBAN asociado a la empresa activa.">
+        <EditBankAccountForm id={account.id} defaultBankName={account.bankName} defaultIban={account.iban} />
+      </PageSection>
+    </PageShell>
   );
 }

@@ -3,7 +3,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 export function CreateBankAccountForm() {
@@ -36,10 +38,16 @@ export function CreateBankAccountForm() {
         }
       }}
     >
-      <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Banco" required />
-      <Input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="IBAN" required />
-      <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear cuenta"}</Button>
-      {error ? <p className="text-sm text-red-600 md:col-span-3">{error}</p> : null}
+      <AccessibleField id="bank-account-name" label="Banco" required>
+        <Input id="bank-account-name" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Banco Santander" required />
+      </AccessibleField>
+      <AccessibleField id="bank-account-iban" label="IBAN" required>
+        <Input id="bank-account-iban" value={iban} onChange={(e) => setIban(e.target.value)} placeholder="ES00 0000 0000 0000 0000 0000" required />
+      </AccessibleField>
+      <div className="self-end">
+        <Button className="w-full" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear cuenta"}</Button>
+      </div>
+      {error ? <InlineAlert className="md:col-span-3" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

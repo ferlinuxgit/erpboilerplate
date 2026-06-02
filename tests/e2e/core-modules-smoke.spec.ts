@@ -122,6 +122,11 @@ test("customers and invoices create flows work after prerequisite onboarding and
 
   await page.goto("/customers");
   await page.getByTestId("customer-name-input").fill(customerName);
+  await page.getByTestId("customer-tax-id-input").fill("B12345674");
+  await page.getByTestId("customer-address-input").fill("Calle Smoke 1");
+  await page.getByTestId("customer-postal-code-input").fill("28013");
+  await page.getByTestId("customer-city-input").fill("Madrid");
+  await page.getByTestId("customer-province-input").fill("Madrid");
   await page.getByTestId("customer-email-input").fill(`cliente-humo-${runId}@example.test`);
   await page.getByTestId("customer-phone-input").fill("+34 600 000 000");
   const customerResponsePromise = page.waitForResponse(
