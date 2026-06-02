@@ -81,12 +81,12 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
     }
   };
 
-  if (!hasMissingMasters) {
-    return <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">Los maestros contables mínimos están creados.</p>;
-  }
-
   return (
     <div className="space-y-4">
+      {!hasMissingMasters ? (
+        <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">Los maestros contables mínimos están creados.</p>
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="space-y-1">
           <label className="text-sm font-medium" htmlFor="accounting-master-preset">
@@ -205,7 +205,17 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Button disabled={loading || (selectedAccountCodes.size === 0 && selectedJournalCodes.size === 0)} onClick={submit} type="button">
+        <Button
+          disabled={
+            loading ||
+            (
+              defaultAccountingAccounts.every((account) => !selectedAccountCodes.has(account.code) || !missingAccountCodes.has(account.code)) &&
+              defaultAccountingJournals.every((journal) => !selectedJournalCodes.has(journal.code) || !missingJournalCodes.has(journal.code))
+            )
+          }
+          onClick={submit}
+          type="button"
+        >
           {loading ? "Creando..." : "Crear configuración recomendada"}
         </Button>
       </div>
