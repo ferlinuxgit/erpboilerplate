@@ -1,26 +1,54 @@
+import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { getUserSession } from "@/lib/current-user";
+import { customer, partner } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { canManageCustomers } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
+import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
+import { logger } from "@/lib/logger";
+import { can, canManageCustomers } from "@/lib/rbac";
 import { createCustomerWithPartner } from "@/server/customers/service";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
-export async function POST(request: Request) {
-  const session = await getUserSession();
+export async function GET(request: Request) {
+  const actor = await authenticateApiActor(request);
+  if (isAuthError(actor)) return actor;
 
-  if (!session?.user) {
-    return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  if (!can(actor.context.membership.role, "customer.read")) {
+    return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   }
 
-  const tenantContext = await ensureUserTenant({
-    id: session.user.id,
-    name: session.user.name,
-  });
+  const rows = await db
+    .select({
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      status: customer.status,
+      partnerId: customer.partnerId,
+      taxId: partner.taxId,
+      address: partner.address,
+      addressLine2: partner.addressLine2,
+      postalCode: partner.postalCode,
+      city: partner.city,
+      province: partner.province,
+      countryCode: partner.countryCode,
+      createdAt: customer.createdAt,
+      updatedAt: customer.updatedAt,
+    })
+    .from(customer)
+    .leftJoin(partner, eq(partner.id, customer.partnerId))
+    .where(eq(customer.companyId, actor.context.company.id))
+    .orderBy(desc(customer.createdAt));
 
-  if (!canManageCustomers(tenantContext.membership.role)) {
+  return NextResponse.json({ data: rows });
+}
+
+export async function POST(request: Request) {
+  const actor = await authenticateApiActor(request);
+  if (isAuthError(actor)) return actor;
+
+  if (!canManageCustomers(actor.context.membership.role)) {
     return NextResponse.json(
       { message: "No tienes permisos para crear clientes en esta empresa." },
       { status: 403 },
@@ -35,9 +63,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
 
-  const createdCustomer = await db.transaction((tx) =>
-    createCustomerWithPartner(tx, tenantContext.company.id, parsedPayload.data),
-  );
+  try {
+    const createdCustomer = await db.transaction((tx) =>
+      createCustomerWithPartner(tx, actor.context.company.id, parsedPayload.data),
+    );
 
-  return NextResponse.json(createdCustomer, { status: 201 });
+    return NextResponse.json(createdCustomer, { status: 201 });
+  } catch (error) {
+    logger.error({ error }, "customer.create_failed");
+    return NextResponse.json({ message: "No se pudo crear el cliente. Revisa si el CIF/NIF ya existe o si hay migraciones pendientes." }, { status: 500 });
+  }
 }

@@ -638,6 +638,7 @@ export const apiKey = pgTable("api_key", {
   keyHash: text("keyHash").notNull(),
   name: text("name").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  revokedAt: timestamp("revokedAt", { withTimezone: true, mode: "date" }),
 });
 
 export const invitation = pgTable("invitation", {

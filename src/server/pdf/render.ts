@@ -7,6 +7,8 @@ import type { SpanishFiscalSummary } from "@/server/fiscal/spain";
 
 export type InvoicePdfInput = {
   number: string;
+  issueDate: string;
+  dueDate: string | null;
   amount: string;
   company: {
     name: string;
@@ -22,6 +24,20 @@ export type InvoicePdfInput = {
     city: string | null;
     province: string | null;
     countryCode: string | null;
+  };
+  lines: Array<{
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    taxRate: string;
+    lineTotal: string;
+  }>;
+  totals: {
+    subtotal: string;
+    taxAmount: string;
+    retentionAmount: string;
+    hasRetention: boolean;
+    totalAmount: string;
   };
 };
 

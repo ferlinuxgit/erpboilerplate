@@ -61,6 +61,7 @@ export const createInvoiceSchema = z.object({
   totalAmount: z.number().positive("El importe debe ser mayor que 0."),
   notes: z.string().trim().optional().or(z.literal("")),
   lines: z.array(invoiceLineFormSchema).min(1, "Debes añadir al menos una línea."),
+  returnPdf: z.boolean().optional(),
 }).superRefine((value, ctx) => {
   if (!value.customerId?.trim() && !value.newCustomer) {
     ctx.addIssue({

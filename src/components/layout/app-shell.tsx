@@ -33,6 +33,7 @@ const navGroups = [
     label: "Administración",
     links: [
       { href: "/billing", label: "Suscripción" },
+      { href: "/settings/api-keys", label: "API" },
       { href: "/settings/security", label: "Seguridad" },
       { href: "/settings/team", label: "Equipo" },
       { href: "/settings/masters", label: "Maestros" },

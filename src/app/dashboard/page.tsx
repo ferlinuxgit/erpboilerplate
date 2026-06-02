@@ -17,6 +17,7 @@ const moduleLinks = [
   { href: "/fiscal", label: "Fiscal" },
   { href: "/reporting", label: "Informes" },
   { href: "/billing", label: "Suscripción" },
+  { href: "/settings/api-keys", label: "API" },
   { href: "/settings/security", label: "Seguridad" },
 ];
 

@@ -48,8 +48,8 @@ export function CreateCustomerForm() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo crear el cliente.");
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? "No se pudo crear el cliente.");
       }
 
       reset();

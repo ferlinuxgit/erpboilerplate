@@ -15,6 +15,13 @@
       "when": 1780390338300,
       "tag": "0001_partner_fiscal_address",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780490000000,
+      "tag": "0002_api_key_revocation",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,9 @@ export function InvoiceRowActions({ id, number }: InvoiceRowActionsProps) {
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/treasury?invoiceId=${id}`}>
         Registrar cobro
       </Link>
+      <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/api/invoices/${id}/pdf`} target="_blank">
+        PDF
+      </Link>
       <DeleteButton
         url={`/api/invoices/${id}`}
         title={`Eliminar factura ${number}`}
