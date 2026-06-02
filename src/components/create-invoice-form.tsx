@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -12,7 +12,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
@@ -21,6 +20,11 @@ import { createCustomerSchema, createInvoiceSchema } from "@/server/schemas/form
 type CustomerOption = {
   id: string;
   name: string;
+  email?: string | null;
+  phone?: string | null;
+  taxId?: string | null;
+  city?: string | null;
+  province?: string | null;
 };
 
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
@@ -42,12 +46,15 @@ const emptyLine = {
 export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateCustomer: boolean; customers: CustomerOption[] }) {
   const router = useRouter();
   const [customerOptions, setCustomerOptions] = useState(customers);
-  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [customerSearchDialogOpen, setCustomerSearchDialogOpen] = useState(false);
+  const [customerCreateDialogOpen, setCustomerCreateDialogOpen] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerLocationSearch, setCustomerLocationSearch] = useState("");
+  const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const {
     control,
     register,
-    reset,
     setValue,
     handleSubmit,
     formState: { errors, isSubmitting },
@@ -55,7 +62,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
     resolver: zodResolver(createInvoiceSchema),
     shouldUnregister: true,
     defaultValues: {
-      customerId: customers[0]?.id ?? "",
+      customerId: "",
       number: "",
       issueDate: "",
       dueDate: "",
@@ -86,7 +93,21 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
   });
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
+  const selectedCustomerId = useWatch({ control, name: "customerId" });
   const totals = calculateInvoiceTotals(watchedLines ?? []);
+  const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
+  const filteredCustomers = useMemo(() => {
+    const textQuery = customerSearch.trim().toLocaleLowerCase();
+    const locationQuery = customerLocationSearch.trim().toLocaleLowerCase();
+    const taxQuery = customerTaxSearch.trim().toLocaleLowerCase();
+
+    return customerOptions.filter((customer) => {
+      const text = [customer.name, customer.email, customer.phone].filter(Boolean).join(" ").toLocaleLowerCase();
+      const location = [customer.city, customer.province].filter(Boolean).join(" ").toLocaleLowerCase();
+      const tax = (customer.taxId ?? "").toLocaleLowerCase();
+      return (!textQuery || text.includes(textQuery)) && (!locationQuery || location.includes(locationQuery)) && (!taxQuery || tax.includes(taxQuery));
+    });
+  }, [customerLocationSearch, customerOptions, customerSearch, customerTaxSearch]);
 
   useEffect(() => {
     setValue("totalAmount", totals.totalAmount, { shouldValidate: true });
@@ -104,19 +125,23 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
   useEffect(() => {
     const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
       const form = document.querySelector('[data-testid="invoice-create-form"]');
-      if (!form?.contains(document.activeElement) || customerDialogOpen) return;
+      if (!form?.contains(document.activeElement) || customerSearchDialogOpen || customerCreateDialogOpen) return;
       const key = event.key.toLowerCase();
       const code = event.code.toLowerCase();
       if (!event.altKey || (key !== "n" && code !== "keyn") || !canCreateCustomer) return;
       event.preventDefault();
-      setCustomerDialogOpen(true);
+      setCustomerCreateDialogOpen(true);
     };
 
     document.addEventListener("keydown", handleDocumentKeyDown);
     return () => document.removeEventListener("keydown", handleDocumentKeyDown);
-  }, [canCreateCustomer, customerDialogOpen]);
+  }, [canCreateCustomer, customerCreateDialogOpen, customerSearchDialogOpen]);
 
-  const openCustomerDialog = () => setCustomerDialogOpen(true);
+  const openCustomerSearchDialog = () => setCustomerSearchDialogOpen(true);
+  const openCustomerCreateDialog = () => {
+    setCustomerSearchDialogOpen(false);
+    setCustomerCreateDialogOpen(true);
+  };
 
   const addLineAndFocus = () => {
     append(emptyLine);
@@ -140,7 +165,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
 
     if (event.altKey && isNewCustomerShortcut && canCreateCustomer) {
       event.preventDefault();
-      openCustomerDialog();
+      openCustomerCreateDialog();
       return;
     }
 
@@ -174,24 +199,8 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       }
 
       const created = (await response.json()) as CreatedInvoicePayload;
-      const nextCustomerOptions = created.customer && !customerOptions.some((customer) => customer.id === created.customer?.id)
-        ? [...customerOptions, created.customer]
-        : customerOptions;
-      const nextCustomerId = created.customer?.id ?? nextCustomerOptions[0]?.id ?? "";
-
-      if (nextCustomerOptions !== customerOptions) {
-        setCustomerOptions(nextCustomerOptions);
-      }
-      reset({
-        customerId: nextCustomerId,
-        number: "",
-        issueDate: "",
-        dueDate: "",
-        totalAmount: 0,
-        notes: "",
-        lines: [emptyLine],
-      });
       toast.success("Factura creada correctamente.");
+      router.push(`/invoices/${created.id}`);
       router.refresh();
     } catch (submissionError) {
       const message = submissionError instanceof Error ? submissionError.message : "Ha ocurrido un error inesperado.";
@@ -221,7 +230,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       );
       setValue("customerId", createdCustomer.id, { shouldDirty: true, shouldValidate: true });
       resetCustomer();
-      setCustomerDialogOpen(false);
+      setCustomerCreateDialogOpen(false);
       toast.success("Cliente creado y seleccionado.");
       router.refresh();
       requestAnimationFrame(() => document.getElementById("invoice-number")?.focus());
@@ -234,52 +243,54 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
     <>
     <form className="grid gap-4 md:grid-cols-3" data-testid="invoice-create-form" onKeyDown={handleInvoiceKeyDown} onSubmit={onSubmit}>
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
+      <input type="hidden" {...register("customerId")} />
       <section className="space-y-3 rounded-md border p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 id="invoice-customer-title" className="text-sm font-medium">
               Cliente
             </h3>
-            <p className="text-sm text-muted-foreground">Selecciona un cliente existente. Si no está dado de alta, créalo sin salir de la factura.</p>
+            <p className="text-sm text-muted-foreground">Selecciona el cliente desde el buscador avanzado antes de emitir la factura.</p>
           </div>
-          {canCreateCustomer ? (
+          <div className="flex flex-wrap gap-2">
             <Button
-              aria-keyshortcuts="Alt+N"
-              data-testid="invoice-new-customer-toggle"
               type="button"
               variant="outline"
-              onClick={openCustomerDialog}
+              onClick={openCustomerSearchDialog}
             >
-              Nuevo cliente
+              Buscar cliente
             </Button>
-          ) : null}
+            {canCreateCustomer ? (
+              <Button
+                aria-keyshortcuts="Alt+N"
+                data-testid="invoice-new-customer-toggle"
+                type="button"
+                variant="secondary"
+                onClick={openCustomerCreateDialog}
+              >
+                Crear cliente
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         {customerOptions.length === 0 ? (
           <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
             {canCreateCustomer
-              ? "Todavía no hay clientes activos. Crea uno desde el botón Nuevo cliente para poder emitir la factura."
+              ? "Todavía no hay clientes activos. Crea uno desde el botón Crear cliente para poder emitir la factura."
               : "No hay clientes activos y tu rol no permite crear clientes desde la factura."}
           </p>
+        ) : selectedCustomer ? (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <p className="font-medium">{selectedCustomer.name}</p>
+            <p className="text-sm text-muted-foreground">
+              {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
+            </p>
+          </div>
         ) : (
-          <AccessibleField id="invoice-customer" label="Cliente existente" required error={errors.customerId?.message}>
-            <Select
-              data-testid="invoice-customer-select"
-              id="invoice-customer"
-              required
-              aria-label="Cliente"
-              aria-invalid={Boolean(errors.customerId)}
-              aria-describedby={errors.customerId ? "invoice-customer-error" : undefined}
-              {...register("customerId")}
-            >
-              {customerOptions.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                </option>
-              ))}
-            </Select>
-          </AccessibleField>
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
         )}
+        {errors.customerId ? <p className="text-sm text-red-600" role="alert">{errors.customerId.message}</p> : null}
       </section>
       <AccessibleField id="invoice-number" label="Número" required error={errors.number?.message} helperText="Usa una numeración única y reconocible.">
         <Input
@@ -449,9 +460,76 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       </div>
     </form>
     <Dialog
+      initialFocusId="invoice-customer-search"
+      open={customerSearchDialogOpen}
+      onClose={() => setCustomerSearchDialogOpen(false)}
+      title="Seleccionar cliente"
+    >
+      <div className="space-y-4" data-testid="invoice-customer-search-dialog">
+        <div className="grid gap-3 md:grid-cols-3">
+          <AccessibleField id="invoice-customer-search" label="Nombre, email o teléfono">
+            <Input
+              id="invoice-customer-search"
+              value={customerSearch}
+              onChange={(event) => setCustomerSearch(event.target.value)}
+            />
+          </AccessibleField>
+          <AccessibleField id="invoice-customer-location-search" label="Ciudad o provincia">
+            <Input
+              id="invoice-customer-location-search"
+              value={customerLocationSearch}
+              onChange={(event) => setCustomerLocationSearch(event.target.value)}
+            />
+          </AccessibleField>
+          <AccessibleField id="invoice-customer-tax-search" label="CIF/NIF/VAT">
+            <Input
+              id="invoice-customer-tax-search"
+              value={customerTaxSearch}
+              onChange={(event) => setCustomerTaxSearch(event.target.value)}
+            />
+          </AccessibleField>
+        </div>
+
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {filteredCustomers.length === 0 ? (
+            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No hay clientes que coincidan con la búsqueda.</p>
+          ) : (
+            filteredCustomers.map((customer) => (
+              <button
+                className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                key={customer.id}
+                type="button"
+                onClick={() => {
+                  setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
+                  setCustomerSearchDialogOpen(false);
+                  requestAnimationFrame(() => document.getElementById("invoice-number")?.focus());
+                }}
+              >
+                <span className="block font-medium">{customer.name}</span>
+                <span className="block text-sm text-muted-foreground">
+                  {[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="flex justify-between gap-2">
+          {canCreateCustomer ? (
+            <Button type="button" variant="secondary" onClick={openCustomerCreateDialog}>
+              Crear nuevo cliente
+            </Button>
+          ) : <span />}
+          <Button type="button" variant="outline" onClick={() => setCustomerSearchDialogOpen(false)}>
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+    <Dialog
       initialFocusId="invoice-new-customer-name"
-      open={customerDialogOpen}
-      onClose={() => setCustomerDialogOpen(false)}
+      open={customerCreateDialogOpen}
+      onClose={() => setCustomerCreateDialogOpen(false)}
       title="Nuevo cliente"
     >
       <form className="grid gap-3 md:grid-cols-2" data-testid="invoice-new-customer-dialog-form" onSubmit={onCreateCustomer}>
@@ -566,7 +644,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
           />
         </AccessibleField>
         <div className="flex justify-end gap-2 md:col-span-2">
-          <Button type="button" variant="outline" onClick={() => setCustomerDialogOpen(false)}>
+          <Button type="button" variant="outline" onClick={() => setCustomerCreateDialogOpen(false)}>
             Cancelar
           </Button>
           <Button data-testid="invoice-new-customer-submit" disabled={isCreatingCustomer} type="submit">

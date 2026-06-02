@@ -21,8 +21,10 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByRole("button", { name: "Crear cliente" }).click();
   await expect(page.locator("tr", { hasText: customerName })).toBeVisible();
 
-  await page.goto("/invoices");
-  await page.getByTestId("invoice-customer-select").selectOption({ label: customerName });
+  await page.goto("/invoices/new");
+  await page.getByRole("button", { name: "Buscar cliente" }).click();
+  await page.getByLabel("Nombre, email o teléfono").fill(customerName);
+  await page.getByRole("button", { name: new RegExp(customerName) }).click();
   await page.getByTestId("invoice-number-input").fill(invoiceNumber);
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
 
@@ -42,6 +44,10 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await expect(page.getByText("Total: 374,00 €")).toBeVisible();
 
   await page.getByRole("button", { name: "Crear factura" }).click();
+  await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: invoiceNumber })).toBeVisible();
+
+  await page.goto("/invoices");
   const invoiceRow = page.locator("tr", { hasText: invoiceNumber });
   await expect(invoiceRow).toBeVisible();
   await expect(invoiceRow.getByText(customerName)).toBeVisible();
@@ -70,7 +76,7 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await registerAndSignIn(page, "Invoice Inline Customer E2E");
   await completeOnboarding(page, "Empresa inline E2E S.L.");
 
-  await page.goto("/invoices");
+  await page.goto("/invoices/new");
   const newCustomerButton = page.getByTestId("invoice-new-customer-toggle");
   await expect(newCustomerButton).toBeVisible();
   await newCustomerButton.focus();
@@ -88,7 +94,7 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-new-customer-city-input").fill("Madrid");
   await page.getByTestId("invoice-new-customer-province-input").fill("Madrid");
   await page.getByTestId("invoice-new-customer-submit").click();
-  await expect(page.getByTestId("invoice-customer-select")).toHaveValue(/.+/);
+  await expect(page.getByText(customerName)).toBeVisible();
   await page.getByTestId("invoice-number-input").fill(invoiceNumber);
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
   await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
@@ -97,6 +103,10 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-line-1-tax-rate").fill("21");
 
   await page.getByRole("button", { name: "Crear factura" }).click();
+  await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: invoiceNumber })).toBeVisible();
+
+  await page.goto("/invoices");
   const invoiceRow = page.locator("tr", { hasText: invoiceNumber });
   await expect(invoiceRow).toBeVisible();
   await expect(invoiceRow.getByText(customerName)).toBeVisible();

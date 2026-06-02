@@ -11,6 +11,9 @@ type InvoiceRowActionsProps = {
 export function InvoiceRowActions({ id, number }: InvoiceRowActionsProps) {
   return (
     <div className="flex gap-2" data-testid={`invoice-row-actions-${id}`}>
+      <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid={`invoice-view-${id}`} href={`/invoices/${id}`}>
+        Ver
+      </Link>
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid={`invoice-edit-${id}`} href={`/invoices/${id}/edit`}>
         Editar
       </Link>

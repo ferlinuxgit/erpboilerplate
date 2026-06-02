@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -24,7 +26,9 @@ const columns: ResourceListColumn<InvoiceListRow>[] = [
     header: "Factura",
     cell: (invoice) => (
       <div>
-        <p className="font-medium">{invoice.number}</p>
+        <Link className="font-medium text-primary hover:underline" href={`/invoices/${invoice.id}`}>
+          {invoice.number}
+        </Link>
         <p className="text-sm text-muted-foreground">{invoice.customerName}</p>
       </div>
     ),
@@ -77,7 +81,9 @@ export function InvoicesList({ rows }: InvoicesListProps) {
       renderMobileCard={(invoice) => (
         <div className="space-y-3">
           <div>
-            <p className="font-medium">{invoice.number} - {invoice.customerName}</p>
+            <Link className="font-medium text-primary hover:underline" href={`/invoices/${invoice.id}`}>
+              {invoice.number} - {invoice.customerName}
+            </Link>
             <p className="text-sm text-muted-foreground">Estado: {invoice.status}</p>
             <p className="text-sm text-muted-foreground">Importe: {invoice.totalAmountLabel}</p>
             <p className="text-sm text-muted-foreground">Emisión: {invoice.issueDateLabel}</p>
