@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +16,7 @@ import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { createInvoiceSchema } from "@/server/schemas/forms";
+import { createCustomerSchema, createInvoiceSchema } from "@/server/schemas/forms";
 
 type CustomerOption = {
   id: string;
@@ -23,6 +24,7 @@ type CustomerOption = {
 };
 
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
+type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
 type CreatedInvoicePayload = {
   id: string;
   number: string;
@@ -40,7 +42,8 @@ const emptyLine = {
 export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateCustomer: boolean; customers: CustomerOption[] }) {
   const router = useRouter();
   const [customerOptions, setCustomerOptions] = useState(customers);
-  const [customerMode, setCustomerMode] = useState<"existing" | "new">(customers.length > 0 ? "existing" : "new");
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const {
     control,
     register,
@@ -61,6 +64,26 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       lines: [emptyLine],
     },
   });
+  const {
+    register: registerCustomer,
+    reset: resetCustomer,
+    handleSubmit: handleCustomerSubmit,
+    formState: { errors: customerErrors, isSubmitting: isCreatingCustomer },
+  } = useForm<CreateCustomerPayload>({
+    resolver: zodResolver(createCustomerSchema),
+    defaultValues: {
+      name: "",
+      taxId: "",
+      address: "",
+      addressLine2: "",
+      postalCode: "",
+      city: "",
+      province: "",
+      countryCode: "ES",
+      email: "",
+      phone: "",
+    },
+  });
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
   const totals = calculateInvoiceTotals(watchedLines ?? []);
@@ -69,19 +92,80 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
     setValue("totalAmount", totals.totalAmount, { shouldValidate: true });
   }, [setValue, totals.totalAmount]);
 
+  useEffect(() => {
+    if (pendingFocusLineIndex === null) return;
+    const descriptionId = `invoice-line-${pendingFocusLineIndex + 1}-description`;
+    requestAnimationFrame(() => {
+      document.getElementById(descriptionId)?.focus();
+      setPendingFocusLineIndex(null);
+    });
+  }, [fields.length, pendingFocusLineIndex]);
+
+  useEffect(() => {
+    const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      const form = document.querySelector('[data-testid="invoice-create-form"]');
+      if (!form?.contains(document.activeElement) || customerDialogOpen) return;
+      const key = event.key.toLowerCase();
+      const code = event.code.toLowerCase();
+      if (!event.altKey || (key !== "n" && code !== "keyn") || !canCreateCustomer) return;
+      event.preventDefault();
+      setCustomerDialogOpen(true);
+    };
+
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
+  }, [canCreateCustomer, customerDialogOpen]);
+
+  const openCustomerDialog = () => setCustomerDialogOpen(true);
+
+  const addLineAndFocus = () => {
+    append(emptyLine);
+    setPendingFocusLineIndex(fields.length);
+  };
+
+  const focusLineDescription = (index: number) => {
+    setPendingFocusLineIndex(index);
+  };
+
+  const removeLineAndFocus = (index: number) => {
+    remove(index);
+    setPendingFocusLineIndex(Math.max(0, index - 1));
+  };
+
+  const handleInvoiceKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
+    const key = event.key.toLowerCase();
+    const code = event.code.toLowerCase();
+    const isNewCustomerShortcut = key === "n" || code === "keyn";
+    const isAddLineShortcut = key === "l" || code === "keyl";
+
+    if (event.altKey && isNewCustomerShortcut && canCreateCustomer) {
+      event.preventDefault();
+      openCustomerDialog();
+      return;
+    }
+
+    if (event.altKey && isAddLineShortcut) {
+      event.preventDefault();
+      addLineAndFocus();
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.requestSubmit();
+    }
+  };
+
   const onSubmit = handleSubmit(async (values) => {
     try {
       const invoiceTotals = calculateInvoiceTotals(values.lines);
-      const payload = customerMode === "new"
-        ? { ...values, customerId: "", totalAmount: invoiceTotals.totalAmount }
-        : { ...values, newCustomer: undefined, totalAmount: invoiceTotals.totalAmount };
       const response = await fetch("/api/invoices", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...getCsrfHeader(),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...values, newCustomer: undefined, totalAmount: invoiceTotals.totalAmount }),
       });
 
       if (!response.ok) {
@@ -98,7 +182,6 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       if (nextCustomerOptions !== customerOptions) {
         setCustomerOptions(nextCustomerOptions);
       }
-      setCustomerMode(nextCustomerOptions.length > 0 ? "existing" : "new");
       reset({
         customerId: nextCustomerId,
         number: "",
@@ -116,8 +199,40 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
     }
   });
 
+  const onCreateCustomer = handleCustomerSubmit(async (values) => {
+    try {
+      const response = await fetch("/api/customers", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getCsrfHeader(),
+        },
+        body: JSON.stringify(values),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { message?: string };
+        throw new Error(payload.message ?? "No se pudo crear el cliente.");
+      }
+
+      const createdCustomer = (await response.json()) as CustomerOption;
+      setCustomerOptions((current) =>
+        current.some((customer) => customer.id === createdCustomer.id) ? current : [...current, createdCustomer],
+      );
+      setValue("customerId", createdCustomer.id, { shouldDirty: true, shouldValidate: true });
+      resetCustomer();
+      setCustomerDialogOpen(false);
+      toast.success("Cliente creado y seleccionado.");
+      router.refresh();
+      requestAnimationFrame(() => document.getElementById("invoice-number")?.focus());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Ha ocurrido un error inesperado.");
+    }
+  });
+
   return (
-    <form className="grid gap-4 md:grid-cols-3" data-testid="invoice-create-form" onSubmit={onSubmit}>
+    <>
+    <form className="grid gap-4 md:grid-cols-3" data-testid="invoice-create-form" onKeyDown={handleInvoiceKeyDown} onSubmit={onSubmit}>
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <section className="space-y-3 rounded-md border p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -125,41 +240,28 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
             <h3 id="invoice-customer-title" className="text-sm font-medium">
               Cliente
             </h3>
-            <p className="text-sm text-muted-foreground">Selecciona un cliente existente o crea uno con los mínimos fiscales para facturar.</p>
+            <p className="text-sm text-muted-foreground">Selecciona un cliente existente. Si no está dado de alta, créalo sin salir de la factura.</p>
           </div>
-          <div className="flex gap-2">
+          {canCreateCustomer ? (
             <Button
+              aria-keyshortcuts="Alt+N"
+              data-testid="invoice-new-customer-toggle"
               type="button"
-              variant={customerMode === "existing" ? "default" : "outline"}
-              disabled={customerOptions.length === 0}
-              onClick={() => {
-                setCustomerMode("existing");
-                setValue("customerId", customerOptions[0]?.id ?? "", { shouldValidate: true });
-              }}
+              variant="outline"
+              onClick={openCustomerDialog}
             >
-              Existente
+              Nuevo cliente
             </Button>
-            {canCreateCustomer ? (
-              <Button
-                data-testid="invoice-new-customer-toggle"
-                type="button"
-                variant={customerMode === "new" ? "default" : "outline"}
-                onClick={() => {
-                  setCustomerMode("new");
-                  setValue("customerId", "", { shouldValidate: true });
-                }}
-              >
-                Nuevo cliente
-              </Button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
 
-        {customerMode === "new" && !canCreateCustomer ? (
+        {customerOptions.length === 0 ? (
           <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-            No hay clientes activos y tu rol no permite crear clientes desde la factura.
+            {canCreateCustomer
+              ? "Todavía no hay clientes activos. Crea uno desde el botón Nuevo cliente para poder emitir la factura."
+              : "No hay clientes activos y tu rol no permite crear clientes desde la factura."}
           </p>
-        ) : customerMode === "existing" ? (
+        ) : (
           <AccessibleField id="invoice-customer" label="Cliente existente" required error={errors.customerId?.message}>
             <Select
               data-testid="invoice-customer-select"
@@ -177,120 +279,6 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
               ))}
             </Select>
           </AccessibleField>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-6">
-            <AccessibleField id="invoice-new-customer-name" label="Nombre / razón social" required className="md:col-span-2" error={errors.newCustomer?.name?.message}>
-              <Input
-                data-testid="invoice-new-customer-name-input"
-                id="invoice-new-customer-name"
-                required
-                aria-label="Nombre o razón social del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.name)}
-                aria-describedby={errors.newCustomer?.name ? "invoice-new-customer-name-error" : undefined}
-                {...register("newCustomer.name")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-tax-id" label="CIF/NIF/VAT" required error={errors.newCustomer?.taxId?.message}>
-              <Input
-                data-testid="invoice-new-customer-tax-id-input"
-                id="invoice-new-customer-tax-id"
-                placeholder="B12345674"
-                required
-                aria-label="CIF NIF VAT del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.taxId)}
-                aria-describedby={errors.newCustomer?.taxId ? "invoice-new-customer-tax-id-error" : undefined}
-                {...register("newCustomer.taxId")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-country" label="País" required error={errors.newCustomer?.countryCode?.message}>
-              <Input
-                data-testid="invoice-new-customer-country-input"
-                id="invoice-new-customer-country"
-                defaultValue="ES"
-                maxLength={2}
-                required
-                aria-label="País del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.countryCode)}
-                aria-describedby={errors.newCustomer?.countryCode ? "invoice-new-customer-country-error" : undefined}
-                {...register("newCustomer.countryCode")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-address" label="Dirección fiscal" required className="md:col-span-2" error={errors.newCustomer?.address?.message}>
-              <Input
-                data-testid="invoice-new-customer-address-input"
-                id="invoice-new-customer-address"
-                required
-                aria-label="Dirección fiscal del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.address)}
-                aria-describedby={errors.newCustomer?.address ? "invoice-new-customer-address-error" : undefined}
-                {...register("newCustomer.address")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-address-line-2" label="Dirección 2" className="md:col-span-2" error={errors.newCustomer?.addressLine2?.message}>
-              <Input
-                data-testid="invoice-new-customer-address-line-2-input"
-                id="invoice-new-customer-address-line-2"
-                aria-label="Dirección 2 del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.addressLine2)}
-                aria-describedby={errors.newCustomer?.addressLine2 ? "invoice-new-customer-address-line-2-error" : undefined}
-                {...register("newCustomer.addressLine2")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-postal-code" label="Código postal" required error={errors.newCustomer?.postalCode?.message}>
-              <Input
-                data-testid="invoice-new-customer-postal-code-input"
-                id="invoice-new-customer-postal-code"
-                required
-                aria-label="Código postal del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.postalCode)}
-                aria-describedby={errors.newCustomer?.postalCode ? "invoice-new-customer-postal-code-error" : undefined}
-                {...register("newCustomer.postalCode")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-city" label="Ciudad" required error={errors.newCustomer?.city?.message}>
-              <Input
-                data-testid="invoice-new-customer-city-input"
-                id="invoice-new-customer-city"
-                required
-                aria-label="Ciudad del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.city)}
-                aria-describedby={errors.newCustomer?.city ? "invoice-new-customer-city-error" : undefined}
-                {...register("newCustomer.city")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-province" label="Provincia" required error={errors.newCustomer?.province?.message}>
-              <Input
-                data-testid="invoice-new-customer-province-input"
-                id="invoice-new-customer-province"
-                required
-                aria-label="Provincia del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.province)}
-                aria-describedby={errors.newCustomer?.province ? "invoice-new-customer-province-error" : undefined}
-                {...register("newCustomer.province")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-email" label="Email" error={errors.newCustomer?.email?.message}>
-              <Input
-                data-testid="invoice-new-customer-email-input"
-                id="invoice-new-customer-email"
-                type="email"
-                aria-label="Email del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.email)}
-                aria-describedby={errors.newCustomer?.email ? "invoice-new-customer-email-error" : undefined}
-                {...register("newCustomer.email")}
-              />
-            </AccessibleField>
-            <AccessibleField id="invoice-new-customer-phone" label="Teléfono" error={errors.newCustomer?.phone?.message}>
-              <Input
-                data-testid="invoice-new-customer-phone-input"
-                id="invoice-new-customer-phone"
-                aria-label="Teléfono del cliente nuevo"
-                aria-invalid={Boolean(errors.newCustomer?.phone)}
-                aria-describedby={errors.newCustomer?.phone ? "invoice-new-customer-phone-error" : undefined}
-                {...register("newCustomer.phone")}
-              />
-            </AccessibleField>
-          </div>
         )}
       </section>
       <AccessibleField id="invoice-number" label="Número" required error={errors.number?.message} helperText="Usa una numeración única y reconocible.">
@@ -348,7 +336,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
             </h3>
             <p className="text-sm text-muted-foreground">Añade al menos una línea para calcular el total automáticamente.</p>
           </div>
-          <Button data-testid="invoice-add-line" type="button" variant="outline" onClick={() => append(emptyLine)}>
+          <Button aria-keyshortcuts="Alt+L" data-testid="invoice-add-line" type="button" variant="outline" onClick={addLineAndFocus}>
             Añadir línea
           </Button>
         </div>
@@ -418,6 +406,15 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
                       step="0.001"
                       type="number"
                       aria-invalid={Boolean(lineErrors?.taxRate)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" || event.shiftKey) return;
+                        event.preventDefault();
+                        if (index === fields.length - 1) {
+                          addLineAndFocus();
+                        } else {
+                          focusLineDescription(index + 1);
+                        }
+                      }}
                       {...register(`lines.${index}.taxRate`, { valueAsNumber: true })}
                     />
                     {lineErrors?.taxRate ? <p className="text-sm text-red-600" role="alert">{lineErrors.taxRate.message}</p> : null}
@@ -426,7 +423,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
                     <p className="text-sm text-muted-foreground" aria-live="polite" data-testid={`invoice-line-${lineNumber}-total`}>
                       Línea: {formatMoney(lineTotals.lineTotal)}
                     </p>
-                    <Button type="button" variant="ghost" onClick={() => remove(index)} disabled={fields.length === 1}>
+                    <Button type="button" variant="ghost" onClick={() => removeLineAndFocus(index)} disabled={fields.length === 1}>
                       Quitar
                     </Button>
                   </div>
@@ -446,10 +443,138 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       </div>
 
       <div className="md:col-span-3">
-        <Button data-testid="invoice-create-submit" disabled={isSubmitting} type="submit">
+        <Button aria-keyshortcuts="Control+Enter Meta+Enter" data-testid="invoice-create-submit" disabled={isSubmitting} type="submit">
           {isSubmitting ? "Guardando..." : "Crear factura"}
         </Button>
       </div>
     </form>
+    <Dialog
+      initialFocusId="invoice-new-customer-name"
+      open={customerDialogOpen}
+      onClose={() => setCustomerDialogOpen(false)}
+      title="Nuevo cliente"
+    >
+      <form className="grid gap-3 md:grid-cols-2" data-testid="invoice-new-customer-dialog-form" onSubmit={onCreateCustomer}>
+        <AccessibleField id="invoice-new-customer-name" label="Nombre / razón social" required className="md:col-span-2" error={customerErrors.name?.message}>
+          <Input
+            data-testid="invoice-new-customer-name-input"
+            id="invoice-new-customer-name"
+            required
+            aria-label="Nombre o razón social del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.name)}
+            aria-describedby={customerErrors.name ? "invoice-new-customer-name-error" : undefined}
+            {...registerCustomer("name")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-tax-id" label="CIF/NIF/VAT" required error={customerErrors.taxId?.message}>
+          <Input
+            data-testid="invoice-new-customer-tax-id-input"
+            id="invoice-new-customer-tax-id"
+            placeholder="B12345674"
+            required
+            aria-label="CIF NIF VAT del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.taxId)}
+            aria-describedby={customerErrors.taxId ? "invoice-new-customer-tax-id-error" : undefined}
+            {...registerCustomer("taxId")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-country" label="País" required error={customerErrors.countryCode?.message}>
+          <Input
+            data-testid="invoice-new-customer-country-input"
+            id="invoice-new-customer-country"
+            maxLength={2}
+            required
+            aria-label="País del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.countryCode)}
+            aria-describedby={customerErrors.countryCode ? "invoice-new-customer-country-error" : undefined}
+            {...registerCustomer("countryCode")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-address" label="Dirección fiscal" required className="md:col-span-2" error={customerErrors.address?.message}>
+          <Input
+            data-testid="invoice-new-customer-address-input"
+            id="invoice-new-customer-address"
+            required
+            aria-label="Dirección fiscal del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.address)}
+            aria-describedby={customerErrors.address ? "invoice-new-customer-address-error" : undefined}
+            {...registerCustomer("address")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-postal-code" label="Código postal" required error={customerErrors.postalCode?.message}>
+          <Input
+            data-testid="invoice-new-customer-postal-code-input"
+            id="invoice-new-customer-postal-code"
+            required
+            aria-label="Código postal del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.postalCode)}
+            aria-describedby={customerErrors.postalCode ? "invoice-new-customer-postal-code-error" : undefined}
+            {...registerCustomer("postalCode")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-city" label="Ciudad" required error={customerErrors.city?.message}>
+          <Input
+            data-testid="invoice-new-customer-city-input"
+            id="invoice-new-customer-city"
+            required
+            aria-label="Ciudad del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.city)}
+            aria-describedby={customerErrors.city ? "invoice-new-customer-city-error" : undefined}
+            {...registerCustomer("city")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-province" label="Provincia" required error={customerErrors.province?.message}>
+          <Input
+            data-testid="invoice-new-customer-province-input"
+            id="invoice-new-customer-province"
+            required
+            aria-label="Provincia del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.province)}
+            aria-describedby={customerErrors.province ? "invoice-new-customer-province-error" : undefined}
+            {...registerCustomer("province")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-address-line-2" label="Dirección 2" error={customerErrors.addressLine2?.message}>
+          <Input
+            data-testid="invoice-new-customer-address-line-2-input"
+            id="invoice-new-customer-address-line-2"
+            aria-label="Dirección 2 del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.addressLine2)}
+            aria-describedby={customerErrors.addressLine2 ? "invoice-new-customer-address-line-2-error" : undefined}
+            {...registerCustomer("addressLine2")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-email" label="Email" error={customerErrors.email?.message}>
+          <Input
+            data-testid="invoice-new-customer-email-input"
+            id="invoice-new-customer-email"
+            type="email"
+            aria-label="Email del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.email)}
+            aria-describedby={customerErrors.email ? "invoice-new-customer-email-error" : undefined}
+            {...registerCustomer("email")}
+          />
+        </AccessibleField>
+        <AccessibleField id="invoice-new-customer-phone" label="Teléfono" error={customerErrors.phone?.message}>
+          <Input
+            data-testid="invoice-new-customer-phone-input"
+            id="invoice-new-customer-phone"
+            aria-label="Teléfono del cliente nuevo"
+            aria-invalid={Boolean(customerErrors.phone)}
+            aria-describedby={customerErrors.phone ? "invoice-new-customer-phone-error" : undefined}
+            {...registerCustomer("phone")}
+          />
+        </AccessibleField>
+        <div className="flex justify-end gap-2 md:col-span-2">
+          <Button type="button" variant="outline" onClick={() => setCustomerDialogOpen(false)}>
+            Cancelar
+          </Button>
+          <Button data-testid="invoice-new-customer-submit" disabled={isCreatingCustomer} type="submit">
+            {isCreatingCustomer ? "Creando..." : "Crear cliente y usar"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+    </>
   );
 }

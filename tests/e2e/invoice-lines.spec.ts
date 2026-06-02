@@ -31,7 +31,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
   await page.getByTestId("invoice-line-1-tax-rate").fill("21");
 
-  await page.getByRole("button", { name: "Añadir línea" }).click();
+  await page.keyboard.press("Alt+L");
   await page.getByTestId("invoice-line-2-description").fill("Soporte");
   await page.getByTestId("invoice-line-2-quantity").fill("1.5");
   await page.getByTestId("invoice-line-2-unit-price").fill("80");
@@ -71,6 +71,15 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await completeOnboarding(page, "Empresa inline E2E S.L.");
 
   await page.goto("/invoices");
+  const newCustomerButton = page.getByTestId("invoice-new-customer-toggle");
+  await expect(newCustomerButton).toBeVisible();
+  await newCustomerButton.focus();
+  await expect(newCustomerButton).toBeFocused();
+  await page.keyboard.press("Enter");
+  if (!(await page.getByTestId("invoice-new-customer-name-input").isVisible().catch(() => false))) {
+    await newCustomerButton.focus();
+    await page.keyboard.press("Space");
+  }
   await expect(page.getByTestId("invoice-new-customer-name-input")).toBeVisible();
   await page.getByTestId("invoice-new-customer-name-input").fill(customerName);
   await page.getByTestId("invoice-new-customer-tax-id-input").fill("B12345674");
@@ -78,6 +87,8 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-new-customer-postal-code-input").fill("28013");
   await page.getByTestId("invoice-new-customer-city-input").fill("Madrid");
   await page.getByTestId("invoice-new-customer-province-input").fill("Madrid");
+  await page.getByTestId("invoice-new-customer-submit").click();
+  await expect(page.getByTestId("invoice-customer-select")).toHaveValue(/.+/);
   await page.getByTestId("invoice-number-input").fill(invoiceNumber);
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
   await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
