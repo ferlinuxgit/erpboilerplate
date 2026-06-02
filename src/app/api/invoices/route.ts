@@ -17,6 +17,26 @@ import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
 import { renderInvoicePdf } from "@/server/pdf/render";
 import { createInvoiceSchema } from "@/server/schemas/forms";
 
+function invoiceCreateErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) return "No se pudo crear la factura.";
+
+  if (
+    error.message.includes("periodo fiscal") ||
+    error.message.includes("No existe serie") ||
+    error.message.includes("No se pudo reservar serie") ||
+    error.message.includes("No existe la cuenta contable")
+  ) {
+    return error.message;
+  }
+
+  const databaseError = error as Error & { code?: string; constraint?: string };
+  if (databaseError.code === "23505" || databaseError.constraint === "invoice_company_number_unique") {
+    return "No se pudo crear la factura porque el número generado ya existe. Revisa la serie de facturación.";
+  }
+
+  return "No se pudo crear la factura.";
+}
+
 export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
@@ -181,12 +201,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ...createdInvoice, pdfUrl: `/api/invoices/${createdInvoice.id}/pdf` }, { status: 201 });
   } catch (error) {
     logger.error({ error }, "invoice.create_failed");
-    const message = error instanceof Error && error.message.includes("periodo fiscal")
-      ? error.message
-      : "No se pudo crear la factura. Revisa si el número ya existe.";
-    return NextResponse.json(
-      { message },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: invoiceCreateErrorMessage(error) }, { status: 400 });
   }
 }

@@ -7,6 +7,7 @@ const root = process.cwd();
 const apiRouteFiles = [
   "src/app/api/accounts/[id]/route.ts",
   "src/app/api/accounts/route.ts",
+  "src/app/api/accounting/masters/route.ts",
   "src/app/api/api-keys/route.ts",
   "src/app/api/api-keys/[id]/route.ts",
   "src/app/api/auth/login/route.ts",

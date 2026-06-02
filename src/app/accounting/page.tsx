@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AccountingMastersForm } from "@/components/accounting/accounting-masters-form";
 import { AccountRowActions } from "@/components/accounting/account-row-actions";
 import { CreateAccountForm } from "@/components/accounting/create-account-form";
 import { CreateJournalEntryForm } from "@/components/accounting/create-journal-entry-form";
@@ -8,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { ensureUserTenant } from "@/lib/tenant";
+import { getAccountingMasterStatus } from "@/server/accounting/masters";
 import { getTrialBalance, listAccounts, listJournalEntries } from "@/server/accounting/service";
 
 export default async function AccountingPage() {
@@ -16,6 +18,8 @@ export default async function AccountingPage() {
   const [balance] = await getTrialBalance(ctx.company.id);
   const accounts = await listAccounts(ctx.company.id);
   const entries = await listJournalEntries(ctx.company.id);
+  const masterStatus = await getAccountingMasterStatus(ctx.company.id);
+  const hasMissingMasters = masterStatus.missingAccounts.length > 0 || masterStatus.missingJournals.length > 0;
 
   return (
     <PageShell>
@@ -32,6 +36,15 @@ export default async function AccountingPage() {
         <MetricCard label="Debe" value={balance?.debit ?? "0"} helper="Balance de comprobación" />
         <MetricCard label="Haber" value={balance?.credit ?? "0"} helper="Balance de comprobación" />
       </section>
+
+      {hasMissingMasters ? (
+        <PageSection
+          title="Maestros contables necesarios"
+          description="Completa la configuración mínima antes de emitir facturas o contabilizar cobros."
+        >
+          <AccountingMastersForm missingAccounts={masterStatus.missingAccounts} missingJournals={masterStatus.missingJournals} />
+        </PageSection>
+      ) : null}
 
       <section className="grid gap-6 lg:grid-cols-2">
         <PageSection title="Nueva cuenta" description="Añade cuentas al plan contable activo.">
