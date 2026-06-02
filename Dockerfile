@@ -5,7 +5,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package.json package-lock.json ./
 RUN npm install -g npm@11.9.0
-RUN npm ci
+RUN npm ci --include=dev
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
@@ -44,6 +44,7 @@ COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/scripts ./scripts
+RUN npm prune --omit=dev && npm cache clean --force
 
 EXPOSE 3000
 
