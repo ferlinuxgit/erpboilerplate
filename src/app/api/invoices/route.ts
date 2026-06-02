@@ -10,6 +10,7 @@ import { can, canManageCustomers, canManageInvoices } from "@/lib/rbac";
 import { logger } from "@/lib/logger";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { createCustomerWithPartner } from "@/server/customers/service";
+import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
@@ -67,7 +68,6 @@ export async function POST(request: Request) {
   }
   const values = parsedPayload.data;
   let customerId = values.customerId?.trim() ?? "";
-  const number = values.number.trim();
   const notes = values.notes?.trim() || null;
   const issueDate = values.issueDate ? new Date(values.issueDate) : null;
   const dueDate = values.dueDate ? new Date(values.dueDate) : null;
@@ -75,9 +75,9 @@ export async function POST(request: Request) {
   const totalAmount = invoiceTotals.totalAmount;
   const shouldCreateCustomer = !customerId && Boolean(values.newCustomer);
 
-  if (!number || !issueDate || Number.isNaN(issueDate.getTime()) || totalAmount <= 0) {
+  if (!issueDate || Number.isNaN(issueDate.getTime()) || totalAmount <= 0) {
     return NextResponse.json(
-      { message: "Debes informar número, fecha válida e importe mayor de 0." },
+      { message: "Debes informar una fecha válida e importe mayor de 0." },
       { status: 400 },
     );
   }
@@ -113,6 +113,12 @@ export async function POST(request: Request) {
         ? await createCustomerWithPartner(tx, actor.context.company.id, values.newCustomer)
         : null;
       customerId = createdCustomer?.id ?? customerId;
+      const number = await reserveSeriesNumber(tx, {
+        companyId: actor.context.company.id,
+        fiscalYearId: actor.context.fiscalYear.id,
+        type: "SALES_INVOICE",
+        referenceDate: issueDate,
+      });
 
       const [created] = await tx
         .insert(invoice)

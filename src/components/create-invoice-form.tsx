@@ -43,7 +43,15 @@ const emptyLine = {
   taxRate: 21,
 };
 
-export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateCustomer: boolean; customers: CustomerOption[] }) {
+export function CreateInvoiceForm({
+  canCreateCustomer,
+  customers,
+  nextInvoiceNumberPreview,
+}: {
+  canCreateCustomer: boolean;
+  customers: CustomerOption[];
+  nextInvoiceNumberPreview?: string | null;
+}) {
   const router = useRouter();
   const [customerOptions, setCustomerOptions] = useState(customers);
   const [customerSearchDialogOpen, setCustomerSearchDialogOpen] = useState(false);
@@ -63,7 +71,6 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
     shouldUnregister: true,
     defaultValues: {
       customerId: "",
-      number: "",
       issueDate: "",
       dueDate: "",
       totalAmount: 0,
@@ -233,7 +240,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
       setCustomerCreateDialogOpen(false);
       toast.success("Cliente creado y seleccionado.");
       router.refresh();
-      requestAnimationFrame(() => document.getElementById("invoice-number")?.focus());
+      requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ha ocurrido un error inesperado.");
     }
@@ -292,18 +299,12 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
         )}
         {errors.customerId ? <p className="text-sm text-red-600" role="alert">{errors.customerId.message}</p> : null}
       </section>
-      <AccessibleField id="invoice-number" label="Número" required error={errors.number?.message} helperText="Usa una numeración única y reconocible.">
-        <Input
-          data-testid="invoice-number-input"
-          id="invoice-number"
-          placeholder="FAC-2026-0001"
-          required
-          aria-label="Número de factura"
-          aria-invalid={Boolean(errors.number)}
-          aria-describedby={errors.number ? "invoice-number-error" : "invoice-number-helper"}
-          {...register("number")}
-        />
-      </AccessibleField>
+      <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+        <p className="text-sm font-medium">Número automático</p>
+        <p className="text-sm text-muted-foreground" data-testid="invoice-number-preview">
+          {nextInvoiceNumberPreview ? `Siguiente previsto: ${nextInvoiceNumberPreview}` : "Se asignará el siguiente número correlativo al guardar."}
+        </p>
+      </div>
       <AccessibleField id="invoice-issue-date" label="Fecha emisión" required error={errors.issueDate?.message}>
         <Input
           data-testid="invoice-issue-date-input"
@@ -502,7 +503,7 @@ export function CreateInvoiceForm({ canCreateCustomer, customers }: { canCreateC
                 onClick={() => {
                   setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
                   setCustomerSearchDialogOpen(false);
-                  requestAnimationFrame(() => document.getElementById("invoice-number")?.focus());
+                  requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
                 }}
               >
                 <span className="block font-medium">{customer.name}</span>

@@ -31,7 +31,6 @@ type EditableInvoiceLine = UpdateInvoicePayload["lines"][number];
 export function EditInvoiceForm({
   defaultLines,
   defaultNotes,
-  defaultNumber,
   defaultStatus,
   defaultTotalAmount,
   id,
@@ -39,7 +38,6 @@ export function EditInvoiceForm({
   id: string;
   defaultLines: EditableInvoiceLine[];
   defaultNotes: string | null;
-  defaultNumber: string;
   defaultStatus: "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID";
   defaultTotalAmount: number;
 }) {
@@ -53,7 +51,6 @@ export function EditInvoiceForm({
   } = useForm<UpdateInvoicePayload>({
     resolver: zodResolver(updateInvoiceSchema),
     defaultValues: {
-      number: defaultNumber,
       status: defaultStatus,
       notes: defaultNotes ?? "",
       totalAmount: defaultTotalAmount,
@@ -63,7 +60,6 @@ export function EditInvoiceForm({
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
   const totals = calculateInvoiceTotals(watchedLines ?? []);
-  const numberErrorId = errors.number ? "invoice-number-error" : undefined;
   const statusErrorId = errors.status ? "invoice-status-error" : undefined;
 
   useEffect(() => {
@@ -93,21 +89,6 @@ export function EditInvoiceForm({
       })}
     >
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
-      <div className="space-y-2">
-        <Label htmlFor="invoice-number">Numero</Label>
-        <Input
-          id="invoice-number"
-          required
-          aria-invalid={Boolean(errors.number)}
-          aria-describedby={numberErrorId}
-          {...register("number")}
-        />
-        {errors.number ? (
-          <p id="invoice-number-error" className="text-sm text-red-600" role="alert">
-            {errors.number.message}
-          </p>
-        ) : null}
-      </div>
       <div className="space-y-2">
         <Label htmlFor="invoice-status">Estado</Label>
         <select

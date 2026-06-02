@@ -116,7 +116,6 @@ test.describe("core product module smoke coverage", () => {
 test("customers and invoices create flows work after prerequisite onboarding and customer setup", async ({ page }, testInfo) => {
   const runId = `${testInfo.workerIndex}-${Date.now()}`;
   const customerName = `Cliente humo ${runId}`;
-  const invoiceNumber = `FAC-SMOKE-${runId}`;
 
   await registerSignInAndSeed(page, `create-flow-${runId}`);
 
@@ -143,7 +142,6 @@ test("customers and invoices create flows work after prerequisite onboarding and
   await page.getByRole("button", { name: "Buscar cliente" }).click();
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
-  await page.getByTestId("invoice-number-input").fill(invoiceNumber);
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
   await page.getByTestId("invoice-line-1-description").fill("Servicio smoke");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
@@ -161,13 +159,14 @@ test("customers and invoices create flows work after prerequisite onboarding and
   await page.getByTestId("invoice-create-submit").click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
+  const createdInvoice = (await invoiceResponse.json()) as { number: string };
   await expect(page.getByText("Factura creada correctamente.")).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
-  await expect(page.getByRole("heading", { name: invoiceNumber })).toBeVisible();
+  await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
 
   await page.goto("/invoices");
   const invoicesList = page.getByTestId("invoices-list");
-  await expect(invoicesList).toContainText(invoiceNumber);
+  await expect(invoicesList).toContainText(createdInvoice.number);
   await expect(invoicesList).toContainText(customerName);
   await expect(invoicesList).toContainText("121,00 €");
 });

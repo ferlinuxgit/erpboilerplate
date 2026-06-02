@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import { documentSeries } from "@/db/schema";
 import { db } from "@/lib/db";
+import { formatSeriesNumber } from "@/lib/document-series-format";
 
 type ReservableSeriesType =
   | "SALES_QUOTE"
@@ -16,7 +17,7 @@ type ReservableSeriesType =
 
 export async function reserveSeriesNumber(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  input: { companyId: string; fiscalYearId: string; type: ReservableSeriesType },
+  input: { companyId: string; fiscalYearId: string; type: ReservableSeriesType; referenceDate?: Date | string | null },
 ) {
   const [series] = await tx
     .select()
@@ -38,11 +39,16 @@ export async function reserveSeriesNumber(
     .update(documentSeries)
     .set({ nextNumber: sql<number>`${documentSeries.nextNumber} + 1` })
     .where(eq(documentSeries.id, series.id))
-    .returning({ prefix: documentSeries.prefix, nextNumber: documentSeries.nextNumber });
+    .returning({ format: documentSeries.format, prefix: documentSeries.prefix, nextNumber: documentSeries.nextNumber });
 
   if (!reserved) {
     throw new Error(`No se pudo reservar serie para ${input.type}.`);
   }
 
-  return `${reserved.prefix}${String(reserved.nextNumber - 1).padStart(6, "0")}`;
+  return formatSeriesNumber({
+    format: reserved.format,
+    nextNumber: reserved.nextNumber - 1,
+    prefix: reserved.prefix,
+    referenceDate: input.referenceDate,
+  });
 }

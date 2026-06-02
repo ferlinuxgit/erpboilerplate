@@ -183,6 +183,7 @@ export const documentSeries = pgTable("document_series", {
   fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
   type: documentTypeEnum("type").notNull(),
   prefix: text("prefix").notNull(),
+  format: text("format").notNull().default("{PREFIX}{NUMBER:6}"),
   nextNumber: integer("nextNumber").notNull().default(1),
 });
 

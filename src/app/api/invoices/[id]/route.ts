@@ -70,7 +70,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       const [row] = await tx
         .update(invoice)
         .set({
-          number: values.number.trim(),
           status: values.status,
           notes: values.notes?.trim() || null,
           totalAmount: invoiceTotals.totalAmount.toFixed(2),
@@ -96,7 +95,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       action: "invoice.update",
       entityName: "invoice",
       entityId: id,
-      payload: { number: values.number, status: values.status, totalAmount: invoiceTotals.totalAmount },
+      payload: { status: values.status, totalAmount: invoiceTotals.totalAmount },
     });
 
     return NextResponse.json(updated);

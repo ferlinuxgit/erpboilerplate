@@ -5,7 +5,6 @@ import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-s
 test("crear customer y factura con dos líneas persiste totales y líneas", async ({ page }) => {
   const runId = Date.now();
   const customerName = `Cliente líneas ${runId}`;
-  const invoiceNumber = `FAC-E2E-${runId}`;
 
   await registerAndSignIn(page, "Invoice Lines E2E");
   await completeOnboarding(page, "Empresa líneas E2E S.L.");
@@ -25,7 +24,6 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByRole("button", { name: "Buscar cliente" }).click();
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
-  await page.getByTestId("invoice-number-input").fill(invoiceNumber);
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
 
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
@@ -43,12 +41,18 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await expect(page.getByText("IVA: 54,00 €")).toBeVisible();
   await expect(page.getByText("Total: 374,00 €")).toBeVisible();
 
+  const invoiceResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Crear factura" }).click();
+  const invoiceResponse = await invoiceResponsePromise;
+  expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
+  const createdInvoice = (await invoiceResponse.json()) as { number: string };
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
-  await expect(page.getByRole("heading", { name: invoiceNumber })).toBeVisible();
+  await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
 
   await page.goto("/invoices");
-  const invoiceRow = page.locator("tr", { hasText: invoiceNumber });
+  const invoiceRow = page.locator("tr", { hasText: createdInvoice.number });
   await expect(invoiceRow).toBeVisible();
   await expect(invoiceRow.getByText(customerName)).toBeVisible();
   await expect(invoiceRow.getByText("374,00 €")).toBeVisible();
@@ -71,7 +75,6 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
 test("crear factura permite crear cliente fiscal inline si no existe", async ({ page }) => {
   const runId = Date.now();
   const customerName = `Cliente inline ${runId}`;
-  const invoiceNumber = `FAC-INLINE-${runId}`;
 
   await registerAndSignIn(page, "Invoice Inline Customer E2E");
   await completeOnboarding(page, "Empresa inline E2E S.L.");
@@ -95,19 +98,24 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-new-customer-province-input").fill("Madrid");
   await page.getByTestId("invoice-new-customer-submit").click();
   await expect(page.getByText(customerName)).toBeVisible();
-  await page.getByTestId("invoice-number-input").fill(invoiceNumber);
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
   await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
   await page.getByTestId("invoice-line-1-quantity").fill("1");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
   await page.getByTestId("invoice-line-1-tax-rate").fill("21");
 
+  const invoiceResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Crear factura" }).click();
+  const invoiceResponse = await invoiceResponsePromise;
+  expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
+  const createdInvoice = (await invoiceResponse.json()) as { number: string };
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
-  await expect(page.getByRole("heading", { name: invoiceNumber })).toBeVisible();
+  await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
 
   await page.goto("/invoices");
-  const invoiceRow = page.locator("tr", { hasText: invoiceNumber });
+  const invoiceRow = page.locator("tr", { hasText: createdInvoice.number });
   await expect(invoiceRow).toBeVisible();
   await expect(invoiceRow.getByText(customerName)).toBeVisible();
 });

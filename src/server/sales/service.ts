@@ -16,6 +16,7 @@ import {
   warehouse,
 } from "@/db/schema";
 import { db } from "@/lib/db";
+import { formatSeriesNumber } from "@/lib/document-series-format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
@@ -49,6 +50,7 @@ async function reserveDocumentNumber(
   companyId: string,
   fiscalYearId: string,
   type: SeriesType,
+  referenceDate?: Date | string | null,
 ) {
   const [series] = await tx
     .select()
@@ -66,7 +68,12 @@ async function reserveDocumentNumber(
     throw new Error(`No existe serie para ${type}.`);
   }
 
-  const reservedNumber = `${series.prefix}${String(series.nextNumber).padStart(6, "0")}`;
+  const reservedNumber = formatSeriesNumber({
+    format: series.format,
+    nextNumber: series.nextNumber,
+    prefix: series.prefix,
+    referenceDate,
+  });
   await tx
     .update(documentSeries)
     .set({ nextNumber: series.nextNumber + 1 })
@@ -150,7 +157,8 @@ export async function convertQuoteToOrder(input: {
     if (!quote) throw new Error("Presupuesto no encontrado.");
     assertQuoteCanConvert(quote.status as SalesDocumentStatus);
 
-    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_ORDER");
+    const issueDate = new Date();
+    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_ORDER", issueDate);
     const [created] = await tx
       .insert(salesOrder)
       .values({
@@ -158,7 +166,7 @@ export async function convertQuoteToOrder(input: {
         customerId: quote.customerId,
         salesQuoteId: quote.id,
         number,
-        issueDate: new Date(),
+        issueDate,
         subtotal: quote.subtotal,
         taxAmount: quote.taxAmount,
         retentionAmount: quote.retentionAmount,
@@ -219,7 +227,8 @@ export async function convertOrderToDelivery(input: {
       : await tx.select({ id: warehouse.id }).from(warehouse).where(eq(warehouse.companyId, input.companyId)).limit(1);
     if (!ownedWarehouse) throw new Error("Almacén no encontrado.");
 
-    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "DELIVERY_NOTE");
+    const issuedAt = new Date();
+    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "DELIVERY_NOTE", issuedAt);
     const [created] = await tx
       .insert(deliveryNote)
       .values({
@@ -227,7 +236,7 @@ export async function convertOrderToDelivery(input: {
         customerId: order.customerId,
         salesOrderId: order.id,
         number,
-        issuedAt: new Date(),
+        issuedAt,
         status: "DELIVERED",
       })
       .returning();
@@ -377,7 +386,7 @@ export async function convertDeliveryToInvoice(input: {
     const issueDate = new Date();
     await assertFiscalPeriodOpen(input.companyId, issueDate, tx);
 
-    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_INVOICE");
+    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_INVOICE", issueDate);
     const [created] = await tx
       .insert(invoice)
       .values({

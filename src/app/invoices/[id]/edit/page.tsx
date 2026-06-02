@@ -38,7 +38,6 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
         <EditInvoiceForm
           id={data.id}
           defaultLines={defaultLines}
-          defaultNumber={data.number}
           defaultStatus={data.status}
           defaultNotes={data.notes}
           defaultTotalAmount={Number(data.totalAmount)}
