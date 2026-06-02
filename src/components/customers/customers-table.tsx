@@ -2,6 +2,7 @@
 
 import { CustomerRowActions } from "@/components/customers/customer-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 type CustomerRow = {
   id: string;
@@ -19,18 +20,30 @@ const columns: ResourceListColumn<CustomerRow>[] = [
   {
     header: "Nombre",
     cell: (customer) => <span className="font-medium">{customer.name}</span>,
+    exportValue: (customer) => customer.name,
+    sortValue: (customer) => customer.name,
   },
   {
     header: "Estado",
-    cell: (customer) => (customer.status === "ACTIVE" ? "Activo" : "Inactivo"),
+    cell: (customer) => (
+      <StatusBadge tone={customer.status === "ACTIVE" ? "success" : "neutral"}>
+        {customer.status === "ACTIVE" ? "Activo" : "Inactivo"}
+      </StatusBadge>
+    ),
+    exportValue: (customer) => (customer.status === "ACTIVE" ? "Activo" : "Inactivo"),
+    sortValue: (customer) => customer.status,
   },
   {
     header: "Email",
     cell: (customer) => customer.email ?? "Sin email",
+    exportValue: (customer) => customer.email ?? "",
+    sortValue: (customer) => customer.email ?? "",
   },
   {
     header: "Teléfono",
     cell: (customer) => customer.phone ?? "Sin teléfono",
+    exportValue: (customer) => customer.phone ?? "",
+    sortValue: (customer) => customer.phone ?? "",
   },
   {
     header: "Acciones",
@@ -50,6 +63,7 @@ export function CustomersTable({ rows }: CustomersTableProps) {
       getSearchText={(customer) => [customer.name, customer.status, customer.email, customer.phone].filter(Boolean).join(" ")}
       emptyTitle="Todavía no hay clientes registrados."
       emptyDescription="Crea el primer cliente para empezar a emitir facturas."
+      exportFileName="clientes.csv"
       searchPlaceholder="Buscar cliente por nombre, email o teléfono"
       testId="customers-table"
       renderMobileCard={(customer) => (

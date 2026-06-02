@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { applyEsSeeds } from "@/server/seeds/apply";
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Sin permisos para completar el onboarding." }, { status: 403 });
   }
 
-  const payload = await request.json();
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) {
     return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });

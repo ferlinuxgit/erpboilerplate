@@ -15,6 +15,8 @@ const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_RE
 const ratelimit = redis ? new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(100, "1 m") }) : null;
 
 export async function proxy(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+
   if (request.nextUrl.pathname.startsWith("/api/")) {
     const csrfExcludedPath =
       request.nextUrl.pathname.startsWith("/api/auth/") || request.nextUrl.pathname === "/api/billing/webhook";
@@ -23,7 +25,9 @@ export async function proxy(request: NextRequest) {
       const csrfToken = request.headers.get("x-csrf-token");
       const csrfCookie = request.cookies.get("csrf-token")?.value;
       if (!csrfToken || !csrfCookie || csrfToken !== csrfCookie) {
-        return NextResponse.json({ message: "Token CSRF invalido." }, { status: 403 });
+        const response = NextResponse.json({ message: "Token CSRF invalido." }, { status: 403 });
+        response.headers.set("x-request-id", requestId);
+        return response;
       }
     }
 
@@ -33,11 +37,16 @@ export async function proxy(request: NextRequest) {
       const authCookie = request.cookies.get("better-auth.session_token")?.value ?? "anon";
       const key = `api:${ip}:${userAgent}:${authCookie}`;
       const { success } = await ratelimit.limit(`api:${key}`);
-      if (!success) return NextResponse.json({ message: "Demasiadas peticiones." }, { status: 429 });
+      if (!success) {
+        const response = NextResponse.json({ message: "Demasiadas peticiones." }, { status: 429 });
+        response.headers.set("x-request-id", requestId);
+        return response;
+      }
     }
   }
 
   const response = NextResponse.next();
+  response.headers.set("x-request-id", requestId);
   if (!request.cookies.get("csrf-token")) {
     response.cookies.set("csrf-token", crypto.randomUUID(), {
       httpOnly: false,

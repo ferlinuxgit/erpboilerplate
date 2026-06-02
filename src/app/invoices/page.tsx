@@ -80,7 +80,9 @@ export default async function InvoicesPage() {
               id: invoice.id,
               number: invoice.number,
               status: invoice.paymentStatus,
+              totalAmount: invoice.totalAmount,
               totalAmountLabel: formatMoney(invoice.totalAmount.toString(), tenantContext.company.baseCurrencyCode),
+              issueDate: invoice.issueDate,
               issueDateLabel: formatDate(invoice.issueDate),
               customerName: invoice.customerName,
             }))}

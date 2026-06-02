@@ -4,9 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { item, stockMovement, warehouse } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getStockSnapshot } from "@/server/inventory/service";
+import { refreshStockLocation } from "@/server/inventory/stock-location";
 
 export async function GET() {
   const session = await getUserSession();
@@ -24,7 +26,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Sin permisos para mover stock." }, { status: 403 });
   }
 
-  const payload = (await request.json()) as { itemName?: string; quantity?: number };
+  const payload = (await readJsonBody(request)) as { itemName?: string; quantity?: number } | null;
+  if (!payload) return invalidJsonResponse();
   const itemName = payload.itemName?.trim();
   const quantity = Number(payload.quantity ?? 0);
   if (!itemName || quantity === 0) return NextResponse.json({ message: "itemName y quantity son obligatorios." }, { status: 400 });
@@ -47,16 +50,29 @@ export async function POST(request: Request) {
     createdItem ??
     (await db.select({ id: item.id }).from(item).where(and(eq(item.companyId, tenantContext.company.id), eq(item.name, itemName))).limit(1))[0];
 
-  const [movement] = await db
-    .insert(stockMovement)
-    .values({
-      companyId: tenantContext.company.id,
-      itemId: resolvedItem.id,
-      warehouseId: wh.id,
-      movementType: quantity > 0 ? "IN" : "OUT",
-      quantity: Math.abs(quantity).toString(),
-    })
-    .returning({ id: stockMovement.id, movementType: stockMovement.movementType, quantity: stockMovement.quantity });
+  const movement = await db.transaction(async (tx) => {
+    const [createdMovement] = await tx
+      .insert(stockMovement)
+      .values({
+        companyId: tenantContext.company.id,
+        itemId: resolvedItem.id,
+        warehouseId: wh.id,
+        movementType: quantity > 0 ? "IN" : "OUT",
+        quantity: Math.abs(quantity).toString(),
+      })
+      .returning({ id: stockMovement.id, movementType: stockMovement.movementType, quantity: stockMovement.quantity });
+
+    await refreshStockLocation(
+      {
+        companyId: tenantContext.company.id,
+        itemId: resolvedItem.id,
+        warehouseId: wh.id,
+      },
+      tx,
+    );
+
+    return createdMovement;
+  });
 
   return NextResponse.json(movement, { status: 201 });
 }

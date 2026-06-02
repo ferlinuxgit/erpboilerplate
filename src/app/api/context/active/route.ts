@@ -8,6 +8,7 @@ import { getUserSession } from "@/lib/current-user";
 import { requireContext } from "@/lib/current-context";
 import { fiscalYear } from "@/db/schema";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 
 const payloadSchema = z.object({
   companyId: z.string().trim().min(1),
@@ -33,7 +34,9 @@ export async function PATCH(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
 
-  const payload = await request.json();
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 

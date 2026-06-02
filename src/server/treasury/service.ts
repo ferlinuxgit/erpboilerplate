@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { bankAccount, bankTransaction } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
 
 export async function listTreasury(companyId: string) {
@@ -91,11 +91,16 @@ export async function createBankTransaction(
   tenantId: string,
   actorUserId: string,
   payload: { bankAccountId: string; amount: string; description: string; postedAt: Date },
+  client: DbClient = db,
 ) {
-  const account = await getBankAccount(companyId, payload.bankAccountId);
+  const [account] = await client
+    .select({ id: bankAccount.id })
+    .from(bankAccount)
+    .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, payload.bankAccountId)))
+    .limit(1);
   if (!account) throw new Error("Cuenta bancaria no encontrada.");
-  const [created] = await db.insert(bankTransaction).values(payload).returning();
-  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.create", entityName: "bankTransaction", entityId: created.id, payload });
+  const [created] = await client.insert(bankTransaction).values(payload).returning();
+  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.create", entityName: "bankTransaction", entityId: created.id, payload }, client);
   return created;
 }
 
@@ -108,7 +113,13 @@ export async function updateBankTransaction(
 ) {
   const account = await getBankAccount(companyId, payload.bankAccountId);
   if (!account) throw new Error("Cuenta bancaria no encontrada.");
-  const [updated] = await db.update(bankTransaction).set(payload).where(eq(bankTransaction.id, id)).returning();
+  const existingTransaction = await getBankTransaction(companyId, id);
+  if (!existingTransaction) return null;
+  const [updated] = await db
+    .update(bankTransaction)
+    .set(payload)
+    .where(and(eq(bankTransaction.id, id), eq(bankTransaction.bankAccountId, existingTransaction.bankAccountId)))
+    .returning();
   if (!updated) return null;
   await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.update", entityName: "bankTransaction", entityId: id, payload });
   return updated;
@@ -117,7 +128,7 @@ export async function updateBankTransaction(
 export async function deleteBankTransaction(companyId: string, tenantId: string, actorUserId: string, id: string) {
   const tx = await getBankTransaction(companyId, id);
   if (!tx) return false;
-  await db.delete(bankTransaction).where(eq(bankTransaction.id, id));
+  await db.delete(bankTransaction).where(and(eq(bankTransaction.id, id), eq(bankTransaction.bankAccountId, tx.bankAccountId)));
   await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.delete", entityName: "bankTransaction", entityId: id });
   return true;
 }

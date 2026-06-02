@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, X } from "lucide-react";
+import { Menu, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -8,6 +8,7 @@ import { useState, type ReactNode } from "react";
 import { ActiveContextSwitcher } from "@/components/layout/active-context-switcher";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const navGroups = [
@@ -46,16 +47,25 @@ type AppShellProps = Readonly<{ children: ReactNode }>;
 type NavigationGroupsProps = {
   pathname: string;
   onNavigate?: () => void;
+  query?: string;
 };
 
 function isActiveRoute(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavigationGroups({ pathname, onNavigate }: NavigationGroupsProps) {
+function NavigationGroups({ pathname, onNavigate, query = "" }: NavigationGroupsProps) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleGroups = navGroups
+    .map((group) => ({
+      ...group,
+      links: normalizedQuery ? group.links.filter((link) => link.label.toLocaleLowerCase().includes(normalizedQuery)) : group.links,
+    }))
+    .filter((group) => group.links.length > 0);
+
   return (
     <nav aria-label="Navegación principal" className="space-y-5">
-      {navGroups.map((group) => (
+      {visibleGroups.map((group) => (
         <section key={group.label} className="space-y-2">
           <p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</p>
           <div className="flex flex-col gap-1">
@@ -83,6 +93,7 @@ function NavigationGroups({ pathname, onNavigate }: NavigationGroupsProps) {
           </div>
         </section>
       ))}
+      {visibleGroups.length === 0 ? <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Sin módulos coincidentes.</p> : null}
     </nav>
   );
 }
@@ -90,6 +101,7 @@ function NavigationGroups({ pathname, onNavigate }: NavigationGroupsProps) {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [navQuery, setNavQuery] = useState("");
   const isPublicRoute = pathname === "/" || pathname.startsWith("/auth");
   const currentLink = links.find((link) => isActiveRoute(pathname, link.href));
 
@@ -114,8 +126,21 @@ export function AppShell({ children }: AppShellProps) {
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contexto activo</p>
           <ActiveContextSwitcher />
         </div>
+        <div className="relative mb-5">
+          <label className="sr-only" htmlFor="desktop-module-search">
+            Buscar módulo
+          </label>
+          <Search aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-8"
+            id="desktop-module-search"
+            onChange={(event) => setNavQuery(event.target.value)}
+            placeholder="Buscar módulo"
+            value={navQuery}
+          />
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <NavigationGroups pathname={pathname} />
+          <NavigationGroups pathname={pathname} query={navQuery} />
         </div>
       </aside>
 
@@ -178,8 +203,22 @@ export function AppShell({ children }: AppShellProps) {
                 </div>
               </details>
 
+              <div className="relative mb-4">
+                <label className="sr-only" htmlFor="mobile-module-search">
+                  Buscar módulo
+                </label>
+                <Search aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  id="mobile-module-search"
+                  onChange={(event) => setNavQuery(event.target.value)}
+                  placeholder="Buscar módulo"
+                  value={navQuery}
+                />
+              </div>
+
               <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                <NavigationGroups pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
+                <NavigationGroups pathname={pathname} onNavigate={() => setMobileNavOpen(false)} query={navQuery} />
               </div>
             </div>
           </div>

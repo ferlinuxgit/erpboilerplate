@@ -6,6 +6,7 @@ import { goodsReceipt, goodsReceiptLine, purchaseOrder, purchaseOrderLine, stock
 import { refreshStockLocation, registerInMovementCost } from "@/server/inventory/stock-location";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 
@@ -48,7 +49,10 @@ export async function POST(request: Request) {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const parsed = payloadSchema.safeParse(await request.json());
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
+  const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
   const [ownedOrder] = await db

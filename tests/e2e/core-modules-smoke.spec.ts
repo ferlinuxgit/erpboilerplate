@@ -55,8 +55,8 @@ const coreModules: ModuleSmokeCase[] = [
   {
     path: "/fiscal",
     navLabel: "Fiscal",
-    heading: "Fiscal Multi-país",
-    evidence: /Motor fiscal/i,
+    heading: "Fiscalidad España",
+    evidence: /modelos 303, 390, 347, 111 y 115/i,
   },
   {
     path: "/reporting",

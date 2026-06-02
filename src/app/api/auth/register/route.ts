@@ -5,10 +5,11 @@ import { NextResponse } from "next/server";
 import { account, user } from "@/db/schema";
 import { createAuthToken, getAuthCookieOptions, AUTH_TOKEN_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { readJsonBody } from "@/lib/http";
 import { authSignUpSchema } from "@/server/schemas/forms";
 
 export async function POST(request: Request) {
-  const parsed = authSignUpSchema.safeParse(await request.json().catch(() => null));
+  const parsed = authSignUpSchema.safeParse(await readJsonBody(request));
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos de registro inválidos." }, { status: 400 });

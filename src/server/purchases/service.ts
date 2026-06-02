@@ -74,6 +74,7 @@ export async function listPurchasePipeline(companyId: string) {
         supplierPartnerId: supplierInvoice.supplierPartnerId,
         purchaseOrderId: supplierInvoice.purchaseOrderId,
         goodsReceiptId: supplierInvoice.goodsReceiptId,
+        issueDate: supplierInvoice.issueDate,
         totalAmount: supplierInvoice.totalAmount,
       })
       .from(supplierInvoice)

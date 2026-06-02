@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { customer } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
@@ -15,7 +16,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "customer.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const payload = await request.json();
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
   const parsedPayload = updateCustomerSchema.safeParse(payload);
   if (!parsedPayload.success) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });

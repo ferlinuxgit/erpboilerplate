@@ -3,9 +3,9 @@ import { PGlite } from "@electric-sql/pglite";
 import { createServer } from "pglite-server";
 
 const root = process.cwd();
-const databasePort = Number.parseInt(process.env.E2E_DATABASE_PORT ?? "55432", 10);
+const requestedDatabasePort = Number.parseInt(process.env.E2E_DATABASE_PORT ?? "0", 10);
 
-if (!Number.isInteger(databasePort) || databasePort <= 0) {
+if (!Number.isInteger(requestedDatabasePort) || requestedDatabasePort < 0) {
   throw new Error(`Invalid E2E_DATABASE_PORT: ${process.env.E2E_DATABASE_PORT}`);
 }
 
@@ -16,12 +16,18 @@ const pgServer = createServer(db);
 
 await new Promise((resolve, reject) => {
   pgServer.once("error", reject);
-  pgServer.listen(databasePort, "127.0.0.1", () => {
+  pgServer.listen(requestedDatabasePort, "127.0.0.1", () => {
     pgServer.off("error", reject);
     resolve();
   });
 });
 
+const address = pgServer.address();
+if (!address || typeof address === "string") {
+  throw new Error("Could not resolve PGlite server address.");
+}
+
+const databasePort = address.port;
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${databasePort}/postgres`;
 const child = spawn("node", ["scripts/e2e-web-server.mjs"], {
   cwd: root,

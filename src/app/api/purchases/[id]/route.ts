@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { deletePurchaseOrder, getPurchaseOrder, updatePurchaseOrder } from "@/server/purchases/service";
@@ -27,7 +28,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: "Sin permisos para editar pedidos de compra." }, { status: 403 });
   }
 
-  const payload = (await request.json()) as { number?: string; status?: string };
+  const payload = (await readJsonBody(request)) as { number?: string; status?: string } | null;
+  if (!payload) return invalidJsonResponse();
+
   if (!payload.number?.trim() || !payload.status?.trim()) {
     return NextResponse.json({ message: "Debes informar número y estado." }, { status: 400 });
   }

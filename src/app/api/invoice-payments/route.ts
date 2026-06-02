@@ -5,6 +5,7 @@ import { z } from "zod";
 import { invoice, invoicePayment, payment } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postCustomerPayment } from "@/server/accounting/auto-post";
@@ -14,6 +15,10 @@ const payloadSchema = z.object({
   amountApplied: z.number().positive(),
   postedAt: z.string().trim().min(1),
 });
+
+function toCents(value: number | string) {
+  return Math.round(Number(value) * 100);
+}
 
 export async function GET() {
   const session = await getUserSession();
@@ -29,50 +34,83 @@ export async function POST(request: Request) {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const parsed = payloadSchema.safeParse(await request.json());
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
+  const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
-  const [ownedInvoice] = await db
-    .select({ id: invoice.id, totalAmount: invoice.totalAmount })
-    .from(invoice)
-    .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)))
-    .limit(1);
-  if (!ownedInvoice) return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
+  const postedAt = new Date(parsed.data.postedAt);
+  if (Number.isNaN(postedAt.getTime())) return NextResponse.json({ message: "Fecha inválida." }, { status: 400 });
 
-  const [createdPayment] = await db.insert(payment).values({
-    companyId: ctx.company.id,
-    invoiceId: parsed.data.invoiceId,
-    amount: parsed.data.amountApplied.toFixed(2),
-    postedAt: new Date(parsed.data.postedAt),
-  }).returning();
+  try {
+    const applied = await db.transaction(async (tx) => {
+      const [ownedInvoice] = await tx
+        .select({ id: invoice.id, totalAmount: invoice.totalAmount })
+        .from(invoice)
+        .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)))
+        .limit(1);
+      if (!ownedInvoice) throw new Error("INVOICE_NOT_FOUND");
 
-  const [applied] = await db.insert(invoicePayment).values({
-    companyId: ctx.company.id,
-    invoiceId: parsed.data.invoiceId,
-    paymentId: createdPayment.id,
-    amountApplied: parsed.data.amountApplied.toFixed(2),
-  }).returning();
+      const appliedPayments = await tx
+        .select({ amountApplied: invoicePayment.amountApplied })
+        .from(invoicePayment)
+        .where(and(eq(invoicePayment.invoiceId, parsed.data.invoiceId), eq(invoicePayment.companyId, ctx.company.id)));
+      const paidCents = appliedPayments.reduce((total, entry) => total + toCents(entry.amountApplied), 0);
+      const invoiceTotalCents = toCents(ownedInvoice.totalAmount);
+      const amountCents = toCents(parsed.data.amountApplied);
+      if (amountCents > Math.max(invoiceTotalCents - paidCents, 0)) throw new Error("INVOICE_OVERPAYMENT");
 
-  const appliedPayments = await db
-    .select({ amountApplied: invoicePayment.amountApplied })
-    .from(invoicePayment)
-    .where(and(eq(invoicePayment.invoiceId, parsed.data.invoiceId), eq(invoicePayment.companyId, ctx.company.id)));
-  const paidAmount = appliedPayments.reduce((total, payment) => total + Number(payment.amountApplied), 0);
-  const invoiceTotal = Number(ownedInvoice.totalAmount);
-  await db
-    .update(invoice)
-    .set({ paymentStatus: paidAmount >= invoiceTotal ? "PAID" : "PARTIAL", updatedAt: new Date() })
-    .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)));
+      const [createdPayment] = await tx
+        .insert(payment)
+        .values({
+          companyId: ctx.company.id,
+          invoiceId: parsed.data.invoiceId,
+          amount: parsed.data.amountApplied.toFixed(2),
+          postedAt,
+        })
+        .returning();
 
-  await postCustomerPayment({
-    tenantId: ctx.tenant.id,
-    companyId: ctx.company.id,
-    actorUserId: session.user.id,
-    paymentId: createdPayment.id,
-    postedAt: new Date(parsed.data.postedAt),
-    reference: `Cobro factura ${parsed.data.invoiceId}`,
-    amount: parsed.data.amountApplied,
-  });
+      const [appliedPayment] = await tx
+        .insert(invoicePayment)
+        .values({
+          companyId: ctx.company.id,
+          invoiceId: parsed.data.invoiceId,
+          paymentId: createdPayment.id,
+          amountApplied: parsed.data.amountApplied.toFixed(2),
+        })
+        .returning();
 
-  return NextResponse.json(applied, { status: 201 });
+      await tx
+        .update(invoice)
+        .set({
+          paymentStatus: paidCents + amountCents >= invoiceTotalCents ? "PAID" : "PARTIAL",
+          updatedAt: new Date(),
+        })
+        .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)));
+
+      await postCustomerPayment({
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: session.user.id,
+        paymentId: createdPayment.id,
+        postedAt,
+        reference: `Cobro factura ${parsed.data.invoiceId}`,
+        amount: parsed.data.amountApplied,
+        dbClient: tx,
+      });
+
+      return appliedPayment;
+    });
+
+    return NextResponse.json(applied, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "INVOICE_NOT_FOUND") {
+      return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "INVOICE_OVERPAYMENT") {
+      return NextResponse.json({ message: "El importe supera el saldo pendiente de la factura." }, { status: 400 });
+    }
+    throw error;
+  }
 }

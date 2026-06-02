@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { spanishFiscalModels } from "@/lib/fiscal-spain";
 
 const statuses = ["DRAFT", "READY", "FILED"] as const;
 
@@ -57,13 +58,20 @@ export function EditFiscalReportForm({
     }}>
       <div className="space-y-2">
         <Label htmlFor="edit-fiscal-report-code">Modelo</Label>
-        <Input
+        <select
+          className="h-8 w-full rounded-lg border bg-background px-2 text-sm"
           id="edit-fiscal-report-code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           required
           aria-describedby={errorId}
-        />
+        >
+          {spanishFiscalModels.map((model) => (
+            <option key={model.code} value={model.code}>
+              {model.name} - {model.shortName}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="space-y-2">
         <Label htmlFor="edit-fiscal-report-period">Periodo</Label>
@@ -71,6 +79,7 @@ export function EditFiscalReportForm({
           id="edit-fiscal-report-period"
           value={period}
           onChange={(e) => setPeriod(e.target.value)}
+          placeholder={spanishFiscalModels.find((model) => model.code === code)?.periodHint ?? "2026-Q1"}
           required
           aria-describedby={errorId}
         />

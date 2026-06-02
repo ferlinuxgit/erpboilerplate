@@ -1,11 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MastersPanel } from "@/components/settings/masters-panel";
-import { requireUserSession } from "@/lib/current-user";
-import { ensureUserTenant } from "@/lib/tenant";
+import { requireContext } from "@/lib/current-context";
 
 export default async function MastersSettingsPage() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("settings.manage");
 
   return (
     <main className="container mx-auto px-4 py-10">

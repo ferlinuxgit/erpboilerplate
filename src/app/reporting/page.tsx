@@ -4,8 +4,7 @@ import { ReportingExportButton } from "@/components/reporting/reporting-export-b
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { requireUserSession } from "@/lib/current-user";
-import { ensureUserTenant } from "@/lib/tenant";
+import { requireContext } from "@/lib/current-context";
 import { listKpis } from "@/server/reporting/service";
 
 const reportingSources = [
@@ -22,8 +21,7 @@ const periodOptions = [
 ] as const;
 
 export default async function ReportingPage() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("reporting.read");
   const kpis = await listKpis(ctx.company.id);
 
   return (

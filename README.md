@@ -1,12 +1,15 @@
-# ERP SaaS Starter
+# ERP SaaS Boilerplate
 
-Base lista para empezar un ERP SaaS con:
+Base avanzada para un ERP SaaS multi-tenant con:
 
 - Next.js (App Router + TypeScript)
 - Tailwind CSS
 - shadcn/ui
-- JWT auth (email + password)
+- Auth email/password con cookie JWT HTTP-only
 - PostgreSQL con Drizzle ORM
+- RBAC por tenant, empresa activa y ejercicio fiscal
+- Auditoría de mutaciones de negocio
+- Módulos de clientes, ventas, facturación, compras, inventario, contabilidad, tesorería, fiscalidad, reporting, billing y settings
 
 ## Getting Started
 
@@ -52,23 +55,54 @@ Variables útiles:
 
 Playwright genera `playwright-report/` y `test-results/`; CI los sube siempre como artefactos para depurar fallos.
 
-## Estructura inicial
+## Estructura principal
 
-- `src/app/api/auth/login/route.ts`, `src/app/api/auth/register/route.ts` y `src/app/api/auth/logout/route.ts`: endpoints de autenticación JWT con cookie HTTP-only.
-- `src/app/api/customers/route.ts`: alta de clientes multi-tenant.
-- `src/app/api/invoices/route.ts`: alta de facturas multi-tenant.
-- `src/app/auth/login` y `src/app/auth/register`: flujo de acceso/alta.
-- `src/app/dashboard`: página protegida por JWT.
-- `src/app/customers`: módulo inicial de clientes.
-- `src/app/invoices`: módulo inicial de facturas.
-- `src/lib/auth.ts`: emisión y validación de JWT HS256.
-- `src/lib/db.ts`: cliente y conexión a PostgreSQL con Drizzle.
-- `src/lib/rbac.ts`: permisos por rol para operaciones de escritura.
-- `src/db/schema.ts`: modelos de auth, organización, membresías, clientes y facturas.
+- `src/app`: páginas App Router y route handlers de los módulos ERP/SaaS.
+- `src/components`: formularios, tablas, navegación, acciones de flujo y componentes UI.
+- `src/server`: servicios de dominio para ventas, compras, inventario, contabilidad, tesorería, fiscalidad, billing, seguridad y reporting.
+- `src/lib`: autenticación JWT, contexto activo, RBAC, i18n, formato, cálculos y helpers compartidos.
+- `src/db/schema.ts`: schema Drizzle de auth, tenant, empresa, documentos, inventario, contabilidad, tesorería, fiscalidad, billing, auditoría y seguridad.
+- `drizzle/0000_authoritative_schema.sql`: migración autoritativa verificada contra una base limpia.
+- `tests/e2e`: recorridos Playwright de onboarding, módulos core, documentos, inventario, contabilidad, reporting y seguridad.
+- `docs/audits` y `docs/plans`: evidencias de auditoría, readiness y planes de implementación.
 
-## Siguientes pasos recomendados
+## Gates recomendados antes de merge/deploy
 
-- Añadir multi-tenant (`organizationId`) en los modelos de negocio.
-- Crear módulos ERP (clientes, facturas, inventario, compras, contabilidad).
-- Implementar control de permisos (RBAC) por rol.
-- Incorporar observabilidad (logs, métricas y trazas).
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run db:migrate:verify
+npm run build
+npm run test:e2e
+```
+
+`npm run typecheck` limpia `.next/dev` antes de ejecutar `tsc` para evitar que artefactos dev corruptos de Next bloqueen la verificación local.
+
+## Produccion
+
+Para un despliegue real en Coolify/Neon, usa este flujo:
+
+```bash
+npm run release:verify
+```
+
+Variables minimas de runtime:
+
+- `DATABASE_URL`
+- `BETTER_AUTH_SECRET` con al menos 32 caracteres
+- `BETTER_AUTH_URL`
+- `NEXT_PUBLIC_BETTER_AUTH_URL`
+
+El contenedor valida estas variables al arrancar, puede esperar a la base de datos y opcionalmente ejecutar migraciones si `RUN_MIGRATIONS_ON_START=true`.
+
+Pasos recomendados de deploy:
+
+1. Configura variables de build y runtime en Coolify.
+2. Ejecuta `npm run db:migrate` contra la base real o activa `RUN_MIGRATIONS_ON_START=true` solo en despliegues de una replica.
+3. Comprueba `GET /api/health` y `GET /api/readyz`.
+4. Ejecuta el smoke post-deploy:
+
+```bash
+APP_URL=https://tu-dominio.example npm run deploy:smoke
+```

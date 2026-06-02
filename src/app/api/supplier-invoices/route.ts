@@ -5,22 +5,26 @@ import { z } from "zod";
 import { goodsReceipt, goodsReceiptLine, partner, purchaseOrder, purchaseOrderLine, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postSupplierInvoice } from "@/server/accounting/auto-post";
 import { reserveSeriesNumber } from "@/server/documents/series";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 
 const payloadSchema = z.object({
   supplierPartnerId: z.string().trim().min(1),
   purchaseOrderId: z.string().trim().min(1),
   goodsReceiptId: z.string().trim().min(1),
   number: z.string().trim().optional().or(z.literal("")),
+  issueDate: z.string().datetime().optional(),
   lines: z.array(
     z.object({
       itemId: z.string().trim().optional().or(z.literal("")),
       description: z.string().trim().min(1),
       quantity: z.number().positive(),
       unitPrice: z.number().nonnegative(),
+      taxRate: z.number().min(0).max(100).default(21),
     }),
   ).min(1),
 });
@@ -39,7 +43,10 @@ export async function POST(request: Request) {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const parsed = payloadSchema.safeParse(await request.json());
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
+  const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
   const [ownedSupplier] = await db
@@ -101,51 +108,63 @@ export async function POST(request: Request) {
     }
   }
 
-  const created = await db.transaction(async (tx) => {
-    const number =
-      parsed.data.number?.trim() ||
-      (await reserveSeriesNumber(tx, {
+  try {
+    const created = await db.transaction(async (tx) => {
+      const number =
+        parsed.data.number?.trim() ||
+        (await reserveSeriesNumber(tx, {
+          companyId: ctx.company.id,
+          fiscalYearId: ctx.fiscalYear.id,
+          type: "SUPPLIER_INVOICE",
+        }));
+
+      const issueDate = parsed.data.issueDate ? new Date(parsed.data.issueDate) : new Date();
+      await assertFiscalPeriodOpen(ctx.company.id, issueDate, tx);
+
+      const subtotal = parsed.data.lines.reduce((acc, line) => acc + line.quantity * line.unitPrice, 0);
+      const taxAmount = parsed.data.lines.reduce((acc, line) => acc + (line.quantity * line.unitPrice * line.taxRate) / 100, 0);
+      const totalAmount = subtotal + taxAmount;
+      const [header] = await tx.insert(supplierInvoice).values({
         companyId: ctx.company.id,
-        fiscalYearId: ctx.fiscalYear.id,
-        type: "SUPPLIER_INVOICE",
-      }));
+        supplierPartnerId: parsed.data.supplierPartnerId,
+        purchaseOrderId: parsed.data.purchaseOrderId,
+        goodsReceiptId: parsed.data.goodsReceiptId,
+        number,
+        issueDate,
+        totalAmount: totalAmount.toFixed(2),
+      }).returning();
 
-    const totalAmount = parsed.data.lines.reduce((acc, line) => acc + line.quantity * line.unitPrice, 0);
-    const [header] = await tx.insert(supplierInvoice).values({
-      companyId: ctx.company.id,
-      supplierPartnerId: parsed.data.supplierPartnerId,
-      purchaseOrderId: parsed.data.purchaseOrderId,
-      goodsReceiptId: parsed.data.goodsReceiptId,
-      number,
-      totalAmount: totalAmount.toFixed(2),
-    }).returning();
+      await tx.insert(supplierInvoiceLine).values(
+        parsed.data.lines.map((line) => ({
+          supplierInvoiceId: header.id,
+          itemId: line.itemId || null,
+          description: line.description,
+          quantity: line.quantity.toFixed(3),
+          unitPrice: line.unitPrice.toFixed(2),
+          taxRate: line.taxRate.toFixed(3),
+          lineTotal: (line.quantity * line.unitPrice * (1 + line.taxRate / 100)).toFixed(2),
+        })),
+      );
 
-    await tx.insert(supplierInvoiceLine).values(
-      parsed.data.lines.map((line) => ({
+      await postSupplierInvoice({
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: session.user.id,
         supplierInvoiceId: header.id,
-        itemId: line.itemId || null,
-        description: line.description,
-        quantity: line.quantity.toFixed(3),
-        unitPrice: line.unitPrice.toFixed(2),
-        lineTotal: (line.quantity * line.unitPrice).toFixed(2),
-      })),
-    );
+        postedAt: new Date(),
+        reference: `Factura proveedor ${header.number}`,
+        subtotal,
+        taxAmount,
+        totalAmount,
+        dbClient: tx,
+      });
 
-    await postSupplierInvoice({
-      tenantId: ctx.tenant.id,
-      companyId: ctx.company.id,
-      actorUserId: session.user.id,
-      supplierInvoiceId: header.id,
-      postedAt: new Date(),
-      reference: `Factura proveedor ${header.number}`,
-      subtotal: totalAmount,
-      taxAmount: 0,
-      totalAmount,
-      dbClient: tx,
+      return header;
     });
 
-    return header;
-  });
-
-  return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "No se pudo crear la factura proveedor.";
+    return NextResponse.json({ message }, { status: 400 });
+  }
 }

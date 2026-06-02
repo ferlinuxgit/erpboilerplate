@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
+import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { openBillingPortal } from "@/server/billing/actions";
 import { getBillingViewModelForTenant } from "@/server/billing/data";
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "billing.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const billing = await getBillingViewModelForTenant(ctx.tenant.id);
   const stripeCustomerId = billing.portal.stripeCustomerId;
   if (!billing.portal.enabled || !stripeCustomerId) {

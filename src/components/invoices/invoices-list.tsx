@@ -2,12 +2,15 @@
 
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 type InvoiceListRow = {
   id: string;
   number: string;
   status: string;
+  totalAmount: string;
   totalAmountLabel: string;
+  issueDate: Date | string;
   issueDateLabel: string;
   customerName: string;
 };
@@ -25,18 +28,30 @@ const columns: ResourceListColumn<InvoiceListRow>[] = [
         <p className="text-sm text-muted-foreground">{invoice.customerName}</p>
       </div>
     ),
+    exportValue: (invoice) => invoice.number,
+    sortValue: (invoice) => invoice.number,
   },
   {
     header: "Estado",
-    cell: (invoice) => invoice.status,
+    cell: (invoice) => (
+      <StatusBadge tone={invoice.status === "PAID" ? "success" : invoice.status === "OVERDUE" ? "danger" : invoice.status === "PARTIAL" ? "warning" : "neutral"}>
+        {invoice.status}
+      </StatusBadge>
+    ),
+    exportValue: (invoice) => invoice.status,
+    sortValue: (invoice) => invoice.status,
   },
   {
     header: "Importe",
     cell: (invoice) => invoice.totalAmountLabel,
+    exportValue: (invoice) => invoice.totalAmountLabel,
+    sortValue: (invoice) => Number(invoice.totalAmount),
   },
   {
     header: "Emisión",
     cell: (invoice) => invoice.issueDateLabel,
+    exportValue: (invoice) => invoice.issueDateLabel,
+    sortValue: (invoice) => new Date(invoice.issueDate),
   },
   {
     header: "Acciones",
@@ -56,6 +71,7 @@ export function InvoicesList({ rows }: InvoicesListProps) {
       getSearchText={(invoice) => [invoice.number, invoice.customerName, invoice.status, invoice.totalAmountLabel, invoice.issueDateLabel].join(" ")}
       emptyTitle="Todavía no hay facturas registradas."
       emptyDescription="Crea la primera factura cuando tengas al menos un cliente activo."
+      exportFileName="facturas.csv"
       searchPlaceholder="Buscar factura por número, cliente, estado o importe"
       testId="invoices-list"
       renderMobileCard={(invoice) => (

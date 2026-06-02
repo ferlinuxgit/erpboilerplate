@@ -5,12 +5,18 @@ import { z } from "zod";
 import { companySettings } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 
 const payloadSchema = z.object({
   logoUrl: z.string().trim().optional().or(z.literal("")),
   paymentTermsDays: z.number().int().min(0).max(365),
+  fiscalRegime: z.enum(["general", "recargo_equivalencia", "cash_accounting", "exempt"]).default("general"),
+  taxPeriodicity: z.enum(["monthly", "quarterly"]).default("quarterly"),
+  siiEnabled: z.boolean().default(false),
+  verifactuMode: z.enum(["pending", "verifactu", "non_verifactu"]).default("pending"),
+  prorrataPct: z.number().min(0).max(100).default(100),
   defaultCustomerAccountCode: z.string().trim().min(1),
   defaultSupplierAccountCode: z.string().trim().min(1),
   defaultSalesAccountCode: z.string().trim().min(1),
@@ -39,7 +45,10 @@ export async function PUT(request: Request) {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "settings.manage")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const parsed = payloadSchema.safeParse(await request.json());
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
+  const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
   const [existing] = await db
@@ -47,13 +56,17 @@ export async function PUT(request: Request) {
     .from(companySettings)
     .where(eq(companySettings.companyId, ctx.company.id))
     .limit(1);
+  const settingsValues = {
+    ...parsed.data,
+    prorrataPct: parsed.data.prorrataPct.toFixed(3),
+    logoUrl: parsed.data.logoUrl || null,
+  };
 
   if (existing) {
     const [updated] = await db
       .update(companySettings)
       .set({
-        ...parsed.data,
-        logoUrl: parsed.data.logoUrl || null,
+        ...settingsValues,
         updatedAt: new Date(),
       })
       .where(and(eq(companySettings.id, existing.id), eq(companySettings.companyId, ctx.company.id)))
@@ -65,8 +78,7 @@ export async function PUT(request: Request) {
     .insert(companySettings)
     .values({
       companyId: ctx.company.id,
-      ...parsed.data,
-      logoUrl: parsed.data.logoUrl || null,
+      ...settingsValues,
     })
     .returning();
   return NextResponse.json(created, { status: 201 });

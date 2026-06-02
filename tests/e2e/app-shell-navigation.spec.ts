@@ -46,7 +46,7 @@ for (const viewport of viewports) {
         }
 
         await testInfo.attach(`${viewport.name}-${route.path.replace("/", "")}-app-shell`, {
-          body: await page.screenshot({ fullPage: true }),
+          body: await page.screenshot({ caret: "initial", fullPage: true }),
           contentType: "image/png",
         });
       });

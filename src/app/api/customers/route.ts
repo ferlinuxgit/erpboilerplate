@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { customer } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { canManageCustomers } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createCustomerSchema } from "@/server/schemas/forms";
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = await request.json();
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
   const parsedPayload = createCustomerSchema.safeParse(payload);
   if (!parsedPayload.success) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });

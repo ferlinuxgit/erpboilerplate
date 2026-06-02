@@ -1,5 +1,5 @@
 {
-  "id": "de31e5fd-a2d6-4ba5-b3d6-a99c1554eeb9",
+  "id": "3291e55f-69dd-41f3-935a-90b834d92577",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -584,6 +584,41 @@
           "primaryKey": false,
           "notNull": true,
           "default": 30
+        },
+        "fiscalRegime": {
+          "name": "fiscalRegime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'general'"
+        },
+        "taxPeriodicity": {
+          "name": "taxPeriodicity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'quarterly'"
+        },
+        "siiEnabled": {
+          "name": "siiEnabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "verifactuMode": {
+          "name": "verifactuMode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "prorrataPct": {
+          "name": "prorrataPct",
+          "type": "numeric(6, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'100'"
         },
         "defaultCustomerAccountCode": {
           "name": "defaultCustomerAccountCode",
@@ -1276,6 +1311,26 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'DRAFT'"
+        },
+        "filedAt": {
+          "name": "filedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {},
@@ -1295,7 +1350,17 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "fiscal_report_company_code_period_unique": {
+          "name": "fiscal_report_company_code_period_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "companyId",
+            "code",
+            "period"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1749,8 +1814,22 @@
           "primaryKey": false,
           "notNull": true
         },
+        "discountPct": {
+          "name": "discountPct",
+          "type": "numeric(6, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
         "taxRate": {
           "name": "taxRate",
+          "type": "numeric(6, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "retentionRate": {
+          "name": "retentionRate",
           "type": "numeric(6, 3)",
           "primaryKey": false,
           "notNull": true,
@@ -4129,6 +4208,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "issueDate": {
+          "name": "issueDate",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
         "totalAmount": {
           "name": "totalAmount",
           "type": "numeric(12, 2)",
@@ -4236,6 +4322,13 @@
           "type": "numeric(12, 2)",
           "primaryKey": false,
           "notNull": true
+        },
+        "taxRate": {
+          "name": "taxRate",
+          "type": "numeric(6, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'21'"
         },
         "lineTotal": {
           "name": "lineTotal",

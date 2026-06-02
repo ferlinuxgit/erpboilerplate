@@ -1,21 +1,22 @@
 import { eq } from "drizzle-orm";
 
+import { ApiKeyManager } from "@/components/settings/api-key-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiKey } from "@/db/schema";
-import { requireUserSession } from "@/lib/current-user";
+import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
-import { ensureUserTenant } from "@/lib/tenant";
+import { can } from "@/lib/rbac";
 
 export default async function ApiKeysPage() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("apiKey.read");
   const keys = await db.select({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt }).from(apiKey).where(eq(apiKey.tenantId, ctx.tenant.id));
+  const canManage = can(ctx.membership.role, "apiKey.write");
   return (
     <main className="container mx-auto px-4 py-10">
       <Card>
         <CardHeader><CardTitle>API Keys</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {keys.map((key) => <p key={key.id}>{key.name} - {key.createdAt.toISOString().slice(0, 10)}</p>)}
+        <CardContent>
+          <ApiKeyManager canManage={canManage} rows={keys} />
         </CardContent>
       </Card>
     </main>

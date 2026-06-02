@@ -92,6 +92,11 @@ CREATE TABLE "company_settings" (
 	"companyId" text NOT NULL,
 	"logoUrl" text,
 	"paymentTermsDays" integer DEFAULT 30 NOT NULL,
+	"fiscalRegime" text DEFAULT 'general' NOT NULL,
+	"taxPeriodicity" text DEFAULT 'quarterly' NOT NULL,
+	"siiEnabled" boolean DEFAULT false NOT NULL,
+	"verifactuMode" text DEFAULT 'pending' NOT NULL,
+	"prorrataPct" numeric(6, 3) DEFAULT '100' NOT NULL,
 	"defaultCustomerAccountCode" text DEFAULT '430000' NOT NULL,
 	"defaultSupplierAccountCode" text DEFAULT '410000' NOT NULL,
 	"defaultSalesAccountCode" text DEFAULT '700000' NOT NULL,
@@ -179,7 +184,11 @@ CREATE TABLE "fiscal_report" (
 	"companyId" text NOT NULL,
 	"code" text NOT NULL,
 	"period" text NOT NULL,
-	"status" "fiscal_report_status" DEFAULT 'DRAFT' NOT NULL
+	"status" "fiscal_report_status" DEFAULT 'DRAFT' NOT NULL,
+	"filedAt" timestamp with time zone,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "fiscal_report_company_code_period_unique" UNIQUE("companyId","code","period")
 );
 --> statement-breakpoint
 CREATE TABLE "fiscal_year" (
@@ -239,7 +248,9 @@ CREATE TABLE "invoice_line" (
 	"description" text NOT NULL,
 	"quantity" numeric(12, 3) NOT NULL,
 	"unitPrice" numeric(12, 2) NOT NULL,
+	"discountPct" numeric(6, 3) DEFAULT '0' NOT NULL,
 	"taxRate" numeric(6, 3) DEFAULT '0' NOT NULL,
+	"retentionRate" numeric(6, 3) DEFAULT '0' NOT NULL,
 	"lineTotal" numeric(12, 2) NOT NULL
 );
 --> statement-breakpoint
@@ -526,6 +537,7 @@ CREATE TABLE "supplier_invoice" (
 	"purchaseOrderId" text,
 	"goodsReceiptId" text,
 	"number" text NOT NULL,
+	"issueDate" timestamp with time zone DEFAULT now() NOT NULL,
 	"totalAmount" numeric(12, 2) NOT NULL
 );
 --> statement-breakpoint
@@ -536,6 +548,7 @@ CREATE TABLE "supplier_invoice_line" (
 	"description" text NOT NULL,
 	"quantity" numeric(12, 3) NOT NULL,
 	"unitPrice" numeric(12, 2) NOT NULL,
+	"taxRate" numeric(6, 3) DEFAULT '21' NOT NULL,
 	"lineTotal" numeric(12, 2) NOT NULL
 );
 --> statement-breakpoint

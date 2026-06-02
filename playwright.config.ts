@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const port = process.env.PORT ?? "3000";
-const databasePort = process.env.E2E_DATABASE_PORT ?? "55432";
+const databasePort = process.env.E2E_DATABASE_PORT ?? "0";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === "1";
 

@@ -40,6 +40,7 @@ type SupplierInvoice = {
   supplierPartnerId: string;
   purchaseOrderId: string | null;
   goodsReceiptId: string | null;
+  issueDate?: Date | string;
   totalAmount: string;
 };
 type SupplierPayment = { id: string; supplierInvoiceId: string; amount: string };
@@ -206,11 +207,13 @@ export function PurchaseFlowActions({
       supplierPartnerId: order.supplierPartnerId,
       purchaseOrderId: order.id,
       goodsReceiptId: receipt.id,
+      issueDate: new Date().toISOString(),
       lines: lines.map((line) => ({
         description: line.description,
         itemId: line.itemId ?? undefined,
         quantity: Number(line.quantity),
         unitPrice: Number(line.unitPrice),
+        taxRate: 21,
       })),
     });
   };

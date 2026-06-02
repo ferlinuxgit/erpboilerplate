@@ -1,7 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 
 import { permission, rolePermission } from "@/db/schema";
-import { db } from "@/lib/db";
 
 export type AppRole = "OWNER" | "ADMIN" | "MEMBER";
 
@@ -125,6 +124,7 @@ const CACHE_TTL_MS = 60_000;
 const rolePermissionsCache = new Map<AppRole, PermissionsCacheEntry>();
 
 async function loadPermissionsFromDb(role: AppRole): Promise<Set<PermissionKey> | null> {
+  const { db } = await import("@/lib/db");
   const cached = rolePermissionsCache.get(role);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.permissions;
@@ -164,6 +164,7 @@ export async function canFromDb(role: AppRole, permissionKey: PermissionKey): Pr
 
 export async function ensureRbacSeed() {
   if (rbacSeeded) return;
+  const { db } = await import("@/lib/db");
 
   const permissionRows = (Object.values(rolePermissions).flatMap((set) => [...set]) as PermissionKey[]).filter(
     (value, index, values) => values.indexOf(value) === index,

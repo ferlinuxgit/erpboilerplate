@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getCsrfHeader } from "@/lib/csrf-client";
 
 export function EditBankAccountForm({ id, defaultBankName, defaultIban }: { id: string; defaultBankName: string; defaultIban: string }) {
   const router = useRouter();
@@ -22,7 +23,7 @@ export function EditBankAccountForm({ id, defaultBankName, defaultIban }: { id: 
         try {
           const res = await fetch(`/api/bank-accounts/${id}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getCsrfHeader() },
             body: JSON.stringify({ bankName, iban }),
           });
           if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");

@@ -6,6 +6,7 @@ import {
   getTenantSecurityPolicyState,
   updateTenantSecurityPolicy,
 } from "@/server/security-policy";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 
 export async function GET() {
   const session = await requireUserSession();
@@ -21,7 +22,8 @@ export async function GET() {
 export async function PUT(request: Request) {
   const session = await requireUserSession();
   const ctx = await ensureUserTenant(session.user);
-  const payload = await request.json();
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
 
   const result = await updateTenantSecurityPolicy({
     actorUserId: session.user.id,

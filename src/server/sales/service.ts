@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshStockLocation } from "@/server/inventory/stock-location";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import {
@@ -373,6 +374,9 @@ export async function convertDeliveryToInvoice(input: {
     const calculatedTotals = calculateInvoiceTotals(invoiceLines);
     const totals = deliveryCoversWholeOrder(deliveryLines, orderLines) ? pickStoredOrderTotals(order, calculatedTotals) : calculatedTotals;
 
+    const issueDate = new Date();
+    await assertFiscalPeriodOpen(input.companyId, issueDate, tx);
+
     const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_INVOICE");
     const [created] = await tx
       .insert(invoice)
@@ -380,7 +384,7 @@ export async function convertDeliveryToInvoice(input: {
         companyId: input.companyId,
         customerId: note.customerId,
         number,
-        issueDate: new Date(),
+        issueDate,
         dueDate: null,
         totalAmount: formatMoney(totals.totalAmount),
         status: "SENT",
@@ -402,7 +406,7 @@ export async function convertDeliveryToInvoice(input: {
       tenantId: input.tenantId,
       companyId: input.companyId,
       actorUserId: input.actorUserId,
-      postedAt: new Date(),
+      postedAt: issueDate,
       reference: `Factura ${created.number}`,
       invoiceId: created.id,
       subtotal: totals.subtotal,

@@ -238,6 +238,11 @@ export const companySettings = pgTable("company_settings", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),
   logoUrl: text("logoUrl"),
   paymentTermsDays: integer("paymentTermsDays").notNull().default(30),
+  fiscalRegime: text("fiscalRegime").notNull().default("general"),
+  taxPeriodicity: text("taxPeriodicity").notNull().default("quarterly"),
+  siiEnabled: boolean("siiEnabled").notNull().default(false),
+  verifactuMode: text("verifactuMode").notNull().default("pending"),
+  prorrataPct: numeric("prorrataPct", { precision: 6, scale: 3 }).notNull().default("100"),
   defaultCustomerAccountCode: text("defaultCustomerAccountCode").notNull().default("430000"),
   defaultSupplierAccountCode: text("defaultSupplierAccountCode").notNull().default("410000"),
   defaultSalesAccountCode: text("defaultSalesAccountCode").notNull().default("700000"),
@@ -367,7 +372,9 @@ export const invoiceLine = pgTable("invoice_line", {
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  discountPct: numeric("discountPct", { precision: 6, scale: 3 }).notNull().default("0"),
   taxRate: numeric("taxRate", { precision: 6, scale: 3 }).notNull().default("0"),
+  retentionRate: numeric("retentionRate", { precision: 6, scale: 3 }).notNull().default("0"),
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
 });
 
@@ -497,6 +504,7 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   purchaseOrderId: text("purchaseOrderId").references(() => purchaseOrder.id, { onDelete: "set null" }),
   goodsReceiptId: text("goodsReceiptId").references(() => goodsReceipt.id, { onDelete: "set null" }),
   number: text("number").notNull(),
+  issueDate: timestamp("issueDate", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull(),
 });
 
@@ -507,6 +515,7 @@ export const supplierInvoiceLine = pgTable("supplier_invoice_line", {
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  taxRate: numeric("taxRate", { precision: 6, scale: 3 }).notNull().default("21"),
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
 });
 
@@ -567,13 +576,20 @@ export const tax = pgTable("tax", {
   rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
 });
 
-export const fiscalReport = pgTable("fiscal_report", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  code: text("code").notNull(),
-  period: text("period").notNull(),
-  status: fiscalReportStatusEnum("status").notNull().default("DRAFT"),
-});
+export const fiscalReport = pgTable(
+  "fiscal_report",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    period: text("period").notNull(),
+    status: fiscalReportStatusEnum("status").notNull().default("DRAFT"),
+    filedAt: timestamp("filedAt", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [unique("fiscal_report_company_code_period_unique").on(table.companyId, table.code, table.period)],
+);
 
 export const kpiSnapshot = pgTable("kpi_snapshot", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

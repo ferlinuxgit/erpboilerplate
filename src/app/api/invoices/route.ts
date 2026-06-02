@@ -4,11 +4,13 @@ import { and, eq } from "drizzle-orm";
 import { customer, invoice, invoiceLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { canManageInvoices } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import { createInvoiceSchema } from "@/server/schemas/forms";
 
@@ -31,7 +33,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = await request.json();
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
   const parsedPayload = createInvoiceSchema.safeParse(payload);
   if (!parsedPayload.success) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
@@ -64,6 +68,8 @@ export async function POST(request: Request) {
 
   try {
     const createdInvoice = await db.transaction(async (tx) => {
+      await assertFiscalPeriodOpen(tenantContext.company.id, issueDate, tx);
+
       const [created] = await tx
         .insert(invoice)
         .values({
@@ -102,8 +108,11 @@ export async function POST(request: Request) {
     return NextResponse.json(createdInvoice, { status: 201 });
   } catch (error) {
     logger.error({ error }, "invoice.create_failed");
+    const message = error instanceof Error && error.message.includes("periodo fiscal")
+      ? error.message
+      : "No se pudo crear la factura. Revisa si el número ya existe.";
     return NextResponse.json(
-      { message: "No se pudo crear la factura. Revisa si el número ya existe." },
+      { message },
       { status: 400 },
     );
   }

@@ -3,13 +3,11 @@ import Link from "next/link";
 import { BillingActions } from "@/components/billing/billing-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { requireUserSession } from "@/lib/current-user";
-import { ensureUserTenant } from "@/lib/tenant";
+import { requireContext } from "@/lib/current-context";
 import { getBillingViewModelForTenant } from "@/server/billing/data";
 
 export default async function BillingPage() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("billing.read");
   const billing = await getBillingViewModelForTenant(ctx.tenant.id);
 
   return (

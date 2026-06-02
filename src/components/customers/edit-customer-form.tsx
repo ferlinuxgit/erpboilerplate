@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getCsrfHeader } from "@/lib/csrf-client";
 
 export function EditCustomerForm({
   defaultEmail,
@@ -32,7 +33,7 @@ export function EditCustomerForm({
         event.preventDefault();
         await fetch(`/api/customers/${id}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getCsrfHeader() },
           body: JSON.stringify({ name, email, phone, status }),
         });
         router.push("/customers");

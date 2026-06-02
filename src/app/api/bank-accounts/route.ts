@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createBankAccount, listBankAccounts } from "@/server/treasury/service";
@@ -22,7 +23,9 @@ export async function POST(request: Request) {
   if (!can(ctx.membership.role, "treasury.write")) {
     return NextResponse.json({ message: "Sin permisos de tesoreria." }, { status: 403 });
   }
-  const payload = (await request.json()) as { iban?: string; bankName?: string };
+  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string } | null;
+  if (!payload) return invalidJsonResponse();
+
   if (!payload.iban?.trim() || !payload.bankName?.trim()) {
     return NextResponse.json({ message: "IBAN y banco son obligatorios." }, { status: 400 });
   }

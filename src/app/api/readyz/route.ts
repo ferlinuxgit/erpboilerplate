@@ -1,5 +1,7 @@
 import { Pool } from "pg";
 
+import { checkAuthRuntimeConfiguration, getBuildSha } from "@/lib/runtime-config";
+
 const SERVICE_NAME = "erpboilerplate";
 const READINESS_TIMEOUT_MS = 1000;
 
@@ -7,15 +9,6 @@ type DatabaseReadiness = "ok" | "missing_configuration" | "unavailable";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-function getBuildSha() {
-  return (
-    process.env.VERCEL_GIT_COMMIT_SHA ??
-    process.env.RENDER_GIT_COMMIT ??
-    process.env.GIT_SHA ??
-    "unknown"
-  ).slice(0, 7);
-}
 
 async function checkDatabaseReadiness(): Promise<DatabaseReadiness> {
   const connectionString = process.env.DATABASE_URL;
@@ -45,7 +38,8 @@ async function checkDatabaseReadiness(): Promise<DatabaseReadiness> {
 
 export async function GET() {
   const database = await checkDatabaseReadiness();
-  const isReady = database === "ok";
+  const auth = checkAuthRuntimeConfiguration();
+  const isReady = database === "ok" && auth === "ok";
 
   return Response.json(
     {
@@ -53,6 +47,7 @@ export async function GET() {
       status: isReady ? "ok" : "degraded",
       checks: {
         database,
+        auth,
       },
       version: {
         sha: getBuildSha(),

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { customer, salesOrder, salesOrderLine, salesQuote, salesQuoteLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { reserveSeriesNumber } from "@/server/documents/series";
@@ -34,7 +35,10 @@ export async function POST(request: Request) {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "invoice.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const parsed = payloadSchema.safeParse(await request.json());
+  const payload = await readJsonBody(request);
+  if (!payload) return invalidJsonResponse();
+
+  const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
   const [ownedCustomer] = await db

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { item, stockMovement, warehouse } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { type StockMovementType } from "@/server/inventory/movements";
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "stock.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const payload = (await request.json()) as {
+  const payload = (await readJsonBody(request)) as {
     itemId?: string;
     warehouseId?: string;
     destinationWarehouseId?: string;
@@ -64,7 +65,8 @@ export async function POST(request: Request) {
     movedAt?: string;
     reason?: string;
     reference?: string;
-  };
+  } | null;
+  if (!payload) return invalidJsonResponse();
 
   if (
     !payload.itemId ||

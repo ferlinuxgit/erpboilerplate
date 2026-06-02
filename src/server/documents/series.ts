@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { documentSeries } from "@/db/schema";
 import { db } from "@/lib/db";
@@ -34,11 +34,15 @@ export async function reserveSeriesNumber(
     throw new Error(`No existe serie para ${input.type}.`);
   }
 
-  const number = `${series.prefix}${String(series.nextNumber).padStart(6, "0")}`;
-  await tx
+  const [reserved] = await tx
     .update(documentSeries)
-    .set({ nextNumber: series.nextNumber + 1 })
-    .where(eq(documentSeries.id, series.id));
+    .set({ nextNumber: sql<number>`${documentSeries.nextNumber} + 1` })
+    .where(eq(documentSeries.id, series.id))
+    .returning({ prefix: documentSeries.prefix, nextNumber: documentSeries.nextNumber });
 
-  return number;
+  if (!reserved) {
+    throw new Error(`No se pudo reservar serie para ${input.type}.`);
+  }
+
+  return `${reserved.prefix}${String(reserved.nextNumber - 1).padStart(6, "0")}`;
 }

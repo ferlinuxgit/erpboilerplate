@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { spanishFiscalModels } from "@/lib/fiscal-spain";
 
 const statuses = ["DRAFT", "READY", "FILED"] as const;
 
 export function CreateFiscalReportForm() {
   const router = useRouter();
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState("303");
   const [period, setPeriod] = useState("");
   const [status, setStatus] = useState<(typeof statuses)[number]>("DRAFT");
   const [loading, setLoading] = useState(false);
@@ -20,7 +21,7 @@ export function CreateFiscalReportForm() {
   const errorId = error ? "fiscal-report-error" : undefined;
 
   return (
-    <form className="grid gap-4 md:grid-cols-4" onSubmit={async (event) => {
+    <form className="grid gap-4 rounded-lg border p-4 md:grid-cols-[minmax(180px,1fr)_minmax(160px,0.7fr)_minmax(140px,0.6fr)_auto]" onSubmit={async (event) => {
       event.preventDefault();
       setError(null);
       setLoading(true);
@@ -49,13 +50,20 @@ export function CreateFiscalReportForm() {
     }}>
       <div className="space-y-2">
         <Label htmlFor="fiscal-report-code">Modelo</Label>
-        <Input
+        <select
+          className="h-8 w-full rounded-lg border bg-background px-2 text-sm"
           id="fiscal-report-code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           required
           aria-describedby={errorId}
-        />
+        >
+          {spanishFiscalModels.map((model) => (
+            <option key={model.code} value={model.code}>
+              {model.name} - {model.shortName}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="space-y-2">
         <Label htmlFor="fiscal-report-period">Periodo</Label>
@@ -63,7 +71,7 @@ export function CreateFiscalReportForm() {
           id="fiscal-report-period"
           value={period}
           onChange={(e) => setPeriod(e.target.value)}
-          placeholder="2026-04"
+          placeholder={spanishFiscalModels.find((model) => model.code === code)?.periodHint ?? "2026-Q1"}
           required
           aria-describedby={errorId}
         />
@@ -80,7 +88,7 @@ export function CreateFiscalReportForm() {
           {statuses.map((option) => <option key={option} value={option}>{option}</option>)}
         </select>
       </div>
-      <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear reporte"}</Button>
+      <Button className="self-end" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear borrador"}</Button>
       {error ? <p id="fiscal-report-error" className="text-sm text-red-600 md:col-span-4" role="alert">{error}</p> : null}
     </form>
   );

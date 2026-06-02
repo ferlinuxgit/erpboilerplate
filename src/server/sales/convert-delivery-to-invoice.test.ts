@@ -77,6 +77,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: mocks.db }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSalesInvoice: mocks.postSalesInvoice }));
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
+vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: vi.fn(async () => undefined) }));
 
 import { convertDeliveryToInvoice } from "@/server/sales/service";
 
