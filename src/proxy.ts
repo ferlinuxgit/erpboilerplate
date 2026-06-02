@@ -8,6 +8,8 @@ import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
+
 const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
   ? new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
   : null;
@@ -20,8 +22,9 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/api/")) {
     const csrfExcludedPath =
       request.nextUrl.pathname.startsWith("/api/auth/") || request.nextUrl.pathname === "/api/billing/webhook";
+    const hasApiKeyAuthorization = hasApiKeyBearerAuthorization(request.headers.get("authorization"));
 
-    if (request.method !== "GET" && !csrfExcludedPath) {
+    if (request.method !== "GET" && !csrfExcludedPath && !hasApiKeyAuthorization) {
       const csrfToken = request.headers.get("x-csrf-token");
       const csrfCookie = request.cookies.get("csrf-token")?.value;
       if (!csrfToken || !csrfCookie || csrfToken !== csrfCookie) {

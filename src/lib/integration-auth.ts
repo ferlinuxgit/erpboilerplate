@@ -3,6 +3,7 @@ import { asc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { apiKey, company, fiscalYear, tenant } from "@/db/schema";
+import { bearerToken } from "@/lib/api-auth-header";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -34,11 +35,6 @@ type AuthenticatedApiActor = {
   actorUserId: string;
   kind: "session" | "apiKey";
 };
-
-function bearerToken(authorization: string | null) {
-  if (!authorization?.startsWith("Bearer ")) return null;
-  return authorization.slice("Bearer ".length).trim();
-}
 
 async function findApiKey(plainKey: string) {
   if (!plainKey.startsWith("ak_")) return null;

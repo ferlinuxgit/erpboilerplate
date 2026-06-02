@@ -76,7 +76,7 @@ const endpoints: ApiEndpoint[] = [
     method: "POST",
     path: "/api/invoices",
     summary: "Crea una factura y opcionalmente devuelve el PDF en base64.",
-    request: "{ customerId? | newCustomer?, number, issueDate, dueDate?, totalAmount, lines, returnPdf? }",
+    request: "{ customerId? | newCustomer?, issueDate, dueDate?, totalAmount, lines, returnPdf? }",
     response: "{ id, number, status, pdfUrl, pdf? }",
   },
   {
@@ -97,7 +97,7 @@ const endpoints: ApiEndpoint[] = [
     method: "PATCH",
     path: "/api/invoices/{id}",
     summary: "Actualiza estado, notas y líneas de una factura.",
-    request: "{ number, status, notes?, totalAmount, lines }",
+    request: "{ status, notes?, totalAmount, lines }",
     response: "{ id, number, status, ... }",
   },
   {
@@ -123,7 +123,6 @@ function invoiceExample(token: string) {
   -H "Content-Type: application/json" \\
   -d '{
     "customerId": "customer-id",
-    "number": "FAC-API-0001",
     "issueDate": "2026-06-02",
     "totalAmount": 121,
     "returnPdf": true,
@@ -146,6 +145,10 @@ function buildDocumentationCopy(tokenName: string, token: string) {
   return [
     "ERP API - Documentacion de integracion",
     `Token seleccionado: ${tokenName}`,
+    "",
+    "Base URL",
+    "https://erp.comodore.es",
+    "Ejemplo de endpoint completo: https://erp.comodore.es/api/invoices",
     "",
     "Autenticacion",
     `Authorization: Bearer ${token}`,
@@ -189,6 +192,9 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
   return (
     <div className="space-y-5">
       <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
+        <p className="text-xs text-muted-foreground md:col-span-3">
+          Base URL para integraciones: <code>https://erp.comodore.es</code>. Configura los endpoints como rutas relativas, por ejemplo <code>/api/customers</code> o <code>/api/invoices</code>.
+        </p>
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="api-doc-token">
             Token seleccionado
