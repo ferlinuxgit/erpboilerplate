@@ -34,6 +34,18 @@ type VisibleSecret = {
 
 type TokenAction = "rotate" | "revoke";
 
+function publishVisibleSecret(secret: VisibleSecret) {
+  window.dispatchEvent(
+    new CustomEvent("api-key-secret-visible", {
+      detail: {
+        keyId: secret.keyId,
+        name: secret.name,
+        plainKey: secret.plainKey,
+      },
+    }),
+  );
+}
+
 const columns = (
   canManage: boolean,
   onTokenAction: (key: ApiKeyRow, action: TokenAction) => Promise<void>,
@@ -131,7 +143,9 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
       const payload = (await response.json().catch(() => null)) as { id?: string; name?: string; message?: string; plainKey?: string } | null;
       if (!response.ok || !payload?.plainKey) throw new Error(payload?.message ?? "No se pudo crear la API key.");
       setName("");
-      setVisibleSecret({ keyId: payload.id ?? "new", name: payload.name ?? name, plainKey: payload.plainKey, action: "created" });
+      const secret = { keyId: payload.id ?? "new", name: payload.name ?? name, plainKey: payload.plainKey, action: "created" as const };
+      setVisibleSecret(secret);
+      publishVisibleSecret(secret);
       toast.success("API key creada. Copia la clave ahora; no se volverá a mostrar.");
       router.refresh();
     } catch (error) {
@@ -161,7 +175,9 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
       if (!response.ok) throw new Error(payload?.message ?? "No se pudo actualizar la API key.");
       if (action === "rotate") {
         if (!payload?.plainKey) throw new Error("La rotación no devolvió una clave nueva.");
-        setVisibleSecret({ keyId: key.id, name: key.name, plainKey: payload.plainKey, action: "rotated" });
+        const secret = { keyId: key.id, name: key.name, plainKey: payload.plainKey, action: "rotated" as const };
+        setVisibleSecret(secret);
+        publishVisibleSecret(secret);
         toast.success("API key rotada. Copia la nueva clave ahora.");
       } else {
         toast.success("API key revocada correctamente.");

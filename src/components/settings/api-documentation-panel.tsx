@@ -1,4 +1,11 @@
-import { BadgeButton } from "@/components/settings/badge-button";
+"use client";
+
+import { ClipboardCopy } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -9,6 +16,18 @@ type ApiEndpoint = {
   request: string;
   response: string;
 };
+
+type ApiTokenOption = {
+  id: string;
+  name: string;
+  revokedAt: Date | string | null;
+};
+
+type ApiKeySecretEvent = CustomEvent<{
+  keyId: string;
+  name: string;
+  plainKey: string;
+}>;
 
 const endpoints: ApiEndpoint[] = [
   {
@@ -97,9 +116,10 @@ const methodTone = {
   DELETE: "danger",
 } as const;
 
-const example = `curl "$ERP_BASE_URL/api/invoices" \\
+function invoiceExample(token: string) {
+  return `curl "$ERP_BASE_URL/api/invoices" \\
   -X POST \\
-  -H "Authorization: Bearer $ERP_API_KEY" \\
+  -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "customerId": "customer-id",
@@ -111,10 +131,103 @@ const example = `curl "$ERP_BASE_URL/api/invoices" \\
       { "description": "Servicio API", "quantity": 1, "unitPrice": 100, "taxRate": 21 }
     ]
   }'`;
+}
 
-export function ApiDocumentationPanel() {
+function buildDocumentationCopy(tokenName: string, token: string) {
+  const endpointLines = endpoints
+    .map((endpoint) => [
+      `${endpoint.method} ${endpoint.path}`,
+      `Uso: ${endpoint.summary}`,
+      `Peticion: ${endpoint.request.replaceAll("Authorization: Bearer ak_...", `Authorization: Bearer ${token}`)}`,
+      `Respuesta: ${endpoint.response}`,
+    ].join("\n"))
+    .join("\n\n");
+
+  return [
+    "ERP API - Documentacion de integracion",
+    `Token seleccionado: ${tokenName}`,
+    "",
+    "Autenticacion",
+    `Authorization: Bearer ${token}`,
+    "",
+    "Endpoints",
+    endpointLines,
+    "",
+    "Ejemplo: crear factura y devolver PDF en base64",
+    invoiceExample(token),
+  ].join("\n");
+}
+
+export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) {
+  const activeTokens = tokens.filter((token) => !token.revokedAt);
+  const [selectedTokenId, setSelectedTokenId] = useState(activeTokens[0]?.id ?? "");
+  const [visibleSecrets, setVisibleSecrets] = useState<Record<string, string>>({});
+  const [manualToken, setManualToken] = useState("");
+
+  useEffect(() => {
+    function handleSecret(event: Event) {
+      const { detail } = event as ApiKeySecretEvent;
+      setVisibleSecrets((current) => ({ ...current, [detail.keyId]: detail.plainKey }));
+      setSelectedTokenId(detail.keyId);
+    }
+
+    window.addEventListener("api-key-secret-visible", handleSecret);
+    return () => window.removeEventListener("api-key-secret-visible", handleSecret);
+  }, []);
+
+  const selectedToken = activeTokens.find((token) => token.id === selectedTokenId) ?? activeTokens[0] ?? null;
+  const selectedSecret = selectedToken ? visibleSecrets[selectedToken.id] : null;
+  const effectiveToken = manualToken.trim() || selectedSecret || "$ERP_API_KEY";
+  const selectedTokenName = selectedToken?.name ?? "Token no seleccionado";
+  const example = useMemo(() => invoiceExample(effectiveToken), [effectiveToken]);
+
+  async function copyFullDocumentation() {
+    await navigator.clipboard.writeText(buildDocumentationCopy(selectedTokenName, effectiveToken));
+    toast.success("Documentación API copiada.");
+  }
+
   return (
     <div className="space-y-5">
+      <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="api-doc-token">
+            Token seleccionado
+          </label>
+          <select
+            className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
+            id="api-doc-token"
+            onChange={(event) => setSelectedTokenId(event.target.value)}
+            value={selectedTokenId}
+          >
+            {activeTokens.length === 0 ? <option value="">Sin tokens activos</option> : null}
+            {activeTokens.map((token) => (
+              <option key={token.id} value={token.id}>
+                {token.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="api-doc-token-secret">
+            Secreto para ejemplos
+          </label>
+          <Input
+            id="api-doc-token-secret"
+            onChange={(event) => setManualToken(event.target.value)}
+            placeholder={selectedSecret ? "Se usará el token recién generado" : "Pega el secreto si quieres reemplazar $ERP_API_KEY"}
+            type="password"
+            value={manualToken}
+          />
+        </div>
+        <Button disabled={!selectedToken && !manualToken.trim()} onClick={copyFullDocumentation} type="button">
+          <ClipboardCopy aria-hidden="true" />
+          Copiar documentación
+        </Button>
+        <p className="text-xs text-muted-foreground md:col-span-3">
+          Los secretos ya creados no se pueden recuperar porque se guardan hasheados. La documentación usará automáticamente el secreto recién creado o rotado mientras siga visible; también puedes pegarlo manualmente.
+        </p>
+      </div>
+
       <div className="overflow-x-auto rounded-lg border">
         <Table>
           <TableHeader>
@@ -151,7 +264,18 @@ export function ApiDocumentationPanel() {
       <div className="rounded-lg border bg-muted/30 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-sm font-medium">Ejemplo de creación de factura con PDF</p>
-          <BadgeButton value={example} />
+          <Button
+            onClick={async () => {
+              await navigator.clipboard.writeText(example);
+              toast.success("Ejemplo copiado.");
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <ClipboardCopy aria-hidden="true" />
+            Copiar
+          </Button>
         </div>
         <pre className="overflow-x-auto rounded-md bg-background p-3 text-xs">
           <code>{example}</code>

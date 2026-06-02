@@ -25,7 +25,7 @@ export default async function ApiKeysPage() {
         meta={<StatusBadge tone={canManage ? "success" : "warning"}>{canManage ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
       />
       <PageSection title="Documentación de endpoints" description="Contratos disponibles para clientes, facturas y generación de PDF.">
-        <ApiDocumentationPanel />
+        <ApiDocumentationPanel tokens={keys} />
       </PageSection>
       <PageSection title="Credenciales activas" description="Las claves deben tratarse como secretos y rotarse desde seguridad cuando aplique.">
         <ApiKeyManager canManage={canManage} rows={keys} />
