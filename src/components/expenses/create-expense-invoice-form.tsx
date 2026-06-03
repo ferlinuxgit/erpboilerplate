@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -104,6 +104,9 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
   const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const [ocrDraft, setOcrDraft] = useState<OcrDraft | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
+  const [draftSource, setDraftSource] = useState<"ocr" | "openai" | null>(null);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = error ? "expense-invoice-error" : undefined;
@@ -157,6 +160,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
       setOcrStatus(payload.status);
       if (payload.status === "DONE" && payload.extracted) {
         setOcrDraft(payload.extracted);
+        setDraftSource("ocr");
         setAttachment({ fileName: payload.fileName, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${jobId}/file` });
         return;
       }
@@ -168,6 +172,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
   async function uploadOcrFile(file: File) {
     setOcrError(null);
     setOcrDraft(null);
+    setDraftSource(null);
     setOcrStatus("UPLOADING");
     try {
       const formData = new FormData();
@@ -190,6 +195,33 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
       const message = error instanceof Error ? error.message : "Error OCR inesperado.";
       setOcrError(message);
       setOcrStatus("FAILED");
+      toast.error(message);
+    }
+  }
+
+  async function analyzeWithOpenAI(file: File) {
+    setAiError(null);
+    setOcrDraft(null);
+    setDraftSource(null);
+    setAiStatus("PROCESSING");
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      const response = await fetch("/api/expenses/ai-analysis", {
+        method: "POST",
+        headers: getCsrfHeader(),
+        body: formData,
+      });
+      const payload = (await response.json()) as { message?: string; draft?: OcrDraft; model?: string };
+      if (!response.ok || !payload.draft) throw new Error(payload.message ?? "No se pudo analizar la factura con OpenAI.");
+      setOcrDraft(payload.draft);
+      setDraftSource("openai");
+      setAiStatus(payload.model ? `DONE · ${payload.model}` : "DONE");
+      toast.success("Análisis OpenAI completado. Revisa el borrador antes de guardar.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error analizando con OpenAI.";
+      setAiError(message);
+      setAiStatus("FAILED");
       toast.error(message);
     }
   }
@@ -300,7 +332,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
   return (
     <form className="space-y-5" onSubmit={onSubmit}>
       <div className="rounded-md border bg-muted/20 p-3">
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
           <div className="space-y-2">
             <Label htmlFor="expense-ocr-file">OCR local</Label>
             <Input
@@ -316,13 +348,29 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
               Se procesa en este servidor. Estado: {ocrStatus ?? "sin archivo"}{ocrJobId ? ` · ${ocrJobId.slice(0, 8)}` : ""}
             </p>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-ai-file">Analizar con OpenAI</Label>
+            <Input
+              accept="application/pdf,image/png,image/jpeg,image/webp"
+              id="expense-ai-file"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void analyzeWithOpenAI(file);
+              }}
+              type="file"
+            />
+            <p className="text-xs text-muted-foreground">
+              Usa la API de OpenAI. Estado: {aiStatus ?? "sin archivo"}
+            </p>
+          </div>
           <Button disabled={!ocrDraft} onClick={applyOcrDraft} type="button" variant="outline">
-            Aplicar OCR
+            {draftSource === "openai" ? <Sparkles aria-hidden="true" /> : null}
+            Aplicar análisis
           </Button>
         </div>
         {ocrDraft ? (
           <div className="mt-3 rounded-md border bg-background p-3 text-sm">
-            <p className="font-medium">Borrador OCR · confianza {ocrDraft.confidence}</p>
+            <p className="font-medium">Borrador {draftSource === "openai" ? "OpenAI" : "OCR"} · confianza {ocrDraft.confidence}</p>
             <p className="text-muted-foreground">
               {ocrDraft.supplierName ?? "Proveedor no detectado"} · {ocrDraft.supplierTaxId ?? "Sin CIF/NIF"} · {ocrDraft.supplierDocumentNumber ?? "Sin número"}
             </p>
@@ -330,6 +378,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
           </div>
         ) : null}
         {ocrError ? <p className="mt-2 text-sm text-red-600" role="alert">{ocrError}</p> : null}
+        {aiError ? <p className="mt-2 text-sm text-red-600" role="alert">{aiError}</p> : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-4">

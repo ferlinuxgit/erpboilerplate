@@ -26,6 +26,7 @@ const apiRouteFiles = [
   "src/app/api/delivery-notes/route.ts",
   "src/app/api/document-series/route.ts",
   "src/app/api/expenses/[id]/route.ts",
+  "src/app/api/expenses/ai-analysis/route.ts",
   "src/app/api/expenses/ocr/[id]/file/route.ts",
   "src/app/api/expenses/ocr/[id]/route.ts",
   "src/app/api/expenses/ocr/route.ts",
