@@ -259,6 +259,9 @@ export default async function DashboardPage() {
             <Link className={buttonVariants({ variant: "secondary" })} href="/customers">
               Ir a clientes
             </Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/suppliers">
+              Ir a proveedores
+            </Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/sales">
               Ir a ciclo de ventas
             </Link>

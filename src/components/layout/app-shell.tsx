@@ -20,6 +20,7 @@ const navGroups = [
     label: "Operación",
     links: [
       { href: "/customers", label: "Clientes" },
+      { href: "/suppliers", label: "Proveedores" },
       { href: "/invoices", label: "Facturas" },
       { href: "/purchases", label: "Compras" },
       { href: "/expenses", label: "Gastos" },

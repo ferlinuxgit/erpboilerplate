@@ -52,6 +52,8 @@ const apiRouteFiles = [
   "src/app/api/security-policy/route.ts",
   "src/app/api/stock-movements/route.ts",
   "src/app/api/storage/presign/route.ts",
+  "src/app/api/suppliers/[id]/route.ts",
+  "src/app/api/suppliers/route.ts",
   "src/app/api/supplier-invoices/route.ts",
   "src/app/api/supplier-payments/route.ts",
   "src/app/api/tax-retentions/route.ts",

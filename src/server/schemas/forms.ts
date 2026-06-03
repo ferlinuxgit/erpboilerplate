@@ -43,6 +43,17 @@ export const updateCustomerSchema = createCustomerSchema.extend({
   status: customerStatusSchema.optional(),
 });
 
+export const createSupplierSchema = createCustomerSchema.extend({
+  paymentTermsDays: z.number().int("Los días de pago deben ser enteros.").min(0, "Los días de pago no pueden ser negativos.").max(365, "Los días de pago no pueden superar 365.").default(30),
+  paymentMethodId: z.string().trim().optional().or(z.literal("")),
+  defaultAccountId: z.string().trim().optional().or(z.literal("")),
+  currencyCode: z.string().trim().length(3, "La moneda debe ser un código ISO de 3 letras.").default("EUR"),
+});
+
+export const updateSupplierSchema = createSupplierSchema.extend({
+  status: customerStatusSchema.optional(),
+});
+
 export const companyProfileSchema = z.object({
   name: z.string().trim().min(2, "El nombre comercial debe tener al menos 2 caracteres."),
   legalName: z.string().trim().optional().or(z.literal("")),

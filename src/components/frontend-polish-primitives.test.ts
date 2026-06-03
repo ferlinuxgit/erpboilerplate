@@ -8,7 +8,7 @@ function sourceFor(path: string) {
   return readFileSync(join(root, path), "utf8");
 }
 
-const coreRouteSegments = ["dashboard", "customers", "invoices", "sales", "purchases", "inventory", "accounting", "treasury", "settings", "fiscal", "billing", "onboarding"];
+const coreRouteSegments = ["dashboard", "customers", "suppliers", "invoices", "sales", "purchases", "inventory", "accounting", "treasury", "settings", "fiscal", "billing", "onboarding"];
 
 describe("frontend polish primitives", () => {
   it.each(coreRouteSegments)("%s route segment has shared loading, error, and not-found states", (segment) => {

@@ -7,6 +7,8 @@ export type AppRole = "OWNER" | "ADMIN" | "MEMBER";
 export type PermissionKey =
   | "customer.read"
   | "customer.create"
+  | "supplier.read"
+  | "supplier.create"
   | "invoice.read"
   | "invoice.create"
   | "invoice.write"
@@ -38,6 +40,8 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
   OWNER: new Set<PermissionKey>([
     "customer.read",
     "customer.create",
+    "supplier.read",
+    "supplier.create",
     "invoice.read",
     "invoice.create",
     "invoice.write",
@@ -68,6 +72,8 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
   ADMIN: new Set<PermissionKey>([
     "customer.read",
     "customer.create",
+    "supplier.read",
+    "supplier.create",
     "invoice.read",
     "invoice.create",
     "invoice.write",
@@ -96,6 +102,7 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
   ]),
   MEMBER: new Set<PermissionKey>([
     "customer.read",
+    "supplier.read",
     "invoice.read",
     "purchase.read",
     "expense.read",
@@ -116,6 +123,10 @@ export function can(role: AppRole, permission: PermissionKey): boolean {
 
 export function canManageCustomers(role: AppRole): boolean {
   return can(role, "customer.create");
+}
+
+export function canManageSuppliers(role: AppRole): boolean {
+  return can(role, "supplier.create");
 }
 
 export function canManageInvoices(role: AppRole): boolean {

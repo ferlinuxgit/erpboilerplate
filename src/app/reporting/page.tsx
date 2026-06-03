@@ -9,6 +9,7 @@ import { listKpis } from "@/server/reporting/service";
 
 const reportingSources = [
   { href: "/customers", label: "Clientes", description: "Segmenta ventas y riesgo por cartera." },
+  { href: "/suppliers", label: "Proveedores", description: "Revisa compras, gastos y terceros acreedores." },
   { href: "/invoices", label: "Facturas", description: "Revisa facturación, vencimientos y cobros." },
   { href: "/treasury", label: "Tesorería", description: "Contrasta caja y bancos antes de exportar." },
   { href: "/dashboard", label: "Panel", description: "Vuelve al cockpit para priorizar siguientes pasos." },
