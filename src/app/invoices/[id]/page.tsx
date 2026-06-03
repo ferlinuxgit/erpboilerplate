@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { canManageInvoices } from "@/lib/rbac";
+import { invoicePaymentStatusLabels, invoicePaymentStatusTone, invoiceStatusLabels, invoiceStatusTone, statusLabel } from "@/lib/status-labels";
 
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUserSession();
@@ -85,10 +86,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         description={`Factura emitida a ${data.customerName}.`}
         meta={
           <>
-            <StatusBadge tone={data.status === "VOID" ? "danger" : data.status === "PAID" ? "success" : "neutral"}>{data.status}</StatusBadge>
-            <StatusBadge tone={data.paymentStatus === "PAID" ? "success" : data.paymentStatus === "OVERDUE" ? "danger" : data.paymentStatus === "PARTIAL" ? "warning" : "neutral"}>
-              Cobro: {data.paymentStatus}
-            </StatusBadge>
+            <StatusBadge tone={invoiceStatusTone(data.status)}>{statusLabel(invoiceStatusLabels, data.status)}</StatusBadge>
+            <StatusBadge tone={invoicePaymentStatusTone(data.paymentStatus)}>Cobro: {statusLabel(invoicePaymentStatusLabels, data.paymentStatus)}</StatusBadge>
           </>
         }
         backHref="/invoices"

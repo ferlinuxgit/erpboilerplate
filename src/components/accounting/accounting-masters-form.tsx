@@ -18,9 +18,26 @@ import {
 type AccountingMastersFormProps = {
   missingAccounts: AccountingMasterAccount[];
   missingJournals: AccountingMasterJournal[];
+  catalogAccounts?: readonly AccountingMasterAccount[];
+  catalogJournals?: readonly AccountingMasterJournal[];
+  catalogLabel?: string;
 };
 
-export function AccountingMastersForm({ missingAccounts, missingJournals }: AccountingMastersFormProps) {
+const accountTypeLabels: Record<AccountingMasterAccount["type"], string> = {
+  ASSET: "Activo",
+  LIABILITY: "Pasivo",
+  EQUITY: "Patrimonio neto",
+  REVENUE: "Ingresos",
+  EXPENSE: "Gastos",
+};
+
+export function AccountingMastersForm({
+  catalogAccounts = defaultAccountingAccounts,
+  catalogJournals = defaultAccountingJournals,
+  catalogLabel = "Plantilla general",
+  missingAccounts,
+  missingJournals,
+}: AccountingMastersFormProps) {
   const router = useRouter();
   const [selectedAccountCodes, setSelectedAccountCodes] = useState(() => new Set(missingAccounts.map((account) => account.code)));
   const [selectedJournalCodes, setSelectedJournalCodes] = useState(() => new Set(missingJournals.map((journal) => journal.code)));
@@ -32,12 +49,20 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
   const hasMissingMasters = missingAccountCodes.size > 0 || missingJournalCodes.size > 0;
   const normalizedAccountSearch = accountSearch.trim().toLocaleLowerCase();
   const normalizedJournalSearch = journalSearch.trim().toLocaleLowerCase();
-  const visibleAccounts = defaultAccountingAccounts.filter((account) =>
-    [account.code, account.name, account.type, account.role].join(" ").toLocaleLowerCase().includes(normalizedAccountSearch),
+  const visibleAccounts = catalogAccounts.filter((account) =>
+    [account.code, account.name, accountTypeLabels[account.type], account.role].join(" ").toLocaleLowerCase().includes(normalizedAccountSearch),
   );
-  const visibleJournals = defaultAccountingJournals.filter((journal) =>
+  const visibleJournals = catalogJournals.filter((journal) =>
     [journal.code, journal.name, journal.role].join(" ").toLocaleLowerCase().includes(normalizedJournalSearch),
   );
+
+  if (catalogAccounts.length === 0 && catalogJournals.length === 0) {
+    return (
+      <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+        No hay un catalogo contable automatico para el pais de esta empresa.
+      </p>
+    );
+  }
 
   const toggleAccount = (code: string) => {
     setSelectedAccountCodes((current) => {
@@ -64,8 +89,8 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
         body: JSON.stringify({
-          accounts: defaultAccountingAccounts.filter((account) => selectedAccountCodes.has(account.code) && missingAccountCodes.has(account.code)),
-          journals: defaultAccountingJournals.filter((journal) => selectedJournalCodes.has(journal.code) && missingJournalCodes.has(journal.code)),
+          accounts: catalogAccounts.filter((account) => selectedAccountCodes.has(account.code) && missingAccountCodes.has(account.code)),
+          journals: catalogJournals.filter((journal) => selectedJournalCodes.has(journal.code) && missingJournalCodes.has(journal.code)),
         }),
       });
       if (!response.ok) {
@@ -92,11 +117,11 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
           <label className="text-sm font-medium" htmlFor="accounting-master-preset">
             Opciones predefinidas
           </label>
-          <Select id="accounting-master-preset" value="es-pgc-pyme" onChange={() => undefined}>
-            <option value="es-pgc-pyme">España - PGC Pyme básico</option>
+          <Select id="accounting-master-preset" value="active-template" onChange={() => undefined}>
+            <option value="active-template">{catalogLabel}</option>
           </Select>
           <p className="text-sm text-muted-foreground">
-            Recomendado para empresas españolas que necesitan emitir facturas, registrar IVA, cobros, pagos y cierres básicos.
+            Recomendado para empresas que necesitan emitir facturas, registrar impuestos, cobros, pagos y cierres basicos.
           </p>
         </div>
         <Button
@@ -116,7 +141,7 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
           ["Facturas emitidas", "Clientes, ventas e IVA repercutido quedan configurados para contabilizar ventas automáticamente."],
           ["Facturas recibidas", "Proveedores, compras e IVA soportado quedan preparados para compras y gastos."],
           ["Bancos y cobros", "Cuenta bancaria y diario de bancos quedan listos para tesorería y conciliación."],
-          ["Fiscalidad España", "Incluye cuentas de IVA y retenciones habituales en PGC Pyme."],
+          ["Fiscalidad", "Incluye las cuentas fiscales habituales de la plantilla seleccionada."],
           ["Cierre contable", "Añade cuenta de resultado y diario de cierre para cierre anual."],
           ["Diarios operativos", "Crea diarios separados para ventas, compras, bancos, general y cierre."],
         ].map(([title, description]) => (
@@ -127,11 +152,11 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
         ))}
       </div>
 
-      {defaultAccountingAccounts.length > 0 ? (
+      {catalogAccounts.length > 0 ? (
         <div className="space-y-2">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-medium">Catálogo de cuentas España</p>
+              <p className="text-sm font-medium">Catalogo de cuentas</p>
               <p className="text-sm text-muted-foreground">Busca por código, nombre, tipo o uso. Las cuentas ya existentes aparecen bloqueadas.</p>
             </div>
             <Input
@@ -155,7 +180,7 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
                   />
                   <span>
                     <span className="font-medium">{account.code} - {account.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{account.type}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{accountTypeLabels[account.type]}</span>
                     {!isMissing ? <span className="ml-2 text-xs text-emerald-700">Creada</span> : null}
                     <span className="mt-1 block text-muted-foreground">{account.role}</span>
                   </span>
@@ -166,11 +191,11 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
         </div>
       ) : null}
 
-      {defaultAccountingJournals.length > 0 ? (
+      {catalogJournals.length > 0 ? (
         <div className="space-y-2">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-medium">Catálogo de diarios España</p>
+              <p className="text-sm font-medium">Catalogo de diarios</p>
               <p className="text-sm text-muted-foreground">Selecciona los diarios operativos que necesita la empresa.</p>
             </div>
             <Input
@@ -209,8 +234,8 @@ export function AccountingMastersForm({ missingAccounts, missingJournals }: Acco
           disabled={
             loading ||
             (
-              defaultAccountingAccounts.every((account) => !selectedAccountCodes.has(account.code) || !missingAccountCodes.has(account.code)) &&
-              defaultAccountingJournals.every((journal) => !selectedJournalCodes.has(journal.code) || !missingJournalCodes.has(journal.code))
+              catalogAccounts.every((account) => !selectedAccountCodes.has(account.code) || !missingAccountCodes.has(account.code)) &&
+              catalogJournals.every((journal) => !selectedJournalCodes.has(journal.code) || !missingJournalCodes.has(journal.code))
             )
           }
           onClick={submit}

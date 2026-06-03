@@ -7,7 +7,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { purchaseOrderStatusLabels, statusLabel } from "@/lib/status-labels";
+
+const purchaseOrderStatuses = ["DRAFT", "SENT", "APPROVED", "RECEIVED", "INVOICED", "PAID", "VOID", "CANCELLED"] as const;
 
 type Props = {
   orderId: string;
@@ -63,13 +67,19 @@ export function EditPurchaseOrderForm({ orderId, defaultNumber, defaultStatus }:
       </div>
       <div className="space-y-2">
         <Label htmlFor="edit-po-status">Estado</Label>
-        <Input
+        <Select
           id="edit-po-status"
           value={status}
           onChange={(event) => setStatus(event.target.value)}
           required
           aria-describedby={errorId}
-        />
+        >
+          {purchaseOrderStatuses.map((option) => (
+            <option key={option} value={option}>
+              {statusLabel(purchaseOrderStatusLabels, option)}
+            </option>
+          ))}
+        </Select>
       </div>
       <div className="md:col-span-2">
         <Button type="submit" disabled={isLoading}>

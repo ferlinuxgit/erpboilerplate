@@ -12,7 +12,11 @@ import { Input } from "@/components/ui/input";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
-export function CreateCustomerForm() {
+type CreateCustomerFormProps = {
+  redirectHref?: string;
+};
+
+export function CreateCustomerForm({ redirectHref }: CreateCustomerFormProps = {}) {
   type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
   const router = useRouter();
   const {
@@ -54,7 +58,11 @@ export function CreateCustomerForm() {
 
       reset();
       toast.success("Cliente creado correctamente.");
-      router.refresh();
+      if (redirectHref) {
+        router.push(redirectHref);
+      } else {
+        router.refresh();
+      }
     } catch (submissionError) {
       const message = submissionError instanceof Error ? submissionError.message : "Ha ocurrido un error inesperado.";
       toast.error(message);

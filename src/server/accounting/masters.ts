@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { accountChart, journal } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
+import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
 import {
   defaultAccountingAccounts,
   defaultAccountingJournals,
@@ -14,9 +15,28 @@ export type AccountingMasterStatus = {
   missingJournals: AccountingMasterJournal[];
 };
 
-export async function getAccountingMasterStatus(companyId: string, client: DbClient = db): Promise<AccountingMasterStatus> {
-  const accountCodes = defaultAccountingAccounts.map((account) => account.code);
-  const journalCodes = defaultAccountingJournals.map((entry) => entry.code);
+function catalogForTemplate(template?: CompanyTemplate | null) {
+  if (template === null) {
+    return {
+      accounts: [],
+      journals: [],
+    };
+  }
+
+  return {
+    accounts: template?.accounts ?? defaultAccountingAccounts,
+    journals: template?.journals ?? defaultAccountingJournals,
+  };
+}
+
+export async function getAccountingMasterStatus(
+  companyId: string,
+  client: DbClient = db,
+  template?: CompanyTemplate | null,
+): Promise<AccountingMasterStatus> {
+  const catalog = catalogForTemplate(template);
+  const accountCodes = catalog.accounts.map((account) => account.code);
+  const journalCodes = catalog.journals.map((entry) => entry.code);
   const [existingAccounts, existingJournals] = await Promise.all([
     client
       .select({ code: accountChart.code })
@@ -31,17 +51,19 @@ export async function getAccountingMasterStatus(companyId: string, client: DbCli
   const existingJournalCodes = new Set(existingJournals.map((entry) => entry.code));
 
   return {
-    missingAccounts: defaultAccountingAccounts.filter((account) => !existingAccountCodes.has(account.code)).map((account) => ({ ...account })),
-    missingJournals: defaultAccountingJournals.filter((entry) => !existingJournalCodes.has(entry.code)).map((entry) => ({ ...entry })),
+    missingAccounts: catalog.accounts.filter((account) => !existingAccountCodes.has(account.code)).map((account) => ({ ...account })),
+    missingJournals: catalog.journals.filter((entry) => !existingJournalCodes.has(entry.code)).map((entry) => ({ ...entry })),
   };
 }
 
 export async function ensureAccountingMasters(
   companyId: string,
   input: { accounts?: AccountingMasterAccount[]; journals?: AccountingMasterJournal[] },
+  template?: CompanyTemplate | null,
 ) {
-  const accounts = input.accounts?.length ? input.accounts : defaultAccountingAccounts;
-  const journals = input.journals?.length ? input.journals : defaultAccountingJournals;
+  const catalog = catalogForTemplate(template ?? getCompanyTemplate("ES"));
+  const accounts = input.accounts?.length ? input.accounts : catalog.accounts;
+  const journals = input.journals?.length ? input.journals : catalog.journals;
 
   return db.transaction(async (tx) => {
     for (const account of accounts) {
@@ -75,6 +97,6 @@ export async function ensureAccountingMasters(
       });
     }
 
-    return getAccountingMasterStatus(companyId, tx);
+    return getAccountingMasterStatus(companyId, tx, template);
   });
 }

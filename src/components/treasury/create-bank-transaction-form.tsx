@@ -12,7 +12,12 @@ import { getCsrfHeader } from "@/lib/csrf-client";
 
 type AccountOption = { id: string; bankName: string; iban: string };
 
-export function CreateBankTransactionForm({ accounts }: { accounts: AccountOption[] }) {
+type CreateBankTransactionFormProps = {
+  accounts: AccountOption[];
+  redirectHref?: string;
+};
+
+export function CreateBankTransactionForm({ accounts, redirectHref }: CreateBankTransactionFormProps) {
   const router = useRouter();
   const [bankAccountId, setBankAccountId] = useState(accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -40,7 +45,11 @@ export function CreateBankTransactionForm({ accounts }: { accounts: AccountOptio
           setDescription("");
           setPostedAt("");
           toast.success("Movimiento bancario creado correctamente.");
-          router.refresh();
+          if (redirectHref) {
+            router.push(redirectHref);
+          } else {
+            router.refresh();
+          }
         } catch (e) {
           const message = e instanceof Error ? e.message : "Error inesperado.";
           setError(message);

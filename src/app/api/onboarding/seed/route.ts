@@ -5,7 +5,7 @@ import { getUserSession } from "@/lib/current-user";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { applyEsSeeds } from "@/server/seeds/apply";
+import { applyCompanyTemplate } from "@/server/seeds/apply";
 
 const payloadSchema = z.object({
   legalName: z.string().trim().optional().or(z.literal("")),
@@ -29,9 +29,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
   }
 
-  await applyEsSeeds({
+  await applyCompanyTemplate({
     tenantId: ctx.tenant.id,
     companyId: ctx.company.id,
+    countryCode: ctx.company.countryCode,
     actorUserId: session.user.id,
     legalName: parsed.data.legalName || undefined,
     vatNumber: parsed.data.vatNumber || undefined,

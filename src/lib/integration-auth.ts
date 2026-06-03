@@ -18,6 +18,7 @@ type IntegrationContext = {
   company: {
     id: string;
     name: string;
+    countryCode: string;
     baseCurrencyCode: string;
   };
   fiscalYear: {
@@ -57,6 +58,7 @@ async function tenantContextFromApiKey(tenantId: string): Promise<IntegrationCon
       tenantSlug: tenant.slug,
       companyId: company.id,
       companyName: company.name,
+      companyCountryCode: company.countryCode,
       companyBaseCurrencyCode: company.baseCurrencyCode,
       fiscalYearId: fiscalYear.id,
       fiscalYearCode: fiscalYear.code,
@@ -79,6 +81,7 @@ async function tenantContextFromApiKey(tenantId: string): Promise<IntegrationCon
     company: {
       id: row.companyId,
       name: row.companyName,
+      countryCode: row.companyCountryCode,
       baseCurrencyCode: row.companyBaseCurrencyCode,
     },
     fiscalYear: {

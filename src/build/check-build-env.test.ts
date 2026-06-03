@@ -17,8 +17,9 @@ function withoutBuildEnv() {
 
 describe("build environment preflight", () => {
   it("fails before Next page collection when DATABASE_URL is missing and documents the API keys build path", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "erpboilerplate-build-env-empty-"));
     const result = spawnSync(process.execPath, [checkBuildEnvScript], {
-      cwd: process.cwd(),
+      cwd,
       env: withoutBuildEnv(),
       encoding: "utf8",
     });
@@ -30,11 +31,12 @@ describe("build environment preflight", () => {
   });
 
   it("fails before Next build when Better Auth build/runtime variables are missing", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "erpboilerplate-build-env-db-"));
     const env = withoutBuildEnv();
     env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/erpboilerplate";
 
     const result = spawnSync(process.execPath, [checkBuildEnvScript], {
-      cwd: process.cwd(),
+      cwd,
       env,
       encoding: "utf8",
     });

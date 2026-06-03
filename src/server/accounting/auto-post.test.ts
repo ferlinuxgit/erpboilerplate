@@ -34,7 +34,7 @@ vi.mock("@/lib/db", () => ({ db: mocks.db }));
 vi.mock("@/server/accounting/service", () => ({ ensureDefaultJournal: mocks.ensureDefaultJournal }));
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 
-import { postSalesInvoice } from "@/server/accounting/auto-post";
+import { postSalesInvoice, postSupplierInvoice } from "@/server/accounting/auto-post";
 
 describe("accounting auto posting", () => {
   beforeEach(() => {
@@ -43,6 +43,7 @@ describe("accounting auto posting", () => {
       0,
       mocks.selectResults.length,
       [],
+      [{ countryCode: "ES" }],
       [{ id: "customer-account" }],
       [{ id: "supplier-account" }],
       [{ id: "sales-account" }],
@@ -112,5 +113,40 @@ describe("accounting auto posting", () => {
       }),
       tx,
     );
+  });
+
+  it("posts expense supplier invoices with line accounts, non-deductible VAT and withholdings", async () => {
+    const tx = mocks.createDbClientMock();
+
+    await postSupplierInvoice({
+      tenantId: "tenant-1",
+      companyId: "company-1",
+      actorUserId: "user-1",
+      supplierInvoiceId: "supplier-invoice-1",
+      postedAt: new Date("2026-05-09"),
+      reference: "Gasto luz",
+      subtotal: 100,
+      taxAmount: 21,
+      retentionAmount: 15,
+      totalAmount: 106,
+      expenseLines: [
+        {
+          accountId: "expense-account",
+          subtotal: 100,
+          taxAmount: 21,
+          taxDeductiblePct: 50,
+          retentionAmount: 15,
+        },
+      ],
+      dbClient: tx,
+    } as Parameters<typeof postSupplierInvoice>[0] & { dbClient: typeof tx });
+
+    const journalLinesInsert = tx.insert.mock.results[1]?.value.values;
+    expect(journalLinesInsert).toHaveBeenCalledWith([
+      expect.objectContaining({ accountId: "expense-account", debit: "110.50", credit: "0.00" }),
+      expect.objectContaining({ accountId: "vat-input-account", debit: "10.50", credit: "0.00" }),
+      expect.objectContaining({ accountId: "supplier-account", debit: "0.00", credit: "106.00" }),
+      expect.objectContaining({ accountId: "retention-account", debit: "0.00", credit: "15.00" }),
+    ]);
   });
 });

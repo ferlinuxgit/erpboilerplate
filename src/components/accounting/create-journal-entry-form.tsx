@@ -16,7 +16,12 @@ function emptyLine(accounts: AccountOption[]): JournalFormLine {
   return { accountId: accounts[0]?.id ?? "", debit: "", credit: "" };
 }
 
-export function CreateJournalEntryForm({ accounts }: { accounts: AccountOption[] }) {
+type CreateJournalEntryFormProps = {
+  accounts: AccountOption[];
+  redirectHref?: string;
+};
+
+export function CreateJournalEntryForm({ accounts, redirectHref }: CreateJournalEntryFormProps) {
   const router = useRouter();
   const [postedAt, setPostedAt] = useState("");
   const [reference, setReference] = useState("");
@@ -50,7 +55,11 @@ export function CreateJournalEntryForm({ accounts }: { accounts: AccountOption[]
         setReference("");
         setPostedAt("");
         setLines([emptyLine(accounts), emptyLine(accounts)]);
-        router.refresh();
+        if (redirectHref) {
+          router.push(redirectHref);
+        } else {
+          router.refresh();
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error inesperado.");
       } finally {

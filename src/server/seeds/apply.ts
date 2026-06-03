@@ -1,58 +1,71 @@
 import { and, eq } from "drizzle-orm";
 
-import pgcPyme from "@/server/seeds/es/pgc-pyme.json";
-import taxesEs from "@/server/seeds/es/taxes-es.json";
-import documentSeriesEs from "@/server/seeds/es/document-series-es.json";
-import journalsEs from "@/server/seeds/es/journals-es.json";
-import { accountChart, company, documentSeries, fiscalYear, journal, tax } from "@/db/schema";
-import { db } from "@/lib/db";
+import { accountChart, company, companySettings, documentSeries, fiscalYear, journal, tax } from "@/db/schema";
+import { db, type DbClient } from "@/lib/db";
+import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
 import { recordAudit } from "@/server/audit";
 
 type ApplyEsSeedsInput = {
   tenantId: string;
   companyId: string;
   actorUserId: string;
+  activeFiscalYearId?: string;
+  auditAction?: string;
+  client?: DbClient;
   legalName?: string;
   vatNumber?: string;
 };
 
-type AccountSeed = {
-  code: string;
-  name: string;
-  type: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE";
+type ApplyCompanyTemplateInput = ApplyEsSeedsInput & {
+  countryCode: string;
 };
 
-type SeriesSeed = {
-  type:
-    | "SALES_QUOTE"
-    | "SALES_ORDER"
-    | "DELIVERY_NOTE"
-    | "SALES_INVOICE"
-    | "CREDIT_NOTE"
-    | "PURCHASE_ORDER"
-    | "GOODS_RECEIPT"
-    | "SUPPLIER_INVOICE"
-    | "SUPPLIER_CREDIT_NOTE"
-    | "PAYMENT"
-    | "RECEIPT";
-  prefix: string;
-  nextNumber: number;
-};
+export async function applyCompanyTemplate(input: ApplyCompanyTemplateInput) {
+  const template = getCompanyTemplate(input.countryCode);
+  if (!template) {
+    throw new Error("No hay una plantilla automatica disponible para este pais.");
+  }
 
-export async function applyEsSeeds(input: ApplyEsSeedsInput) {
-  const [activeFiscalYear] = await db
-    .select({
-      id: fiscalYear.id,
-    })
-    .from(fiscalYear)
-    .where(eq(fiscalYear.companyId, input.companyId))
-    .limit(1);
+  const client = input.client ?? db;
+  const activeFiscalYear = input.activeFiscalYearId
+    ? { id: input.activeFiscalYearId }
+    : (
+        await client
+          .select({
+            id: fiscalYear.id,
+          })
+          .from(fiscalYear)
+          .where(eq(fiscalYear.companyId, input.companyId))
+          .limit(1)
+      )[0];
 
   if (!activeFiscalYear) {
     throw new Error("No existe un ejercicio fiscal activo para aplicar los seeds.");
   }
 
-  await db.transaction(async (tx) => {
+  const applySeedRows = async (tx: DbClient) => {
+    await applyTemplateRows(tx, {
+      ...input,
+      activeFiscalYearId: activeFiscalYear.id,
+      template,
+    });
+  };
+
+  if (input.client) {
+    await applySeedRows(input.client);
+    return;
+  }
+
+  await db.transaction(applySeedRows);
+}
+
+async function applyTemplateRows(
+  tx: DbClient,
+  input: ApplyCompanyTemplateInput & {
+    activeFiscalYearId: string;
+    template: CompanyTemplate;
+  },
+) {
     if (input.legalName || input.vatNumber) {
       await tx
         .update(company)
@@ -64,7 +77,26 @@ export async function applyEsSeeds(input: ApplyEsSeedsInput) {
         .where(eq(company.id, input.companyId));
     }
 
-    for (const entry of pgcPyme as AccountSeed[]) {
+    const existingSettings = await tx
+      .select({ id: companySettings.id })
+      .from(companySettings)
+      .where(eq(companySettings.companyId, input.companyId))
+      .limit(1);
+
+    if (existingSettings.length === 0) {
+      await tx.insert(companySettings).values({
+        companyId: input.companyId,
+        fiscalRegime: input.template.settings.fiscalRegime,
+        taxPeriodicity: input.template.settings.taxPeriodicity,
+        defaultCustomerAccountCode: input.template.settings.defaultCustomerAccountCode,
+        defaultSupplierAccountCode: input.template.settings.defaultSupplierAccountCode,
+        defaultSalesAccountCode: input.template.settings.defaultSalesAccountCode,
+        defaultPurchaseAccountCode: input.template.settings.defaultPurchaseAccountCode,
+        defaultBankAccountCode: input.template.settings.defaultBankAccountCode,
+      });
+    }
+
+    for (const entry of input.template.accounts) {
       const existing = await tx
         .select({ id: accountChart.id })
         .from(accountChart)
@@ -81,7 +113,7 @@ export async function applyEsSeeds(input: ApplyEsSeedsInput) {
       }
     }
 
-    for (const entry of taxesEs) {
+    for (const entry of input.template.taxes) {
       const existing = await tx
         .select({ id: tax.id })
         .from(tax)
@@ -97,7 +129,7 @@ export async function applyEsSeeds(input: ApplyEsSeedsInput) {
       }
     }
 
-    for (const entry of journalsEs) {
+    for (const entry of input.template.journals) {
       const existing = await tx
         .select({ id: journal.id })
         .from(journal)
@@ -113,16 +145,15 @@ export async function applyEsSeeds(input: ApplyEsSeedsInput) {
       }
     }
 
-    for (const entry of documentSeriesEs as SeriesSeed[]) {
+    for (const entry of input.template.documentSeries) {
       const existing = await tx
         .select({ id: documentSeries.id })
         .from(documentSeries)
         .where(
           and(
             eq(documentSeries.companyId, input.companyId),
-            eq(documentSeries.fiscalYearId, activeFiscalYear.id),
+            eq(documentSeries.fiscalYearId, input.activeFiscalYearId),
             eq(documentSeries.type, entry.type),
-            eq(documentSeries.prefix, entry.prefix),
           ),
         )
         .limit(1);
@@ -130,22 +161,33 @@ export async function applyEsSeeds(input: ApplyEsSeedsInput) {
       if (existing.length === 0) {
         await tx.insert(documentSeries).values({
           companyId: input.companyId,
-          fiscalYearId: activeFiscalYear.id,
+          fiscalYearId: input.activeFiscalYearId,
           type: entry.type,
           prefix: entry.prefix,
           nextNumber: entry.nextNumber,
         });
       }
     }
-  });
 
-  await recordAudit({
-    tenantId: input.tenantId,
-    companyId: input.companyId,
-    actorUserId: input.actorUserId,
-    action: "onboarding.seed.apply",
-    entityName: "company",
-    entityId: input.companyId,
-    payload: { legalName: input.legalName, vatNumber: input.vatNumber },
-  });
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: input.auditAction ?? "onboarding.seed.apply",
+        entityName: "company",
+        entityId: input.companyId,
+        payload: {
+          legalName: input.legalName,
+          vatNumber: input.vatNumber,
+          countryCode: input.countryCode,
+          templateId: input.template.id,
+        },
+      },
+      tx,
+    );
+}
+
+export async function applyEsSeeds(input: ApplyEsSeedsInput) {
+  return applyCompanyTemplate({ ...input, countryCode: "ES" });
 }

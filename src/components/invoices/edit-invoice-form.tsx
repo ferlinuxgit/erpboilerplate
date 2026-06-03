@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { invoiceStatusLabels, statusLabel } from "@/lib/status-labels";
 import { updateInvoiceSchema } from "@/server/schemas/forms";
 
 const statusOptions = ["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"] as const;
@@ -100,7 +101,7 @@ export function EditInvoiceForm({
         >
           {statusOptions.map((status) => (
             <option key={status} value={status}>
-              {status}
+              {statusLabel(invoiceStatusLabels, status)}
             </option>
           ))}
         </select>

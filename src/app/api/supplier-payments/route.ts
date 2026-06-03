@@ -9,6 +9,7 @@ import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postSupplierPayment } from "@/server/accounting/auto-post";
+import { refreshSupplierInvoicePaymentStatus } from "@/server/supplier-invoices/service";
 
 const payloadSchema = z.object({
   supplierInvoiceId: z.string().trim().min(1),
@@ -24,7 +25,7 @@ export async function GET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!can(ctx.membership.role, "purchase.read") && !can(ctx.membership.role, "expense.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   return NextResponse.json(await db.select().from(supplierInvoicePayment).where(eq(supplierInvoicePayment.companyId, ctx.company.id)));
 }
 
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!can(ctx.membership.role, "purchase.write") && !can(ctx.membership.role, "expense.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
@@ -46,11 +47,13 @@ export async function POST(request: Request) {
   try {
     const applied = await db.transaction(async (tx) => {
       const [ownedInvoice] = await tx
-        .select({ id: supplierInvoice.id, totalAmount: supplierInvoice.totalAmount })
+        .select({ id: supplierInvoice.id, origin: supplierInvoice.origin, totalAmount: supplierInvoice.totalAmount })
         .from(supplierInvoice)
         .where(and(eq(supplierInvoice.id, parsed.data.supplierInvoiceId), eq(supplierInvoice.companyId, ctx.company.id)))
         .limit(1);
       if (!ownedInvoice) throw new Error("SUPPLIER_INVOICE_NOT_FOUND");
+      if (ownedInvoice.origin === "EXPENSE" && !can(ctx.membership.role, "expense.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
+      if (ownedInvoice.origin !== "EXPENSE" && !can(ctx.membership.role, "purchase.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
 
       const appliedPayments = await tx
         .select({ amountApplied: supplierInvoicePayment.amountApplied })
@@ -92,6 +95,8 @@ export async function POST(request: Request) {
         dbClient: tx,
       });
 
+      await refreshSupplierInvoicePaymentStatus(ctx.company.id, parsed.data.supplierInvoiceId, tx);
+
       return appliedPayment;
     });
 
@@ -99,6 +104,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "SUPPLIER_INVOICE_NOT_FOUND") {
       return NextResponse.json({ message: "Factura de proveedor no encontrada." }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "SUPPLIER_INVOICE_FORBIDDEN") {
+      return NextResponse.json({ message: "Sin permisos para pagar esta factura de proveedor." }, { status: 403 });
     }
     if (error instanceof Error && error.message === "SUPPLIER_INVOICE_OVERPAYMENT") {
       return NextResponse.json({ message: "El importe supera el saldo pendiente de la factura de proveedor." }, { status: 400 });

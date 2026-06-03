@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
-export function CreateBankAccountForm() {
+type CreateBankAccountFormProps = {
+  redirectHref?: string;
+};
+
+export function CreateBankAccountForm({ redirectHref }: CreateBankAccountFormProps = {}) {
   const router = useRouter();
   const [iban, setIban] = useState("");
   const [bankName, setBankName] = useState("");
@@ -30,7 +34,11 @@ export function CreateBankAccountForm() {
           if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");
           setIban("");
           setBankName("");
-          router.refresh();
+          if (redirectHref) {
+            router.push(redirectHref);
+          } else {
+            router.refresh();
+          }
         } catch (e) {
           setError(e instanceof Error ? e.message : "Error inesperado.");
         } finally {

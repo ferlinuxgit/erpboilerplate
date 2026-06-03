@@ -14,6 +14,16 @@ export type InvoicePdfInput = {
     name: string;
     legalName: string | null;
     vatNumber: string | null;
+    fiscalAddress: string | null;
+    fiscalAddressLine2: string | null;
+    postalCode: string | null;
+    city: string | null;
+    province: string | null;
+    countryCode: string | null;
+    email: string | null;
+    phone: string | null;
+    website: string | null;
+    invoiceFooter: string | null;
   };
   customer: {
     name: string;

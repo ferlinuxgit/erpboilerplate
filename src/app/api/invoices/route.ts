@@ -16,6 +16,9 @@ import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
 import { renderInvoicePdf } from "@/server/pdf/render";
 import { createInvoiceSchema } from "@/server/schemas/forms";
+import { getCompanyDefaultsStatus, type CompanyDefaultsStatus } from "@/server/company/defaults";
+import { getCompanyTemplate } from "@/lib/company-templates";
+import { applyCompanyTemplate } from "@/server/seeds/apply";
 
 function invoiceCreateErrorMessage(error: unknown) {
   if (!(error instanceof Error)) return "No se pudo crear la factura.";
@@ -35,6 +38,23 @@ function invoiceCreateErrorMessage(error: unknown) {
   }
 
   return "No se pudo crear la factura.";
+}
+
+function companyDefaultsSetupResponse(status: CompanyDefaultsStatus) {
+  return NextResponse.json(
+    {
+      message: "Faltan ajustes de empresa necesarios para crear facturas. Revisa Configuracion > Maestros.",
+      missingGroups: status.groups
+        .filter((group) => group.missingCount > 0)
+        .map((group) => ({
+          key: group.key,
+          label: group.label,
+          missingCount: group.missingCount,
+          missingItems: group.items.filter((item) => !item.created).map((item) => ({ key: item.key, label: item.label })),
+        })),
+    },
+    { status: 409 },
+  );
 }
 
 export async function GET(request: Request) {
@@ -126,6 +146,26 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (getCompanyTemplate(actor.context.company.countryCode)) {
+      await applyCompanyTemplate({
+        tenantId: actor.context.tenant.id,
+        companyId: actor.context.company.id,
+        activeFiscalYearId: actor.context.fiscalYear.id,
+        countryCode: actor.context.company.countryCode,
+        actorUserId: actor.actorUserId,
+        auditAction: "company.defaults.ensure",
+      });
+    }
+
+    const defaultsStatus = await getCompanyDefaultsStatus({
+      companyId: actor.context.company.id,
+      fiscalYearId: actor.context.fiscalYear.id,
+      countryCode: actor.context.company.countryCode,
+    });
+    if (!defaultsStatus.ready) {
+      return companyDefaultsSetupResponse(defaultsStatus);
+    }
+
     const createdInvoice = await db.transaction(async (tx) => {
       await assertFiscalPeriodOpen(actor.context.company.id, issueDate, tx);
 

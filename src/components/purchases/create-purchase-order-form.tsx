@@ -9,7 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
-export function CreatePurchaseOrderForm() {
+type CreatePurchaseOrderFormProps = {
+  redirectHref?: string;
+};
+
+export function CreatePurchaseOrderForm({ redirectHref }: CreatePurchaseOrderFormProps = {}) {
   const router = useRouter();
   const [supplierName, setSupplierName] = useState("");
   const [number, setNumber] = useState("");
@@ -49,7 +53,11 @@ export function CreatePurchaseOrderForm() {
       setQuantity("1");
       setUnitPrice("100");
       toast.success("Pedido creado correctamente.");
-      router.refresh();
+      if (redirectHref) {
+        router.push(redirectHref);
+      } else {
+        router.refresh();
+      }
     } catch (submissionError) {
       const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
       setError(message);

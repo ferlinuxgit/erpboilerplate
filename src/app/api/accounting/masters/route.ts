@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireContext } from "@/lib/current-context";
+import { getCompanyTemplate } from "@/lib/company-templates";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { ensureAccountingMasters, getAccountingMasterStatus } from "@/server/accounting/masters";
 
@@ -24,7 +25,7 @@ const payloadSchema = z.object({
 export async function GET() {
   try {
     const ctx = await requireContext("accounting.read");
-    return NextResponse.json(await getAccountingMasterStatus(ctx.company.id));
+    return NextResponse.json(await getAccountingMasterStatus(ctx.company.id, undefined, getCompanyTemplate(ctx.company.countryCode)));
   } catch {
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   }
@@ -44,6 +45,6 @@ export async function POST(request: Request) {
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
 
-  const status = await ensureAccountingMasters(ctx.company.id, parsed.data);
+  const status = await ensureAccountingMasters(ctx.company.id, parsed.data, getCompanyTemplate(ctx.company.countryCode));
   return NextResponse.json(status, { status: 201 });
 }

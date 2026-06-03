@@ -1,7 +1,8 @@
 import { and, eq, gte, ilike, lte, sql } from "drizzle-orm";
 
-import { accountChart, companySettings, fiscalYear, journalEntry, journalLine } from "@/db/schema";
+import { accountChart, company, companySettings, fiscalYear, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
+import { getCompanyTemplate } from "@/lib/company-templates";
 import { ensureDefaultJournal } from "@/server/accounting/service";
 import { recordAudit } from "@/server/audit";
 
@@ -38,21 +39,31 @@ async function resolveAccountId(client: DbClient, companyId: string, code: strin
 }
 
 async function resolveAccounts(companyId: string, client: DbClient = db): Promise<AccountsMap> {
-  const [settings] = await client
-    .select()
-    .from(companySettings)
-    .where(eq(companySettings.companyId, companyId))
-    .limit(1);
+  const [settings, companyRow] = await Promise.all([
+    client
+      .select()
+      .from(companySettings)
+      .where(eq(companySettings.companyId, companyId))
+      .limit(1)
+      .then((rows) => rows[0]),
+    client
+      .select({ countryCode: company.countryCode })
+      .from(company)
+      .where(eq(company.id, companyId))
+      .limit(1)
+      .then((rows) => rows[0]),
+  ]);
+  const templateSettings = getCompanyTemplate(companyRow?.countryCode ?? "ES")?.settings;
 
   const defaults = {
-    customer: settings?.defaultCustomerAccountCode ?? "430000",
-    supplier: settings?.defaultSupplierAccountCode ?? "410000",
-    sales: settings?.defaultSalesAccountCode ?? "700000",
-    purchase: settings?.defaultPurchaseAccountCode ?? "600000",
-    bank: settings?.defaultBankAccountCode ?? "572000",
-    vatOutput: "477000",
-    vatInput: "472000",
-    retention: "475100",
+    customer: settings?.defaultCustomerAccountCode ?? templateSettings?.defaultCustomerAccountCode ?? "430000",
+    supplier: settings?.defaultSupplierAccountCode ?? templateSettings?.defaultSupplierAccountCode ?? "410000",
+    sales: settings?.defaultSalesAccountCode ?? templateSettings?.defaultSalesAccountCode ?? "700000",
+    purchase: settings?.defaultPurchaseAccountCode ?? templateSettings?.defaultPurchaseAccountCode ?? "600000",
+    bank: settings?.defaultBankAccountCode ?? templateSettings?.defaultBankAccountCode ?? "572000",
+    vatOutput: templateSettings?.defaultVatOutputAccountCode ?? "477000",
+    vatInput: templateSettings?.defaultVatInputAccountCode ?? "472000",
+    retention: templateSettings?.defaultRetentionAccountCode ?? "475100",
   };
 
   return {
@@ -132,19 +143,111 @@ export async function postSalesInvoice(
 }
 
 export async function postSupplierInvoice(
-  input: PostingInput & { supplierInvoiceId: string; subtotal: number; taxAmount: number; totalAmount: number },
+  input: PostingInput & {
+    supplierInvoiceId: string;
+    subtotal: number;
+    taxAmount: number;
+    totalAmount: number;
+    retentionAmount?: number;
+    expenseLines?: Array<{
+      accountId?: string | null;
+      subtotal: number;
+      taxAmount?: number;
+      taxDeductiblePct?: number;
+      retentionAmount?: number;
+    }>;
+  },
 ) {
   const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
+  const expenseLines = input.expenseLines && input.expenseLines.length > 0
+    ? input.expenseLines
+    : [{ accountId: accounts.purchase, subtotal: input.subtotal, taxAmount: input.taxAmount, taxDeductiblePct: 100, retentionAmount: input.retentionAmount ?? 0 }];
+  const debitByAccount = new Map<string, number>();
+  let deductibleTaxAmount = 0;
+  let retentionAmount = 0;
+
+  for (const line of expenseLines) {
+    const accountId = line.accountId || accounts.purchase;
+    const taxAmount = line.taxAmount ?? 0;
+    const deductiblePct = Math.min(Math.max(line.taxDeductiblePct ?? 100, 0), 100);
+    const deductibleTax = taxAmount * (deductiblePct / 100);
+    const nonDeductibleTax = taxAmount - deductibleTax;
+    debitByAccount.set(accountId, (debitByAccount.get(accountId) ?? 0) + line.subtotal + nonDeductibleTax);
+    deductibleTaxAmount += deductibleTax;
+    retentionAmount += line.retentionAmount ?? 0;
+  }
+
+  const expenseDebitLines = [...debitByAccount.entries()]
+    .filter(([, amount]) => Math.abs(amount) >= 0.005)
+    .map(([accountId, amount]) => ({ accountId, debit: amount.toFixed(2), credit: "0.00" }));
+  const supplierCredit = input.totalAmount.toFixed(2);
+  const lines = [
+    ...expenseDebitLines,
+    ...(deductibleTaxAmount > 0 ? [{ accountId: accounts.vatInput, debit: deductibleTaxAmount.toFixed(2), credit: "0.00" }] : []),
+    { accountId: accounts.supplier, debit: "0.00", credit: supplierCredit },
+    ...(retentionAmount > 0 ? [{ accountId: accounts.retention, debit: "0.00", credit: retentionAmount.toFixed(2) }] : []),
+  ];
+
   await createEntry({
     ...input,
     action: "accounting.autopost.supplierInvoice",
     entityName: "supplierInvoice",
     entityId: input.supplierInvoiceId,
-    lines: [
-      { accountId: accounts.purchase, debit: input.subtotal.toFixed(2), credit: "0.00" },
-      { accountId: accounts.vatInput, debit: input.taxAmount.toFixed(2), credit: "0.00" },
-      { accountId: accounts.supplier, debit: "0.00", credit: input.totalAmount.toFixed(2) },
-    ],
+    lines,
+  });
+}
+
+export async function reverseSupplierInvoice(
+  input: PostingInput & {
+    supplierInvoiceId: string;
+    subtotal: number;
+    taxAmount: number;
+    totalAmount: number;
+    retentionAmount?: number;
+    expenseLines?: Array<{
+      accountId?: string | null;
+      subtotal: number;
+      taxAmount?: number;
+      taxDeductiblePct?: number;
+      retentionAmount?: number;
+    }>;
+  },
+) {
+  const accounts = await resolveAccounts(input.companyId, input.dbClient ?? db);
+  const expenseLines = input.expenseLines && input.expenseLines.length > 0
+    ? input.expenseLines
+    : [{ accountId: accounts.purchase, subtotal: input.subtotal, taxAmount: input.taxAmount, taxDeductiblePct: 100, retentionAmount: input.retentionAmount ?? 0 }];
+  const creditByAccount = new Map<string, number>();
+  let deductibleTaxAmount = 0;
+  let retentionAmount = 0;
+
+  for (const line of expenseLines) {
+    const accountId = line.accountId || accounts.purchase;
+    const taxAmount = line.taxAmount ?? 0;
+    const deductiblePct = Math.min(Math.max(line.taxDeductiblePct ?? 100, 0), 100);
+    const deductibleTax = taxAmount * (deductiblePct / 100);
+    const nonDeductibleTax = taxAmount - deductibleTax;
+    creditByAccount.set(accountId, (creditByAccount.get(accountId) ?? 0) + line.subtotal + nonDeductibleTax);
+    deductibleTaxAmount += deductibleTax;
+    retentionAmount += line.retentionAmount ?? 0;
+  }
+
+  const expenseCreditLines = [...creditByAccount.entries()]
+    .filter(([, amount]) => Math.abs(amount) >= 0.005)
+    .map(([accountId, amount]) => ({ accountId, debit: "0.00", credit: amount.toFixed(2) }));
+  const lines = [
+    { accountId: accounts.supplier, debit: input.totalAmount.toFixed(2), credit: "0.00" },
+    ...(retentionAmount > 0 ? [{ accountId: accounts.retention, debit: retentionAmount.toFixed(2), credit: "0.00" }] : []),
+    ...(deductibleTaxAmount > 0 ? [{ accountId: accounts.vatInput, debit: "0.00", credit: deductibleTaxAmount.toFixed(2) }] : []),
+    ...expenseCreditLines,
+  ];
+
+  await createEntry({
+    ...input,
+    action: "accounting.reverse.supplierInvoice",
+    entityName: "supplierInvoice",
+    entityId: input.supplierInvoiceId,
+    lines,
   });
 }
 

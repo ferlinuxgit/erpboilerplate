@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { CreatePurchaseOrderForm } from "@/components/purchases/create-purchase-order-form";
 import { PurchaseFlowActions } from "@/components/purchases/purchase-flow-actions";
 import { PurchaseOrdersList } from "@/components/purchases/purchase-orders-list";
 import { buttonVariants } from "@/components/ui/button";
@@ -24,11 +23,14 @@ export default async function PurchasesPage() {
         backHref="/dashboard"
         backLabel="Volver al panel"
         meta={<StatusBadge tone={canWritePurchases ? "success" : "warning"}>{canWritePurchases ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
+        actions={
+          canWritePurchases ? (
+            <Link className={buttonVariants()} href="/purchases/new">
+              Nuevo pedido
+            </Link>
+          ) : null
+        }
       />
-
-      <PageSection title="Nuevo pedido" description="Registra pedidos de compra y prepara el flujo de recepción, factura y pago.">
-        {canWritePurchases ? <CreatePurchaseOrderForm /> : <EmptyState title="Solo lectura" description="Tu rol actual no permite crear pedidos de compra." />}
-      </PageSection>
 
       <PageSection title="Flujo de compras" description="Avanza documentos entre recepción, factura de proveedor y pago." contentClassName="space-y-4">
         {canWritePurchases ? (
@@ -41,11 +43,6 @@ export default async function PurchasesPage() {
       <PageSection
         title="Pedidos"
         description="Pedidos de compra de la empresa activa."
-        actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al panel
-          </Link>
-        }
       >
         <PurchaseOrdersList canManage={canWritePurchases} rows={orders} />
       </PageSection>

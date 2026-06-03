@@ -1,7 +1,5 @@
-import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 
-import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, deliveryNote, invoice, salesOrder, salesQuote } from "@/db/schema";
 import { requireUserSession } from "@/lib/current-user";
@@ -59,11 +57,6 @@ export default async function SalesPage({
       <PageSection
         title="Pipeline comercial"
         description="Ejecuta la siguiente acción disponible y revisa el estado de presupuestos, pedidos, albaranes y facturas."
-        actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al panel
-          </Link>
-        }
         contentClassName="space-y-4"
       >
           <SalesFlowActions

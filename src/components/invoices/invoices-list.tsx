@@ -5,6 +5,7 @@ import Link from "next/link";
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { invoicePaymentStatusLabels, invoicePaymentStatusTone, statusLabel } from "@/lib/status-labels";
 
 type InvoiceListRow = {
   id: string;
@@ -38,11 +39,9 @@ const columns: ResourceListColumn<InvoiceListRow>[] = [
   {
     header: "Estado",
     cell: (invoice) => (
-      <StatusBadge tone={invoice.status === "PAID" ? "success" : invoice.status === "OVERDUE" ? "danger" : invoice.status === "PARTIAL" ? "warning" : "neutral"}>
-        {invoice.status}
-      </StatusBadge>
+      <StatusBadge tone={invoicePaymentStatusTone(invoice.status)}>{statusLabel(invoicePaymentStatusLabels, invoice.status)}</StatusBadge>
     ),
-    exportValue: (invoice) => invoice.status,
+    exportValue: (invoice) => statusLabel(invoicePaymentStatusLabels, invoice.status),
     sortValue: (invoice) => invoice.status,
   },
   {
@@ -72,7 +71,7 @@ export function InvoicesList({ rows }: InvoicesListProps) {
       columns={columns}
       getRowId={(invoice) => invoice.id}
       getRowTestId={(invoice) => `invoice-row-${invoice.id}`}
-      getSearchText={(invoice) => [invoice.number, invoice.customerName, invoice.status, invoice.totalAmountLabel, invoice.issueDateLabel].join(" ")}
+      getSearchText={(invoice) => [invoice.number, invoice.customerName, invoice.status, statusLabel(invoicePaymentStatusLabels, invoice.status), invoice.totalAmountLabel, invoice.issueDateLabel].join(" ")}
       emptyTitle="Todavía no hay facturas registradas."
       emptyDescription="Crea la primera factura cuando tengas al menos un cliente activo."
       exportFileName="facturas.csv"
@@ -84,7 +83,7 @@ export function InvoicesList({ rows }: InvoicesListProps) {
             <Link className="font-medium text-primary hover:underline" href={`/invoices/${invoice.id}`}>
               {invoice.number} - {invoice.customerName}
             </Link>
-            <p className="text-sm text-muted-foreground">Estado: {invoice.status}</p>
+            <p className="text-sm text-muted-foreground">Estado: {statusLabel(invoicePaymentStatusLabels, invoice.status)}</p>
             <p className="text-sm text-muted-foreground">Importe: {invoice.totalAmountLabel}</p>
             <p className="text-sm text-muted-foreground">Emisión: {invoice.issueDateLabel}</p>
           </div>

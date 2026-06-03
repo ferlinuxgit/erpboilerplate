@@ -133,7 +133,7 @@ export function OnboardingWizard() {
 
       {stepIndex === 3 ? (
         <div className="rounded-md border p-3 text-sm text-muted-foreground">
-          Se aplicará automáticamente el plan contable Pyme ES y diarios estándar.
+          Se aplicara automaticamente la plantilla general del pais de la empresa.
         </div>
       ) : null}
 

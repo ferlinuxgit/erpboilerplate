@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { ReportingExportButton } from "@/components/reporting/reporting-export-button";
-import { buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
@@ -71,9 +70,6 @@ export default async function ReportingPage() {
 
         <PageSection title="Exportación" description="Genera un Excel con estado visible antes de volver al panel." contentClassName="space-y-3">
           <ReportingExportButton />
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al panel
-          </Link>
         </PageSection>
       </section>
 

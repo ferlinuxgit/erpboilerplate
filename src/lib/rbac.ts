@@ -13,6 +13,8 @@ export type PermissionKey =
   | "purchase.read"
   | "purchase.create"
   | "purchase.write"
+  | "expense.read"
+  | "expense.write"
   | "treasury.read"
   | "treasury.write"
   | "stock.read"
@@ -42,6 +44,8 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
     "purchase.read",
     "purchase.create",
     "purchase.write",
+    "expense.read",
+    "expense.write",
     "treasury.read",
     "treasury.write",
     "stock.read",
@@ -70,6 +74,8 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
     "purchase.read",
     "purchase.create",
     "purchase.write",
+    "expense.read",
+    "expense.write",
     "treasury.read",
     "treasury.write",
     "stock.read",
@@ -92,6 +98,7 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
     "customer.read",
     "invoice.read",
     "purchase.read",
+    "expense.read",
     "treasury.read",
     "stock.read",
     "series.read",

@@ -22,6 +22,7 @@ const navGroups = [
       { href: "/customers", label: "Clientes" },
       { href: "/invoices", label: "Facturas" },
       { href: "/purchases", label: "Compras" },
+      { href: "/expenses", label: "Gastos" },
       { href: "/inventory", label: "Inventario" },
       { href: "/accounting", label: "Contabilidad" },
       { href: "/treasury", label: "Tesorería" },
@@ -33,6 +34,7 @@ const navGroups = [
     label: "Administración",
     links: [
       { href: "/billing", label: "Suscripción" },
+      { href: "/settings/company", label: "Empresa" },
       { href: "/settings/api-keys", label: "API" },
       { href: "/settings/security", label: "Seguridad" },
       { href: "/settings/team", label: "Equipo" },

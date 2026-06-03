@@ -3,8 +3,6 @@ import { desc, eq } from "drizzle-orm";
 
 import { BankAccountsList } from "@/components/treasury/bank-accounts-list";
 import { BankTransactionsList } from "@/components/treasury/bank-transactions-list";
-import { CreateBankAccountForm } from "@/components/treasury/create-bank-account-form";
-import { CreateBankTransactionForm } from "@/components/treasury/create-bank-transaction-form";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -71,21 +69,6 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         <MetricCard label="Facturas cobradas" value={paidInvoicesCount} helper={`${customerInvoices.length} facturas en seguimiento`} />
       </section>
 
-      <PageSection title="Alta y movimientos" description="Registra cuentas bancarias y movimientos para alimentar conciliación y reporting." contentClassName="space-y-4">
-        {canWriteTreasury ? (
-          <>
-            <CreateBankAccountForm />
-            {accounts.length > 0 ? (
-              <CreateBankTransactionForm accounts={accounts} />
-            ) : (
-              <EmptyState title="Falta una cuenta bancaria" description="Crea una cuenta antes de registrar movimientos." />
-            )}
-          </>
-        ) : (
-          <EmptyState title="Solo lectura" description="Tu rol actual no permite crear cuentas ni movimientos de tesorería." />
-        )}
-      </PageSection>
-
       <PageSection title="Cobro de clientes" description="Aplica cobros contra facturas pendientes y actualiza el estado de caja.">
         {selectedInvoice && canWriteTreasury ? (
           <CustomerCashActions
@@ -112,11 +95,31 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         <MetricCard label="Facturas en seguimiento" value={customerInvoices.length} helper="Incluye pagadas, parciales y pendientes" />
       </PageSection>
 
-      <PageSection title="Cuentas bancarias" description="Cuentas operativas disponibles para movimientos y conciliación.">
+      <PageSection
+        title="Cuentas bancarias"
+        description="Cuentas operativas disponibles para movimientos y conciliación."
+        actions={
+          canWriteTreasury ? (
+            <Link className={buttonVariants()} href="/treasury/bank-accounts/new">
+              Nueva cuenta
+            </Link>
+          ) : null
+        }
+      >
         <BankAccountsList canManage={canWriteTreasury} rows={accounts} />
       </PageSection>
 
-      <PageSection title="Movimientos bancarios" description="Histórico de transacciones bancarias y estado de conciliación.">
+      <PageSection
+        title="Movimientos bancarios"
+        description="Histórico de transacciones bancarias y estado de conciliación."
+        actions={
+          canWriteTreasury ? (
+            <Link className={buttonVariants()} href="/treasury/bank-transactions/new">
+              Nuevo movimiento
+            </Link>
+          ) : null
+        }
+      >
         <BankTransactionsList canManage={canWriteTreasury} currencyCode={ctx.company.baseCurrencyCode} rows={rows} />
       </PageSection>
     </PageShell>

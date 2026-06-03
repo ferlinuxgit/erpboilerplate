@@ -54,11 +54,6 @@ export default async function InvoicesPage() {
       <PageSection
         title="Facturas emitidas"
         description="Abre una factura para revisar sus datos, líneas, PDF o cobros."
-        actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al panel
-          </Link>
-        }
       >
         <InvoicesList
           rows={invoices.map((invoice) => ({

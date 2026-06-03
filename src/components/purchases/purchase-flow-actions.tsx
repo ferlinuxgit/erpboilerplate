@@ -16,6 +16,7 @@ import {
 } from "@/lib/document-pipelines";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { purchaseOrderStatusLabels, statusLabel } from "@/lib/status-labels";
 
 type Order = {
   id: string;
@@ -313,7 +314,7 @@ export function PurchaseFlowActions({
               label={`Pedido ${order.number} · ${order.supplierName}`}
               loading={loading}
               onAction={() => receiveOrder(order.id)}
-              status={order.status}
+              status={statusLabel(purchaseOrderStatusLabels, order.status)}
               testId={`purchase-transition-order-${order.number}`}
               transition={transition}
             />

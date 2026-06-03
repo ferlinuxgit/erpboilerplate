@@ -1,7 +1,4 @@
-import Link from "next/link";
-
 import { BillingActions } from "@/components/billing/billing-actions";
-import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
@@ -30,11 +27,6 @@ export default async function BillingPage() {
       <PageSection
         title="Gestión de facturación"
         description="Abre checkout o portal de cliente según el estado actual de la suscripción."
-        actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al panel
-          </Link>
-        }
       >
         <BillingActions checkout={billing.checkout} portal={billing.portal} />
       </PageSection>

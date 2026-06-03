@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { accountTypeLabels, statusLabel } from "@/lib/status-labels";
 
 const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"] as const;
 
@@ -74,7 +75,7 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType }: {
           onChange={(e) => setType(e.target.value as (typeof accountTypes)[number])}
           aria-describedby={errorId}
         >
-          {accountTypes.map((option) => <option key={option} value={option}>{option}</option>)}
+          {accountTypes.map((option) => <option key={option} value={option}>{statusLabel(accountTypeLabels, option)}</option>)}
         </Select>
       </div>
       <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Guardar cambios"}</Button>

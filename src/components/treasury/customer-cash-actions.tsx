@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { invoicePaymentStatusLabels, statusLabel } from "@/lib/status-labels";
 
 type CustomerCashActionsProps = {
   invoice: {
@@ -59,7 +60,7 @@ export function CustomerCashActions({ invoice }: CustomerCashActionsProps) {
       <div>
         <p className="font-medium">Factura {invoice.number}</p>
         <p className="text-sm text-muted-foreground">{invoice.customerName} · {invoice.totalAmountLabel}</p>
-        <p className="text-sm">Estado de cobro: {invoice.paymentStatus}</p>
+        <p className="text-sm">Estado de cobro: {statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</p>
       </div>
       <form className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end" onSubmit={handleSubmit}>
         <div>

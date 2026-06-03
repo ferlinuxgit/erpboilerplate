@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { spanishFiscalModels } from "@/lib/fiscal-spain";
+import { fiscalStatusLabels, spanishFiscalModels } from "@/lib/fiscal-spain";
 
 const statuses = ["DRAFT", "READY", "FILED"] as const;
 
@@ -93,7 +93,7 @@ export function EditFiscalReportForm({
           onChange={(e) => setStatus(e.target.value as (typeof statuses)[number])}
           aria-describedby={errorId}
         >
-          {statuses.map((option) => <option key={option} value={option}>{option}</option>)}
+          {statuses.map((option) => <option key={option} value={option}>{fiscalStatusLabels[option]}</option>)}
         </Select>
       </div>
       <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Guardar cambios"}</Button>

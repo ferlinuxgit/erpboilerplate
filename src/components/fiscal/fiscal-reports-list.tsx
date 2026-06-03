@@ -121,7 +121,7 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
       emptyTitle="Sin modelos fiscales"
       exportFileName="fiscalidad-espana.csv"
       getRowId={(report) => report.id}
-      getSearchText={(report) => `${report.code} ${report.period} ${report.status} ${report.summary?.modelName ?? ""}`}
+      getSearchText={(report) => `${report.code} ${report.period} ${report.status} ${fiscalStatusLabels[report.status]} ${report.summary?.modelName ?? ""}`}
       items={reports}
       renderMobileCard={(report) => (
         <div className="space-y-3">

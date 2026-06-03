@@ -2,6 +2,8 @@ import { asc, eq } from "drizzle-orm";
 
 import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { db } from "@/lib/db";
+import { getCompanyTemplate } from "@/lib/company-templates";
+import { applyCompanyTemplate } from "@/server/seeds/apply";
 
 type UserTenantContext = {
   tenant: {
@@ -12,6 +14,7 @@ type UserTenantContext = {
   company: {
     id: string;
     name: string;
+    countryCode: string;
     baseCurrencyCode: string;
   };
   fiscalYear: {
@@ -85,6 +88,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }): Pro
       tenantSlug: tenant.slug,
       companyId: company.id,
       companyName: company.name,
+      companyCountryCode: company.countryCode,
       companyBaseCurrencyCode: company.baseCurrencyCode,
       fiscalYearId: fiscalYear.id,
       fiscalYearCode: fiscalYear.code,
@@ -108,6 +112,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }): Pro
       company: {
         id: current.companyId,
         name: current.companyName,
+        countryCode: current.companyCountryCode,
         baseCurrencyCode: current.companyBaseCurrencyCode,
       },
       fiscalYear: {
@@ -160,6 +165,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }): Pro
       .returning({
         id: company.id,
         name: company.name,
+        countryCode: company.countryCode,
         baseCurrencyCode: company.baseCurrencyCode,
       });
 
@@ -175,6 +181,18 @@ async function ensureUserTenantInternal(user: { id: string; name: string }): Pro
         id: fiscalYear.id,
         code: fiscalYear.code,
       });
+
+    if (getCompanyTemplate(createdCompanies[0].countryCode)) {
+      await applyCompanyTemplate({
+        tenantId: createdTenantRow.id,
+        companyId: createdCompanies[0].id,
+        activeFiscalYearId: createdFiscalYears[0].id,
+        countryCode: createdCompanies[0].countryCode,
+        actorUserId: user.id,
+        auditAction: "company.defaults.apply",
+        client: tx,
+      });
+    }
 
     return {
       tenant: createdTenantRow,

@@ -113,14 +113,24 @@ async function runStartupMigrations() {
 }
 
 function startNext() {
+  const children = [];
+  if (process.env.OCR_WORKER_ENABLED === "true") {
+    const worker = spawn("npm", ["run", "ocr:worker"], {
+      stdio: "inherit",
+      shell: false,
+    });
+    children.push(worker);
+  }
+
   const child = spawn("npm", ["run", "start"], {
     stdio: "inherit",
     shell: false,
   });
+  children.push(child);
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => {
-      child.kill(signal);
+      for (const currentChild of children) currentChild.kill(signal);
     });
   }
 

@@ -32,6 +32,7 @@ type VatLine = {
   unitPrice: string | number;
   taxRate: string | number;
   discountPct?: string | number | null;
+  taxDeductiblePct?: string | number | null;
 };
 
 type WithholdingLine = {
@@ -213,8 +214,9 @@ export function aggregateOutputVat(lines: VatLine[]): VatBucket[] {
   for (const line of lines) {
     const rate = roundMoney(toNumber(line.taxRate));
     const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
+    const deductiblePct = Math.min(Math.max(toNumber(line.taxDeductiblePct ?? 100), 0), 100);
     const base = roundMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
-    const tax = roundMoney((base * rate) / 100);
+    const tax = roundMoney(((base * rate) / 100) * (deductiblePct / 100));
     const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
     bucket.base = roundMoney(bucket.base + base);
     bucket.tax = roundMoney(bucket.tax + tax);

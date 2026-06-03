@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { salesDocumentStatusLabels, statusLabel } from "@/lib/status-labels";
 
 type CustomerOption = { id: string; name: string };
 type QuoteOption = { id: string; number: string; status: SalesDocumentStatus };
@@ -84,7 +85,7 @@ function FirstEligibleSelect<T extends { id: string; number: string; status: Sal
     <Select onChange={(event) => onChange(event.target.value)} value={value}>
       {items.map((item) => (
         <option key={item.id} value={item.id}>
-          {item.number} · {item.status}
+          {item.number} · {statusLabel(salesDocumentStatusLabels, item.status)}
         </option>
       ))}
     </Select>
@@ -273,7 +274,7 @@ export function SalesFlowActions({
             label={`Presupuesto ${quote.number}`}
             loading={loading}
             onAction={() => post(`/api/sales-quotes/${quote.id}/to-order`)}
-            status={quote.status}
+            status={statusLabel(salesDocumentStatusLabels, quote.status)}
             testId={`sales-transition-quote-${quote.number}`}
             transition={getSalesQuoteTransition(quote.status)}
           />
@@ -284,7 +285,7 @@ export function SalesFlowActions({
             label={`Pedido ${order.number}`}
             loading={loading}
             onAction={() => post(`/api/sales-orders/${order.id}/to-delivery`)}
-            status={order.status}
+            status={statusLabel(salesDocumentStatusLabels, order.status)}
             testId="sales-transition-order"
             transition={getSalesOrderTransition(order.status)}
           />
@@ -295,7 +296,7 @@ export function SalesFlowActions({
             label={`Albarán ${note.number}`}
             loading={loading}
             onAction={() => post(`/api/delivery-notes/${note.id}/to-invoice`)}
-            status={note.status}
+            status={statusLabel(salesDocumentStatusLabels, note.status)}
             testId="sales-transition-delivery"
             transition={getDeliveryNoteTransition(note.status)}
           />

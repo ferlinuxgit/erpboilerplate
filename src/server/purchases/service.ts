@@ -78,7 +78,7 @@ export async function listPurchasePipeline(companyId: string) {
         totalAmount: supplierInvoice.totalAmount,
       })
       .from(supplierInvoice)
-      .where(eq(supplierInvoice.companyId, companyId)),
+      .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.origin, "PURCHASE"))),
     db
       .select({
         id: supplierPayment.id,

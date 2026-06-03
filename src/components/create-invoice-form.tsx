@@ -470,6 +470,7 @@ export function CreateInvoiceForm({
         <div className="grid gap-3 md:grid-cols-3">
           <AccessibleField id="invoice-customer-search" label="Nombre, email o teléfono">
             <Input
+              aria-label="Nombre, email o teléfono"
               id="invoice-customer-search"
               value={customerSearch}
               onChange={(event) => setCustomerSearch(event.target.value)}
@@ -477,6 +478,7 @@ export function CreateInvoiceForm({
           </AccessibleField>
           <AccessibleField id="invoice-customer-location-search" label="Ciudad o provincia">
             <Input
+              aria-label="Ciudad o provincia"
               id="invoice-customer-location-search"
               value={customerLocationSearch}
               onChange={(event) => setCustomerLocationSearch(event.target.value)}
@@ -484,6 +486,7 @@ export function CreateInvoiceForm({
           </AccessibleField>
           <AccessibleField id="invoice-customer-tax-search" label="CIF/NIF/VAT">
             <Input
+              aria-label="CIF/NIF/VAT"
               id="invoice-customer-tax-search"
               value={customerTaxSearch}
               onChange={(event) => setCustomerTaxSearch(event.target.value)}

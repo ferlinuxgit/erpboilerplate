@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { isValidSpanishTaxId } from "@/lib/spanish-tax-id";
+import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 
 export const authSignInSchema = z.object({
   email: z.string().trim().email("Debes indicar un email válido."),
@@ -41,6 +41,33 @@ export const createCustomerSchema = z.object({
 
 export const updateCustomerSchema = createCustomerSchema.extend({
   status: customerStatusSchema.optional(),
+});
+
+export const companyProfileSchema = z.object({
+  name: z.string().trim().min(2, "El nombre comercial debe tener al menos 2 caracteres."),
+  legalName: z.string().trim().optional().or(z.literal("")),
+  vatNumber: z.string().trim().optional().or(z.literal("")),
+  fiscalAddress: z.string().trim().optional().or(z.literal("")),
+  fiscalAddressLine2: z.string().trim().optional().or(z.literal("")),
+  postalCode: z.string().trim().optional().or(z.literal("")),
+  city: z.string().trim().optional().or(z.literal("")),
+  province: z.string().trim().optional().or(z.literal("")),
+  countryCode: z.string().trim().length(2, "El país debe ser un código ISO de 2 letras."),
+  timezone: z.string().trim().min(1, "Debes indicar la zona horaria."),
+  baseCurrencyCode: z.string().trim().length(3, "La moneda debe ser un código ISO de 3 letras."),
+  email: z.string().trim().email("Debes indicar un email válido.").optional().or(z.literal("")),
+  phone: z.string().trim().optional().or(z.literal("")),
+  website: z.string().trim().url("Debes indicar una URL válida.").optional().or(z.literal("")),
+  invoiceFooter: z.string().trim().max(500, "El pie de factura no puede superar 500 caracteres.").optional().or(z.literal("")),
+}).superRefine((value, ctx) => {
+  const vatNumber = normalizeSpanishTaxId(value.vatNumber);
+  if (value.countryCode.toUpperCase() === "ES" && vatNumber && !isValidSpanishTaxId(vatNumber)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Debes indicar un CIF/NIF español válido.",
+      path: ["vatNumber"],
+    });
+  }
 });
 
 export const invoiceStatusSchema = z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"]);

@@ -204,6 +204,7 @@ async function fetchSupplierInvoiceVat(companyId: string, start: Date, endExclus
       quantity: supplierInvoiceLine.quantity,
       unitPrice: supplierInvoiceLine.unitPrice,
       taxRate: supplierInvoiceLine.taxRate,
+      taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
       invoiceId: supplierInvoice.id,
       number: supplierInvoice.number,
       issueDate: supplierInvoice.issueDate,
@@ -229,6 +230,7 @@ function aggregateSourceDocuments(
     quantity: string | number;
     unitPrice: string | number;
     taxRate: string | number;
+    taxDeductiblePct?: string | number | null;
     discountPct?: string | number | null;
     retentionRate?: string | number | null;
   }>,
@@ -237,8 +239,9 @@ function aggregateSourceDocuments(
 
   for (const line of lines) {
     const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
+    const deductiblePct = Math.min(Math.max(toNumber(line.taxDeductiblePct ?? 100), 0), 100);
     const base = roundFiscalMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
-    const taxAmount = roundFiscalMoney((base * toNumber(line.taxRate)) / 100);
+    const taxAmount = roundFiscalMoney(((base * toNumber(line.taxRate)) / 100) * (deductiblePct / 100));
     const withholdingAmount = roundFiscalMoney((base * toNumber(line.retentionRate)) / 100);
     const document = documents.get(line.invoiceId) ?? {
       id: line.invoiceId,

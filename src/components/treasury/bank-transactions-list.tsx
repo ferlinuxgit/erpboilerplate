@@ -4,6 +4,7 @@ import { BankTransactionRowActions } from "@/components/treasury/bank-transactio
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
+import { reconciliationStatusLabels, statusLabel } from "@/lib/status-labels";
 
 type BankTransactionRow = {
   id: string;
@@ -49,10 +50,10 @@ const columns = (currencyCode: string, canManage: boolean): ResourceListColumn<B
     header: "Conciliación",
     cell: (row) => (
       <StatusBadge tone={row.reconciliationStatus === "RECONCILED" ? "success" : "warning"}>
-        {row.reconciliationStatus === "RECONCILED" ? "Conciliado" : "Pendiente"}
+        {statusLabel(reconciliationStatusLabels, row.reconciliationStatus)}
       </StatusBadge>
     ),
-    exportValue: (row) => row.reconciliationStatus,
+    exportValue: (row) => statusLabel(reconciliationStatusLabels, row.reconciliationStatus),
     sortValue: (row) => row.reconciliationStatus,
   },
   ...(canManage
@@ -74,7 +75,7 @@ export function BankTransactionsList({ canManage = true, currencyCode, rows }: B
       emptyTitle="Sin movimientos bancarios."
       exportFileName="movimientos-bancarios.csv"
       getRowId={(row) => row.id}
-      getSearchText={(row) => [row.bankName, row.iban, row.description, row.amount, row.reconciliationStatus, formatDate(row.postedAt)].join(" ")}
+      getSearchText={(row) => [row.bankName, row.iban, row.description, row.amount, row.reconciliationStatus, statusLabel(reconciliationStatusLabels, row.reconciliationStatus), formatDate(row.postedAt)].join(" ")}
       items={rows}
       renderMobileCard={(row) => (
         <div className="space-y-3">
@@ -83,7 +84,7 @@ export function BankTransactionsList({ canManage = true, currencyCode, rows }: B
             <p className="text-sm text-muted-foreground">{row.bankName}</p>
             <p className="text-sm text-muted-foreground">{formatDate(row.postedAt)} · {formatMoney(row.amount, currencyCode)}</p>
             <StatusBadge className="mt-2" tone={row.reconciliationStatus === "RECONCILED" ? "success" : "warning"}>
-              {row.reconciliationStatus === "RECONCILED" ? "Conciliado" : "Pendiente"}
+              {statusLabel(reconciliationStatusLabels, row.reconciliationStatus)}
             </StatusBadge>
           </div>
           <BankTransactionRowActions id={row.id} />

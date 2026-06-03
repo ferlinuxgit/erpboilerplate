@@ -3,9 +3,8 @@ import { desc, eq } from "drizzle-orm";
 
 import { CustomersTable } from "@/components/customers/customers-table";
 import { customer, partner } from "@/db/schema";
-import { CreateCustomerForm } from "@/components/create-customer-form";
 import { buttonVariants } from "@/components/ui/button";
-import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
@@ -45,30 +44,20 @@ export default async function CustomersPage() {
         meta={<StatusBadge tone="neutral">Rol: {tenantContext.membership.role}</StatusBadge>}
         backHref="/dashboard"
         backLabel="Volver al panel"
+        actions={
+          canCreateCustomer ? (
+            <Link className={buttonVariants()} href="/customers/new">
+              Nuevo cliente
+            </Link>
+          ) : null
+        }
       />
 
-      <PageSection title="Alta rápida" description="Crea clientes activos para facturación, ventas y reporting.">
-        {canCreateCustomer ? (
-          <CreateCustomerForm />
-        ) : (
-          <EmptyState title="Solo lectura" description="Tu rol actual no permite crear ni editar clientes." />
-        )}
-      </PageSection>
-
       <PageSection
-        title="Listado"
-        description="Todos los clientes de la empresa activa."
-        actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">
-            Volver al panel
-          </Link>
-        }
+        title="Clientes registrados"
+        description="Abre un cliente para editar su identidad, contacto y domicilio fiscal."
       >
-        {customers.length === 0 ? (
-          <EmptyState title="Todavía no hay clientes" description="Crea el primer cliente para alimentar facturas, ventas y reporting." />
-        ) : (
-          <CustomersTable rows={customers} />
-        )}
+        <CustomersTable rows={customers} />
       </PageSection>
     </PageShell>
   );

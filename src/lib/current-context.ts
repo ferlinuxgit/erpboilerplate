@@ -8,7 +8,7 @@ import { canFromDb, type PermissionKey } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof ensureUserTenant>> & {
-  availableCompanies: Array<{ id: string; name: string; baseCurrencyCode: string }>;
+  availableCompanies: Array<{ id: string; name: string; countryCode: string; baseCurrencyCode: string }>;
   availableFiscalYears: Array<{ id: string; code: string }>;
   user: {
     id: string;
@@ -32,6 +32,7 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
     .select({
       id: company.id,
       name: company.name,
+      countryCode: company.countryCode,
       baseCurrencyCode: company.baseCurrencyCode,
     })
     .from(company)
@@ -62,6 +63,7 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
     company: {
       id: activeCompany?.id ?? fallbackContext.company.id,
       name: activeCompany?.name ?? fallbackContext.company.name,
+      countryCode: activeCompany?.countryCode ?? fallbackContext.company.countryCode,
       baseCurrencyCode: activeCompany?.baseCurrencyCode ?? fallbackContext.company.baseCurrencyCode,
     },
     fiscalYear: {
