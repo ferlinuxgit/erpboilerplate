@@ -10,6 +10,7 @@ import { createExpenseInvoice, listExpenseInvoices } from "@/server/supplier-inv
 const payloadSchema = z.object({
   supplierPartnerId: z.string().trim().optional().or(z.literal("")),
   supplierName: z.string().trim().optional().or(z.literal("")),
+  supplierTaxId: z.string().trim().optional().or(z.literal("")),
   number: z.string().trim().optional().or(z.literal("")),
   supplierDocumentNumber: z.string().trim().optional().or(z.literal("")),
   issueDate: z.string().datetime(),
@@ -60,8 +61,8 @@ export async function POST(request: Request) {
 
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
-  if (!parsed.data.supplierPartnerId && !parsed.data.supplierName) {
-    return NextResponse.json({ message: "Indica proveedor existente o nombre de proveedor." }, { status: 400 });
+  if (!parsed.data.supplierPartnerId && !parsed.data.supplierName && !parsed.data.supplierTaxId) {
+    return NextResponse.json({ message: "Indica proveedor existente, nombre de proveedor o CIF/NIF." }, { status: 400 });
   }
 
   try {
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
       actorUserId: session.user.id,
       supplierPartnerId: parsed.data.supplierPartnerId || undefined,
       supplierName: parsed.data.supplierName || undefined,
+      supplierTaxId: parsed.data.supplierTaxId || undefined,
       number: parsed.data.number || undefined,
       supplierDocumentNumber: parsed.data.supplierDocumentNumber || undefined,
       issueDate: new Date(parsed.data.issueDate),

@@ -14,6 +14,7 @@ import {
   supplierInvoicePayment,
 } from "@/db/schema";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
+import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { postSupplierInvoice, reverseSupplierInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
@@ -64,6 +65,7 @@ export type CreateExpenseInvoiceInput = {
   actorUserId: string;
   supplierPartnerId?: string;
   supplierName?: string;
+  supplierTaxId?: string;
   number?: string;
   supplierDocumentNumber?: string;
   issueDate: Date;
@@ -176,7 +178,11 @@ async function assertExpenseAccountsBelongToCompany(companyId: string, accountId
   if (rows.length !== uniqueIds.length) throw new Error("Cuenta de gasto invalida para la empresa activa.");
 }
 
-async function resolveSupplier(input: { companyId: string; supplierPartnerId?: string; supplierName?: string; client: DbClient }) {
+function partnerTypeForSupplier(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
+  return currentType === "CUSTOMER" ? "BOTH" : currentType;
+}
+
+async function resolveSupplier(input: { companyId: string; supplierPartnerId?: string; supplierName?: string; supplierTaxId?: string; client: DbClient }) {
   if (input.supplierPartnerId) {
     const [existing] = await input.client
       .select({ id: partner.id })
@@ -188,17 +194,52 @@ async function resolveSupplier(input: { companyId: string; supplierPartnerId?: s
   }
 
   const supplierName = input.supplierName?.trim();
-  if (!supplierName) throw new Error("Indica un proveedor.");
-  const [existing] = await input.client
-    .select({ id: partner.id, type: partner.type })
-    .from(partner)
-    .where(and(eq(partner.companyId, input.companyId), eq(partner.name, supplierName)))
-    .limit(1);
-  if (existing) return existing.id;
+  const supplierTaxId = normalizeSpanishTaxId(input.supplierTaxId);
+
+  if (supplierTaxId) {
+    const [existingByTaxId] = await input.client
+      .select({ id: partner.id, type: partner.type, name: partner.name })
+      .from(partner)
+      .where(and(eq(partner.companyId, input.companyId), eq(partner.taxId, supplierTaxId)))
+      .limit(1);
+    if (existingByTaxId) {
+      await input.client
+        .update(partner)
+        .set({
+          type: partnerTypeForSupplier(existingByTaxId.type),
+          name: supplierName || existingByTaxId.name,
+          isActive: true,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(partner.id, existingByTaxId.id), eq(partner.companyId, input.companyId)));
+      return existingByTaxId.id;
+    }
+  }
+
+  if (!supplierName && !supplierTaxId) throw new Error("Indica un proveedor o su CIF/NIF.");
+  const [existing] = supplierName
+    ? await input.client
+      .select({ id: partner.id, type: partner.type })
+      .from(partner)
+      .where(and(eq(partner.companyId, input.companyId), eq(partner.name, supplierName)))
+      .limit(1)
+    : [];
+  if (existing) {
+    await input.client
+      .update(partner)
+      .set({
+        type: partnerTypeForSupplier(existing.type),
+        ...(supplierTaxId ? { taxId: supplierTaxId } : {}),
+        isActive: true,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(partner.id, existing.id), eq(partner.companyId, input.companyId)));
+    return existing.id;
+  }
 
   const [created] = await input.client
     .insert(partner)
-    .values({ companyId: input.companyId, type: "SUPPLIER", name: supplierName })
+    .values({ companyId: input.companyId, type: "SUPPLIER", name: supplierName || `Proveedor ${supplierTaxId}`, taxId: supplierTaxId || null })
     .returning({ id: partner.id });
   return created.id;
 }
@@ -383,6 +424,7 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       companyId: input.companyId,
       supplierPartnerId: input.supplierPartnerId,
       supplierName: input.supplierName,
+      supplierTaxId: input.supplierTaxId,
       client: tx,
     });
     return createSupplierInvoiceHeader({

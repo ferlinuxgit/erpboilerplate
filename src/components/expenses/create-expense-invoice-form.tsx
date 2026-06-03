@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
+import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 
 type ExpenseAccount = { id: string; code: string; name: string };
 type Supplier = { id: string; name: string; taxId: string | null };
@@ -34,6 +35,7 @@ type AttachmentDraft = {
 
 type OcrDraft = {
   supplierName?: string;
+  supplierTaxId?: string;
   supplierDocumentNumber?: string;
   issueDate?: string;
   dueDate?: string;
@@ -91,6 +93,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
   const [supplierMode, setSupplierMode] = useState<"existing" | "new">(suppliers.length > 0 ? "existing" : "new");
   const [supplierPartnerId, setSupplierPartnerId] = useState(suppliers[0]?.id ?? "");
   const [supplierName, setSupplierName] = useState("");
+  const [supplierTaxId, setSupplierTaxId] = useState(suppliers[0]?.taxId ?? "");
   const [supplierDocumentNumber, setSupplierDocumentNumber] = useState("");
   const [issueDate, setIssueDate] = useState(todayInputValue());
   const [dueDate, setDueDate] = useState("");
@@ -131,6 +134,18 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
 
   function removeLine(id: string) {
     setLines((current) => current.length > 1 ? current.filter((line) => line.id !== id) : current);
+  }
+
+  function findSupplierByTaxId(taxId: string | undefined) {
+    const normalized = normalizeSpanishTaxId(taxId);
+    if (!normalized) return undefined;
+    return suppliers.find((supplier) => normalizeSpanishTaxId(supplier.taxId) === normalized);
+  }
+
+  function selectSupplier(supplierId: string) {
+    setSupplierPartnerId(supplierId);
+    const selected = suppliers.find((supplier) => supplier.id === supplierId);
+    setSupplierTaxId(selected?.taxId ?? "");
   }
 
   async function pollOcrJob(jobId: string) {
@@ -181,10 +196,17 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
 
   function applyOcrDraft() {
     if (!ocrDraft) return;
-    if (ocrDraft.supplierName) {
+    const matchedSupplier = findSupplierByTaxId(ocrDraft.supplierTaxId);
+    if (matchedSupplier) {
+      setSupplierMode("existing");
+      selectSupplier(matchedSupplier.id);
+      setSupplierName("");
+    } else if (ocrDraft.supplierName || ocrDraft.supplierTaxId) {
       setSupplierMode("new");
-      setSupplierName(ocrDraft.supplierName);
+      setSupplierName(ocrDraft.supplierName ?? "");
+      setSupplierTaxId(ocrDraft.supplierTaxId ?? "");
     }
+    if (ocrDraft.supplierTaxId) setSupplierTaxId(ocrDraft.supplierTaxId);
     if (ocrDraft.supplierDocumentNumber) setSupplierDocumentNumber(ocrDraft.supplierDocumentNumber);
     if (ocrDraft.issueDate) setIssueDate(ocrDraft.issueDate.slice(0, 10));
     if (ocrDraft.dueDate) setDueDate(ocrDraft.dueDate.slice(0, 10));
@@ -209,7 +231,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
     setIsLoading(true);
     try {
       if (supplierMode === "existing" && !supplierPartnerId) throw new Error("Selecciona un proveedor.");
-      if (supplierMode === "new" && !supplierName.trim()) throw new Error("Indica el proveedor.");
+      if (supplierMode === "new" && !supplierName.trim() && !supplierTaxId.trim()) throw new Error("Indica el proveedor o su CIF/NIF.");
       if (lines.length === 0) throw new Error("Añade al menos una línea.");
 
       const parsedLines = lines.map((line) => {
@@ -243,6 +265,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         body: JSON.stringify({
           supplierPartnerId: supplierMode === "existing" ? supplierPartnerId : undefined,
           supplierName: supplierMode === "new" ? supplierName : undefined,
+          supplierTaxId: supplierMode === "new" ? supplierTaxId : undefined,
           supplierDocumentNumber,
           issueDate: toIsoDate(issueDate),
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
@@ -256,6 +279,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         throw new Error(payload.message ?? "No se pudo crear el gasto.");
       }
       setSupplierName("");
+      setSupplierTaxId(suppliers[0]?.taxId ?? "");
       setSupplierDocumentNumber("");
       setIssueDate(todayInputValue());
       setDueDate("");
@@ -299,7 +323,9 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         {ocrDraft ? (
           <div className="mt-3 rounded-md border bg-background p-3 text-sm">
             <p className="font-medium">Borrador OCR · confianza {ocrDraft.confidence}</p>
-            <p className="text-muted-foreground">{ocrDraft.supplierName ?? "Proveedor no detectado"} · {ocrDraft.supplierDocumentNumber ?? "Sin número"}</p>
+            <p className="text-muted-foreground">
+              {ocrDraft.supplierName ?? "Proveedor no detectado"} · {ocrDraft.supplierTaxId ?? "Sin CIF/NIF"} · {ocrDraft.supplierDocumentNumber ?? "Sin número"}
+            </p>
             {ocrDraft.warnings.length > 0 ? <p className="mt-1 text-amber-700">{ocrDraft.warnings.join(" ")}</p> : null}
           </div>
         ) : null}
@@ -317,7 +343,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         {supplierMode === "existing" ? (
           <div className="space-y-2 lg:col-span-2">
             <Label htmlFor="expense-supplier-id">Proveedor existente</Label>
-            <Select aria-describedby={errorId} id="expense-supplier-id" onChange={(event) => setSupplierPartnerId(event.target.value)} required value={supplierPartnerId}>
+            <Select aria-describedby={errorId} id="expense-supplier-id" onChange={(event) => selectSupplier(event.target.value)} required value={supplierPartnerId}>
               {suppliers.map((supplier) => (
                 <option key={supplier.id} value={supplier.id}>
                   {supplier.name}{supplier.taxId ? ` - ${supplier.taxId}` : ""}
@@ -328,9 +354,20 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         ) : (
           <div className="space-y-2 lg:col-span-2">
             <Label htmlFor="expense-supplier">Nuevo proveedor</Label>
-            <Input aria-describedby={errorId} id="expense-supplier" onChange={(event) => setSupplierName(event.target.value)} required value={supplierName} />
+            <Input aria-describedby={errorId} id="expense-supplier" onChange={(event) => setSupplierName(event.target.value)} value={supplierName} />
           </div>
         )}
+        <div className="space-y-2">
+          <Label htmlFor="expense-supplier-tax-id">CIF/NIF proveedor</Label>
+          <Input
+            aria-describedby={errorId}
+            disabled={supplierMode === "existing"}
+            id="expense-supplier-tax-id"
+            onChange={(event) => setSupplierTaxId(event.target.value)}
+            placeholder="B12345674"
+            value={supplierTaxId}
+          />
+        </div>
         <div className="space-y-2">
           <Label htmlFor="expense-supplier-number">Factura proveedor</Label>
           <Input aria-describedby={errorId} id="expense-supplier-number" onChange={(event) => setSupplierDocumentNumber(event.target.value)} placeholder="FRA-123" value={supplierDocumentNumber} />

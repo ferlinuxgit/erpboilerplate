@@ -6,6 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { expenseOcrJob } from "@/db/schema";
 import { db } from "@/lib/db";
+import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 
 export type ExpenseOcrStatus = "PENDING" | "PROCESSING" | "DONE" | "FAILED";
 
@@ -20,6 +21,7 @@ export type ExpenseOcrDraftLine = {
 
 export type ExpenseOcrDraft = {
   supplierName?: string;
+  supplierTaxId?: string;
   supplierDocumentNumber?: string;
   issueDate?: string;
   dueDate?: string;
@@ -82,6 +84,17 @@ function inferSupplierName(lines: string[]) {
   return lines.find((line) => line.length >= 3 && line.length <= 80 && !ignored.test(line));
 }
 
+function findTaxId(text: string) {
+  const labeled = firstMatch(text, [
+    /(?:cif|nif|nie|vat|tax id|n\.i\.f\.|nif\/cif)\s*:?\s*([A-Z0-9\s.-]{8,16})/i,
+  ]);
+  const normalizedLabeled = normalizeSpanishTaxId(labeled);
+  if (isValidSpanishTaxId(normalizedLabeled)) return normalizedLabeled;
+
+  const matches = text.match(/[A-Z]\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*[0-9A-Z]|\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*[A-Z]/gi) ?? [];
+  return matches.map(normalizeSpanishTaxId).find(isValidSpanishTaxId);
+}
+
 export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   const cleanText = text.replace(/\u00a0/g, " ");
   const lines = cleanText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -89,6 +102,7 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
     /(?:proveedor|emisor|supplier|vendor)\s*:?\s*([^\n]+)/i,
     /(?:raz[oó]n social)\s*:?\s*([^\n]+)/i,
   ]) ?? inferSupplierName(lines);
+  const supplierTaxId = findTaxId(cleanText);
   const supplierDocumentNumber = firstMatch(cleanText, [
     /(?:factura|invoice|n[úu]mero|num\.?|nº)\s*(?:n[úu]mero|num\.?|nº|#)?\s*:?\s*([A-Z0-9./_-]{3,})/i,
   ]);
@@ -118,13 +132,15 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
     const expected = Math.round((computedSubtotal + taxAmount - retentionAmount + Number.EPSILON) * 100) / 100;
     if (Math.abs(expected - totalAmount) > 0.03) warnings.push("Los totales OCR no cuadran exactamente; revisa base, IVA y retencion.");
   }
-  if (!supplierName) warnings.push("No se pudo identificar el proveedor con confianza.");
+  if (!supplierName && !supplierTaxId) warnings.push("No se pudo identificar el proveedor con confianza.");
+  if (!supplierTaxId) warnings.push("No se pudo identificar el CIF/NIF del proveedor con confianza.");
   if (!supplierDocumentNumber) warnings.push("No se pudo identificar el numero de factura proveedor.");
   if (!totalAmount) warnings.push("No se pudo identificar el total con confianza.");
 
   const confidence = warnings.length === 0 ? "high" : warnings.length <= 2 ? "medium" : "low";
   return {
     supplierName,
+    supplierTaxId,
     supplierDocumentNumber,
     issueDate,
     dueDate,
