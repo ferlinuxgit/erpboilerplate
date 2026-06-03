@@ -151,13 +151,28 @@ function numberOrFallback(value: number | null, fallback: number) {
   return Number.isFinite(value) ? Number(value) : fallback;
 }
 
+function netLineSubtotal(line: ExpenseInvoiceAiAnalysis["lines"][number], fallback: number) {
+  if (Number.isFinite(line.subtotal_amount)) return Number(line.subtotal_amount);
+  const quantity = numberOrFallback(line.quantity, 1);
+  const gross = numberOrFallback(line.unit_price, fallback) * quantity;
+  if (Number.isFinite(line.discount_amount) && line.discount_amount !== null) return Math.max(gross - line.discount_amount, 0);
+  if (Number.isFinite(line.discount_pct) && line.discount_pct !== null) return Math.max(gross * (1 - line.discount_pct / 100), 0);
+  return gross;
+}
+
+function netUnitPrice(line: ExpenseInvoiceAiAnalysis["lines"][number], fallback: number) {
+  const quantity = numberOrFallback(line.quantity, 1);
+  const safeQuantity = quantity > 0 ? quantity : 1;
+  return Math.round((netLineSubtotal(line, fallback) / safeQuantity + Number.EPSILON) * 100) / 100;
+}
+
 export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): ExpenseInvoiceAiDraft {
   const fallbackUnitPrice = analysis.subtotal_amount ?? analysis.total_amount ?? 0;
   const lines = analysis.lines.length > 0
     ? analysis.lines.map((line) => ({
       description: line.description || analysis.description || "Gasto analizado por IA",
       quantity: numberOrFallback(line.quantity, 1),
-      unitPrice: numberOrFallback(line.unit_price ?? line.subtotal_amount, fallbackUnitPrice),
+      unitPrice: netUnitPrice(line, fallbackUnitPrice),
       taxRate: numberOrFallback(line.tax_rate, analysis.taxes[0]?.rate ?? 21),
       taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, analysis.taxes[0]?.deductible_pct ?? 100),
       retentionRate: numberOrFallback(line.retention_rate, 0),
@@ -210,7 +225,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
           filePart,
           {
             type: "input_text",
-            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones.",
+            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento.",
           },
         ],
       },
