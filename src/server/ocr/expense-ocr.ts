@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { and, desc, eq } from "drizzle-orm";
 
@@ -35,6 +36,8 @@ const uploadRoot = process.env.LOCAL_UPLOAD_DIR || path.join(process.cwd(), ".da
 const tessdataPath = process.env.TESSDATA_PREFIX || path.join(process.cwd(), "public", "ocr", "lang");
 const tesseractCachePath = process.env.TESSERACT_CACHE_DIR || path.join(process.cwd(), ".data", "tesseract-cache");
 const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+
+const importRuntimeModule = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>;
 
 function sanitizeFileName(fileName: string) {
   return fileName
@@ -145,6 +148,8 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
 }
 
 async function extractPdfText(filePath: string) {
+  const workerPath = pathToFileURL(path.join(process.cwd(), "node_modules", "pdfjs-dist", "legacy", "build", "pdf.worker.mjs")).href;
+  await importRuntimeModule(workerPath);
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(await readFile(filePath));
   const pdf = await pdfjs.getDocument({ data, useWorkerFetch: false, disableFontFace: true }).promise;
