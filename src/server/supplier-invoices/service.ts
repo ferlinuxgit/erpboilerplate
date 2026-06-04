@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 
 import {
   accountChart,
@@ -66,6 +66,14 @@ export type CreateExpenseInvoiceInput = {
   supplierPartnerId?: string;
   supplierName?: string;
   supplierTaxId?: string;
+  supplierEmail?: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  supplierAddressLine2?: string;
+  supplierPostalCode?: string;
+  supplierCity?: string;
+  supplierProvince?: string;
+  supplierCountryCode?: string;
   number?: string;
   supplierDocumentNumber?: string;
   issueDate: Date;
@@ -146,6 +154,54 @@ function calculateTotals(lines: ReturnType<typeof buildLineValues>) {
   };
 }
 
+async function assertNoDuplicateExpenseInvoice(input: {
+  companyId: string;
+  supplierPartnerId: string;
+  supplierDocumentNumber?: string;
+  issueDate: Date;
+  totalAmount: number;
+  client: DbClient;
+}) {
+  const supplierDocumentNumber = input.supplierDocumentNumber?.trim();
+  if (supplierDocumentNumber) {
+    const [duplicateByNumber] = await input.client
+      .select({ id: supplierInvoice.id, number: supplierInvoice.number })
+      .from(supplierInvoice)
+      .where(and(
+        eq(supplierInvoice.companyId, input.companyId),
+        eq(supplierInvoice.origin, "EXPENSE"),
+        eq(supplierInvoice.supplierPartnerId, input.supplierPartnerId),
+        eq(supplierInvoice.supplierDocumentNumber, supplierDocumentNumber),
+        ne(supplierInvoice.status, "VOID"),
+      ))
+      .limit(1);
+    if (duplicateByNumber) {
+      throw new Error(`Gasto duplicado: ya existe una factura de este proveedor con número ${supplierDocumentNumber}.`);
+    }
+  }
+
+  const dayStart = new Date(input.issueDate);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const [duplicateByDateAndTotal] = await input.client
+    .select({ id: supplierInvoice.id, number: supplierInvoice.number })
+    .from(supplierInvoice)
+    .where(and(
+      eq(supplierInvoice.companyId, input.companyId),
+      eq(supplierInvoice.origin, "EXPENSE"),
+      eq(supplierInvoice.supplierPartnerId, input.supplierPartnerId),
+      gte(supplierInvoice.issueDate, dayStart),
+      lt(supplierInvoice.issueDate, dayEnd),
+      eq(supplierInvoice.totalAmount, input.totalAmount.toFixed(2)),
+      ne(supplierInvoice.status, "VOID"),
+    ))
+    .limit(1);
+  if (duplicateByDateAndTotal) {
+    throw new Error(`Posible gasto duplicado: ya existe una factura de este proveedor en la misma fecha por ${input.totalAmount.toFixed(2)}.`);
+  }
+}
+
 async function getDefaultExpenseAccountId(companyId: string, client: DbClient) {
   const [settings] = await client
     .select({ defaultPurchaseAccountCode: companySettings.defaultPurchaseAccountCode })
@@ -182,7 +238,29 @@ function partnerTypeForSupplier(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
   return currentType === "CUSTOMER" ? "BOTH" : currentType;
 }
 
-async function resolveSupplier(input: { companyId: string; supplierPartnerId?: string; supplierName?: string; supplierTaxId?: string; client: DbClient }) {
+function cleanOptional(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
+function normalizeCountryCode(value: string | null | undefined) {
+  return (value?.trim() || "ES").toUpperCase();
+}
+
+async function resolveSupplier(input: {
+  companyId: string;
+  supplierPartnerId?: string;
+  supplierName?: string;
+  supplierTaxId?: string;
+  supplierEmail?: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  supplierAddressLine2?: string;
+  supplierPostalCode?: string;
+  supplierCity?: string;
+  supplierProvince?: string;
+  supplierCountryCode?: string;
+  client: DbClient;
+}) {
   if (input.supplierPartnerId) {
     const [existing] = await input.client
       .select({ id: partner.id })
@@ -195,6 +273,17 @@ async function resolveSupplier(input: { companyId: string; supplierPartnerId?: s
 
   const supplierName = input.supplierName?.trim();
   const supplierTaxId = normalizeSpanishTaxId(input.supplierTaxId);
+  const supplierCountryCode = cleanOptional(input.supplierCountryCode);
+  const supplierDetails = {
+    ...(cleanOptional(input.supplierEmail) ? { email: cleanOptional(input.supplierEmail) } : {}),
+    ...(cleanOptional(input.supplierPhone) ? { phone: cleanOptional(input.supplierPhone) } : {}),
+    ...(cleanOptional(input.supplierAddress) ? { address: cleanOptional(input.supplierAddress) } : {}),
+    ...(cleanOptional(input.supplierAddressLine2) ? { addressLine2: cleanOptional(input.supplierAddressLine2) } : {}),
+    ...(cleanOptional(input.supplierPostalCode) ? { postalCode: cleanOptional(input.supplierPostalCode) } : {}),
+    ...(cleanOptional(input.supplierCity) ? { city: cleanOptional(input.supplierCity) } : {}),
+    ...(cleanOptional(input.supplierProvince) ? { province: cleanOptional(input.supplierProvince) } : {}),
+    ...(supplierCountryCode ? { countryCode: normalizeCountryCode(supplierCountryCode) } : {}),
+  };
 
   if (supplierTaxId) {
     const [existingByTaxId] = await input.client
@@ -208,6 +297,7 @@ async function resolveSupplier(input: { companyId: string; supplierPartnerId?: s
         .set({
           type: partnerTypeForSupplier(existingByTaxId.type),
           name: supplierName || existingByTaxId.name,
+          ...supplierDetails,
           isActive: true,
           updatedAt: new Date(),
         })
@@ -230,6 +320,7 @@ async function resolveSupplier(input: { companyId: string; supplierPartnerId?: s
       .set({
         type: partnerTypeForSupplier(existing.type),
         ...(supplierTaxId ? { taxId: supplierTaxId } : {}),
+        ...supplierDetails,
         isActive: true,
         updatedAt: new Date(),
       })
@@ -239,7 +330,14 @@ async function resolveSupplier(input: { companyId: string; supplierPartnerId?: s
 
   const [created] = await input.client
     .insert(partner)
-    .values({ companyId: input.companyId, type: "SUPPLIER", name: supplierName || `Proveedor ${supplierTaxId}`, taxId: supplierTaxId || null })
+    .values({
+      companyId: input.companyId,
+      type: "SUPPLIER",
+      name: supplierName || `Proveedor ${supplierTaxId}`,
+      taxId: supplierTaxId || null,
+      countryCode: supplierCountryCode ? normalizeCountryCode(supplierCountryCode) : "ES",
+      ...supplierDetails,
+    })
     .returning({ id: partner.id });
   return created.id;
 }
@@ -425,6 +523,23 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       supplierPartnerId: input.supplierPartnerId,
       supplierName: input.supplierName,
       supplierTaxId: input.supplierTaxId,
+      supplierEmail: input.supplierEmail,
+      supplierPhone: input.supplierPhone,
+      supplierAddress: input.supplierAddress,
+      supplierAddressLine2: input.supplierAddressLine2,
+      supplierPostalCode: input.supplierPostalCode,
+      supplierCity: input.supplierCity,
+      supplierProvince: input.supplierProvince,
+      supplierCountryCode: input.supplierCountryCode,
+      client: tx,
+    });
+    const duplicateCheckTotals = calculateTotals(buildLineValues("duplicate-check", input.lines));
+    await assertNoDuplicateExpenseInvoice({
+      companyId: input.companyId,
+      supplierPartnerId,
+      supplierDocumentNumber: input.supplierDocumentNumber,
+      issueDate: input.issueDate,
+      totalAmount: duplicateCheckTotals.totalAmount,
       client: tx,
     });
     return createSupplierInvoiceHeader({

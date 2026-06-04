@@ -1,9 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, FileText, Globe2, Landmark, Mail, MapPin, Save } from "lucide-react";
+import { Building2, FileText, Globe2, Image as ImageIcon, Landmark, Mail, MapPin, Save, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, type ChangeEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -62,6 +62,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<CompanyProfileFormValues>({
     resolver: zodResolver(companyProfileSchema),
@@ -69,6 +70,32 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
   });
   const watchedValues = useWatch({ control });
   const invoiceReadiness = useMemo(() => completion(watchedValues), [watchedValues]);
+  const logoDataUrl = watchedValues.logoDataUrl ?? "";
+
+  const handleLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      toast.error("El logotipo debe ser PNG o JPG.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 250 * 1024) {
+      toast.error("El logotipo no puede superar 250 KB.");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setValue("logoDataUrl", result, { shouldDirty: true, shouldValidate: true });
+    };
+    reader.onerror = () => toast.error("No se pudo leer el logotipo.");
+    reader.readAsDataURL(file);
+  };
 
   const submit = handleSubmit(async (values) => {
     try {
@@ -203,9 +230,35 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
           <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
           <h3 className="text-sm font-medium">Documentos emitidos</h3>
         </div>
-        <AccessibleField id="company-invoice-footer" label="Pie de factura" error={errors.invoiceFooter?.message} helperText="Se imprime al final del PDF de factura.">
-          <Textarea id="company-invoice-footer" maxLength={500} placeholder="Registro mercantil, datos bancarios o condiciones de pago." {...register("invoiceFooter")} />
-        </AccessibleField>
+        <div className="grid gap-4 md:grid-cols-[180px_1fr]">
+          <AccessibleField id="company-logo" label="Logotipo" error={errors.logoDataUrl?.message} helperText="PNG o JPG hasta 250 KB.">
+            <input type="hidden" {...register("logoDataUrl")} />
+            <div className="flex min-h-28 items-center justify-center rounded-lg border bg-muted/20 p-3">
+              {logoDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoDataUrl} alt="Logotipo de empresa" className="max-h-20 max-w-full object-contain" />
+              ) : (
+                <ImageIcon className="size-8 text-muted-foreground" aria-hidden="true" />
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-sm font-medium transition-colors hover:bg-muted">
+                <Upload aria-hidden="true" className="size-4" />
+                Subir logo
+                <Input id="company-logo" type="file" accept="image/png,image/jpeg" className="sr-only" onChange={handleLogoChange} />
+              </label>
+              {logoDataUrl ? (
+                <Button type="button" variant="outline" onClick={() => setValue("logoDataUrl", "", { shouldDirty: true, shouldValidate: true })}>
+                  <X aria-hidden="true" />
+                  Quitar
+                </Button>
+              ) : null}
+            </div>
+          </AccessibleField>
+          <AccessibleField id="company-invoice-footer" label="Pie de factura" error={errors.invoiceFooter?.message} helperText="Se imprime al final del PDF de factura.">
+            <Textarea id="company-invoice-footer" maxLength={500} placeholder="Registro mercantil, datos bancarios o condiciones de pago." {...register("invoiceFooter")} />
+          </AccessibleField>
+        </div>
       </section>
 
       <div className="flex justify-end">

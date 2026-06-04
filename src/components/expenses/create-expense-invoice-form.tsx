@@ -36,6 +36,14 @@ type AttachmentDraft = {
 type OcrDraft = {
   supplierName?: string;
   supplierTaxId?: string;
+  supplierEmail?: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  supplierAddressLine2?: string;
+  supplierPostalCode?: string;
+  supplierCity?: string;
+  supplierProvince?: string;
+  supplierCountryCode?: string;
   supplierDocumentNumber?: string;
   issueDate?: string;
   dueDate?: string;
@@ -94,6 +102,14 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
   const [supplierPartnerId, setSupplierPartnerId] = useState(suppliers[0]?.id ?? "");
   const [supplierName, setSupplierName] = useState("");
   const [supplierTaxId, setSupplierTaxId] = useState(suppliers[0]?.taxId ?? "");
+  const [supplierEmail, setSupplierEmail] = useState("");
+  const [supplierPhone, setSupplierPhone] = useState("");
+  const [supplierAddress, setSupplierAddress] = useState("");
+  const [supplierAddressLine2, setSupplierAddressLine2] = useState("");
+  const [supplierPostalCode, setSupplierPostalCode] = useState("");
+  const [supplierCity, setSupplierCity] = useState("");
+  const [supplierProvince, setSupplierProvince] = useState("");
+  const [supplierCountryCode, setSupplierCountryCode] = useState("ES");
   const [supplierDocumentNumber, setSupplierDocumentNumber] = useState("");
   const [issueDate, setIssueDate] = useState(todayInputValue());
   const [dueDate, setDueDate] = useState("");
@@ -149,6 +165,19 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
     setSupplierPartnerId(supplierId);
     const selected = suppliers.find((supplier) => supplier.id === supplierId);
     setSupplierTaxId(selected?.taxId ?? "");
+  }
+
+  function applySupplierDraft(draft: OcrDraft) {
+    if (draft.supplierName !== undefined) setSupplierName(draft.supplierName);
+    if (draft.supplierTaxId !== undefined) setSupplierTaxId(draft.supplierTaxId);
+    if (draft.supplierEmail !== undefined) setSupplierEmail(draft.supplierEmail);
+    if (draft.supplierPhone !== undefined) setSupplierPhone(draft.supplierPhone);
+    if (draft.supplierAddress !== undefined) setSupplierAddress(draft.supplierAddress);
+    if (draft.supplierAddressLine2 !== undefined) setSupplierAddressLine2(draft.supplierAddressLine2);
+    if (draft.supplierPostalCode !== undefined) setSupplierPostalCode(draft.supplierPostalCode);
+    if (draft.supplierCity !== undefined) setSupplierCity(draft.supplierCity);
+    if (draft.supplierProvince !== undefined) setSupplierProvince(draft.supplierProvince);
+    if (draft.supplierCountryCode !== undefined) setSupplierCountryCode(draft.supplierCountryCode);
   }
 
   async function pollOcrJob(jobId: string) {
@@ -235,8 +264,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
       setSupplierName("");
     } else if (ocrDraft.supplierName || ocrDraft.supplierTaxId) {
       setSupplierMode("new");
-      setSupplierName(ocrDraft.supplierName ?? "");
-      setSupplierTaxId(ocrDraft.supplierTaxId ?? "");
+      applySupplierDraft(ocrDraft);
     }
     if (ocrDraft.supplierTaxId) setSupplierTaxId(ocrDraft.supplierTaxId);
     if (ocrDraft.supplierDocumentNumber) setSupplierDocumentNumber(ocrDraft.supplierDocumentNumber);
@@ -298,6 +326,14 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
           supplierPartnerId: supplierMode === "existing" ? supplierPartnerId : undefined,
           supplierName: supplierMode === "new" ? supplierName : undefined,
           supplierTaxId: supplierMode === "new" ? supplierTaxId : undefined,
+          supplierEmail: supplierMode === "new" ? supplierEmail : undefined,
+          supplierPhone: supplierMode === "new" ? supplierPhone : undefined,
+          supplierAddress: supplierMode === "new" ? supplierAddress : undefined,
+          supplierAddressLine2: supplierMode === "new" ? supplierAddressLine2 : undefined,
+          supplierPostalCode: supplierMode === "new" ? supplierPostalCode : undefined,
+          supplierCity: supplierMode === "new" ? supplierCity : undefined,
+          supplierProvince: supplierMode === "new" ? supplierProvince : undefined,
+          supplierCountryCode: supplierMode === "new" ? supplierCountryCode : undefined,
           supplierDocumentNumber,
           issueDate: toIsoDate(issueDate),
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
@@ -312,6 +348,14 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
       }
       setSupplierName("");
       setSupplierTaxId(suppliers[0]?.taxId ?? "");
+      setSupplierEmail("");
+      setSupplierPhone("");
+      setSupplierAddress("");
+      setSupplierAddressLine2("");
+      setSupplierPostalCode("");
+      setSupplierCity("");
+      setSupplierProvince("");
+      setSupplierCountryCode("ES");
       setSupplierDocumentNumber("");
       setIssueDate(todayInputValue());
       setDueDate("");
@@ -417,6 +461,42 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
             value={supplierTaxId}
           />
         </div>
+        {supplierMode === "new" ? (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-email">Email proveedor</Label>
+              <Input id="expense-supplier-email" onChange={(event) => setSupplierEmail(event.target.value)} type="email" value={supplierEmail} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-phone">Teléfono proveedor</Label>
+              <Input id="expense-supplier-phone" onChange={(event) => setSupplierPhone(event.target.value)} value={supplierPhone} />
+            </div>
+            <div className="space-y-2 lg:col-span-2">
+              <Label htmlFor="expense-supplier-address">Dirección fiscal proveedor</Label>
+              <Input id="expense-supplier-address" onChange={(event) => setSupplierAddress(event.target.value)} value={supplierAddress} />
+            </div>
+            <div className="space-y-2 lg:col-span-2">
+              <Label htmlFor="expense-supplier-address-2">Dirección 2 proveedor</Label>
+              <Input id="expense-supplier-address-2" onChange={(event) => setSupplierAddressLine2(event.target.value)} value={supplierAddressLine2} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-postal-code">CP proveedor</Label>
+              <Input id="expense-supplier-postal-code" onChange={(event) => setSupplierPostalCode(event.target.value)} value={supplierPostalCode} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-city">Ciudad proveedor</Label>
+              <Input id="expense-supplier-city" onChange={(event) => setSupplierCity(event.target.value)} value={supplierCity} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-province">Provincia proveedor</Label>
+              <Input id="expense-supplier-province" onChange={(event) => setSupplierProvince(event.target.value)} value={supplierProvince} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-country">País proveedor</Label>
+              <Input id="expense-supplier-country" maxLength={2} onChange={(event) => setSupplierCountryCode(event.target.value.toUpperCase())} value={supplierCountryCode} />
+            </div>
+          </>
+        ) : null}
         <div className="space-y-2">
           <Label htmlFor="expense-supplier-number">Factura proveedor</Label>
           <Input aria-describedby={errorId} id="expense-supplier-number" onChange={(event) => setSupplierDocumentNumber(event.target.value)} placeholder="FRA-123" value={supplierDocumentNumber} />

@@ -35,6 +35,7 @@ function normalizePayload(payload: CompanyProfilePayload) {
     email: cleanOptional(payload.email),
     phone: cleanOptional(payload.phone),
     website: cleanOptional(payload.website),
+    logoDataUrl: cleanOptional(payload.logoDataUrl),
     invoiceFooter: cleanOptional(payload.invoiceFooter),
   };
 }

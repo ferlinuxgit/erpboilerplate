@@ -22,6 +22,13 @@ export type ExpenseOcrDraftLine = {
 export type ExpenseOcrDraft = {
   supplierName?: string;
   supplierTaxId?: string;
+  supplierEmail?: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  supplierPostalCode?: string;
+  supplierCity?: string;
+  supplierProvince?: string;
+  supplierCountryCode?: string;
   supplierDocumentNumber?: string;
   issueDate?: string;
   dueDate?: string;
@@ -95,6 +102,16 @@ function findTaxId(text: string) {
   return matches.map(normalizeSpanishTaxId).find(isValidSpanishTaxId);
 }
 
+function findEmail(text: string) {
+  return text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+}
+
+function findPhone(text: string) {
+  return firstMatch(text, [
+    /(?:tel[eé]fono|tel\.?|phone)\s*:?\s*([+()0-9\s.-]{9,})/i,
+  ]);
+}
+
 export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   const cleanText = text.replace(/\u00a0/g, " ");
   const lines = cleanText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -103,6 +120,12 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
     /(?:raz[oó]n social)\s*:?\s*([^\n]+)/i,
   ]) ?? inferSupplierName(lines);
   const supplierTaxId = findTaxId(cleanText);
+  const supplierEmail = findEmail(cleanText);
+  const supplierPhone = findPhone(cleanText);
+  const supplierAddress = firstMatch(cleanText, [/(?:direcci[oó]n|domicilio|address)\s*:?\s*([^\n]+)/i]);
+  const supplierPostalCode = firstMatch(cleanText, [/\b(0[1-9]\d{3}|[1-4]\d{4}|5[0-2]\d{3})\b/]);
+  const supplierCity = firstMatch(cleanText, [/(?:poblaci[oó]n|ciudad|city)\s*:?\s*([^\n]+)/i]);
+  const supplierProvince = firstMatch(cleanText, [/(?:provincia|province)\s*:?\s*([^\n]+)/i]);
   const supplierDocumentNumber = firstMatch(cleanText, [
     /(?:factura|invoice|n[úu]mero|num\.?|nº)\s*(?:n[úu]mero|num\.?|nº|#)?\s*:?\s*([A-Z0-9./_-]{3,})/i,
   ]);
@@ -141,6 +164,13 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   return {
     supplierName,
     supplierTaxId,
+    supplierEmail,
+    supplierPhone,
+    supplierAddress,
+    supplierPostalCode,
+    supplierCity,
+    supplierProvince,
+    supplierCountryCode: supplierTaxId ? "ES" : undefined,
     supplierDocumentNumber,
     issueDate,
     dueDate,

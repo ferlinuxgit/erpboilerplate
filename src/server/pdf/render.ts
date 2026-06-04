@@ -23,6 +23,7 @@ export type InvoicePdfInput = {
     email: string | null;
     phone: string | null;
     website: string | null;
+    logoDataUrl: string | null;
     invoiceFooter: string | null;
   };
   customer: {

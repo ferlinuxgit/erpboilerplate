@@ -23,6 +23,7 @@ function toFormValues(row: typeof company.$inferSelect): CompanyProfileFormValue
     email: row.email ?? "",
     phone: row.phone ?? "",
     website: row.website ?? "",
+    logoDataUrl: row.logoDataUrl ?? "",
     invoiceFooter: row.invoiceFooter ?? "",
   };
 }

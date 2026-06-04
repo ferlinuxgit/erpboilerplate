@@ -7,7 +7,7 @@ import { CustomerCashActions } from "@/components/treasury/customer-cash-actions
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { customer, invoice } from "@/db/schema";
+import { customer, invoice, paymentMethod } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
@@ -26,20 +26,27 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
   const ctx = await requireContext("treasury.read");
   const params = await searchParams;
   const requestedInvoiceId = firstQueryValue(params?.invoiceId);
-  const accounts = await listBankAccounts(ctx.company.id);
-  const rows = await listBankTransactions(ctx.company.id);
-  const customerInvoices = await db
-    .select({
-      id: invoice.id,
-      number: invoice.number,
-      totalAmount: invoice.totalAmount,
-      paymentStatus: invoice.paymentStatus,
-      customerName: customer.name,
-    })
-    .from(invoice)
-    .innerJoin(customer, eq(invoice.customerId, customer.id))
-    .where(eq(invoice.companyId, ctx.company.id))
-    .orderBy(desc(invoice.createdAt));
+  const [accounts, rows, customerInvoices, paymentMethods] = await Promise.all([
+    listBankAccounts(ctx.company.id),
+    listBankTransactions(ctx.company.id),
+    db
+      .select({
+        id: invoice.id,
+        number: invoice.number,
+        totalAmount: invoice.totalAmount,
+        paymentStatus: invoice.paymentStatus,
+        customerName: customer.name,
+      })
+      .from(invoice)
+      .innerJoin(customer, eq(invoice.customerId, customer.id))
+      .where(eq(invoice.companyId, ctx.company.id))
+      .orderBy(desc(invoice.createdAt)),
+    db
+      .select({ id: paymentMethod.id, name: paymentMethod.name })
+      .from(paymentMethod)
+      .where(eq(paymentMethod.companyId, ctx.company.id))
+      .orderBy(paymentMethod.name),
+  ]);
   const selectedInvoice =
     customerInvoices.find((candidate) => candidate.id === requestedInvoiceId) ??
     customerInvoices.find((candidate) => candidate.paymentStatus !== "PAID") ??
@@ -80,6 +87,7 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
               totalAmountLabel: formatMoney(selectedInvoice.totalAmount.toString(), ctx.company.baseCurrencyCode),
               paymentStatus: selectedInvoice.paymentStatus,
             }}
+            paymentMethods={paymentMethods}
           />
         ) : !selectedInvoice ? (
           <EmptyState title="Sin facturas pendientes" description="No hay facturas disponibles para registrar cobros." />

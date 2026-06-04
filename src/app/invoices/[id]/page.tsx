@@ -2,11 +2,12 @@ import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
+import { RegisterInvoicePaymentDialog } from "@/components/invoices/register-invoice-payment-dialog";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { customer, invoice, invoiceLine, partner } from "@/db/schema";
+import { customer, invoice, invoiceLine, partner, paymentMethod } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -50,17 +51,24 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const data = rows[0];
   if (!data) notFound();
 
-  const lines = await db
-    .select({
-      id: invoiceLine.id,
-      description: invoiceLine.description,
-      quantity: invoiceLine.quantity,
-      unitPrice: invoiceLine.unitPrice,
-      taxRate: invoiceLine.taxRate,
-      lineTotal: invoiceLine.lineTotal,
-    })
-    .from(invoiceLine)
-    .where(eq(invoiceLine.invoiceId, data.id));
+  const [lines, paymentMethods] = await Promise.all([
+    db
+      .select({
+        id: invoiceLine.id,
+        description: invoiceLine.description,
+        quantity: invoiceLine.quantity,
+        unitPrice: invoiceLine.unitPrice,
+        taxRate: invoiceLine.taxRate,
+        lineTotal: invoiceLine.lineTotal,
+      })
+      .from(invoiceLine)
+      .where(eq(invoiceLine.invoiceId, data.id)),
+    db
+      .select({ id: paymentMethod.id, name: paymentMethod.name })
+      .from(paymentMethod)
+      .where(eq(paymentMethod.companyId, tenantContext.company.id))
+      .orderBy(paymentMethod.name),
+  ]);
 
   const numericLines = lines.map((line) => ({
     description: line.description,
@@ -99,9 +107,16 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 Editar
               </Link>
             ) : null}
-            <Link className={buttonVariants({ variant: "outline" })} href={`/treasury?invoiceId=${data.id}`}>
-              Registrar cobro
-            </Link>
+            <RegisterInvoicePaymentDialog
+              invoice={{
+                id: data.id,
+                number: data.number,
+                paymentStatus: data.paymentStatus,
+                totalAmount: Number(data.totalAmount),
+                totalAmountLabel: formatMoney(data.totalAmount.toString(), tenantContext.company.baseCurrencyCode),
+              }}
+              paymentMethods={paymentMethods}
+            />
             <Link className={buttonVariants()} href={`/api/invoices/${data.id}/pdf`} target="_blank">
               PDF
             </Link>

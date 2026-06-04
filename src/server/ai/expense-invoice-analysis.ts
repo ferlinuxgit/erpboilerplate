@@ -121,6 +121,13 @@ export type ExpenseInvoiceAiAnalysis = z.infer<typeof expenseInvoiceAiAnalysisSc
 export type ExpenseInvoiceAiDraft = {
   supplierName?: string;
   supplierTaxId?: string;
+  supplierEmail?: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  supplierPostalCode?: string;
+  supplierCity?: string;
+  supplierProvince?: string;
+  supplierCountryCode?: string;
   supplierDocumentNumber?: string;
   issueDate?: string;
   dueDate?: string;
@@ -189,6 +196,13 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
   return {
     supplierName: analysis.supplier_name ?? undefined,
     supplierTaxId: analysis.supplier_tax_id ?? undefined,
+    supplierEmail: analysis.supplier_email ?? undefined,
+    supplierPhone: analysis.supplier_phone ?? undefined,
+    supplierAddress: analysis.supplier_address ?? undefined,
+    supplierPostalCode: analysis.supplier_postal_code ?? undefined,
+    supplierCity: analysis.supplier_city ?? undefined,
+    supplierProvince: analysis.supplier_province ?? undefined,
+    supplierCountryCode: analysis.supplier_country_code ?? undefined,
     supplierDocumentNumber: analysis.invoice_number ?? undefined,
     issueDate: isoDateOrUndefined(analysis.invoice_issue_date),
     dueDate: isoDateOrUndefined(analysis.invoice_due_date),

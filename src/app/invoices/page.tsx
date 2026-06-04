@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 
-import { customer, invoice } from "@/db/schema";
+import { customer, invoice, paymentMethod } from "@/db/schema";
 import { InvoicesList } from "@/components/invoices/invoices-list";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -16,20 +16,27 @@ export default async function InvoicesPage() {
   await requireUserSession();
   const tenantContext = await requireContext("invoice.read");
 
-  const invoices = await db
-    .select({
-      id: invoice.id,
-      number: invoice.number,
-      status: invoice.status,
-      paymentStatus: invoice.paymentStatus,
-      totalAmount: invoice.totalAmount,
-      issueDate: invoice.issueDate,
-      customerName: customer.name,
-    })
-    .from(invoice)
-    .innerJoin(customer, eq(invoice.customerId, customer.id))
-    .where(eq(invoice.companyId, tenantContext.company.id))
-    .orderBy(desc(invoice.createdAt));
+  const [invoices, paymentMethods] = await Promise.all([
+    db
+      .select({
+        id: invoice.id,
+        number: invoice.number,
+        status: invoice.status,
+        paymentStatus: invoice.paymentStatus,
+        totalAmount: invoice.totalAmount,
+        issueDate: invoice.issueDate,
+        customerName: customer.name,
+      })
+      .from(invoice)
+      .innerJoin(customer, eq(invoice.customerId, customer.id))
+      .where(eq(invoice.companyId, tenantContext.company.id))
+      .orderBy(desc(invoice.createdAt)),
+    db
+      .select({ id: paymentMethod.id, name: paymentMethod.name })
+      .from(paymentMethod)
+      .where(eq(paymentMethod.companyId, tenantContext.company.id))
+      .orderBy(paymentMethod.name),
+  ]);
 
   const canCreateInvoice = canManageInvoices(tenantContext.membership.role);
 
@@ -56,6 +63,7 @@ export default async function InvoicesPage() {
         description="Abre una factura para revisar sus datos, líneas, PDF o cobros."
       >
         <InvoicesList
+          paymentMethods={paymentMethods}
           rows={invoices.map((invoice) => ({
             id: invoice.id,
             number: invoice.number,

@@ -69,6 +69,13 @@ export const companyProfileSchema = z.object({
   email: z.string().trim().email("Debes indicar un email válido.").optional().or(z.literal("")),
   phone: z.string().trim().optional().or(z.literal("")),
   website: z.string().trim().url("Debes indicar una URL válida.").optional().or(z.literal("")),
+  logoDataUrl: z
+    .string()
+    .trim()
+    .max(350_000, "El logotipo no puede superar 250 KB.")
+    .regex(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/, "El logotipo debe ser una imagen PNG o JPG.")
+    .optional()
+    .or(z.literal("")),
   invoiceFooter: z.string().trim().max(500, "El pie de factura no puede superar 500 caracteres.").optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
   const vatNumber = normalizeSpanishTaxId(value.vatNumber);

@@ -17,6 +17,7 @@ const validProfile = {
   email: "administracion@example.com",
   phone: "+34910000000",
   website: "https://example.com",
+  logoDataUrl: "",
   invoiceFooter: "Registro mercantil de Madrid.",
 };
 
@@ -53,5 +54,20 @@ describe("companyProfileSchema", () => {
 
     expect(parsed.success).toBe(false);
     expect(parsed.error?.issues[0]?.path).toEqual(["website"]);
+  });
+
+  it("accepts PNG and JPG logo data URLs", () => {
+    const pngLogo = "data:image/png;base64,iVBORw0KGgo=";
+    const jpegLogo = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+
+    expect(companyProfileSchema.safeParse({ ...validProfile, logoDataUrl: pngLogo }).success).toBe(true);
+    expect(companyProfileSchema.safeParse({ ...validProfile, logoDataUrl: jpegLogo }).success).toBe(true);
+  });
+
+  it("rejects unsupported logo formats", () => {
+    const parsed = companyProfileSchema.safeParse({ ...validProfile, logoDataUrl: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.path).toEqual(["logoDataUrl"]);
   });
 });

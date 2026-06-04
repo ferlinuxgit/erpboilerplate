@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { invoice, invoicePayment, payment } from "@/db/schema";
+import { invoice, invoicePayment, payment, paymentMethod } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -14,6 +14,7 @@ const payloadSchema = z.object({
   invoiceId: z.string().trim().min(1),
   amountApplied: z.number().positive(),
   postedAt: z.string().trim().min(1),
+  paymentMethodId: z.string().trim().min(1),
 });
 
 function toCents(value: number | string) {
@@ -52,6 +53,13 @@ export async function POST(request: Request) {
         .limit(1);
       if (!ownedInvoice) throw new Error("INVOICE_NOT_FOUND");
 
+      const [ownedPaymentMethod] = await tx
+        .select({ id: paymentMethod.id })
+        .from(paymentMethod)
+        .where(and(eq(paymentMethod.id, parsed.data.paymentMethodId), eq(paymentMethod.companyId, ctx.company.id)))
+        .limit(1);
+      if (!ownedPaymentMethod) throw new Error("PAYMENT_METHOD_NOT_FOUND");
+
       const appliedPayments = await tx
         .select({ amountApplied: invoicePayment.amountApplied })
         .from(invoicePayment)
@@ -66,6 +74,7 @@ export async function POST(request: Request) {
         .values({
           companyId: ctx.company.id,
           invoiceId: parsed.data.invoiceId,
+          paymentMethodId: parsed.data.paymentMethodId,
           amount: parsed.data.amountApplied.toFixed(2),
           postedAt,
         })
@@ -110,6 +119,9 @@ export async function POST(request: Request) {
     }
     if (error instanceof Error && error.message === "INVOICE_OVERPAYMENT") {
       return NextResponse.json({ message: "El importe supera el saldo pendiente de la factura." }, { status: 400 });
+    }
+    if (error instanceof Error && error.message === "PAYMENT_METHOD_NOT_FOUND") {
+      return NextResponse.json({ message: "Forma de pago no encontrada." }, { status: 404 });
     }
     throw error;
   }
