@@ -1,11 +1,12 @@
 "use client";
 
-import { Plus, Sparkles, Trash2 } from "lucide-react";
+import { FileText, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -32,6 +33,9 @@ type AttachmentDraft = {
   fileName: string;
   fileUrl: string;
 };
+
+type CreationMode = "ocr" | "manual";
+type SupplierDialogMode = "choice" | "search" | "new";
 
 type OcrDraft = {
   supplierName?: string;
@@ -98,10 +102,15 @@ function lineTotals(line: ExpenseLineDraft) {
 
 export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
+  const [creationMode, setCreationMode] = useState<CreationMode | null>(null);
   const [supplierMode, setSupplierMode] = useState<"existing" | "new">(suppliers.length > 0 ? "existing" : "new");
-  const [supplierPartnerId, setSupplierPartnerId] = useState(suppliers[0]?.id ?? "");
+  const [supplierPartnerId, setSupplierPartnerId] = useState("");
+  const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
+  const [supplierDialogMode, setSupplierDialogMode] = useState<SupplierDialogMode>(suppliers.length > 0 ? "choice" : "new");
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [supplierTaxSearch, setSupplierTaxSearch] = useState("");
   const [supplierName, setSupplierName] = useState("");
-  const [supplierTaxId, setSupplierTaxId] = useState(suppliers[0]?.taxId ?? "");
+  const [supplierTaxId, setSupplierTaxId] = useState("");
   const [supplierEmail, setSupplierEmail] = useState("");
   const [supplierPhone, setSupplierPhone] = useState("");
   const [supplierAddress, setSupplierAddress] = useState("");
@@ -126,6 +135,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = error ? "expense-invoice-error" : undefined;
+  const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierPartnerId) ?? null;
 
   const preview = useMemo(
     () => lines.reduce(
@@ -142,6 +152,16 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
     ),
     [lines],
   );
+
+  const filteredSuppliers = useMemo(() => {
+    const textQuery = supplierSearch.trim().toLocaleLowerCase();
+    const taxQuery = supplierTaxSearch.trim().toLocaleLowerCase();
+    return suppliers.filter((supplier) => {
+      const text = supplier.name.toLocaleLowerCase();
+      const tax = (supplier.taxId ?? "").toLocaleLowerCase();
+      return (!textQuery || text.includes(textQuery)) && (!taxQuery || tax.includes(taxQuery));
+    });
+  }, [supplierSearch, supplierTaxSearch, suppliers]);
 
   function updateLine(id: string, patch: Partial<ExpenseLineDraft>) {
     setLines((current) => current.map((line) => (line.id === id ? { ...line, ...patch } : line)));
@@ -165,6 +185,26 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
     setSupplierPartnerId(supplierId);
     const selected = suppliers.find((supplier) => supplier.id === supplierId);
     setSupplierTaxId(selected?.taxId ?? "");
+  }
+
+  function openSupplierDialog(mode: SupplierDialogMode = "choice") {
+    setSupplierDialogMode(suppliers.length > 0 ? mode : "new");
+    setSupplierDialogOpen(true);
+  }
+
+  function chooseExistingSupplier(supplierId: string) {
+    setSupplierMode("existing");
+    selectSupplier(supplierId);
+    setSupplierName("");
+    setSupplierDialogOpen(false);
+  }
+
+  function chooseNewSupplier() {
+    setSupplierMode("new");
+    setSupplierPartnerId("");
+    setSupplierName("");
+    setSupplierTaxId("");
+    setSupplierDialogMode("new");
   }
 
   function applySupplierDraft(draft: OcrDraft) {
@@ -346,8 +386,9 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         const payload = (await response.json()) as { message?: string };
         throw new Error(payload.message ?? "No se pudo crear el gasto.");
       }
+      const created = (await response.json()) as { id?: string };
       setSupplierName("");
-      setSupplierTaxId(suppliers[0]?.taxId ?? "");
+      setSupplierTaxId("");
       setSupplierEmail("");
       setSupplierPhone("");
       setSupplierAddress("");
@@ -363,6 +404,9 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
       setLines([newLine(expenseAccounts[0]?.id ?? "")]);
       setAttachment({ fileName: "", fileUrl: "" });
       toast.success("Gasto contabilizado correctamente.");
+      if (created.id) {
+        router.push(`/expenses/${created.id}`);
+      }
       router.refresh();
     } catch (submissionError) {
       const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
@@ -373,130 +417,125 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
     }
   };
 
+  if (!creationMode) {
+    return (
+      <div className="grid gap-3 md:grid-cols-2">
+        <button
+          className="rounded-md border p-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setCreationMode("ocr")}
+          type="button"
+        >
+          <Upload className="mb-3 h-5 w-5 text-primary" aria-hidden="true" />
+          <span className="block font-medium">Con OCR</span>
+          <span className="mt-1 block text-sm text-muted-foreground">Sube una factura y aplica el análisis antes de revisar y guardar.</span>
+        </button>
+        <button
+          className="rounded-md border p-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setCreationMode("manual")}
+          type="button"
+        >
+          <FileText className="mb-3 h-5 w-5 text-primary" aria-hidden="true" />
+          <span className="block font-medium">Manual</span>
+          <span className="mt-1 block text-sm text-muted-foreground">Introduce proveedor, fechas e importes sin analizar un archivo.</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
+    <>
     <form className="space-y-5" onSubmit={onSubmit}>
-      <div className="rounded-md border bg-muted/20 p-3">
-        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-          <div className="space-y-2">
-            <Label htmlFor="expense-ocr-file">OCR local</Label>
-            <Input
-              accept="application/pdf,image/png,image/jpeg,image/webp"
-              id="expense-ocr-file"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void uploadOcrFile(file);
-              }}
-              type="file"
-            />
-            <p className="text-xs text-muted-foreground">
-              Se procesa en este servidor. Estado: {ocrStatus ?? "sin archivo"}{ocrJobId ? ` · ${ocrJobId.slice(0, 8)}` : ""}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-ai-file">Analizar con OpenAI</Label>
-            <Input
-              accept="application/pdf,image/png,image/jpeg,image/webp"
-              id="expense-ai-file"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void analyzeWithOpenAI(file);
-              }}
-              type="file"
-            />
-            <p className="text-xs text-muted-foreground">
-              Usa la API de OpenAI. Estado: {aiStatus ?? "sin archivo"}
-            </p>
-          </div>
-          <Button disabled={!ocrDraft} onClick={applyOcrDraft} type="button" variant="outline">
-            {draftSource === "openai" ? <Sparkles aria-hidden="true" /> : null}
-            Aplicar análisis
-          </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
+        <div>
+          <p className="text-sm font-medium">Modo de registro: {creationMode === "ocr" ? "OCR" : "Manual"}</p>
+          <p className="text-sm text-muted-foreground">
+            {creationMode === "ocr" ? "Analiza el archivo, aplica el borrador y ajusta los datos." : "Completa los datos esenciales del gasto."}
+          </p>
         </div>
-        {ocrDraft ? (
-          <div className="mt-3 rounded-md border bg-background p-3 text-sm">
-            <p className="font-medium">Borrador {draftSource === "openai" ? "OpenAI" : "OCR"} · confianza {ocrDraft.confidence}</p>
-            <p className="text-muted-foreground">
-              {ocrDraft.supplierName ?? "Proveedor no detectado"} · {ocrDraft.supplierTaxId ?? "Sin CIF/NIF"} · {ocrDraft.supplierDocumentNumber ?? "Sin número"}
-            </p>
-            {ocrDraft.warnings.length > 0 ? <p className="mt-1 text-amber-700">{ocrDraft.warnings.join(" ")}</p> : null}
-          </div>
-        ) : null}
-        {ocrError ? <p className="mt-2 text-sm text-red-600" role="alert">{ocrError}</p> : null}
-        {aiError ? <p className="mt-2 text-sm text-red-600" role="alert">{aiError}</p> : null}
+        <Button onClick={() => setCreationMode(null)} type="button" variant="outline">
+          Cambiar modo
+        </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <div className="space-y-2">
-          <Label htmlFor="expense-supplier-mode">Proveedor</Label>
-          <Select id="expense-supplier-mode" onChange={(event) => setSupplierMode(event.target.value as "existing" | "new")} value={supplierMode}>
-            <option value="existing" disabled={suppliers.length === 0}>Existente</option>
-            <option value="new">Nuevo</option>
-          </Select>
+      {creationMode === "ocr" ? (
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="expense-ocr-file">OCR local</Label>
+              <Input
+                accept="application/pdf,image/png,image/jpeg,image/webp"
+                id="expense-ocr-file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void uploadOcrFile(file);
+                }}
+                type="file"
+              />
+              <p className="text-xs text-muted-foreground">
+                Se procesa en este servidor. Estado: {ocrStatus ?? "sin archivo"}{ocrJobId ? ` · ${ocrJobId.slice(0, 8)}` : ""}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-ai-file">Analizar con OpenAI</Label>
+              <Input
+                accept="application/pdf,image/png,image/jpeg,image/webp"
+                id="expense-ai-file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void analyzeWithOpenAI(file);
+                }}
+                type="file"
+              />
+              <p className="text-xs text-muted-foreground">
+                Usa la API de OpenAI. Estado: {aiStatus ?? "sin archivo"}
+              </p>
+            </div>
+            <Button disabled={!ocrDraft} onClick={applyOcrDraft} type="button" variant="outline">
+              {draftSource === "openai" ? <Sparkles aria-hidden="true" /> : null}
+              Aplicar análisis
+            </Button>
+          </div>
+          {ocrDraft ? (
+            <div className="mt-3 rounded-md border bg-background p-3 text-sm">
+              <p className="font-medium">Borrador {draftSource === "openai" ? "OpenAI" : "OCR"} · confianza {ocrDraft.confidence}</p>
+              <p className="text-muted-foreground">
+                {ocrDraft.supplierName ?? "Proveedor no detectado"} · {ocrDraft.supplierTaxId ?? "Sin CIF/NIF"} · {ocrDraft.supplierDocumentNumber ?? "Sin número"}
+              </p>
+              {ocrDraft.warnings.length > 0 ? <p className="mt-1 text-amber-700">{ocrDraft.warnings.join(" ")}</p> : null}
+            </div>
+          ) : null}
+          {ocrError ? <p className="mt-2 text-sm text-red-600" role="alert">{ocrError}</p> : null}
+          {aiError ? <p className="mt-2 text-sm text-red-600" role="alert">{aiError}</p> : null}
         </div>
-        {supplierMode === "existing" ? (
-          <div className="space-y-2 lg:col-span-2">
-            <Label htmlFor="expense-supplier-id">Proveedor existente</Label>
-            <Select aria-describedby={errorId} id="expense-supplier-id" onChange={(event) => selectSupplier(event.target.value)} required value={supplierPartnerId}>
-              {suppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}{supplier.taxId ? ` - ${supplier.taxId}` : ""}
-                </option>
-              ))}
-            </Select>
+      ) : null}
+
+      <section className="space-y-3 rounded-md border p-3" aria-labelledby="expense-supplier-title">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-medium" id="expense-supplier-title">Proveedor</h3>
+            <p className="text-sm text-muted-foreground">Busca un proveedor existente o crea uno nuevo desde el selector.</p>
+          </div>
+          <Button onClick={() => openSupplierDialog()} type="button" variant="outline">
+            <Search aria-hidden="true" />
+            Seleccionar proveedor
+          </Button>
+        </div>
+        {supplierMode === "existing" && selectedSupplier ? (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <p className="font-medium">{selectedSupplier.name}</p>
+            <p className="text-sm text-muted-foreground">{selectedSupplier.taxId ?? "Proveedor existente"}</p>
+          </div>
+        ) : supplierMode === "new" && (supplierName || supplierTaxId) ? (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <p className="font-medium">{supplierName || `Proveedor ${supplierTaxId}`}</p>
+            <p className="text-sm text-muted-foreground">{supplierTaxId || "Proveedor nuevo"}</p>
           </div>
         ) : (
-          <div className="space-y-2 lg:col-span-2">
-            <Label htmlFor="expense-supplier">Nuevo proveedor</Label>
-            <Input aria-describedby={errorId} id="expense-supplier" onChange={(event) => setSupplierName(event.target.value)} value={supplierName} />
-          </div>
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Pulsa Seleccionar proveedor para buscar o crear.</p>
         )}
-        <div className="space-y-2">
-          <Label htmlFor="expense-supplier-tax-id">CIF/NIF proveedor</Label>
-          <Input
-            aria-describedby={errorId}
-            disabled={supplierMode === "existing"}
-            id="expense-supplier-tax-id"
-            onChange={(event) => setSupplierTaxId(event.target.value)}
-            placeholder="B12345674"
-            value={supplierTaxId}
-          />
-        </div>
-        {supplierMode === "new" ? (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-email">Email proveedor</Label>
-              <Input id="expense-supplier-email" onChange={(event) => setSupplierEmail(event.target.value)} type="email" value={supplierEmail} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-phone">Teléfono proveedor</Label>
-              <Input id="expense-supplier-phone" onChange={(event) => setSupplierPhone(event.target.value)} value={supplierPhone} />
-            </div>
-            <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="expense-supplier-address">Dirección fiscal proveedor</Label>
-              <Input id="expense-supplier-address" onChange={(event) => setSupplierAddress(event.target.value)} value={supplierAddress} />
-            </div>
-            <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="expense-supplier-address-2">Dirección 2 proveedor</Label>
-              <Input id="expense-supplier-address-2" onChange={(event) => setSupplierAddressLine2(event.target.value)} value={supplierAddressLine2} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-postal-code">CP proveedor</Label>
-              <Input id="expense-supplier-postal-code" onChange={(event) => setSupplierPostalCode(event.target.value)} value={supplierPostalCode} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-city">Ciudad proveedor</Label>
-              <Input id="expense-supplier-city" onChange={(event) => setSupplierCity(event.target.value)} value={supplierCity} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-province">Provincia proveedor</Label>
-              <Input id="expense-supplier-province" onChange={(event) => setSupplierProvince(event.target.value)} value={supplierProvince} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-country">País proveedor</Label>
-              <Input id="expense-supplier-country" maxLength={2} onChange={(event) => setSupplierCountryCode(event.target.value.toUpperCase())} value={supplierCountryCode} />
-            </div>
-          </>
-        ) : null}
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-4">
         <div className="space-y-2">
           <Label htmlFor="expense-supplier-number">Factura proveedor</Label>
           <Input aria-describedby={errorId} id="expense-supplier-number" onChange={(event) => setSupplierDocumentNumber(event.target.value)} placeholder="FRA-123" value={supplierDocumentNumber} />
@@ -595,5 +634,143 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
         </p>
       ) : null}
     </form>
+    <Dialog
+      initialFocusId={supplierDialogMode === "search" ? "expense-supplier-search" : "expense-new-supplier-name"}
+      onClose={() => setSupplierDialogOpen(false)}
+      open={supplierDialogOpen}
+      title="Seleccionar proveedor"
+    >
+      {supplierDialogMode === "choice" ? (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">Elige si quieres buscar un proveedor existente o crear uno nuevo para este gasto.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setSupplierDialogMode("search")}
+              type="button"
+            >
+              <span className="block font-medium">Buscar existente</span>
+              <span className="mt-1 block text-sm text-muted-foreground">Selecciona un proveedor ya registrado.</span>
+            </button>
+            <button
+              className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={chooseNewSupplier}
+              type="button"
+            >
+              <span className="block font-medium">Crear nuevo</span>
+              <span className="mt-1 block text-sm text-muted-foreground">Añade los datos fiscales mínimos.</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {supplierDialogMode === "search" ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-search">Nombre proveedor</Label>
+              <Input id="expense-supplier-search" onChange={(event) => setSupplierSearch(event.target.value)} value={supplierSearch} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-supplier-tax-search">CIF/NIF</Label>
+              <Input id="expense-supplier-tax-search" onChange={(event) => setSupplierTaxSearch(event.target.value)} value={supplierTaxSearch} />
+            </div>
+          </div>
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {filteredSuppliers.length === 0 ? (
+              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No hay proveedores que coincidan con la búsqueda.</p>
+            ) : (
+              filteredSuppliers.map((supplier) => (
+                <button
+                  className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  key={supplier.id}
+                  onClick={() => chooseExistingSupplier(supplier.id)}
+                  type="button"
+                >
+                  <span className="block font-medium">{supplier.name}</span>
+                  <span className="block text-sm text-muted-foreground">{supplier.taxId ?? "Proveedor registrado"}</span>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="flex justify-between gap-2">
+            <Button onClick={chooseNewSupplier} type="button" variant="secondary">
+              Crear nuevo proveedor
+            </Button>
+            <Button onClick={() => setSupplierDialogMode("choice")} type="button" variant="outline">
+              Volver
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {supplierDialogMode === "new" ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="expense-new-supplier-name">Nombre / razón social</Label>
+            <Input id="expense-new-supplier-name" onChange={(event) => setSupplierName(event.target.value)} value={supplierName} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-tax-id">CIF/NIF</Label>
+            <Input id="expense-new-supplier-tax-id" onChange={(event) => setSupplierTaxId(event.target.value)} placeholder="B12345674" value={supplierTaxId} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-country">País</Label>
+            <Input id="expense-new-supplier-country" maxLength={2} onChange={(event) => setSupplierCountryCode(event.target.value.toUpperCase())} value={supplierCountryCode} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-email">Email</Label>
+            <Input id="expense-new-supplier-email" onChange={(event) => setSupplierEmail(event.target.value)} type="email" value={supplierEmail} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-phone">Teléfono</Label>
+            <Input id="expense-new-supplier-phone" onChange={(event) => setSupplierPhone(event.target.value)} value={supplierPhone} />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="expense-new-supplier-address">Dirección fiscal</Label>
+            <Input id="expense-new-supplier-address" onChange={(event) => setSupplierAddress(event.target.value)} value={supplierAddress} />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="expense-new-supplier-address-2">Dirección 2</Label>
+            <Input id="expense-new-supplier-address-2" onChange={(event) => setSupplierAddressLine2(event.target.value)} value={supplierAddressLine2} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-postal-code">CP</Label>
+            <Input id="expense-new-supplier-postal-code" onChange={(event) => setSupplierPostalCode(event.target.value)} value={supplierPostalCode} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-city">Ciudad</Label>
+            <Input id="expense-new-supplier-city" onChange={(event) => setSupplierCity(event.target.value)} value={supplierCity} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-new-supplier-province">Provincia</Label>
+            <Input id="expense-new-supplier-province" onChange={(event) => setSupplierProvince(event.target.value)} value={supplierProvince} />
+          </div>
+          <div className="flex items-end gap-2">
+            <Button
+              onClick={() => {
+                setSupplierMode("new");
+                setSupplierPartnerId("");
+                setSupplierDialogOpen(false);
+              }}
+              type="button"
+            >
+              Usar este proveedor
+            </Button>
+          </div>
+          <div className="flex gap-2 md:col-span-2">
+            {suppliers.length > 0 ? (
+              <Button onClick={() => setSupplierDialogMode("search")} type="button" variant="secondary">
+                Buscar existente
+              </Button>
+            ) : null}
+            <Button onClick={() => setSupplierDialogOpen(false)} type="button" variant="outline">
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Dialog>
+    </>
   );
 }
