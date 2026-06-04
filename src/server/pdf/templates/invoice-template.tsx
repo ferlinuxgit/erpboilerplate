@@ -67,10 +67,12 @@ export function InvoicePdfTemplate({ company, customer, dueDate, issueDate, line
               // eslint-disable-next-line jsx-a11y/alt-text
               <Image src={company.logoDataUrl} style={styles.logo} />
             ) : (
-              <View style={styles.brandMark} />
+              <>
+                <View style={styles.brandMark} />
+                <Text style={styles.brandName}>{companyName}</Text>
+                {companyContact ? <Text style={styles.brandMeta}>{companyContact}</Text> : null}
+              </>
             )}
-            <Text style={styles.brandName}>{companyName}</Text>
-            {companyContact ? <Text style={styles.brandMeta}>{companyContact}</Text> : null}
           </View>
           <View style={styles.invoiceBlock}>
             <Text style={styles.eyebrow}>Documento comercial</Text>
