@@ -6,12 +6,12 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { listAccounts } from "@/server/accounting/service";
+import { listPostingAccounts } from "@/server/accounting/service";
 
 export default async function NewJournalEntryPage() {
   const session = await requireUserSession();
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  const accounts = await listAccounts(ctx.company.id);
+  const accounts = await listPostingAccounts(ctx.company.id);
   const canWriteAccounting = can(ctx.membership.role, "accounting.write");
 
   return (

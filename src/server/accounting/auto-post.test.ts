@@ -4,17 +4,26 @@ const mocks = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
 
   const createDbClientMock = () => {
-    const client = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
+    const selectChain = {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          orderBy: vi.fn(() => ({
             limit: vi.fn(async () => selectResults.shift() ?? []),
           })),
+          limit: vi.fn(async () => selectResults.shift() ?? []),
         })),
       })),
+    };
+    const client = {
+      select: vi.fn(() => selectChain),
       insert: vi.fn(() => ({
         values: vi.fn(() => ({
           returning: vi.fn(async () => [{ id: "journal-entry-1" }]),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(async () => []),
         })),
       })),
     };
@@ -101,6 +110,7 @@ describe("accounting auto posting", () => {
     expect(mocks.db.insert).not.toHaveBeenCalled();
     expect(tx.select).toHaveBeenCalled();
     expect(tx.insert).toHaveBeenCalledTimes(2);
+    expect(tx.update).toHaveBeenCalled();
     expect(mocks.ensureDefaultJournal).toHaveBeenCalledWith("company-1", tx);
     expect(mocks.recordAudit).toHaveBeenCalledWith(
       expect.objectContaining({

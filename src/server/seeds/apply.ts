@@ -109,7 +109,27 @@ async function applyTemplateRows(
           code: entry.code,
           name: entry.name,
           type: entry.type,
+          parentCode: entry.parentCode ?? null,
+          level: entry.level ?? entry.code.length,
+          isPostable: entry.isPostable ?? true,
+          isActive: entry.isActive ?? false,
+          source: entry.source ?? input.template.id,
+          templateVersion: entry.templateVersion ?? null,
         });
+      } else {
+        await tx
+          .update(accountChart)
+          .set({
+            name: entry.name,
+            type: entry.type,
+            parentCode: entry.parentCode ?? null,
+            level: entry.level ?? entry.code.length,
+            isPostable: entry.isPostable ?? true,
+            isActive: entry.isActive ?? false,
+            source: entry.source ?? input.template.id,
+            templateVersion: entry.templateVersion ?? null,
+          })
+          .where(and(eq(accountChart.companyId, input.companyId), eq(accountChart.code, entry.code)));
       }
     }
 

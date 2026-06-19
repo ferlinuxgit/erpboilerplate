@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { accountTypeLabels, statusLabel } from "@/lib/status-labels";
 
-const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"] as const;
+const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "MIXED"] as const;
 
 type CreateAccountFormProps = {
   redirectHref?: string;

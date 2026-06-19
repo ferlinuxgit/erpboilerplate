@@ -5,13 +5,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
-import { listAccounts } from "@/server/accounting/service";
+import { listPostingAccounts } from "@/server/accounting/service";
 import { listSupplierPartners } from "@/server/supplier-invoices/service";
 
 export default async function NewExpensePage() {
   const ctx = await requireContext("expense.write");
   const [accounts, suppliers] = await Promise.all([
-    listAccounts(ctx.company.id),
+    listPostingAccounts(ctx.company.id),
     listSupplierPartners(ctx.company.id),
   ]);
   const expenseAccounts = accounts

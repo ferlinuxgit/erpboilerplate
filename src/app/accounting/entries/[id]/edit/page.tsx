@@ -5,7 +5,7 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { getJournalEntry, listAccounts } from "@/server/accounting/service";
+import { getJournalEntry, listPostingAccounts } from "@/server/accounting/service";
 
 export default async function EditJournalEntryPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireUserSession();
@@ -14,7 +14,7 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
   const { id } = await params;
   const entry = await getJournalEntry(ctx.company.id, id);
   if (!entry) notFound();
-  const accounts = await listAccounts(ctx.company.id);
+  const accounts = await listPostingAccounts(ctx.company.id);
 
   return (
     <PageShell>

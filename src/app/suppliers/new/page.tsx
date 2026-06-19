@@ -5,7 +5,7 @@ import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { canManageSuppliers } from "@/lib/rbac";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export default async function NewSupplierPage() {
   await requireUserSession();
@@ -19,7 +19,7 @@ export default async function NewSupplierPage() {
     db
       .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name })
       .from(accountChart)
-      .where(eq(accountChart.companyId, tenantContext.company.id)),
+      .where(and(eq(accountChart.companyId, tenantContext.company.id), eq(accountChart.isPostable, true))),
   ]);
 
   return (

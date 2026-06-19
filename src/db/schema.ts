@@ -20,7 +20,7 @@ export const documentTypeEnum = pgEnum("document_type", [
 export const paymentStatusEnum = pgEnum("payment_status", ["PENDING", "PARTIAL", "PAID", "OVERDUE", "VOID"]);
 export const stockMovementTypeEnum = pgEnum("stock_movement_type", ["IN", "OUT", "ADJUSTMENT", "TRANSFER"]);
 export const reconciliationStatusEnum = pgEnum("reconciliation_status", ["PENDING", "RECONCILED"]);
-export const accountTypeEnum = pgEnum("account_type", ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]);
+export const accountTypeEnum = pgEnum("account_type", ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "MIXED"]);
 export const fiscalReportStatusEnum = pgEnum("fiscal_report_status", ["DRAFT", "READY", "FILED"]);
 export const paymentMethodTypeEnum = pgEnum("payment_method_type", ["BANK_TRANSFER", "CARD", "CASH", "DIRECT_DEBIT"]);
 export const salesDocumentStatusEnum = pgEnum("sales_document_status", ["DRAFT", "SENT", "CONFIRMED", "DELIVERED", "INVOICED", "PAID", "VOID"]);
@@ -254,11 +254,11 @@ export const companySettings = pgTable("company_settings", {
   siiEnabled: boolean("siiEnabled").notNull().default(false),
   verifactuMode: text("verifactuMode").notNull().default("pending"),
   prorrataPct: numeric("prorrataPct", { precision: 6, scale: 3 }).notNull().default("100"),
-  defaultCustomerAccountCode: text("defaultCustomerAccountCode").notNull().default("430000"),
-  defaultSupplierAccountCode: text("defaultSupplierAccountCode").notNull().default("410000"),
-  defaultSalesAccountCode: text("defaultSalesAccountCode").notNull().default("700000"),
-  defaultPurchaseAccountCode: text("defaultPurchaseAccountCode").notNull().default("600000"),
-  defaultBankAccountCode: text("defaultBankAccountCode").notNull().default("572000"),
+  defaultCustomerAccountCode: text("defaultCustomerAccountCode").notNull().default("4300"),
+  defaultSupplierAccountCode: text("defaultSupplierAccountCode").notNull().default("4100"),
+  defaultSalesAccountCode: text("defaultSalesAccountCode").notNull().default("700"),
+  defaultPurchaseAccountCode: text("defaultPurchaseAccountCode").notNull().default("600"),
+  defaultBankAccountCode: text("defaultBankAccountCode").notNull().default("572"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -586,13 +586,27 @@ export const journal = pgTable("journal", {
   name: text("name").notNull(),
 });
 
-export const accountChart = pgTable("account_chart", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  code: text("code").notNull(),
-  name: text("name").notNull(),
-  type: accountTypeEnum("type").notNull(),
-});
+export const accountChart = pgTable(
+  "account_chart",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    type: accountTypeEnum("type").notNull(),
+    parentCode: text("parentCode"),
+    level: integer("level").notNull().default(3),
+    isPostable: boolean("isPostable").notNull().default(true),
+    isActive: boolean("isActive").notNull().default(false),
+    source: text("source").notNull().default("manual"),
+    templateVersion: text("templateVersion"),
+  },
+  (table) => [
+    unique("account_chart_company_code_unique").on(table.companyId, table.code),
+    index("account_chart_company_active_idx").on(table.companyId, table.isActive),
+    index("account_chart_company_postable_idx").on(table.companyId, table.isPostable),
+  ],
+);
 
 export const journalEntry = pgTable("journal_entry", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

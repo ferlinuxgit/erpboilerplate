@@ -22,11 +22,11 @@ function defaultFiscalSettings(): FiscalSettingsFormValues {
     siiEnabled: false,
     verifactuMode: "pending",
     prorrataPct: 100,
-    defaultCustomerAccountCode: "430000",
-    defaultSupplierAccountCode: "410000",
-    defaultSalesAccountCode: "700000",
-    defaultPurchaseAccountCode: "600000",
-    defaultBankAccountCode: "572000",
+    defaultCustomerAccountCode: "4300",
+    defaultSupplierAccountCode: "4100",
+    defaultSalesAccountCode: "700",
+    defaultPurchaseAccountCode: "600",
+    defaultBankAccountCode: "572",
   };
 }
 

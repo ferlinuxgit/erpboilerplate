@@ -79,6 +79,12 @@ export async function ensureAccountingMasters(
         code: account.code.trim(),
         name: account.name.trim(),
         type: account.type,
+        parentCode: account.parentCode ?? null,
+        level: account.level ?? account.code.trim().length,
+        isPostable: account.isPostable ?? true,
+        isActive: account.isActive ?? false,
+        source: account.source ?? "accounting-master",
+        templateVersion: account.templateVersion ?? null,
       });
     }
 

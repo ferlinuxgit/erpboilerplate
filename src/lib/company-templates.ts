@@ -1,4 +1,6 @@
-export type TemplateAccountType = "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE";
+import esPgc2024Accounts from "@/server/seeds/es/pgc-2024.json";
+
+export type TemplateAccountType = "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED";
 
 export type TemplateDocumentType =
   | "SALES_QUOTE"
@@ -17,7 +19,13 @@ export type CompanyTemplateAccount = {
   code: string;
   name: string;
   type: TemplateAccountType;
-  role: string;
+  role?: string;
+  parentCode?: string | null;
+  level?: number;
+  isPostable?: boolean;
+  isActive?: boolean;
+  source?: string;
+  templateVersion?: string;
 };
 
 export type CompanyTemplateJournal = {
@@ -73,22 +81,19 @@ const commonSeries = [
   { type: "RECEIPT", prefix: "RCPT-", nextNumber: 1 },
 ] as const satisfies readonly CompanyTemplateSeries[];
 
+const esPgcAccounts = (esPgc2024Accounts as readonly CompanyTemplateAccount[]).map((account) => ({
+  ...account,
+  isActive: ["129", "4100", "4300", "472", "4751", "477", "572", "600", "700"].includes(account.code),
+  source: "ES_PGC",
+  templateVersion: "PGC-2024-BOE-A-2007-19884",
+}));
+
 export const companyTemplates = [
   {
     id: "ES_GENERAL",
     countryCode: "ES",
     label: "Espana - General",
-    accounts: [
-      { code: "430000", name: "Clientes", type: "ASSET", role: "Cuenta de clientes para facturas emitidas y cobros." },
-      { code: "410000", name: "Acreedores por prestaciones de servicios", type: "LIABILITY", role: "Cuenta de proveedores y acreedores para compras y pagos." },
-      { code: "572000", name: "Bancos e instituciones de credito c/c vista", type: "ASSET", role: "Cuenta bancaria para cobros, pagos y conciliacion." },
-      { code: "700000", name: "Ventas de mercaderias", type: "REVENUE", role: "Ingresos por ventas en facturas de cliente." },
-      { code: "600000", name: "Compras de mercaderias", type: "EXPENSE", role: "Gastos por compras en facturas de proveedor." },
-      { code: "472000", name: "Hacienda Publica, IVA soportado", type: "ASSET", role: "IVA deducible de compras y facturas recibidas." },
-      { code: "477000", name: "Hacienda Publica, IVA repercutido", type: "LIABILITY", role: "IVA devengado en facturas emitidas." },
-      { code: "475100", name: "Hacienda Publica, acreedora por retenciones practicadas", type: "LIABILITY", role: "Retenciones fiscales pendientes de liquidar." },
-      { code: "129000", name: "Resultado del ejercicio", type: "EQUITY", role: "Cuenta de cierre para resultado anual." },
-    ],
+    accounts: esPgcAccounts,
     journals: [
       { code: "VEN", name: "Diario de ventas", role: "Asientos generados por facturas emitidas." },
       { code: "COM", name: "Diario de compras", role: "Asientos de compras y facturas recibidas." },
@@ -108,14 +113,14 @@ export const companyTemplates = [
     settings: {
       fiscalRegime: "general",
       taxPeriodicity: "quarterly",
-      defaultCustomerAccountCode: "430000",
-      defaultSupplierAccountCode: "410000",
-      defaultSalesAccountCode: "700000",
-      defaultPurchaseAccountCode: "600000",
-      defaultBankAccountCode: "572000",
-      defaultVatOutputAccountCode: "477000",
-      defaultVatInputAccountCode: "472000",
-      defaultRetentionAccountCode: "475100",
+      defaultCustomerAccountCode: "4300",
+      defaultSupplierAccountCode: "4100",
+      defaultSalesAccountCode: "700",
+      defaultPurchaseAccountCode: "600",
+      defaultBankAccountCode: "572",
+      defaultVatOutputAccountCode: "477",
+      defaultVatInputAccountCode: "472",
+      defaultRetentionAccountCode: "4751",
     },
   },
   {

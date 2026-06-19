@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   }
-  const payload = (await readJsonBody(request)) as { code?: string; name?: string; type?: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" } | null;
+  const payload = (await readJsonBody(request)) as { code?: string; name?: string; type?: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED" } | null;
   if (!payload) return invalidJsonResponse();
 
   if (!payload.code?.trim() || !payload.name?.trim() || !payload.type) return NextResponse.json({ message: "Datos invalidos." }, { status: 400 });

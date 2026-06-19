@@ -1,4 +1,4 @@
-import { and, eq, gte, ilike, lte, sql } from "drizzle-orm";
+import { and, eq, gte, ilike, inArray, lte, sql } from "drizzle-orm";
 
 import { accountChart, company, companySettings, fiscalYear, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -30,10 +30,10 @@ async function resolveAccountId(client: DbClient, companyId: string, code: strin
   const [account] = await client
     .select({ id: accountChart.id })
     .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.code, code)))
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.code, code), eq(accountChart.isPostable, true)))
     .limit(1);
   if (!account) {
-    throw new Error(`No existe la cuenta contable ${code}.`);
+    throw new Error(`No existe la cuenta contable postable ${code}.`);
   }
   return account.id;
 }
@@ -56,14 +56,14 @@ async function resolveAccounts(companyId: string, client: DbClient = db): Promis
   const templateSettings = getCompanyTemplate(companyRow?.countryCode ?? "ES")?.settings;
 
   const defaults = {
-    customer: settings?.defaultCustomerAccountCode ?? templateSettings?.defaultCustomerAccountCode ?? "430000",
-    supplier: settings?.defaultSupplierAccountCode ?? templateSettings?.defaultSupplierAccountCode ?? "410000",
-    sales: settings?.defaultSalesAccountCode ?? templateSettings?.defaultSalesAccountCode ?? "700000",
-    purchase: settings?.defaultPurchaseAccountCode ?? templateSettings?.defaultPurchaseAccountCode ?? "600000",
-    bank: settings?.defaultBankAccountCode ?? templateSettings?.defaultBankAccountCode ?? "572000",
-    vatOutput: templateSettings?.defaultVatOutputAccountCode ?? "477000",
-    vatInput: templateSettings?.defaultVatInputAccountCode ?? "472000",
-    retention: templateSettings?.defaultRetentionAccountCode ?? "475100",
+    customer: settings?.defaultCustomerAccountCode ?? templateSettings?.defaultCustomerAccountCode ?? "4300",
+    supplier: settings?.defaultSupplierAccountCode ?? templateSettings?.defaultSupplierAccountCode ?? "4100",
+    sales: settings?.defaultSalesAccountCode ?? templateSettings?.defaultSalesAccountCode ?? "700",
+    purchase: settings?.defaultPurchaseAccountCode ?? templateSettings?.defaultPurchaseAccountCode ?? "600",
+    bank: settings?.defaultBankAccountCode ?? templateSettings?.defaultBankAccountCode ?? "572",
+    vatOutput: templateSettings?.defaultVatOutputAccountCode ?? "477",
+    vatInput: templateSettings?.defaultVatInputAccountCode ?? "472",
+    retention: templateSettings?.defaultRetentionAccountCode ?? "4751",
   };
 
   return {
@@ -106,6 +106,10 @@ async function createEntry(
       credit: line.credit,
     })),
   );
+  await client
+    .update(accountChart)
+    .set({ isActive: true })
+    .where(and(eq(accountChart.companyId, input.companyId), inArray(accountChart.id, [...new Set(input.lines.map((line) => line.accountId))])));
 
   await recordAudit(
     {

@@ -316,7 +316,7 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-medium">Conciliación fiscal-contable</h2>
-              <p className="text-sm text-muted-foreground">Compara el cálculo fiscal con las cuentas 477000, 472000 y 475100.</p>
+              <p className="text-sm text-muted-foreground">Compara el cálculo fiscal con las cuentas 477, 472 y 4751.</p>
             </div>
             <StatusBadge tone={activeSummary.accountingReconciliation.balanced ? "success" : "warning"}>
               {activeSummary.accountingReconciliation.balanced ? "Cuadrado" : "Revisar"}

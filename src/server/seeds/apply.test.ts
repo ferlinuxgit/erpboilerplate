@@ -68,7 +68,7 @@ describe("applyEsSeeds", () => {
     });
 
     expect(inserts.some((entry) => entry.table === companySettings)).toBe(true);
-    expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "430000")).toBe(true);
+    expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "4300" && entry.values.isPostable === true)).toBe(true);
     expect(inserts.some((entry) => entry.table === journal && entry.values.code === "VEN")).toBe(true);
     expect(inserts.some((entry) => entry.table === tax)).toBe(true);
     expect(inserts.some((entry) => entry.table === documentSeries && entry.values.type === "SALES_INVOICE")).toBe(false);

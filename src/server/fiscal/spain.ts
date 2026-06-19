@@ -327,15 +327,15 @@ async function fetchAccountingTaxBalances(companyId: string, start: Date, endExc
         eq(journalEntry.companyId, companyId),
         gte(journalEntry.postedAt, start),
         lt(journalEntry.postedAt, endExclusive),
-        inArray(accountChart.code, ["477000", "472000", "475100"]),
+        inArray(accountChart.code, ["477", "472", "4751"]),
       ),
     )
     .groupBy(accountChart.code);
 
   const balances = new Map(rows.map((row) => [row.code, { debit: toNumber(row.debit), credit: toNumber(row.credit) }]));
-  const outputVat = balances.get("477000");
-  const inputVat = balances.get("472000");
-  const withholdings = balances.get("475100");
+  const outputVat = balances.get("477");
+  const inputVat = balances.get("472");
+  const withholdings = balances.get("4751");
 
   return {
     outputVat: roundFiscalMoney((outputVat?.credit ?? 0) - (outputVat?.debit ?? 0)),
@@ -397,7 +397,7 @@ function buildAutomationChecks({
       title: "Conciliación fiscal-contable",
       detail: accountingBalanced
         ? "Las cuentas fiscales cuadran con el cálculo del periodo."
-        : "Hay diferencias entre el cálculo fiscal y las cuentas 477000, 472000 o 475100.",
+        : "Hay diferencias entre el cálculo fiscal y las cuentas 477, 472 o 4751.",
       action: accountingBalanced ? "Listo para cierre operativo." : "Revisa asientos, facturas y cuentas fiscales antes de presentar.",
     },
     {

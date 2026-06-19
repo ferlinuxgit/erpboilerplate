@@ -117,7 +117,7 @@ export async function getCompanyDefaultsStatus(input: {
     buildGroup({
       key: "accounts",
       label: "Cuentas contables",
-      description: "Cuentas minimas para facturas, impuestos, bancos y cierre.",
+      description: "Plan General Contable completo con cuentas postables y cuentas de agrupación.",
       items: template.accounts.map((account) => ({
         key: account.code,
         label: `${account.code} - ${account.name}`,

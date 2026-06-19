@@ -1,13 +1,12 @@
 import Link from "next/link";
 
-import { AccountRowActions } from "@/components/accounting/account-row-actions";
+import { AccountsList } from "@/components/accounting/accounts-list";
 import { JournalEntryRowActions } from "@/components/accounting/journal-entry-row-actions";
 import { CompanyDefaultsPanel } from "@/components/company/company-defaults-panel";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
-import { accountTypeLabels, statusLabel } from "@/lib/status-labels";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getTrialBalance, listAccounts, listJournalEntries } from "@/server/accounting/service";
 import { getCompanyDefaultsStatus } from "@/server/company/defaults";
@@ -19,6 +18,8 @@ export default async function AccountingPage() {
   const accounts = await listAccounts(ctx.company.id);
   const entries = await listJournalEntries(ctx.company.id);
   const canWriteAccounting = can(ctx.membership.role, "accounting.write");
+  const activeAccounts = accounts.filter((account) => account.isActive).length;
+  const postableAccounts = accounts.filter((account) => account.isPostable).length;
   const defaultsStatus = await getCompanyDefaultsStatus({
     companyId: ctx.company.id,
     fiscalYearId: ctx.fiscalYear.id,
@@ -30,7 +31,7 @@ export default async function AccountingPage() {
       <PageHeader
         eyebrow="Operación"
         title="Contabilidad"
-        description="Plan contable, asientos, libro mayor y balance de comprobación de la empresa activa."
+        description={`Plan general contable completo: ${accounts.length} cuentas, ${postableAccounts} postables y ${activeAccounts} activas por uso o saldo.`}
         backHref="/dashboard"
         backLabel="Volver al panel"
       />
@@ -64,22 +65,9 @@ export default async function AccountingPage() {
         contentClassName="space-y-2"
       >
         {accounts.length === 0 ? (
-          <EmptyState title="Plan contable vacío" description="Añade la primera cuenta para empezar a registrar asientos." />
+          <EmptyState title="Plan contable vacío" description="Carga la plantilla contable o añade la primera cuenta para empezar a registrar asientos." />
         ) : (
-          accounts.map((account) => (
-            <div key={account.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium">
-                  {account.code} - {account.name}
-                </p>
-                <p className="text-sm text-muted-foreground">{statusLabel(accountTypeLabels, account.type)}</p>
-                <Link className="text-sm text-primary underline-offset-4 hover:underline" href={`/accounting/ledger/${account.id}`}>
-                  Ver mayor
-                </Link>
-              </div>
-              {canWriteAccounting ? <AccountRowActions id={account.id} /> : null}
-            </div>
-          ))
+          <AccountsList canManage={canWriteAccounting} rows={accounts} />
         )}
       </PageSection>
 

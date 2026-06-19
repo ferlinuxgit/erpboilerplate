@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { EditSupplierForm } from "@/components/suppliers/edit-supplier-form";
@@ -22,7 +22,7 @@ export default async function EditSupplierPage({ params }: { params: Promise<{ i
     db
       .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name })
       .from(accountChart)
-      .where(eq(accountChart.companyId, ctx.company.id)),
+      .where(and(eq(accountChart.companyId, ctx.company.id), eq(accountChart.isPostable, true))),
   ]);
   if (!data) notFound();
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { accountChart, company, journal, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -19,7 +19,61 @@ export async function getTrialBalance(companyId: string) {
 }
 
 export async function listAccounts(companyId: string) {
-  return db.select().from(accountChart).where(eq(accountChart.companyId, companyId)).orderBy(accountChart.code);
+  const rows = await db
+    .select({
+      id: accountChart.id,
+      companyId: accountChart.companyId,
+      code: accountChart.code,
+      name: accountChart.name,
+      type: accountChart.type,
+      parentCode: accountChart.parentCode,
+      level: accountChart.level,
+      isPostable: accountChart.isPostable,
+      isConfiguredActive: accountChart.isActive,
+      source: accountChart.source,
+      templateVersion: accountChart.templateVersion,
+      debit: sql<string>`coalesce(sum(${journalLine.debit}), '0')`,
+      credit: sql<string>`coalesce(sum(${journalLine.credit}), '0')`,
+      entries: sql<number>`count(${journalLine.id})`,
+    })
+    .from(accountChart)
+    .leftJoin(journalLine, eq(journalLine.accountId, accountChart.id))
+    .where(eq(accountChart.companyId, companyId))
+    .groupBy(
+      accountChart.id,
+      accountChart.companyId,
+      accountChart.code,
+      accountChart.name,
+      accountChart.type,
+      accountChart.parentCode,
+      accountChart.level,
+      accountChart.isPostable,
+      accountChart.isActive,
+      accountChart.source,
+      accountChart.templateVersion,
+    )
+    .orderBy(accountChart.code);
+
+  return rows.map((row) => {
+    const debit = Number(row.debit);
+    const credit = Number(row.credit);
+    const balance = debit - credit;
+    return {
+      ...row,
+      debit,
+      credit,
+      balance,
+      isActive: row.isConfiguredActive || row.entries > 0 || Math.abs(balance) >= 0.005,
+    };
+  });
+}
+
+export async function listPostingAccounts(companyId: string) {
+  return db
+    .select()
+    .from(accountChart)
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.isPostable, true)))
+    .orderBy(accountChart.code);
 }
 
 export async function getAccount(companyId: string, id: string) {
@@ -27,13 +81,14 @@ export async function getAccount(companyId: string, id: string) {
   return rows[0] ?? null;
 }
 
-export async function createAccount(companyId: string, tenantId: string, actorUserId: string, payload: { code: string; name: string; type: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" }) {
-  const [created] = await db.insert(accountChart).values({ companyId, ...payload }).returning();
+export async function createAccount(companyId: string, tenantId: string, actorUserId: string, payload: { code: string; name: string; type: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED" }) {
+  const code = payload.code.trim();
+  const [created] = await db.insert(accountChart).values({ companyId, ...payload, code, level: code.length, isPostable: true, isActive: true, source: "manual" }).returning();
   await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.account.create", entityName: "accountChart", entityId: created.id, payload });
   return created;
 }
 
-export async function updateAccount(companyId: string, tenantId: string, actorUserId: string, id: string, payload: { code: string; name: string; type: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" }) {
+export async function updateAccount(companyId: string, tenantId: string, actorUserId: string, id: string, payload: { code: string; name: string; type: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED" }) {
   const [updated] = await db.update(accountChart).set(payload).where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, id))).returning();
   if (!updated) return null;
   await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.account.update", entityName: "accountChart", entityId: id, payload });
@@ -41,9 +96,13 @@ export async function updateAccount(companyId: string, tenantId: string, actorUs
 }
 
 export async function deleteAccount(companyId: string, tenantId: string, actorUserId: string, id: string) {
-  const [deleted] = await db.delete(accountChart).where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, id))).returning({ id: accountChart.id });
-  if (!deleted) return false;
-  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.account.delete", entityName: "accountChart", entityId: id });
+  const [updated] = await db
+    .update(accountChart)
+    .set({ isActive: false })
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, id)))
+    .returning({ id: accountChart.id });
+  if (!updated) return false;
+  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.account.deactivate", entityName: "accountChart", entityId: id });
   return true;
 }
 
@@ -78,7 +137,10 @@ export async function getJournalEntry(companyId: string, id: string) {
 }
 
 async function assertAccountsBelongToCompany(companyId: string, lines: Array<{ accountId: string }>) {
-  const allowedAccounts = await db.select({ id: accountChart.id }).from(accountChart).where(eq(accountChart.companyId, companyId));
+  const allowedAccounts = await db
+    .select({ id: accountChart.id })
+    .from(accountChart)
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.isPostable, true)));
   const allowedSet = new Set(allowedAccounts.map((account) => account.id));
   if (lines.some((line) => !allowedSet.has(line.accountId))) throw new Error("Cuenta contable invalida.");
 }
@@ -96,6 +158,10 @@ export async function createJournalEntry(
   const entry = await db.transaction(async (tx) => {
     const [created] = await tx.insert(journalEntry).values({ companyId, journalId: defaultJournal.id, postedAt: payload.postedAt, reference: payload.reference ?? null }).returning();
     await tx.insert(journalLine).values(lines.map((line) => ({ journalEntryId: created.id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
+    await tx
+      .update(accountChart)
+      .set({ isActive: true })
+      .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, [...new Set(lines.map((line) => line.accountId))])));
     return created;
   });
 
@@ -118,6 +184,10 @@ export async function updateJournalEntry(
     if (!entry) return null;
     await tx.delete(journalLine).where(eq(journalLine.journalEntryId, id));
     await tx.insert(journalLine).values(lines.map((line) => ({ journalEntryId: id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
+    await tx
+      .update(accountChart)
+      .set({ isActive: true })
+      .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, [...new Set(lines.map((line) => line.accountId))])));
     return entry;
   });
 

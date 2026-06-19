@@ -9,7 +9,13 @@ import { ensureAccountingMasters, getAccountingMasterStatus } from "@/server/acc
 const accountSchema = z.object({
   code: z.string().trim().min(1),
   name: z.string().trim().min(1),
-  type: z.enum(["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]),
+  type: z.enum(["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "MIXED"]),
+  parentCode: z.string().trim().nullable().optional(),
+  level: z.number().int().positive().optional(),
+  isPostable: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  source: z.string().trim().optional(),
+  templateVersion: z.string().trim().nullable().optional(),
 });
 
 const journalSchema = z.object({

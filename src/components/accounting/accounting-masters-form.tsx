@@ -29,6 +29,7 @@ const accountTypeLabels: Record<AccountingMasterAccount["type"], string> = {
   EQUITY: "Patrimonio neto",
   REVENUE: "Ingresos",
   EXPENSE: "Gastos",
+  MIXED: "Mixta",
 };
 
 export function AccountingMastersForm({
@@ -109,7 +110,7 @@ export function AccountingMastersForm({
   return (
     <div className="space-y-4">
       {!hasMissingMasters ? (
-        <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">Los maestros contables mínimos están creados.</p>
+        <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">El plan contable y los diarios de la plantilla están creados.</p>
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
@@ -121,7 +122,7 @@ export function AccountingMastersForm({
             <option value="active-template">{catalogLabel}</option>
           </Select>
           <p className="text-sm text-muted-foreground">
-            Recomendado para empresas que necesitan emitir facturas, registrar impuestos, cobros, pagos y cierres basicos.
+            Crea el Plan General Contable completo; las cuentas se marcarán como activas cuando tengan saldo, movimientos o uso recurrente.
           </p>
         </div>
         <Button
@@ -141,7 +142,7 @@ export function AccountingMastersForm({
           ["Facturas emitidas", "Clientes, ventas e IVA repercutido quedan configurados para contabilizar ventas automáticamente."],
           ["Facturas recibidas", "Proveedores, compras e IVA soportado quedan preparados para compras y gastos."],
           ["Bancos y cobros", "Cuenta bancaria y diario de bancos quedan listos para tesorería y conciliación."],
-          ["Fiscalidad", "Incluye las cuentas fiscales habituales de la plantilla seleccionada."],
+          ["Fiscalidad", "Incluye el catálogo PGC completo, con grupos, subgrupos y cuentas de detalle."],
           ["Cierre contable", "Añade cuenta de resultado y diario de cierre para cierre anual."],
           ["Diarios operativos", "Crea diarios separados para ventas, compras, bancos, general y cierre."],
         ].map(([title, description]) => (
@@ -181,6 +182,7 @@ export function AccountingMastersForm({
                   <span>
                     <span className="font-medium">{account.code} - {account.name}</span>
                     <span className="ml-2 text-xs text-muted-foreground">{accountTypeLabels[account.type]}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{account.isPostable === false ? "No postable" : "Postable"}</span>
                     {!isMissing ? <span className="ml-2 text-xs text-emerald-700">Creada</span> : null}
                     <span className="mt-1 block text-muted-foreground">{account.role}</span>
                   </span>

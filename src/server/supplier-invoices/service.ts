@@ -208,18 +208,18 @@ async function getDefaultExpenseAccountId(companyId: string, client: DbClient) {
     .from(companySettings)
     .where(eq(companySettings.companyId, companyId))
     .limit(1);
-  const defaultCode = settings?.defaultPurchaseAccountCode ?? "600000";
+  const defaultCode = settings?.defaultPurchaseAccountCode ?? "600";
   const [defaultAccount] = await client
     .select({ id: accountChart.id })
     .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.code, defaultCode)))
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.code, defaultCode), eq(accountChart.isPostable, true)))
     .limit(1);
   if (defaultAccount) return defaultAccount.id;
 
   const [firstExpenseAccount] = await client
     .select({ id: accountChart.id })
     .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.type, "EXPENSE")))
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.type, "EXPENSE"), eq(accountChart.isPostable, true)))
     .limit(1);
   return firstExpenseAccount?.id;
 }
@@ -230,7 +230,7 @@ async function assertExpenseAccountsBelongToCompany(companyId: string, accountId
   const rows = await client
     .select({ id: accountChart.id })
     .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, uniqueIds)));
+    .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, uniqueIds), eq(accountChart.isPostable, true)));
   if (rows.length !== uniqueIds.length) throw new Error("Cuenta de gasto invalida para la empresa activa.");
 }
 

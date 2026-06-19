@@ -48,6 +48,7 @@ export const accountTypeLabels: Record<string, string> = {
   EQUITY: "Patrimonio neto",
   REVENUE: "Ingreso",
   EXPENSE: "Gasto",
+  MIXED: "Mixta",
 };
 
 export function statusLabel(labels: Record<string, string>, status: string) {
