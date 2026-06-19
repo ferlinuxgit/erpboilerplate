@@ -231,6 +231,7 @@ export const paymentMethod = pgTable("payment_method", {
   code: text("code").notNull(),
   name: text("name").notNull(),
   type: paymentMethodTypeEnum("type").notNull().default("BANK_TRANSFER"),
+  bankAccountNumber: text("bankAccountNumber"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });

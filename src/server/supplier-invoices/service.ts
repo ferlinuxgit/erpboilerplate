@@ -589,7 +589,7 @@ export async function listExpenseInvoices(companyId: string) {
   return invoices.map((invoice) => {
     const paidAmount = paidByInvoice.get(invoice.id) ?? 0;
     const totalAmount = Number(invoice.totalAmount);
-    const paymentStatus = getPaymentStatus(totalAmount, paidAmount, invoice.dueDate);
+    const paymentStatus = invoice.status === "VOID" ? "VOID" : getPaymentStatus(totalAmount, paidAmount, invoice.dueDate);
     return {
       ...invoice,
       paidAmount: paidAmount.toFixed(2),
@@ -676,7 +676,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
     ...invoiceRow,
     paidAmount: paidAmount.toFixed(2),
     outstandingAmount: Math.max(Number(invoiceRow.totalAmount) - paidAmount, 0).toFixed(2),
-    paymentStatus: getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount, invoiceRow.dueDate),
+    paymentStatus: invoiceRow.status === "VOID" ? "VOID" : getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount, invoiceRow.dueDate),
     lines,
     attachments,
   };
@@ -761,6 +761,49 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
     );
 
     return updated;
+  });
+}
+
+export async function deleteExpenseInvoice(input: { tenantId: string; companyId: string; actorUserId: string; id: string }) {
+  return db.transaction(async (tx) => {
+    const [invoiceRow] = await tx
+      .select({
+        id: supplierInvoice.id,
+        number: supplierInvoice.number,
+        status: supplierInvoice.status,
+      })
+      .from(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
+      .limit(1);
+    if (!invoiceRow) return null;
+    if (invoiceRow.status !== "VOID") throw new Error("Solo se pueden eliminar gastos anulados. Anula el gasto antes de eliminarlo.");
+
+    const paymentRows = await tx
+      .select({ id: supplierInvoicePayment.id })
+      .from(supplierInvoicePayment)
+      .where(and(eq(supplierInvoicePayment.companyId, input.companyId), eq(supplierInvoicePayment.supplierInvoiceId, input.id)));
+    if (paymentRows.length > 0) throw new Error("No se puede eliminar un gasto con pagos registrados.");
+
+    const [deleted] = await tx
+      .delete(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
+      .returning({ id: supplierInvoice.id });
+    if (!deleted) return null;
+
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "expense.delete",
+        entityName: "supplierInvoice",
+        entityId: input.id,
+        payload: { number: invoiceRow.number, previousStatus: invoiceRow.status },
+      },
+      tx,
+    );
+
+    return deleted;
   });
 }
 

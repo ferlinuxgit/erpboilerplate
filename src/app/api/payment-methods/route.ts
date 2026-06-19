@@ -13,7 +13,13 @@ const payloadSchema = z.object({
   code: z.string().trim().min(1),
   name: z.string().trim().min(1),
   type: z.enum(["BANK_TRANSFER", "CARD", "CASH", "DIRECT_DEBIT"]),
+  bankAccountNumber: z.string().trim().optional().nullable(),
 });
+
+function cleanBankAccountNumber(input: z.infer<typeof payloadSchema>) {
+  if (input.type !== "BANK_TRANSFER") return null;
+  return input.bankAccountNumber?.trim() || null;
+}
 
 export async function GET() {
   const session = await getUserSession();
@@ -35,6 +41,15 @@ export async function POST(request: Request) {
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
-  const [created] = await db.insert(paymentMethod).values({ companyId: ctx.company.id, ...parsed.data }).returning();
+  const [created] = await db
+    .insert(paymentMethod)
+    .values({
+      companyId: ctx.company.id,
+      code: parsed.data.code,
+      name: parsed.data.name,
+      type: parsed.data.type,
+      bankAccountNumber: cleanBankAccountNumber(parsed.data),
+    })
+    .returning();
   return NextResponse.json(created, { status: 201 });
 }

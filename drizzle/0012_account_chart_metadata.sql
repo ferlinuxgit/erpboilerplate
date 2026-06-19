@@ -1,11 +1,9 @@
-ALTER TYPE account_type ADD VALUE IF NOT EXISTS 'MIXED';
-
-ALTER TABLE "account_chart" ADD COLUMN "parentCode" text;
-ALTER TABLE "account_chart" ADD COLUMN "level" integer NOT NULL DEFAULT 3;
-ALTER TABLE "account_chart" ADD COLUMN "isPostable" boolean NOT NULL DEFAULT true;
-ALTER TABLE "account_chart" ADD COLUMN "isActive" boolean NOT NULL DEFAULT false;
-ALTER TABLE "account_chart" ADD COLUMN "source" text NOT NULL DEFAULT 'manual';
-ALTER TABLE "account_chart" ADD COLUMN "templateVersion" text;
+ALTER TABLE "account_chart" ADD COLUMN IF NOT EXISTS "parentCode" text;
+ALTER TABLE "account_chart" ADD COLUMN IF NOT EXISTS "level" integer NOT NULL DEFAULT 3;
+ALTER TABLE "account_chart" ADD COLUMN IF NOT EXISTS "isPostable" boolean NOT NULL DEFAULT true;
+ALTER TABLE "account_chart" ADD COLUMN IF NOT EXISTS "isActive" boolean NOT NULL DEFAULT false;
+ALTER TABLE "account_chart" ADD COLUMN IF NOT EXISTS "source" text NOT NULL DEFAULT 'manual';
+ALTER TABLE "account_chart" ADD COLUMN IF NOT EXISTS "templateVersion" text;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "account_chart_company_code_unique" ON "account_chart" ("companyId", "code");
 CREATE INDEX IF NOT EXISTS "account_chart_company_active_idx" ON "account_chart" ("companyId", "isActive");

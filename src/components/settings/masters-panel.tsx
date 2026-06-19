@@ -26,6 +26,7 @@ export function MastersPanel() {
   const [paymentCode, setPaymentCode] = useState("");
   const [paymentName, setPaymentName] = useState("");
   const [paymentType, setPaymentType] = useState("BANK_TRANSFER");
+  const [paymentBankAccountNumber, setPaymentBankAccountNumber] = useState("");
   const [retentionName, setRetentionName] = useState("");
   const [retentionRate, setRetentionRate] = useState("");
   const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FAC-");
@@ -167,7 +168,7 @@ export function MastersPanel() {
 
       <div className="space-y-2 rounded-md border p-3">
         <p className="font-medium">Metodos de pago</p>
-        <div className="grid gap-2 md:grid-cols-4">
+        <div className="grid gap-2 md:grid-cols-5">
           <Input placeholder="Codigo" value={paymentCode} onChange={(event) => setPaymentCode(event.target.value)} />
           <Input placeholder="Nombre" value={paymentName} onChange={(event) => setPaymentName(event.target.value)} />
           <select className="h-8 rounded-md border px-2 text-sm" value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>
@@ -176,7 +177,38 @@ export function MastersPanel() {
             <option value="CASH">Efectivo</option>
             <option value="DIRECT_DEBIT">Domiciliacion</option>
           </select>
-          <Button disabled={loading} onClick={() => submit("/api/payment-methods", { code: paymentCode, name: paymentName, type: paymentType }, () => { setPaymentCode(""); setPaymentName(""); setPaymentType("BANK_TRANSFER"); })} type="button">Crear</Button>
+          {paymentType === "BANK_TRANSFER" ? (
+            <Input
+              aria-label="Numero de cuenta"
+              placeholder="Numero de cuenta"
+              value={paymentBankAccountNumber}
+              onChange={(event) => setPaymentBankAccountNumber(event.target.value)}
+            />
+          ) : null}
+          <Button
+            className={paymentType === "BANK_TRANSFER" ? undefined : "md:col-start-4"}
+            disabled={loading}
+            onClick={() =>
+              submit(
+                "/api/payment-methods",
+                {
+                  code: paymentCode,
+                  name: paymentName,
+                  type: paymentType,
+                  bankAccountNumber: paymentType === "BANK_TRANSFER" ? paymentBankAccountNumber : null,
+                },
+                () => {
+                  setPaymentCode("");
+                  setPaymentName("");
+                  setPaymentType("BANK_TRANSFER");
+                  setPaymentBankAccountNumber("");
+                },
+              )
+            }
+            type="button"
+          >
+            Crear
+          </Button>
         </div>
       </div>
 

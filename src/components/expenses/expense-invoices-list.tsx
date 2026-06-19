@@ -20,6 +20,7 @@ type ExpenseInvoice = {
   supplierName: string;
   issueDate: Date | string;
   dueDate: Date | string | null;
+  status: string;
   paymentStatus: string;
   totalAmount: string;
   paidAmount: string;
@@ -36,6 +37,8 @@ export function ExpenseInvoicesList({ canManage, rows }: ExpenseInvoicesListProp
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [voidingInvoice, setVoidingInvoice] = useState<ExpenseInvoice | null>(null);
   const [voidError, setVoidError] = useState<string | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState<ExpenseInvoice | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function payInvoice(invoice: ExpenseInvoice) {
     setLoadingId(invoice.id);
@@ -87,8 +90,33 @@ export function ExpenseInvoicesList({ canManage, rows }: ExpenseInvoicesListProp
     }
   }
 
-  const canVoid = (invoice: ExpenseInvoice) => canManage && Number(invoice.paidAmount) === 0 && invoice.paymentStatus !== "VOID";
-  const canPay = (invoice: ExpenseInvoice) => canManage && Number(invoice.outstandingAmount) > 0 && invoice.paymentStatus !== "VOID";
+  async function deleteInvoice(invoice: ExpenseInvoice) {
+    setLoadingId(invoice.id);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/expenses/${invoice.id}/hard-delete`, {
+        method: "DELETE",
+        headers: getCsrfHeader(),
+      });
+      if (!response.ok) {
+        const payload = (await response.json()) as { message?: string };
+        throw new Error(payload.message ?? "No se pudo eliminar el gasto.");
+      }
+      toast.success("Gasto eliminado correctamente.");
+      setDeletingInvoice(null);
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error inesperado.";
+      setDeleteError(message);
+      toast.error(message);
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
+  const canVoid = (invoice: ExpenseInvoice) => canManage && Number(invoice.paidAmount) === 0 && invoice.status !== "VOID";
+  const canPay = (invoice: ExpenseInvoice) => canManage && Number(invoice.outstandingAmount) > 0 && invoice.status !== "VOID";
+  const canDelete = (invoice: ExpenseInvoice) => canManage && invoice.status === "VOID" && invoice.paymentStatus === "VOID";
 
   const columns: ResourceListColumn<ExpenseInvoice>[] = [
     {
@@ -154,6 +182,11 @@ export function ExpenseInvoicesList({ canManage, rows }: ExpenseInvoicesListProp
               Anular
             </Button>
           ) : null}
+          {canDelete(invoice) ? (
+            <Button disabled={loadingId === invoice.id} onClick={() => setDeletingInvoice(invoice)} size="sm" type="button" variant="destructive">
+              Eliminar
+            </Button>
+          ) : null}
         </div>
       ),
     },
@@ -199,6 +232,11 @@ export function ExpenseInvoicesList({ canManage, rows }: ExpenseInvoicesListProp
                   Anular
                 </Button>
               ) : null}
+              {canDelete(invoice) ? (
+                <Button disabled={loadingId === invoice.id} onClick={() => setDeletingInvoice(invoice)} size="sm" type="button" variant="destructive">
+                  Eliminar
+                </Button>
+              ) : null}
             </div>
           </div>
         )}
@@ -220,6 +258,21 @@ export function ExpenseInvoicesList({ canManage, rows }: ExpenseInvoicesListProp
         }}
         open={Boolean(voidingInvoice)}
         title="Anular gasto"
+      />
+      <DestructiveActionDialog
+        confirmLabel="Eliminar"
+        description="Se eliminará definitivamente el gasto ya anulado junto con sus líneas y adjuntos. Esta acción no sustituye a la anulación contable y no se puede deshacer."
+        errorMessage={deleteError}
+        isSubmitting={loadingId === deletingInvoice?.id}
+        onCancel={() => {
+          setDeletingInvoice(null);
+          setDeleteError(null);
+        }}
+        onConfirm={() => {
+          if (deletingInvoice) void deleteInvoice(deletingInvoice);
+        }}
+        open={Boolean(deletingInvoice)}
+        title="Eliminar gasto"
       />
     </>
   );
