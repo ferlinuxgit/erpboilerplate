@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, integer, numeric, pgEnum, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, numeric, pgEnum, pgTable, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const membershipRoleEnum = pgEnum("membership_role", ["OWNER", "ADMIN", "MEMBER"]);
 export const customerStatusEnum = pgEnum("customer_status", ["ACTIVE", "INACTIVE"]);
@@ -542,7 +542,9 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("supplier_invoice_company_number_unique").on(table.companyId, table.number),
-  unique("supplier_invoice_supplier_document_unique").on(table.companyId, table.supplierPartnerId, table.supplierDocumentNumber),
+  uniqueIndex("supplier_invoice_supplier_document_unique")
+    .on(table.companyId, table.supplierPartnerId, table.supplierDocumentNumber)
+    .where(sql`${table.supplierDocumentNumber} IS NOT NULL AND ${table.status} <> 'VOID'`),
   index("supplier_invoice_company_supplier_idx").on(table.companyId, table.supplierPartnerId),
 ]);
 

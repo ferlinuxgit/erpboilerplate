@@ -10,7 +10,7 @@ CREATE INDEX "partner_company_tax_id_idx" ON "partner" USING btree ("companyId",
 CREATE INDEX "payment_company_invoice_date_idx" ON "payment" USING btree ("companyId","invoiceId","postedAt");--> statement-breakpoint
 CREATE INDEX "supplier_invoice_payment_invoice_idx" ON "supplier_invoice_payment" USING btree ("companyId","supplierInvoiceId");--> statement-breakpoint
 CREATE INDEX "supplier_payment_company_invoice_date_idx" ON "supplier_payment" USING btree ("companyId","supplierInvoiceId","postedAt");--> statement-breakpoint
-ALTER TABLE "supplier_invoice" ADD CONSTRAINT "supplier_invoice_supplier_document_unique" UNIQUE("companyId","supplierPartnerId","supplierDocumentNumber");--> statement-breakpoint
+CREATE UNIQUE INDEX "supplier_invoice_supplier_document_unique" ON "supplier_invoice" USING btree ("companyId","supplierPartnerId","supplierDocumentNumber") WHERE "supplierDocumentNumber" IS NOT NULL AND "status" <> 'VOID';--> statement-breakpoint
 ALTER TABLE "invoice_payment" ADD CONSTRAINT "invoice_payment_amount_positive" CHECK ("invoice_payment"."amountApplied" > 0);--> statement-breakpoint
 ALTER TABLE "journal_line" ADD CONSTRAINT "journal_line_valid_amounts" CHECK ("journal_line"."debit" >= 0 AND "journal_line"."credit" >= 0 AND (("journal_line"."debit" > 0 AND "journal_line"."credit" = 0) OR ("journal_line"."credit" > 0 AND "journal_line"."debit" = 0)));--> statement-breakpoint
 ALTER TABLE "payment" ADD CONSTRAINT "payment_amount_positive" CHECK ("payment"."amount" > 0);--> statement-breakpoint
