@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { accountChart, company, companySettings, documentSeries, fiscalYear, journal, tax } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -96,15 +96,9 @@ async function applyTemplateRows(
       });
     }
 
-    for (const entry of input.template.accounts) {
-      const existing = await tx
-        .select({ id: accountChart.id })
-        .from(accountChart)
-        .where(and(eq(accountChart.companyId, input.companyId), eq(accountChart.code, entry.code)))
-        .limit(1);
-
-      if (existing.length === 0) {
-        await tx.insert(accountChart).values({
+    if (input.template.accounts.length > 0) {
+      await tx.insert(accountChart).values(
+        input.template.accounts.map((entry) => ({
           companyId: input.companyId,
           code: entry.code,
           name: entry.name,
@@ -115,78 +109,45 @@ async function applyTemplateRows(
           isActive: entry.isActive ?? false,
           source: entry.source ?? input.template.id,
           templateVersion: entry.templateVersion ?? null,
-        });
-      } else {
-        await tx
-          .update(accountChart)
-          .set({
-            name: entry.name,
-            type: entry.type,
-            parentCode: entry.parentCode ?? null,
-            level: entry.level ?? entry.code.length,
-            isPostable: entry.isPostable ?? true,
-            isActive: entry.isActive ?? false,
-            source: entry.source ?? input.template.id,
-            templateVersion: entry.templateVersion ?? null,
-          })
-          .where(and(eq(accountChart.companyId, input.companyId), eq(accountChart.code, entry.code)));
-      }
+        })),
+      ).onConflictDoUpdate({
+        target: [accountChart.companyId, accountChart.code],
+        set: {
+          name: sql`excluded."name"`,
+          type: sql`excluded."type"`,
+          parentCode: sql`excluded."parentCode"`,
+          level: sql`excluded."level"`,
+          isPostable: sql`excluded."isPostable"`,
+          source: sql`excluded."source"`,
+          templateVersion: sql`excluded."templateVersion"`,
+        },
+      });
     }
 
-    for (const entry of input.template.taxes) {
-      const existing = await tx
-        .select({ id: tax.id })
-        .from(tax)
-        .where(and(eq(tax.companyId, input.companyId), eq(tax.name, entry.name)))
-        .limit(1);
-
-      if (existing.length === 0) {
-        await tx.insert(tax).values({
+    if (input.template.taxes.length > 0) {
+      await tx.insert(tax).values(input.template.taxes.map((entry) => ({
           companyId: input.companyId,
           name: entry.name,
           rate: entry.rate,
-        });
-      }
+      }))).onConflictDoUpdate({ target: [tax.companyId, tax.name], set: { rate: sql`excluded."rate"` } });
     }
 
-    for (const entry of input.template.journals) {
-      const existing = await tx
-        .select({ id: journal.id })
-        .from(journal)
-        .where(and(eq(journal.companyId, input.companyId), eq(journal.code, entry.code)))
-        .limit(1);
-
-      if (existing.length === 0) {
-        await tx.insert(journal).values({
+    if (input.template.journals.length > 0) {
+      await tx.insert(journal).values(input.template.journals.map((entry) => ({
           companyId: input.companyId,
           code: entry.code,
           name: entry.name,
-        });
-      }
+      }))).onConflictDoUpdate({ target: [journal.companyId, journal.code], set: { name: sql`excluded."name"` } });
     }
 
-    for (const entry of input.template.documentSeries) {
-      const existing = await tx
-        .select({ id: documentSeries.id })
-        .from(documentSeries)
-        .where(
-          and(
-            eq(documentSeries.companyId, input.companyId),
-            eq(documentSeries.fiscalYearId, input.activeFiscalYearId),
-            eq(documentSeries.type, entry.type),
-          ),
-        )
-        .limit(1);
-
-      if (existing.length === 0) {
-        await tx.insert(documentSeries).values({
+    if (input.template.documentSeries.length > 0) {
+      await tx.insert(documentSeries).values(input.template.documentSeries.map((entry) => ({
           companyId: input.companyId,
           fiscalYearId: input.activeFiscalYearId,
           type: entry.type,
           prefix: entry.prefix,
           nextNumber: entry.nextNumber,
-        });
-      }
+      }))).onConflictDoNothing();
     }
 
     await recordAudit(

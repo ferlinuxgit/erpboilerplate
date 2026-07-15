@@ -30,7 +30,7 @@ export async function POST() {
     return NextResponse.json(status);
   } catch (error) {
     return NextResponse.json(
-      { message: error instanceof Error ? error.message : "No se pudo aplicar la configuracion." },
+      { message: error instanceof Error ? error.message : "No se pudo aplicar la configuración." },
       { status: 400 },
     );
   }

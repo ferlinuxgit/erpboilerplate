@@ -1,9 +1,7 @@
-import Link from "next/link";
-
+import { CreateFiscalReportDialog } from "@/components/fiscal/fiscal-report-dialogs";
 import { FiscalSettingsForm, type FiscalSettingsFormValues } from "@/components/fiscal/fiscal-settings-form";
 import { FiscalReportsList } from "@/components/fiscal/fiscal-reports-list";
 import { SpanishTaxSummary } from "@/components/fiscal/spanish-tax-summary";
-import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { companySettings } from "@/db/schema";
@@ -73,11 +71,7 @@ export default async function FiscalPage() {
         backLabel="Volver al panel"
         meta={<StatusBadge tone={canWrite ? "success" : "warning"}>{canWrite ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
         actions={
-          canWrite ? (
-            <Link className={buttonVariants()} href="/fiscal/new">
-              Nuevo modelo
-            </Link>
-          ) : null
+          canWrite ? <CreateFiscalReportDialog /> : null
         }
       />
       <PageSection title="Resumen fiscal" description="Señales de cumplimiento, modelos, automatización y conciliación fiscal.">

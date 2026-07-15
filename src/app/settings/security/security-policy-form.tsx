@@ -188,15 +188,15 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
 
         <div className="flex items-center justify-between gap-4">
           <p className="text-xs text-muted-foreground">
-            {canManage ? "Guardar crea una entrada de auditoría por cada campo modificado." : "Solo lectura: necesitas rol admin u owner para cambiar controles."}
+            {canManage ? "Guardar crea una entrada de auditoría por cada campo modificado." : "Solo lectura: necesitas rol de administrador o propietario para cambiar controles."}
           </p>
           <Button type="submit" disabled={!canManage || isPending}>
-            {isPending ? "Guardando..." : "Guardar política"}
+            {isPending ? "Guardando…" : "Guardar política"}
           </Button>
         </div>
       </form>
 
-      <PageSection title="Estado actual" description="Resumen auditable de los controles aplicados al tenant.">
+      <PageSection title="Estado actual" description="Resumen auditable de los controles aplicados al espacio de trabajo.">
         <dl className="grid gap-3 md:grid-cols-2">
           {controlRows.map((control) => (
             <div key={control.key} className="rounded-lg border p-3">

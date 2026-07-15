@@ -5,9 +5,8 @@
 Variables obligatorias para local/CI/build/runtime:
 
 - `DATABASE_URL`: requerida por Drizzle y por rutas/páginas App Router que importan DB. `npm run build` ejecuta `scripts/check-build-env.mjs` como preflight, carga `.env*` y falla antes de la recolección de páginas si falta. Usa una URL de base de datos real del entorno; no commits credenciales.
-- `BETTER_AUTH_SECRET`: secreto runtime de Better Auth.
-- `BETTER_AUTH_URL`: URL pública server-side de la app.
-- `NEXT_PUBLIC_BETTER_AUTH_URL`: URL pública client-side de la app.
+- `JWT_SECRET`: secreto de firma de sesión, con al menos 32 caracteres.
+- `APP_URL`: URL canónica HTTPS de la app.
 
 Plantillas versionables:
 
@@ -19,7 +18,7 @@ Plantillas versionables:
 ## Borde de la app (Next 16)
 
 - El borde HTTP vive en `src/proxy.ts` (sustituye al antiguo `middleware.ts`).
-- `ENABLE_CSRF=true` exige cabecera `x-csrf-token` igual a la cookie `csrf-token` en mutaciones `POST/PATCH/DELETE` bajo `/api/*`.
+- Las mutaciones `POST/PATCH/DELETE` bajo `/api/*` exigen siempre una cabecera `x-csrf-token` igual a la cookie `csrf-token`, salvo autenticación Bearer y webhooks verificados.
 
 ## Integraciones opcionales
 

@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => {
     const chain = {
       from: vi.fn(() => chain),
       where: vi.fn(() => chain),
-      limit: vi.fn(async () => selectRows.shift() ?? []),
+      for: vi.fn(() => chain),
+      limit: vi.fn(async () => selectRows.shift() ?? [{ currentQuantity: "100.000" }]),
       then: (resolve: (value: unknown[]) => unknown, reject?: (reason: unknown) => unknown) =>
         Promise.resolve(selectRows.shift() ?? []).then(resolve, reject),
     };
@@ -52,6 +53,10 @@ describe("registerStockMovementOperation", () => {
     mocks.selectRows.splice(0, mocks.selectRows.length);
     mocks.transactions.splice(0, mocks.transactions.length);
     returning.mockResolvedValue([{ id: "movement-1" }]);
+    values.mockImplementation(() => {
+      const builder = { returning, onConflictDoNothing: vi.fn(() => builder) };
+      return builder;
+    });
   });
 
   it("records a receipt and refreshes the affected stock location inside the same transaction", async () => {
@@ -212,6 +217,7 @@ describe("registerStockMovementOperation", () => {
   });
 
   it("records a transfer as balanced source/destination entries and refreshes both locations", async () => {
+    returning.mockResolvedValueOnce([{ id: "movement-source" }, { id: "movement-destination" }]);
     await registerStockMovementOperation({
       companyId: "company-1",
       itemId: "item-1",

@@ -71,6 +71,7 @@ const mocks = vi.hoisted(() => {
     },
     postSalesInvoice: vi.fn(async () => undefined),
     recordAudit: vi.fn(async () => undefined),
+    reserveSeriesNumber: vi.fn(async () => "FAC-000007"),
   };
 });
 
@@ -78,6 +79,7 @@ vi.mock("@/lib/db", () => ({ db: mocks.db }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSalesInvoice: mocks.postSalesInvoice }));
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: vi.fn(async () => undefined) }));
+vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: mocks.reserveSeriesNumber }));
 
 import { convertDeliveryToInvoice } from "@/server/sales/service";
 
@@ -103,7 +105,6 @@ const retainedSalesOrderRow = {
   retentionAmount: "9.00",
   totalAmount: "208.80",
 };
-const seriesRow = { id: "series-1", prefix: "FAC-", nextNumber: 7 };
 const deliveryLines = [
   {
     itemId: "item-1",
@@ -136,7 +137,7 @@ const orderLines = [
 ];
 
 function queueSuccessfulSelects() {
-  mocks.selectResults.splice(0, mocks.selectResults.length, [deliveryNoteRow], [salesOrderRow], deliveryLines, orderLines, [seriesRow]);
+  mocks.selectResults.splice(0, mocks.selectResults.length, [deliveryNoteRow], [salesOrderRow], deliveryLines, orderLines);
   mocks.insertResults.splice(0, mocks.insertResults.length, [{ id: "invoice-1", number: "FAC-000007" }]);
 }
 
@@ -250,7 +251,7 @@ describe("convertDeliveryToInvoice", () => {
         retentionRate: "5.000",
         lineTotal: "208.80",
       },
-    ], [seriesRow]);
+    ]);
     mocks.insertResults.splice(0, mocks.insertResults.length, [{ id: "invoice-1", number: "FAC-000007" }]);
 
     await convertDeliveryToInvoice({
@@ -305,7 +306,7 @@ describe("convertDeliveryToInvoice", () => {
         taxRate: "21.000",
         lineTotal: "96.80",
       },
-    ], [seriesRow]);
+    ]);
     mocks.insertResults.splice(0, mocks.insertResults.length, [{ id: "invoice-1", number: "FAC-000007" }]);
 
     await convertDeliveryToInvoice({

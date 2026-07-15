@@ -37,7 +37,7 @@ function centsToString(cents: number) {
 }
 
 export function validateJournalLines(lines: JournalLineInput[]): JournalLineValidationResult {
-  if (lines.length < 2) throw new Error("El asiento debe tener al menos dos lineas.");
+  if (lines.length < 2) throw new Error("El asiento debe tener al menos dos líneas.");
 
   let totalDebitCents = 0;
   let totalCreditCents = 0;
@@ -48,8 +48,8 @@ export function validateJournalLines(lines: JournalLineInput[]): JournalLineVali
 
     const debitCents = parseMoneyToCents(line.debit);
     const creditCents = parseMoneyToCents(line.credit);
-    if (debitCents === 0 && creditCents === 0) throw new Error("Debe indicar un importe en cada linea.");
-    if (debitCents > 0 && creditCents > 0) throw new Error("Una linea solo puede tener debe o haber.");
+    if (debitCents === 0 && creditCents === 0) throw new Error("Debe indicar un importe en cada línea.");
+    if (debitCents > 0 && creditCents > 0) throw new Error("Una línea solo puede tener debe o haber.");
 
     totalDebitCents += debitCents;
     totalCreditCents += creditCents;

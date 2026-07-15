@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
     insertResults,
     insertedValues,
     updateSets,
+    reserveSeriesNumber: vi.fn(),
     tx,
     db: {
       transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
@@ -55,6 +56,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: mocks.db }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSalesInvoice: vi.fn() }));
 vi.mock("@/server/audit", () => ({ recordAudit: vi.fn() }));
+vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: mocks.reserveSeriesNumber }));
 
 import { convertQuoteToOrder } from "@/server/sales/service";
 
@@ -68,7 +70,6 @@ const quoteRow = {
   retentionAmount: "0.00",
   totalAmount: "121.00",
 };
-const seriesRow = { id: "series-1", prefix: "PED-", nextNumber: 12 };
 const quoteLines = [
   {
     itemId: "item-1",
@@ -87,11 +88,12 @@ beforeEach(() => {
   mocks.insertResults.splice(0, mocks.insertResults.length);
   mocks.insertedValues.splice(0, mocks.insertedValues.length);
   mocks.updateSets.splice(0, mocks.updateSets.length);
+  mocks.reserveSeriesNumber.mockResolvedValue("PED-000012");
 });
 
 describe("convertQuoteToOrder", () => {
   it("copies quote lines into the created order so later delivery-to-invoice conversion has billable lines", async () => {
-    mocks.selectResults.splice(0, mocks.selectResults.length, [quoteRow], [seriesRow], quoteLines);
+    mocks.selectResults.splice(0, mocks.selectResults.length, [quoteRow], quoteLines);
     mocks.insertResults.splice(0, mocks.insertResults.length, [{ id: "order-1", number: "PED-000012" }]);
 
     const created = await convertQuoteToOrder({ companyId: "company-1", fiscalYearId: "fy-1", quoteId: "quote-1" });

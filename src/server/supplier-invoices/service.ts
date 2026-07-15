@@ -15,7 +15,7 @@ import {
 } from "@/db/schema";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
-import { postSupplierInvoice, reverseSupplierInvoice } from "@/server/accounting/auto-post";
+import { postSupplierInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
@@ -94,9 +94,9 @@ function clampPct(value: number | undefined, fallback: number) {
 }
 
 function assertValidLines(lines: SupplierInvoiceLineInput[]) {
-  if (lines.length === 0) throw new Error("La factura necesita al menos una linea.");
+  if (lines.length === 0) throw new Error("La factura necesita al menos una línea.");
   for (const line of lines) {
-    if (!line.description.trim()) throw new Error("Todas las lineas necesitan descripcion.");
+    if (!line.description.trim()) throw new Error("Todas las líneas necesitan descripción.");
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("La cantidad debe ser mayor que cero.");
     if (!Number.isFinite(line.unitPrice) || line.unitPrice < 0) throw new Error("El precio unitario no puede ser negativo.");
   }
@@ -475,6 +475,7 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
       .select({ id: purchaseOrder.id, supplierPartnerId: purchaseOrder.supplierPartnerId })
       .from(purchaseOrder)
       .where(and(eq(purchaseOrder.id, input.purchaseOrderId), eq(purchaseOrder.companyId, input.companyId)))
+      .for("update")
       .limit(1);
     if (!ownedOrder) throw new Error("Pedido de compra no encontrado.");
     if (ownedOrder.supplierPartnerId !== input.supplierPartnerId) throw new Error("El proveedor no coincide con el pedido de compra.");
@@ -483,6 +484,7 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
       .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId })
       .from(goodsReceipt)
       .where(eq(goodsReceipt.id, input.goodsReceiptId))
+      .for("update")
       .limit(1);
     if (!ownedReceipt || ownedReceipt.purchaseOrderId !== input.purchaseOrderId) {
       throw new Error("Albaran de recepcion invalido para ese pedido.");
@@ -495,16 +497,30 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
     const receiptLines = await tx
       .select({ itemId: goodsReceiptLine.itemId, quantity: goodsReceiptLine.quantity })
       .from(goodsReceiptLine)
-      .where(eq(goodsReceiptLine.goodsReceiptId, input.goodsReceiptId));
+      .innerJoin(goodsReceipt, eq(goodsReceipt.id, goodsReceiptLine.goodsReceiptId))
+      .where(eq(goodsReceipt.purchaseOrderId, input.purchaseOrderId));
+    const alreadyInvoicedLines = await tx
+      .select({ itemId: supplierInvoiceLine.itemId, quantity: supplierInvoiceLine.quantity })
+      .from(supplierInvoiceLine)
+      .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoiceLine.supplierInvoiceId))
+      .where(and(
+        eq(supplierInvoice.companyId, input.companyId),
+        eq(supplierInvoice.purchaseOrderId, input.purchaseOrderId),
+        ne(supplierInvoice.status, "VOID"),
+      ));
     const poQtyByItem = new Map<string, number>();
     const receiptQtyByItem = new Map<string, number>();
+    const invoicedQtyByItem = new Map<string, number>();
+    const requestedQtyByItem = new Map<string, number>();
     for (const line of poLines) if (line.itemId) poQtyByItem.set(line.itemId, (poQtyByItem.get(line.itemId) ?? 0) + Number(line.quantity));
     for (const line of receiptLines) if (line.itemId) receiptQtyByItem.set(line.itemId, (receiptQtyByItem.get(line.itemId) ?? 0) + Number(line.quantity));
+    for (const line of alreadyInvoicedLines) if (line.itemId) invoicedQtyByItem.set(line.itemId, (invoicedQtyByItem.get(line.itemId) ?? 0) + Number(line.quantity));
+    for (const line of input.lines) if (line.itemId) requestedQtyByItem.set(line.itemId, (requestedQtyByItem.get(line.itemId) ?? 0) + line.quantity);
 
-    for (const line of input.lines) {
-      if (!line.itemId) continue;
-      if (line.quantity > (poQtyByItem.get(line.itemId) ?? 0)) throw new Error("La cantidad facturada supera la cantidad del pedido.");
-      if (line.quantity > (receiptQtyByItem.get(line.itemId) ?? 0)) throw new Error("La cantidad facturada supera la cantidad recepcionada.");
+    for (const [itemId, requestedQuantity] of requestedQtyByItem) {
+      const cumulativeQuantity = (invoicedQtyByItem.get(itemId) ?? 0) + requestedQuantity;
+      if (cumulativeQuantity > (poQtyByItem.get(itemId) ?? 0) + 0.0005) throw new Error("La cantidad facturada acumulada supera la cantidad del pedido.");
+      if (cumulativeQuantity > (receiptQtyByItem.get(itemId) ?? 0) + 0.0005) throw new Error("La cantidad facturada acumulada supera la cantidad recepcionada.");
     }
 
     return createSupplierInvoiceHeader({
@@ -709,35 +725,17 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
     const paidAmount = paymentRows.reduce((total, payment) => total + Number(payment.amountApplied), 0);
     if (paidAmount > 0) throw new Error("No se puede anular un gasto con pagos registrados. Anula o corrige el pago primero.");
 
-    const lineRows = await tx
-      .select({
-        expenseAccountId: supplierInvoiceLine.expenseAccountId,
-        subtotalAmount: supplierInvoiceLine.subtotalAmount,
-        taxAmount: supplierInvoiceLine.taxAmount,
-        taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
-        retentionAmount: supplierInvoiceLine.retentionAmount,
-      })
-      .from(supplierInvoiceLine)
-      .where(eq(supplierInvoiceLine.supplierInvoiceId, input.id));
-
-    await reverseSupplierInvoice({
+    const reversedAt = new Date();
+    await assertFiscalPeriodOpen(input.companyId, reversedAt, tx);
+    await reverseAutomaticEntries({
       tenantId: input.tenantId,
       companyId: input.companyId,
       actorUserId: input.actorUserId,
-      supplierInvoiceId: input.id,
-      postedAt: new Date(),
+      postedAt: reversedAt,
       reference: `Anulacion factura gasto ${invoiceRow.number}`,
-      subtotal: Number(invoiceRow.subtotalAmount),
-      taxAmount: Number(invoiceRow.taxAmount),
-      retentionAmount: Number(invoiceRow.retentionAmount),
-      totalAmount: Number(invoiceRow.totalAmount),
-      expenseLines: lineRows.map((line) => ({
-        accountId: line.expenseAccountId,
-        subtotal: Number(line.subtotalAmount),
-        taxAmount: Number(line.taxAmount),
-        taxDeductiblePct: Number(line.taxDeductiblePct),
-        retentionAmount: Number(line.retentionAmount),
-      })),
+      sourceType: "supplierInvoice",
+      sourceId: input.id,
+      reason: input.reason?.trim() || `Anulación de factura de gasto ${invoiceRow.number}`,
       dbClient: tx,
     });
 

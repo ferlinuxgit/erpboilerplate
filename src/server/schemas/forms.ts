@@ -91,10 +91,13 @@ export const companyProfileSchema = z.object({
 export const invoiceStatusSchema = z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"]);
 
 export const invoiceLineFormSchema = z.object({
+  itemId: z.string().trim().optional().nullable(),
   description: z.string().trim().min(1, "La línea debe tener descripción."),
   quantity: z.number().positive("La cantidad debe ser mayor que 0."),
   unitPrice: z.number().nonnegative("El precio no puede ser negativo."),
+  discountPct: z.number().min(0).max(100).optional(),
   taxRate: z.number().min(0, "El IVA no puede ser negativo.").max(100, "El IVA no puede superar el 100%."),
+  retentionRate: z.number().min(0).max(100).optional(),
 });
 
 export const createInvoiceSchema = z.object({

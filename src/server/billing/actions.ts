@@ -27,6 +27,7 @@ export async function openBillingCheckout(params: {
   actor: BillingActor;
   context: BillingContext;
   priceId: string;
+  planCode?: string;
   baseUrl: string;
   audit?: AuditWriter;
   createCheckoutSession?: CheckoutSessionCreator;
@@ -54,6 +55,8 @@ export async function openBillingCheckout(params: {
       priceId: params.priceId,
       successUrl: returnUrl,
       cancelUrl: returnUrl,
+      tenantId: params.context.tenantId,
+      planCode: params.planCode,
     });
     await audit({
       ...auditBase,

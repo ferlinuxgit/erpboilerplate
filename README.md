@@ -21,7 +21,7 @@ npm install
 
 1. Crea tu archivo de entorno duplicando `.env.example` como `.env`.
 
-1. Configura `DATABASE_URL`, `JWT_SECRET`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` y `NEXT_PUBLIC_BETTER_AUTH_URL` en `.env`. `JWT_SECRET` firma la cookie HTTP-only `erp_auth_token`; `BETTER_AUTH_SECRET` se mantiene como fallback compatible para entornos existentes. `npm run build` ejecuta un preflight que carga `.env*` y falla de forma clara si falta alguna variable antes de que Next.js recolecte páginas o rutas que importan la DB, como `src/app/api/api-keys/route.ts`.
+1. Configura `DATABASE_URL`, `JWT_SECRET` y `APP_URL` en `.env`. `JWT_SECRET` firma la cookie HTTP-only `erp_auth_token`; `APP_URL` se usa para enlaces y callbacks. `npm run build` ejecuta un preflight que carga `.env*` y falla de forma clara si falta alguna variable.
 
 1. Ejecuta y verifica migraciones en una base limpia antes de desplegar:
 
@@ -90,9 +90,8 @@ npm run release:verify
 Variables minimas de runtime:
 
 - `DATABASE_URL`
-- `BETTER_AUTH_SECRET` con al menos 32 caracteres
-- `BETTER_AUTH_URL`
-- `NEXT_PUBLIC_BETTER_AUTH_URL`
+- `JWT_SECRET` con al menos 32 caracteres
+- `APP_URL` con la URL canónica HTTPS en producción
 
 El contenedor valida estas variables al arrancar, puede esperar a la base de datos y opcionalmente ejecutar migraciones si `RUN_MIGRATIONS_ON_START=true`.
 

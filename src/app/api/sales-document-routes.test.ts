@@ -53,6 +53,7 @@ function queuedSelect(rows: unknown[][]) {
       innerJoin: vi.fn(() => chain),
       where: vi.fn(() => chain),
       orderBy: vi.fn(() => chain),
+      for: vi.fn(() => chain),
       limit: vi.fn(() => Promise.resolve(rows.shift() ?? [])),
       then: (resolve: (value: unknown[]) => unknown, reject?: (reason: unknown) => unknown) =>
         Promise.resolve(rows.shift() ?? []).then(resolve, reject),
@@ -158,8 +159,8 @@ describe("sales document route tenant boundaries", () => {
   });
 
   it("rejects creating a delivery note from an order outside the current company before mutating data", async () => {
-    mocks.db.select.mockImplementation(queuedSelect([[{ id: "customer_1" }], [{ id: "warehouse_1" }], []]));
-    mocks.db.transaction.mockResolvedValue({ id: "delivery_should_not_exist" });
+    const tx = makeTransactionClient({ selectRows: [[]] });
+    mocks.db.transaction.mockImplementation(async (callback) => callback(tx));
     const { POST } = await import("@/app/api/delivery-notes/route");
 
     const response = await POST(
@@ -173,20 +174,18 @@ describe("sales document route tenant boundaries", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ message: "Pedido no encontrado." });
-    expect(mocks.db.transaction).not.toHaveBeenCalled();
+    expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
+    expect(tx.insert).not.toHaveBeenCalled();
   });
 
   it("allows creating a delivery note from an owned order and copies the order lines", async () => {
-    mocks.db.select.mockImplementation(
-      queuedSelect([
-        [{ id: "customer_1" }],
-        [{ id: "warehouse_1" }],
-        [{ id: "order_1", customerId: "customer_1" }],
-        [{ itemId: "item_1" }],
-      ]),
-    );
     const tx = makeTransactionClient({
-      selectRows: [[{ itemId: "item_1", description: "Consultoría", quantity: "2" }]],
+      selectRows: [
+        [{ id: "order_1", customerId: "customer_1", status: "CONFIRMED" }],
+        [{ id: "warehouse_1" }],
+        [{ itemId: "item_1", description: "Consultoría", quantity: "2" }],
+        [{ currentQuantity: "10.000" }],
+      ],
       insertReturningRows: [[{ id: "delivery_1", salesOrderId: "order_1" }], [{ itemId: "item_1", quantity: "2" }]],
     });
     mocks.db.transaction.mockImplementation(async (callback) => callback(tx));
@@ -203,8 +202,8 @@ describe("sales document route tenant boundaries", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({ id: "delivery_1", salesOrderId: "order_1" });
-    expect(mocks.db.select).toHaveBeenCalledTimes(3);
-    expect(tx.insert).toHaveBeenCalledTimes(3);
+    expect(mocks.db.select).not.toHaveBeenCalled();
+    expect(tx.insert).toHaveBeenCalledTimes(4);
     expect(tx.update).toHaveBeenCalledTimes(1);
     expect(mocks.refreshStockLocation).toHaveBeenCalledWith(
       { companyId: "company_1", itemId: "item_1", warehouseId: "warehouse_1" },
@@ -226,8 +225,9 @@ describe("purchase goods receipt stock atomicity", () => {
   function makeGoodsReceiptTransaction() {
     const tx = makeTransactionClient({
       selectRows: [
-        [{ itemId: "item_1", quantity: "3.000" }],
-        [{ unitPrice: "11.50" }],
+        [{ id: "po_1" }],
+        [{ itemId: "item_1", quantity: "3.000", unitPrice: "11.50" }],
+        [],
       ],
       insertReturningRows: [
         [{ id: "receipt_1", purchaseOrderId: "po_1" }],
@@ -289,15 +289,15 @@ describe("purchase goods receipt stock atomicity", () => {
     });
     const { POST } = await import("@/app/api/goods-receipts/route");
 
-    await expect(
-      POST(
+    const response = await POST(
         jsonRequest("/api/goods-receipts", {
           purchaseOrderId: "po_1",
           warehouseId: "warehouse_1",
           receivedAt: "2026-05-09",
         }),
-      ),
-    ).rejects.toThrow("stock refresh failed");
+      );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ message: "stock refresh failed" });
 
     expect(tx.insert).toHaveBeenCalledTimes(3);
     expect(mocks.registerInMovementCost).toHaveBeenCalledWith(

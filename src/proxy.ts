@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
+import { AUTH_TOKEN_COOKIE } from "@/lib/auth";
 
 const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
   ? new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
@@ -37,7 +38,7 @@ export async function proxy(request: NextRequest) {
     if (ratelimit) {
       const ip = request.headers.get("x-forwarded-for") ?? "anonymous";
       const userAgent = request.headers.get("user-agent") ?? "unknown";
-      const authCookie = request.cookies.get("better-auth.session_token")?.value ?? "anon";
+      const authCookie = request.cookies.get(AUTH_TOKEN_COOKIE)?.value ?? "anon";
       const key = `api:${ip}:${userAgent}:${authCookie}`;
       const { success } = await ratelimit.limit(`api:${key}`);
       if (!success) {

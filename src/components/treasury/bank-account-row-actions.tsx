@@ -1,13 +1,11 @@
-import Link from "next/link";
-
 import { DeleteButton } from "@/components/delete-button";
-import { buttonVariants } from "@/components/ui/button";
+import { EditBankAccountDialog } from "@/components/treasury/bank-dialogs";
 
-export function BankAccountRowActions({ id }: { id: string }) {
+export function BankAccountRowActions({ account }: { account: { id: string; bankName: string; iban: string } }) {
   return (
-    <div className="flex gap-2">
-      <Link href={`/treasury/bank-accounts/${id}/edit`} className={buttonVariants({ variant: "outline", size: "sm" })}>Editar</Link>
-      <DeleteButton url={`/api/bank-accounts/${id}`} />
+    <div className="flex flex-wrap justify-end gap-2">
+      <EditBankAccountDialog account={account} />
+      <DeleteButton url={`/api/bank-accounts/${account.id}`} />
     </div>
   );
 }

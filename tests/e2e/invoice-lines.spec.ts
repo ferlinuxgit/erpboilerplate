@@ -9,7 +9,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await registerAndSignIn(page, "Invoice Lines E2E");
   await completeOnboarding(page, "Empresa líneas E2E S.L.");
 
-  await page.goto("/customers");
+  await page.goto("/customers/new");
   await page.getByLabel("Nombre").fill(customerName);
   await page.getByLabel("CIF/NIF/VAT").fill("B12345674");
   await page.getByLabel("Dirección fiscal").fill("Calle Líneas 1");
@@ -46,7 +46,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   );
   await page.getByRole("button", { name: "Crear factura" }).click();
   const invoiceResponse = await invoiceResponsePromise;
-  expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
+  expect(invoiceResponse.ok()).toBe(true);
   const createdInvoice = (await invoiceResponse.json()) as { number: string };
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
@@ -109,7 +109,7 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   );
   await page.getByRole("button", { name: "Crear factura" }).click();
   const invoiceResponse = await invoiceResponsePromise;
-  expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
+  expect(invoiceResponse.ok()).toBe(true);
   const createdInvoice = (await invoiceResponse.json()) as { number: string };
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();

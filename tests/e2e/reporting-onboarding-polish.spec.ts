@@ -7,10 +7,10 @@ test("reporting guides users through period, KPI context, export status, and sou
 
   await page.goto("/reporting");
 
-  await expect(page.getByRole("heading", { name: "Reporting y BI" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Informes y BI" })).toBeVisible();
   await expect(page.getByLabel("Periodo del informe")).toHaveValue("month");
   await expect(page.getByLabel("Periodo del informe")).toContainText("Este mes");
-  await expect(page.getByTestId("reporting-kpi-explanation")).toContainText("KPIs calculados del tenant activo");
+  await expect(page.getByTestId("reporting-kpi-explanation")).toContainText("Indicadores calculados del espacio activo");
   await expect(page.getByTestId("reporting-source-links")).toContainText("Clientes");
   await expect(page.getByTestId("reporting-source-links")).toContainText("Facturas");
   await expect(page.getByTestId("reporting-source-links")).toContainText("Tesorería");
@@ -45,6 +45,6 @@ test("onboarding only finishes from the final step and then points to concrete s
   expect(seedResponse.ok(), await seedResponse.text()).toBe(true);
 
   await expect(page.getByRole("status")).toContainText("Onboarding completado");
-  await expect(page.getByRole("link", { name: "Crear primer cliente" })).toHaveAttribute("href", "/customers");
+  await expect(page.getByRole("link", { name: "Crear primer cliente" })).toHaveAttribute("href", "/customers/new");
   await expect(page.getByRole("link", { name: "Volver al dashboard" })).toHaveAttribute("href", "/dashboard");
 });

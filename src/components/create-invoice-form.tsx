@@ -461,9 +461,11 @@ export function CreateInvoiceForm({
       </div>
     </form>
     <Dialog
+      description="Busca por nombre o identificación fiscal y selecciona el cliente de la factura."
       initialFocusId="invoice-customer-search"
       open={customerSearchDialogOpen}
       onClose={() => setCustomerSearchDialogOpen(false)}
+      size="lg"
       title="Seleccionar cliente"
     >
       <div className="space-y-4" data-testid="invoice-customer-search-dialog">
@@ -531,9 +533,11 @@ export function CreateInvoiceForm({
       </div>
     </Dialog>
     <Dialog
+      description="Registra los datos fiscales mínimos sin abandonar la factura."
       initialFocusId="invoice-new-customer-name"
       open={customerCreateDialogOpen}
       onClose={() => setCustomerCreateDialogOpen(false)}
+      size="xl"
       title="Nuevo cliente"
     >
       <form className="grid gap-3 md:grid-cols-2" data-testid="invoice-new-customer-dialog-form" onSubmit={onCreateCustomer}>

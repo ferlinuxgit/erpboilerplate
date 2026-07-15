@@ -5,6 +5,7 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type ResourceListColumn<TItem> = {
@@ -165,8 +166,7 @@ export function ResourceList<TItem>({
           <label className="sr-only" htmlFor={`${testId ?? "resource-list"}-page-size`}>
             Registros por página
           </label>
-          <select
-            className="h-8 rounded-lg border bg-background px-2 text-sm"
+          <Select
             id={`${testId ?? "resource-list"}-page-size`}
             onChange={(event) => {
               setActivePageSize(Number(event.target.value));
@@ -179,7 +179,7 @@ export function ResourceList<TItem>({
                 {option}/pág.
               </option>
             ))}
-          </select>
+          </Select>
         </div> : null}
       </div>
 

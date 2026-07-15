@@ -15,6 +15,7 @@ type FiscalReportPayload = {
   code: string;
   period: string;
   status: FiscalReportStatus;
+  reopenReason?: string;
 };
 
 export type FiscalReportWithSummary = Awaited<ReturnType<typeof listFiscalReports>>[number] & {
@@ -78,6 +79,9 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
 
   const current = await getFiscalReport(companyId, id);
   if (!current) return null;
+  if (current.status === "FILED" && normalized.status !== "FILED" && !payload.reopenReason?.trim()) {
+    throw new Error("Debes indicar el motivo para reabrir una declaración presentada.");
+  }
 
   const [updated] = await db
     .update(fiscalReport)
@@ -98,13 +102,16 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
       action: "fiscal.reopen",
       entityName: "fiscalReport",
       entityId: id,
-      payload: { from: current.status, to: normalized.status, code: normalized.code, period: normalized.period },
+      payload: { from: current.status, to: normalized.status, code: normalized.code, period: normalized.period, reason: payload.reopenReason?.trim() },
     });
   }
   return updated;
 }
 
 export async function deleteFiscalReport(companyId: string, tenantId: string, actorUserId: string, id: string) {
+  const current = await getFiscalReport(companyId, id);
+  if (!current) return false;
+  if (current.status === "FILED") throw new Error("No se puede eliminar una declaración presentada; debes reabrirla primero.");
   const [deleted] = await db
     .delete(fiscalReport)
     .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId)))

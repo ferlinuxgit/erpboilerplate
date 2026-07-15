@@ -43,7 +43,7 @@ function invoiceCreateErrorMessage(error: unknown) {
 function companyDefaultsSetupResponse(status: CompanyDefaultsStatus) {
   return NextResponse.json(
     {
-      message: "Faltan ajustes de empresa necesarios para crear facturas. Revisa Configuracion > Maestros.",
+      message: "Faltan ajustes de empresa necesarios para crear facturas. Revisa Configuración > Maestros.",
       missingGroups: status.groups
         .filter((group) => group.missingCount > 0)
         .map((group) => ({
@@ -146,7 +146,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (getCompanyTemplate(actor.context.company.countryCode)) {
+    let defaultsStatus = await getCompanyDefaultsStatus({
+      companyId: actor.context.company.id,
+      fiscalYearId: actor.context.fiscalYear.id,
+      countryCode: actor.context.company.countryCode,
+    });
+    if (!defaultsStatus.ready && getCompanyTemplate(actor.context.company.countryCode)) {
       await applyCompanyTemplate({
         tenantId: actor.context.tenant.id,
         companyId: actor.context.company.id,
@@ -155,13 +160,12 @@ export async function POST(request: Request) {
         actorUserId: actor.actorUserId,
         auditAction: "company.defaults.ensure",
       });
+      defaultsStatus = await getCompanyDefaultsStatus({
+        companyId: actor.context.company.id,
+        fiscalYearId: actor.context.fiscalYear.id,
+        countryCode: actor.context.company.countryCode,
+      });
     }
-
-    const defaultsStatus = await getCompanyDefaultsStatus({
-      companyId: actor.context.company.id,
-      fiscalYearId: actor.context.fiscalYear.id,
-      countryCode: actor.context.company.countryCode,
-    });
     if (!defaultsStatus.ready) {
       return companyDefaultsSetupResponse(defaultsStatus);
     }
@@ -208,6 +212,7 @@ export async function POST(request: Request) {
         reference: `Factura ${created.number}`,
         subtotal: invoiceTotals.subtotal,
         taxAmount: invoiceTotals.taxAmount,
+        retentionAmount: invoiceTotals.retentionAmount,
         totalAmount,
         dbClient: tx,
       });

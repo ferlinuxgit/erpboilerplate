@@ -10,6 +10,14 @@ vi.mock("@/lib/current-user", () => ({ getUserSession }));
 vi.mock("@/lib/tenant", () => ({ ensureUserTenant }));
 vi.mock("@/server/billing/actions", () => ({ openBillingCheckout, openBillingPortal }));
 vi.mock("@/server/billing/data", () => ({ getBillingViewModelForTenant }));
+vi.mock("@/lib/db", () => ({
+  db: {
+    select: vi.fn(() => {
+      const chain = { from: vi.fn(() => chain), where: vi.fn(() => chain), limit: vi.fn(async () => [{ code: "business" }]) };
+      return chain;
+    }),
+  },
+}));
 
 const session = {
   user: {
@@ -37,7 +45,7 @@ function jsonRequest(payload: unknown) {
 describe("billing route handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.BETTER_AUTH_URL = "https://erp.example.com/";
+    process.env.APP_URL = "https://erp.example.com/";
     getUserSession.mockResolvedValue(session);
     ensureUserTenant.mockResolvedValue(tenantContext);
   });
@@ -55,6 +63,7 @@ describe("billing route handlers", () => {
       actor: { id: "user_1", email: "owner@example.com" },
       context: { tenantId: "tenant_1", companyId: "company_1" },
       priceId: "price_business",
+      planCode: "business",
       baseUrl: "https://erp.example.com/",
     });
   });

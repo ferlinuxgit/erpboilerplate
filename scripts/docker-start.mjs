@@ -6,9 +6,8 @@ import { Pool } from "pg";
 
 const requiredEnv = [
   "DATABASE_URL",
-  "BETTER_AUTH_SECRET",
-  "BETTER_AUTH_URL",
-  "NEXT_PUBLIC_BETTER_AUTH_URL",
+  "JWT_SECRET",
+  "APP_URL",
 ];
 
 const waitForDatabase = process.env.WAIT_FOR_DATABASE !== "false";
@@ -25,22 +24,16 @@ function validateRuntimeEnv() {
     process.exit(1);
   }
 
-  const secret = process.env.BETTER_AUTH_SECRET?.trim() ?? "";
+  const secret = process.env.JWT_SECRET?.trim() ?? "";
   if (secret.length < 32) {
-    console.error("BETTER_AUTH_SECRET must be at least 32 characters for production-grade deployments.");
+    console.error("JWT_SECRET must be at least 32 characters for production-grade deployments.");
     process.exit(1);
   }
 
   if (process.env.NODE_ENV === "production") {
-    for (const name of ["BETTER_AUTH_URL", "NEXT_PUBLIC_BETTER_AUTH_URL"]) {
-      const value = process.env[name] ?? "";
-      if (value.startsWith("http://") && !value.includes("localhost") && !value.includes("127.0.0.1")) {
-        console.warn(`${name} uses http:// in production. Use https:// for public deployments.`);
-      }
-    }
-
-    if ((process.env.BETTER_AUTH_URL ?? "").replace(/\/+$/, "") !== (process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "").replace(/\/+$/, "")) {
-      console.error("BETTER_AUTH_URL and NEXT_PUBLIC_BETTER_AUTH_URL must match in production.");
+    const appUrl = process.env.APP_URL ?? "";
+    if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {
+      console.error("APP_URL must use https:// in production.");
       process.exit(1);
     }
   }

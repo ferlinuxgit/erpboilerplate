@@ -46,7 +46,11 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "accounting.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
-  const deleted = await deleteJournalEntry(ctx.company.id, ctx.tenant.id, session.user.id, id);
-  if (!deleted) return NextResponse.json({ message: "Asiento no encontrado." }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  try {
+    const deleted = await deleteJournalEntry(ctx.company.id, ctx.tenant.id, session.user.id, id);
+    if (!deleted) return NextResponse.json({ message: "Asiento no encontrado." }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo eliminar el asiento." }, { status: 400 });
+  }
 }

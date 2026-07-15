@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ERP SaaS Boilerplate",
-  description: "Starter ERP SaaS con Next.js, better-auth y PostgreSQL",
+  description: "ERP SaaS multiempresa con contabilidad, facturación, compras, inventario y tesorería",
 };
 
 export default function RootLayout({

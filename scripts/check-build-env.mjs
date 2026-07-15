@@ -16,19 +16,14 @@ const requiredBuildEnv = [
     ],
   },
   {
-    name: "BETTER_AUTH_SECRET",
-    reason: "Better Auth is initialized while auth-backed App Router modules are bundled.",
-    examplePaths: ["src/lib/auth.ts", "src/app/api/auth/[...all]/route.ts"],
+    name: "JWT_SECRET",
+    reason: "La autenticación propia firma y valida las sesiones JWT durante el runtime.",
+    examplePaths: ["src/lib/auth.ts"],
   },
   {
-    name: "BETTER_AUTH_URL",
-    reason: "Better Auth needs the canonical server-side app URL for callbacks and trusted origins.",
-    examplePaths: ["src/lib/auth.ts", "src/app/api/billing/checkout/route.ts"],
-  },
-  {
-    name: "NEXT_PUBLIC_BETTER_AUTH_URL",
-    reason: "Client-side auth code needs the public app URL used by browser bundles.",
-    examplePaths: ["src/lib/auth-client.ts"],
+    name: "APP_URL",
+    reason: "Los enlaces de verificación, invitaciones y Stripe necesitan la URL canónica de la app.",
+    examplePaths: ["src/app/api/auth/register/route.ts", "src/app/api/billing/checkout/route.ts"],
   },
 ];
 

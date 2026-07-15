@@ -25,6 +25,7 @@ function buildSelectChain() {
     from: vi.fn(() => chain),
     innerJoin: vi.fn(() => chain),
     where: vi.fn(() => chain),
+    for: vi.fn(() => chain),
     limit: vi.fn(() => Promise.resolve(mocks.selectResults.shift() ?? [])),
     then: (resolve: (value: unknown[]) => unknown, reject?: (reason: unknown) => unknown) =>
       Promise.resolve(mocks.selectResults.shift() ?? []).then(resolve, reject),
@@ -78,11 +79,11 @@ describe("convertOrderToDelivery", () => {
     mocks.selectResults.splice(0, mocks.selectResults.length,
       [{ id: "order-1", companyId: "company-1", customerId: "customer-1", status: "CONFIRMED" }],
       [{ id: "warehouse-1" }],
-      [{ id: "series-1", prefix: "ALB-", nextNumber: 42 }],
       [
         { itemId: "item-1", description: "Widget", quantity: "2.000" },
         { itemId: null, description: "Service", quantity: "1.000" },
       ],
+      [{ currentQuantity: "10.000" }],
     );
     mocks.insertResults.splice(0, mocks.insertResults.length,
       [{ id: "delivery-1", number: "ALB-000042" }],

@@ -4,7 +4,7 @@ const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
 export const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 
-export async function createCheckoutSession(input: { customerEmail: string; priceId: string; successUrl: string; cancelUrl: string }) {
+export async function createCheckoutSession(input: { customerEmail: string; priceId: string; successUrl: string; cancelUrl: string; tenantId?: string; planCode?: string }) {
   if (!stripe) throw new Error("Stripe no está configurado.");
   return stripe.checkout.sessions.create({
     mode: "subscription",
@@ -12,6 +12,9 @@ export async function createCheckoutSession(input: { customerEmail: string; pric
     line_items: [{ price: input.priceId, quantity: 1 }],
     success_url: input.successUrl,
     cancel_url: input.cancelUrl,
+    client_reference_id: input.tenantId,
+    metadata: input.tenantId ? { tenantId: input.tenantId, planCode: input.planCode ?? "" } : undefined,
+    subscription_data: input.tenantId ? { metadata: { tenantId: input.tenantId, planCode: input.planCode ?? "" } } : undefined,
   });
 }
 

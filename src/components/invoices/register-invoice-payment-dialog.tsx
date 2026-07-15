@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
+import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -83,7 +83,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
       <Button disabled={isPaid} onClick={() => setIsOpen(true)} size={triggerSize} type="button" variant="outline">
         Registrar cobro
       </Button>
-      <Dialog initialFocusId={dateId} onClose={() => setIsOpen(false)} open={isOpen} title={`Registrar cobro ${invoice.number}`}>
+      <Dialog description="Informa la fecha, la forma de pago y el importe recibido." initialFocusId={dateId} onClose={() => setIsOpen(false)} open={isOpen} title={`Registrar cobro ${invoice.number}`}>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="rounded-md bg-muted p-3 text-sm">
             <p className="font-medium">{invoice.number}</p>
@@ -126,14 +126,14 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
             </p>
           ) : null}
 
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button disabled={isSubmitting} onClick={() => setIsOpen(false)} type="button" variant="outline">
               Cancelar
             </Button>
             <Button disabled={isSubmitting || !hasPaymentMethods} type="submit">
               Registrar cobro
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </Dialog>
     </>

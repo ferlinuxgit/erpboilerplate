@@ -153,10 +153,10 @@ export function EditSupplierForm({
         <Input id="supplier-currency" maxLength={3} required aria-invalid={Boolean(errors.currencyCode)} aria-describedby={errors.currencyCode ? "supplier-currency-error" : undefined} {...register("currencyCode")} />
       </AccessibleField>
       <AccessibleField id="supplier-status" label="Estado" error={errors.status?.message}>
-        <select className="h-8 rounded-md border px-2 text-sm" id="supplier-status" aria-invalid={Boolean(errors.status)} aria-describedby={errors.status ? "supplier-status-error" : undefined} {...register("status")}>
+        <Select id="supplier-status" aria-invalid={Boolean(errors.status)} aria-describedby={errors.status ? "supplier-status-error" : undefined} {...register("status")}>
           <option value="ACTIVE">Activo</option>
           <option value="INACTIVE">Inactivo</option>
-        </select>
+        </Select>
       </AccessibleField>
       <div className="self-end md:col-span-6">
         <Button disabled={isSubmitting} type="submit">

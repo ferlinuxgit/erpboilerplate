@@ -9,9 +9,8 @@ const checkBuildEnvScript = path.resolve(process.cwd(), "scripts/check-build-env
 function withoutBuildEnv() {
   const env = { ...process.env };
   delete env.DATABASE_URL;
-  delete env.BETTER_AUTH_SECRET;
-  delete env.BETTER_AUTH_URL;
-  delete env.NEXT_PUBLIC_BETTER_AUTH_URL;
+  delete env.APP_URL;
+  delete env.JWT_SECRET;
   return env;
 }
 
@@ -30,7 +29,7 @@ describe("build environment preflight", () => {
     expect(result.stderr).not.toContain("Collecting page data");
   });
 
-  it("fails before Next build when Better Auth build/runtime variables are missing", () => {
+  it("fails before Next build when auth runtime variables are missing", () => {
     const cwd = mkdtempSync(path.join(tmpdir(), "erpboilerplate-build-env-db-"));
     const env = withoutBuildEnv();
     env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/erpboilerplate";
@@ -42,9 +41,8 @@ describe("build environment preflight", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("BETTER_AUTH_SECRET");
-    expect(result.stderr).toContain("BETTER_AUTH_URL");
-    expect(result.stderr).toContain("NEXT_PUBLIC_BETTER_AUTH_URL");
+    expect(result.stderr).toContain("JWT_SECRET");
+    expect(result.stderr).toContain("APP_URL");
   });
 
   it("loads required variables from a local .env file before checking", () => {
@@ -53,9 +51,8 @@ describe("build environment preflight", () => {
       path.join(cwd, ".env"),
       [
         "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/erpboilerplate",
-        "BETTER_AUTH_SECRET=test-secret-with-at-least-32-characters",
-        "BETTER_AUTH_URL=http://localhost:3000",
-        "NEXT_PUBLIC_BETTER_AUTH_URL=http://localhost:3000",
+        "JWT_SECRET=test-jwt-secret-with-at-least-32-characters",
+        "APP_URL=http://localhost:3000",
       ].join("\n"),
     );
 

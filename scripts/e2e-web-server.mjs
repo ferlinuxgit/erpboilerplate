@@ -18,14 +18,13 @@ if (push.status !== 0) {
 }
 
 const port = process.env.PORT ?? "3000";
-const authUrl = process.env.BETTER_AUTH_URL ?? `http://127.0.0.1:${port}`;
+const appUrl = process.env.APP_URL ?? `http://127.0.0.1:${port}`;
 const child = spawn("npm", ["run", "dev", "--", "--hostname", "127.0.0.1", "--port", port], {
   cwd: root,
   env: {
     ...process.env,
-    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "playwright-e2e-secret-minimum-32-characters",
-    BETTER_AUTH_URL: authUrl,
-    NEXT_PUBLIC_BETTER_AUTH_URL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? authUrl,
+    JWT_SECRET: process.env.JWT_SECRET ?? "playwright-e2e-secret-minimum-32-characters",
+    APP_URL: appUrl,
     NEXT_TELEMETRY_DISABLED: "1",
     PGSSLMODE: "disable",
   },

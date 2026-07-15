@@ -1,13 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { invoice, invoiceLine } from "@/db/schema";
+import { invoice, invoiceLine, invoicePayment } from "@/db/schema";
 import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
 import { can } from "@/lib/rbac";
 import { recordAudit } from "@/server/audit";
+import { postSalesInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
 import { updateInvoiceSchema } from "@/server/schemas/forms";
@@ -53,19 +54,35 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
   const values = parsedPayload.data;
+  if (values.status === "PAID" || values.status === "OVERDUE") {
+    return NextResponse.json({ message: "El estado de cobro se calcula a partir de los pagos y el vencimiento." }, { status: 400 });
+  }
   const { id } = await params;
   const invoiceTotals = calculateInvoiceTotals(values.lines);
 
   try {
     const updated = await db.transaction(async (tx) => {
       const [existing] = await tx
-        .select({ issueDate: invoice.issueDate })
+        .select({ issueDate: invoice.issueDate, number: invoice.number, paymentStatus: invoice.paymentStatus })
         .from(invoice)
         .where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id)))
+        .for("update")
         .limit(1);
       if (!existing) return null;
+      if (existing.paymentStatus !== "PENDING") throw new Error("No se puede editar una factura con cobros registrados.");
 
       await assertFiscalPeriodOpen(ctx.company.id, existing.issueDate, tx);
+      await reverseAutomaticEntries({
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: actor.actorUserId,
+        postedAt: existing.issueDate,
+        reference: `Corrección factura ${existing.number}`,
+        sourceType: "invoice",
+        sourceId: id,
+        reason: `Reversión por edición de factura ${existing.number}`,
+        dbClient: tx,
+      });
 
       const [row] = await tx
         .update(invoice)
@@ -82,6 +99,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
       await tx.delete(invoiceLine).where(eq(invoiceLine.invoiceId, id));
       await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(id, values.lines));
+
+      if (values.status !== "VOID") {
+        await postSalesInvoice({
+          tenantId: ctx.tenant.id,
+          companyId: ctx.company.id,
+          actorUserId: actor.actorUserId,
+          invoiceId: id,
+          postedAt: existing.issueDate,
+          reference: `Factura ${existing.number} corregida`,
+          subtotal: invoiceTotals.subtotal,
+          taxAmount: invoiceTotals.taxAmount,
+          retentionAmount: invoiceTotals.retentionAmount,
+          totalAmount: invoiceTotals.totalAmount,
+          dbClient: tx,
+        });
+      }
 
       return row;
     });
@@ -113,12 +146,27 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   const deleted = await db.transaction(async (tx) => {
     const [existing] = await tx
-      .select({ issueDate: invoice.issueDate })
+      .select({ issueDate: invoice.issueDate, number: invoice.number, paymentStatus: invoice.paymentStatus })
       .from(invoice)
       .where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id)))
+      .for("update")
       .limit(1);
     if (!existing) return null;
+    if (existing.paymentStatus !== "PENDING") throw new Error("No se puede eliminar una factura con cobros registrados.");
+    const [appliedPayment] = await tx.select({ id: invoicePayment.id }).from(invoicePayment).where(eq(invoicePayment.invoiceId, id)).limit(1);
+    if (appliedPayment) throw new Error("No se puede eliminar una factura con cobros registrados.");
     await assertFiscalPeriodOpen(ctx.company.id, existing.issueDate, tx);
+    await reverseAutomaticEntries({
+      tenantId: ctx.tenant.id,
+      companyId: ctx.company.id,
+      actorUserId: actor.actorUserId,
+      postedAt: existing.issueDate,
+      reference: `Eliminación factura ${existing.number}`,
+      sourceType: "invoice",
+      sourceId: id,
+      reason: `Reversión por eliminación de factura ${existing.number}`,
+      dbClient: tx,
+    });
     const [deletedRow] = await tx.delete(invoice).where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id))).returning({ id: invoice.id });
     return deletedRow;
   }).catch((error: unknown) => {

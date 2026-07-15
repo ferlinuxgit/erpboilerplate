@@ -9,7 +9,7 @@ type AuthClientResult = {
   error: { message?: string } | null;
 };
 
-async function authRequest(path: string, payload?: AuthEmailPayload): Promise<AuthClientResult> {
+async function authRequest(path: string, payload?: unknown): Promise<AuthClientResult> {
   const response = await fetch(path, {
     method: "POST",
     headers: {
@@ -37,5 +37,6 @@ export const authClient = {
   signUp: {
     email: (payload: Required<AuthEmailPayload>) => authRequest("/api/auth/register", payload),
   },
+  verifyTwoFactor: (payload: { challengeId: string; code: string }) => authRequest("/api/auth/verify-two-factor", payload),
   signOut: () => authRequest("/api/auth/logout"),
 };

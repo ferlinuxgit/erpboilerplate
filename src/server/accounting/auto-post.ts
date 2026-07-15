@@ -1,4 +1,4 @@
-import { and, eq, gte, ilike, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { accountChart, company, companySettings, fiscalYear, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -87,6 +87,8 @@ async function createEntry(
   },
 ) {
   const client = input.dbClient ?? db;
+  const postingLines = input.lines.filter((line) => Number(line.debit) > 0 || Number(line.credit) > 0);
+  if (postingLines.length < 2) throw new Error("El asiento automático no contiene suficientes líneas con importe.");
   const defaultJournal = await ensureDefaultJournal(input.companyId, client);
   const [createdEntry] = await client
     .insert(journalEntry)
@@ -95,11 +97,14 @@ async function createEntry(
       journalId: defaultJournal.id,
       postedAt: input.postedAt,
       reference: input.reference,
+      sourceType: input.entityName,
+      sourceId: input.entityId,
+      isAutomatic: true,
     })
     .returning({ id: journalEntry.id });
 
   await client.insert(journalLine).values(
-    input.lines.map((line) => ({
+    postingLines.map((line) => ({
       journalEntryId: createdEntry.id,
       accountId: line.accountId,
       debit: line.debit,
@@ -109,7 +114,7 @@ async function createEntry(
   await client
     .update(accountChart)
     .set({ isActive: true })
-    .where(and(eq(accountChart.companyId, input.companyId), inArray(accountChart.id, [...new Set(input.lines.map((line) => line.accountId))])));
+    .where(and(eq(accountChart.companyId, input.companyId), inArray(accountChart.id, [...new Set(postingLines.map((line) => line.accountId))])));
 
   await recordAudit(
     {
@@ -123,6 +128,59 @@ async function createEntry(
     },
     client,
   );
+
+  return createdEntry;
+}
+
+export async function reverseAutomaticEntries(input: PostingInput & { sourceType: string; sourceId: string; reason: string }) {
+  const client = input.dbClient ?? db;
+  const entries = await client
+    .select({ id: journalEntry.id, journalId: journalEntry.journalId })
+    .from(journalEntry)
+    .where(and(
+      eq(journalEntry.companyId, input.companyId),
+      eq(journalEntry.sourceType, input.sourceType),
+      eq(journalEntry.sourceId, input.sourceId),
+      eq(journalEntry.isAutomatic, true),
+      isNull(journalEntry.reversedAt),
+      isNull(journalEntry.reversesEntryId),
+    ));
+
+  for (const entry of entries) {
+    const lines = await client.select().from(journalLine).where(eq(journalLine.journalEntryId, entry.id));
+    const [reversal] = await client.insert(journalEntry).values({
+      companyId: input.companyId,
+      journalId: entry.journalId,
+      postedAt: input.postedAt,
+      reference: input.reason,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      isAutomatic: true,
+      reversesEntryId: entry.id,
+    }).returning({ id: journalEntry.id });
+    if (lines.length > 0) {
+      await client.insert(journalLine).values(lines.map((line) => ({
+        journalEntryId: reversal.id,
+        accountId: line.accountId,
+        debit: line.credit,
+        credit: line.debit,
+      })));
+    }
+    await client.update(journalEntry).set({ reversedAt: input.postedAt }).where(eq(journalEntry.id, entry.id));
+  }
+
+  if (entries.length > 0) {
+    await recordAudit({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      actorUserId: input.actorUserId,
+      action: "accounting.reverse.automatic",
+      entityName: input.sourceType,
+      entityId: input.sourceId,
+      payload: { reason: input.reason, reversedEntryIds: entries.map((entry) => entry.id) },
+    }, client);
+  }
+  return entries.length;
 }
 
 export async function postSalesInvoice(
@@ -308,8 +366,10 @@ export async function postYearEndClosing(input: {
   companyId: string;
   actorUserId: string;
   fiscalYearId: string;
+  dbClient?: DbClient;
 }) {
-  const [fy] = await db
+  const client = input.dbClient ?? db;
+  const [fy] = await client
     .select({ id: fiscalYear.id, startsAt: fiscalYear.startsAt, endsAt: fiscalYear.endsAt })
     .from(fiscalYear)
     .where(and(eq(fiscalYear.id, input.fiscalYearId), eq(fiscalYear.companyId, input.companyId)))
@@ -318,7 +378,7 @@ export async function postYearEndClosing(input: {
     throw new Error("Ejercicio fiscal no encontrado.");
   }
 
-  const revenueRows = await db
+  const revenueRows = await client
     .select({
       accountId: journalLine.accountId,
       balance: sql<string>`coalesce(sum(${journalLine.credit} - ${journalLine.debit}), '0')`,
@@ -336,7 +396,7 @@ export async function postYearEndClosing(input: {
     )
     .groupBy(journalLine.accountId);
 
-  const expenseRows = await db
+  const expenseRows = await client
     .select({
       accountId: journalLine.accountId,
       balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), '0')`,
@@ -354,7 +414,7 @@ export async function postYearEndClosing(input: {
     )
     .groupBy(journalLine.accountId);
 
-  const [resultAccount] = await db
+  const [resultAccount] = await client
     .select({ id: accountChart.id })
     .from(accountChart)
     .where(and(eq(accountChart.companyId, input.companyId), ilike(accountChart.code, "129%")))
@@ -395,6 +455,7 @@ export async function postYearEndClosing(input: {
     entityName: "fiscalYear",
     entityId: input.fiscalYearId,
     lines,
+    dbClient: client,
   });
 
   return { closed: true };

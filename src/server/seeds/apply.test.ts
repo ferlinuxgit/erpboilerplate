@@ -36,9 +36,12 @@ function createSeedClient(options: { existingSalesInvoiceSeries?: boolean } = {}
       return query;
     }),
     insert: vi.fn((table: unknown) => ({
-      values: vi.fn(async (values: Record<string, unknown>) => {
-        inserts.push({ table, values });
-        return [];
+      values: vi.fn((values: Record<string, unknown> | Record<string, unknown>[]) => {
+        for (const value of Array.isArray(values) ? values : [values]) inserts.push({ table, values: value });
+        const result = Promise.resolve([]) as unknown as Promise<unknown[]> & { onConflictDoUpdate: () => Promise<unknown[]>; onConflictDoNothing: () => Promise<unknown[]> };
+        result.onConflictDoUpdate = async () => [];
+        result.onConflictDoNothing = async () => [];
+        return result;
       }),
     })),
     update: vi.fn(() => ({
@@ -56,7 +59,7 @@ describe("applyEsSeeds", () => {
     recordAuditMock.mockClear();
   });
 
-  it("creates the Spanish operational defaults without duplicating an existing invoice series", async () => {
+  it("creates the Spanish operational defaults with conflict-safe bulk seeds", async () => {
     const { client, inserts } = createSeedClient({ existingSalesInvoiceSeries: true });
 
     await applyEsSeeds({
@@ -71,7 +74,7 @@ describe("applyEsSeeds", () => {
     expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "4300" && entry.values.isPostable === true)).toBe(true);
     expect(inserts.some((entry) => entry.table === journal && entry.values.code === "VEN")).toBe(true);
     expect(inserts.some((entry) => entry.table === tax)).toBe(true);
-    expect(inserts.some((entry) => entry.table === documentSeries && entry.values.type === "SALES_INVOICE")).toBe(false);
+    expect(inserts.some((entry) => entry.table === documentSeries && entry.values.type === "SALES_INVOICE")).toBe(true);
     expect(inserts.some((entry) => entry.table === documentSeries && entry.values.type === "SALES_QUOTE")).toBe(true);
     expect(recordAuditMock).toHaveBeenCalledWith(
       expect.objectContaining({

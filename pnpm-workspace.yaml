@@ -7,3 +7,29 @@ allowBuilds:
   msw: set this to true or false
   sharp: set this to true or false
   unrs-resolver: set this to true or false
+minimumReleaseAgeExclude:
+  - esbuild@0.25.0
+  - postcss@8.5.10
+  - uuid@11.1.1
+  - qs@6.15.2
+  - tmp@0.2.6
+  - esbuild@0.28.1
+  - vite@8.0.16
+  - '@babel/core@7.29.1'
+  - '@opentelemetry/core@2.8.0'
+  - hono@4.12.25
+  - js-yaml@4.1.2
+  - ws@8.21.0
+overrides:
+  '@babel/core@<=7.29.0': ^7.29.1
+  '@opentelemetry/core@<2.8.0': ^2.8.0
+  esbuild@<=0.24.2: 0.25.0
+  esbuild@>=0.27.3 <0.28.1: ^0.28.1
+  hono@<4.12.25: 4.12.25
+  js-yaml@>=4.0.0 <=4.1.1: ^4.1.2
+  postcss@<8.5.10: ^8.5.10
+  qs@>=6.11.1 <=6.15.1: ^6.15.2
+  tmp@<0.2.6: ^0.2.6
+  uuid@<11.1.1: ^11.1.1
+  vite: 8.0.16
+  ws@>=8.0.0 <8.21.0: 8.21.0

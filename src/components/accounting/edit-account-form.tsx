@@ -12,7 +12,7 @@ import { accountTypeLabels, statusLabel } from "@/lib/status-labels";
 
 const accountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "MIXED"] as const;
 
-export function EditAccountForm({ id, defaultCode, defaultName, defaultType }: { id: string; defaultCode: string; defaultName: string; defaultType: (typeof accountTypes)[number] }) {
+export function EditAccountForm({ id, defaultCode, defaultName, defaultType, onCancel, onSuccess }: { id: string; defaultCode: string; defaultName: string; defaultType: (typeof accountTypes)[number]; onCancel?: () => void; onSuccess?: () => void }) {
   const router = useRouter();
   const [code, setCode] = useState(defaultCode);
   const [name, setName] = useState(defaultName);
@@ -37,8 +37,8 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType }: {
           throw new Error(payload.message ?? "No se pudo actualizar la cuenta.");
         }
         toast.success("Cuenta actualizada correctamente.");
-        router.push("/accounting");
-        router.refresh();
+        if (onSuccess) onSuccess();
+        else { router.push("/accounting"); router.refresh(); }
       } catch (submissionError) {
         const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
         setError(message);
@@ -48,7 +48,7 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType }: {
       }
     }}>
       <div className="space-y-2">
-        <Label htmlFor="edit-account-code">Codigo</Label>
+        <Label htmlFor="edit-account-code">Código</Label>
         <Input
           id="edit-account-code"
           value={code}
@@ -78,7 +78,7 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType }: {
           {accountTypes.map((option) => <option key={option} value={option}>{statusLabel(accountTypeLabels, option)}</option>)}
         </Select>
       </div>
-      <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Guardar cambios"}</Button>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button></div>
       {error ? <p id="edit-account-error" className="text-sm text-red-600" role="alert">{error}</p> : null}
     </form>
   );

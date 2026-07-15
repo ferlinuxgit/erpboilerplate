@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { BankAccountsList } from "@/components/treasury/bank-accounts-list";
 import { BankTransactionsList } from "@/components/treasury/bank-transactions-list";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
+import { CreateBankAccountDialog, CreateBankTransactionDialog } from "@/components/treasury/bank-dialogs";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -71,7 +72,7 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
       />
 
       <section className="grid gap-3 md:grid-cols-3">
-        <MetricCard label="Cuentas bancarias" value={accounts.length} helper="Cuentas activas en el tenant" />
+        <MetricCard label="Cuentas bancarias" value={accounts.length} helper="Cuentas activas de la empresa" />
         <MetricCard label="Movimientos" value={rows.length} helper="Transacciones registradas" />
         <MetricCard label="Facturas cobradas" value={paidInvoicesCount} helper={`${customerInvoices.length} facturas en seguimiento`} />
       </section>
@@ -96,7 +97,7 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         )}
       </PageSection>
 
-      <PageSection title="Informes de cobros" description="Resumen customer-to-cash de la empresa activa." contentClassName="grid gap-3 md:grid-cols-2" className="scroll-mt-20">
+      <PageSection title="Informes de cobros" description="Resumen del ciclo de cobro de la empresa activa." contentClassName="grid gap-3 md:grid-cols-2" className="scroll-mt-20">
         <div data-testid="customer-to-cash-report" id="customer-to-cash-report">
           <MetricCard label="Facturas cobradas" value={paidInvoicesCount} helper="Cobros completados" />
         </div>
@@ -108,9 +109,7 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         description="Cuentas operativas disponibles para movimientos y conciliación."
         actions={
           canWriteTreasury ? (
-            <Link className={buttonVariants()} href="/treasury/bank-accounts/new">
-              Nueva cuenta
-            </Link>
+            <CreateBankAccountDialog />
           ) : null
         }
       >
@@ -122,13 +121,11 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         description="Histórico de transacciones bancarias y estado de conciliación."
         actions={
           canWriteTreasury ? (
-            <Link className={buttonVariants()} href="/treasury/bank-transactions/new">
-              Nuevo movimiento
-            </Link>
+            <CreateBankTransactionDialog accounts={accounts} />
           ) : null
         }
       >
-        <BankTransactionsList canManage={canWriteTreasury} currencyCode={ctx.company.baseCurrencyCode} rows={rows} />
+        <BankTransactionsList accounts={accounts} canManage={canWriteTreasury} currencyCode={ctx.company.baseCurrencyCode} rows={rows} />
       </PageSection>
     </PageShell>
   );

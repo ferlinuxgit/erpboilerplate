@@ -81,9 +81,26 @@ export async function listBankTransactions(companyId: string, bankAccountId?: st
     .orderBy(desc(bankTransaction.postedAt));
 }
 
-export async function getBankTransaction(companyId: string, id: string) {
-  const rows = await listBankTransactions(companyId);
-  return rows.find((row) => row.id === id) ?? null;
+export async function getBankTransaction(companyId: string, id: string, client: DbClient = db) {
+  const [row] = await client
+    .select({
+      id: bankTransaction.id,
+      bankAccountId: bankAccount.id,
+      bankName: bankAccount.bankName,
+      iban: bankAccount.iban,
+      amount: bankTransaction.amount,
+      description: bankTransaction.description,
+      postedAt: bankTransaction.postedAt,
+      reconciliationStatus: bankTransaction.reconciliationStatus,
+      matchedInvoicePaymentId: bankTransaction.matchedInvoicePaymentId,
+      matchedSupplierPaymentId: bankTransaction.matchedSupplierPaymentId,
+      reconciledAt: bankTransaction.reconciledAt,
+    })
+    .from(bankTransaction)
+    .innerJoin(bankAccount, eq(bankTransaction.bankAccountId, bankAccount.id))
+    .where(and(eq(bankTransaction.id, id), eq(bankAccount.companyId, companyId)))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function createBankTransaction(
@@ -110,25 +127,26 @@ export async function updateBankTransaction(
   actorUserId: string,
   id: string,
   payload: { bankAccountId: string; amount: string; description: string; postedAt: Date },
+  client: DbClient = db,
 ) {
-  const account = await getBankAccount(companyId, payload.bankAccountId);
+  const [account] = await client.select({ id: bankAccount.id }).from(bankAccount).where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, payload.bankAccountId))).limit(1);
   if (!account) throw new Error("Cuenta bancaria no encontrada.");
-  const existingTransaction = await getBankTransaction(companyId, id);
+  const [existingTransaction] = await client.select({ id: bankTransaction.id, bankAccountId: bankTransaction.bankAccountId }).from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId)).where(and(eq(bankTransaction.id, id), eq(bankAccount.companyId, companyId))).limit(1);
   if (!existingTransaction) return null;
-  const [updated] = await db
+  const [updated] = await client
     .update(bankTransaction)
     .set(payload)
     .where(and(eq(bankTransaction.id, id), eq(bankTransaction.bankAccountId, existingTransaction.bankAccountId)))
     .returning();
   if (!updated) return null;
-  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.update", entityName: "bankTransaction", entityId: id, payload });
+  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.update", entityName: "bankTransaction", entityId: id, payload }, client);
   return updated;
 }
 
-export async function deleteBankTransaction(companyId: string, tenantId: string, actorUserId: string, id: string) {
-  const tx = await getBankTransaction(companyId, id);
-  if (!tx) return false;
-  await db.delete(bankTransaction).where(and(eq(bankTransaction.id, id), eq(bankTransaction.bankAccountId, tx.bankAccountId)));
-  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.delete", entityName: "bankTransaction", entityId: id });
+export async function deleteBankTransaction(companyId: string, tenantId: string, actorUserId: string, id: string, client: DbClient = db) {
+  const [txRow] = await client.select({ id: bankTransaction.id, bankAccountId: bankTransaction.bankAccountId }).from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId)).where(and(eq(bankTransaction.id, id), eq(bankAccount.companyId, companyId))).limit(1);
+  if (!txRow) return false;
+  await client.delete(bankTransaction).where(and(eq(bankTransaction.id, id), eq(bankTransaction.bankAccountId, txRow.bankAccountId)));
+  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.transaction.delete", entityName: "bankTransaction", entityId: id }, client);
   return true;
 }

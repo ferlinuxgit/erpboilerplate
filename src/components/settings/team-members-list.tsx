@@ -39,7 +39,7 @@ export function TeamMembersList({ rows }: TeamMembersListProps) {
   return (
     <ResourceList
       columns={columns}
-      emptyDescription="Invita usuarios para colaborar dentro del tenant."
+      emptyDescription="Invita usuarios para colaborar dentro del espacio de trabajo."
       emptyTitle="No hay miembros en el equipo."
       exportFileName="equipo.csv"
       getRowId={(member) => member.membershipId}

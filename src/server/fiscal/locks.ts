@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import { fiscalReport } from "@/db/schema";
+import { fiscalReport, fiscalYear } from "@/db/schema";
 import { isSpanishFiscalModelCode, parseSpanishFiscalPeriod } from "@/lib/fiscal-spain";
 import type { DbClient } from "@/lib/db";
 
@@ -42,6 +42,15 @@ export async function findFiscalPeriodLock(companyId: string, date: Date, dbClie
 }
 
 export async function assertFiscalPeriodOpen(companyId: string, date: Date, dbClient?: DbClient) {
+  if (Number.isNaN(date.getTime())) throw new Error("La fecha contable no es válida.");
+  const client = dbClient ?? (await import("@/lib/db")).db;
+  const [year] = await client
+    .select({ code: fiscalYear.code, isClosed: fiscalYear.isClosed })
+    .from(fiscalYear)
+    .where(and(eq(fiscalYear.companyId, companyId), sql`${date} >= ${fiscalYear.startsAt}`, sql`${date} <= ${fiscalYear.endsAt}`))
+    .limit(1);
+  if (!year) throw new Error("La fecha no pertenece a ningún ejercicio fiscal de la empresa.");
+  if (year.isClosed) throw new Error(`El ejercicio fiscal ${year.code} está cerrado.`);
   const lock = await findFiscalPeriodLock(companyId, date, dbClient);
   if (!lock.locked) return;
 

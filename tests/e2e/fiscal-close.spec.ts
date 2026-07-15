@@ -71,7 +71,7 @@ test("una declaración presentada bloquea facturas dentro del periodo fiscal", a
     },
   });
   expect(openInvoiceResponse.ok).toBe(true);
-  expect(openInvoiceResponse.payload?.number).toBe(`FAC-OPEN-${runId}`);
+  expect(openInvoiceResponse.payload?.number).toMatch(/^INV-\d{6}$/);
 });
 
 async function postJson(page: Page, path: string, options: { body: Record<string, unknown> }): Promise<ApiResponse>;

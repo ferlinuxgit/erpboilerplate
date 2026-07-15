@@ -72,7 +72,7 @@ export function AuditLogList({ rows }: AuditLogListProps) {
   return (
     <ResourceList
       columns={columns}
-      emptyDescription="Las acciones auditadas aparecerán aquí cuando el tenant tenga actividad administrativa u operativa."
+      emptyDescription="Las acciones auditadas aparecerán aquí cuando el espacio tenga actividad administrativa u operativa."
       emptyTitle="Sin eventos de auditoría."
       exportFileName="auditoria.csv"
       getRowId={(log) => log.id}

@@ -12,7 +12,7 @@ type AccountRow = {
   id: string;
   code: string;
   name: string;
-  type: string;
+  type: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED";
   level: number;
   isPostable: boolean;
   isActive: boolean;
@@ -68,7 +68,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
     {
       header: "Acciones",
       className: "text-right",
-      cell: (account) => canManage ? <AccountRowActions id={account.id} /> : null,
+      cell: (account) => canManage ? <AccountRowActions account={account} /> : null,
     },
   ];
 
@@ -97,7 +97,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
             <Link className="text-sm text-primary underline-offset-4 hover:underline" href={`/accounting/ledger/${account.id}`}>
               Ver mayor
             </Link>
-            {canManage ? <AccountRowActions id={account.id} /> : null}
+            {canManage ? <AccountRowActions account={account} /> : null}
           </div>
         </div>
       )}

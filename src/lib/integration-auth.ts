@@ -1,8 +1,8 @@
 import argon2 from "argon2";
-import { asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { apiKey, company, fiscalYear, tenant } from "@/db/schema";
+import { apiKey, company, fiscalYear, tenant, tenantSecurityPolicy } from "@/db/schema";
 import { bearerToken } from "@/lib/api-auth-header";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -40,9 +40,13 @@ type AuthenticatedApiActor = {
 async function findApiKey(plainKey: string) {
   if (!plainKey.startsWith("ak_")) return null;
 
-  const keys = await db.select().from(apiKey).where(isNull(apiKey.revokedAt));
+  const keyPrefix = plainKey.split("_").slice(0, 2).join("_");
+  const keys = await db.select().from(apiKey).where(and(isNull(apiKey.revokedAt), or(eq(apiKey.keyPrefix, keyPrefix), isNull(apiKey.keyPrefix))));
   for (const key of keys) {
     if (await argon2.verify(key.keyHash, plainKey)) {
+      const [policy] = await db.select({ rotationDays: tenantSecurityPolicy.apiKeyRotationDays }).from(tenantSecurityPolicy).where(eq(tenantSecurityPolicy.tenantId, key.tenantId)).limit(1);
+      if (policy?.rotationDays && key.createdAt.getTime() + policy.rotationDays * 86_400_000 <= Date.now()) return null;
+      await db.update(apiKey).set({ lastUsedAt: new Date() }).where(eq(apiKey.id, key.id));
       return key;
     }
   }
@@ -50,7 +54,7 @@ async function findApiKey(plainKey: string) {
   return null;
 }
 
-async function tenantContextFromApiKey(tenantId: string): Promise<IntegrationContext | null> {
+async function tenantContextFromApiKey(tenantId: string, companyId?: string | null): Promise<IntegrationContext | null> {
   const [row] = await db
     .select({
       tenantId: tenant.id,
@@ -66,7 +70,7 @@ async function tenantContextFromApiKey(tenantId: string): Promise<IntegrationCon
     .from(tenant)
     .innerJoin(company, eq(company.tenantId, tenant.id))
     .innerJoin(fiscalYear, eq(fiscalYear.companyId, company.id))
-    .where(eq(tenant.id, tenantId))
+    .where(companyId ? and(eq(tenant.id, tenantId), eq(company.id, companyId)) : eq(tenant.id, tenantId))
     .orderBy(asc(company.createdAt), asc(fiscalYear.startsAt))
     .limit(1);
 
@@ -90,7 +94,7 @@ async function tenantContextFromApiKey(tenantId: string): Promise<IntegrationCon
     },
     membership: {
       id: `api-key:${tenantId}`,
-      role: "OWNER",
+      role: "ADMIN",
     },
   };
 }
@@ -104,7 +108,7 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
       return NextResponse.json({ message: "API key inválida." }, { status: 401 });
     }
 
-    const context = await tenantContextFromApiKey(verifiedKey.tenantId);
+    const context = await tenantContextFromApiKey(verifiedKey.tenantId, verifiedKey.companyId);
     if (!context) {
       return NextResponse.json({ message: "La API key no tiene una empresa activa asociada." }, { status: 403 });
     }

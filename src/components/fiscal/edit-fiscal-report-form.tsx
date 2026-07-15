@@ -18,11 +18,15 @@ export function EditFiscalReportForm({
   defaultCode,
   defaultPeriod,
   defaultStatus,
+  onCancel,
+  onSuccess,
 }: {
   id: string;
   defaultCode: string;
   defaultPeriod: string;
   defaultStatus: (typeof statuses)[number];
+  onCancel?: () => void;
+  onSuccess?: () => void;
 }) {
   const router = useRouter();
   const [code, setCode] = useState(defaultCode);
@@ -48,8 +52,8 @@ export function EditFiscalReportForm({
           throw new Error(payload.message ?? "No se pudo actualizar el reporte fiscal.");
         }
         toast.success("Reporte fiscal actualizado correctamente.");
-        router.push("/fiscal");
-        router.refresh();
+        if (onSuccess) onSuccess();
+        else { router.push("/fiscal"); router.refresh(); }
       } catch (submissionError) {
         const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
         setError(message);
@@ -96,7 +100,7 @@ export function EditFiscalReportForm({
           {statuses.map((option) => <option key={option} value={option}>{fiscalStatusLabels[option]}</option>)}
         </Select>
       </div>
-      <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Guardar cambios"}</Button>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button></div>
       {error ? <InlineAlert id="edit-fiscal-report-error" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );

@@ -9,6 +9,7 @@ import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postSupplierPayment } from "@/server/accounting/auto-post";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshSupplierInvoicePaymentStatus } from "@/server/supplier-invoices/service";
 
 const payloadSchema = z.object({
@@ -47,11 +48,14 @@ export async function POST(request: Request) {
   try {
     const applied = await db.transaction(async (tx) => {
       const [ownedInvoice] = await tx
-        .select({ id: supplierInvoice.id, origin: supplierInvoice.origin, totalAmount: supplierInvoice.totalAmount })
+        .select({ id: supplierInvoice.id, origin: supplierInvoice.origin, totalAmount: supplierInvoice.totalAmount, status: supplierInvoice.status })
         .from(supplierInvoice)
         .where(and(eq(supplierInvoice.id, parsed.data.supplierInvoiceId), eq(supplierInvoice.companyId, ctx.company.id)))
+        .for("update")
         .limit(1);
       if (!ownedInvoice) throw new Error("SUPPLIER_INVOICE_NOT_FOUND");
+      if (ownedInvoice.status === "VOID") throw new Error("SUPPLIER_INVOICE_VOID");
+      await assertFiscalPeriodOpen(ctx.company.id, postedAt, tx);
       if (ownedInvoice.origin === "EXPENSE" && !can(ctx.membership.role, "expense.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
       if (ownedInvoice.origin !== "EXPENSE" && !can(ctx.membership.role, "purchase.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
 
@@ -111,6 +115,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "SUPPLIER_INVOICE_OVERPAYMENT") {
       return NextResponse.json({ message: "El importe supera el saldo pendiente de la factura de proveedor." }, { status: 400 });
     }
+    if (error instanceof Error && error.message === "SUPPLIER_INVOICE_VOID") return NextResponse.json({ message: "No se puede pagar una factura anulada." }, { status: 409 });
     throw error;
   }
 }

@@ -52,7 +52,7 @@ describe("journal line balance validation", () => {
   it("requires at least two active journal lines", () => {
     expect(() => validateJournalLines([
       { accountId: "cash", debit: "100", credit: "" },
-    ])).toThrow("al menos dos lineas");
+    ])).toThrow("al menos dos líneas");
 
     expect(() => validateJournalLines([
       { accountId: "cash", debit: "100", credit: "" },

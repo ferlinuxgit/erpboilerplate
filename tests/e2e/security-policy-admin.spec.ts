@@ -7,16 +7,16 @@ test.describe("admin security policy", () => {
     await registerAndSignIn(page, "Security Policy Admin E2E");
 
     await page.goto("/settings/security");
-    await expect(page.getByRole("heading", { name: "Tenant security controls" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Seguridad" })).toBeVisible();
 
-    const currentTimeout = Number(await page.getByLabel("Session timeout (minutes)").inputValue());
+    const currentTimeout = Number(await page.getByLabel("Tiempo de sesión (minutos)").inputValue());
     const timeoutMinutes = `${Number.isFinite(currentTimeout) && currentTimeout >= 5 && currentTimeout < 1440 ? currentTimeout + 1 : 45}`;
-    await page.getByLabel("Session timeout (minutes)").fill(timeoutMinutes);
-    await page.getByLabel("Enabled").check();
-    await page.getByRole("button", { name: "Save security policy" }).click();
+    await page.getByLabel("Tiempo de sesión (minutos)").fill(timeoutMinutes);
+    await page.getByRole("radio", { name: "Activo", exact: true }).check();
+    await page.getByRole("button", { name: "Guardar política" }).click();
 
-    await expect(page.getByText("Security policy updated and audited.")).toBeVisible();
-    await expect(page.getByLabel("Current security policy state").getByText(`${timeoutMinutes} minutes`)).toBeVisible();
+    await expect(page.getByText("Política actualizada y auditada.")).toBeVisible();
+    await expect(page.getByText(`${timeoutMinutes} minutos`).first()).toBeVisible();
 
     await page.goto("/settings/audit");
     await expect(page.getByText(/security_policy\.(created|updated)/).first()).toBeVisible();

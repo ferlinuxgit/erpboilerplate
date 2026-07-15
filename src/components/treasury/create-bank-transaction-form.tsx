@@ -14,10 +14,12 @@ type AccountOption = { id: string; bankName: string; iban: string };
 
 type CreateBankTransactionFormProps = {
   accounts: AccountOption[];
+  onCancel?: () => void;
+  onSuccess?: () => void;
   redirectHref?: string;
 };
 
-export function CreateBankTransactionForm({ accounts, redirectHref }: CreateBankTransactionFormProps) {
+export function CreateBankTransactionForm({ accounts, onCancel, onSuccess, redirectHref }: CreateBankTransactionFormProps) {
   const router = useRouter();
   const [bankAccountId, setBankAccountId] = useState(accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -45,7 +47,9 @@ export function CreateBankTransactionForm({ accounts, redirectHref }: CreateBank
           setDescription("");
           setPostedAt("");
           toast.success("Movimiento bancario creado correctamente.");
-          if (redirectHref) {
+          if (onSuccess) {
+            onSuccess();
+          } else if (redirectHref) {
             router.push(redirectHref);
           } else {
             router.refresh();
@@ -106,7 +110,7 @@ export function CreateBankTransactionForm({ accounts, redirectHref }: CreateBank
           aria-describedby={errorId}
         />
       </div>
-      <Button className="md:col-span-4" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear movimiento"}</Button>
+      <div className="flex flex-col-reverse gap-2 md:col-span-4 sm:flex-row sm:justify-end">{onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear movimiento"}</Button></div>
       {error ? <InlineAlert id="bank-transaction-error" className="md:col-span-4" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );

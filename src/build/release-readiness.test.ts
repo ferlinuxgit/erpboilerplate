@@ -42,9 +42,8 @@ describe("release configuration templates", () => {
   it("documents all build, runtime, optional integration, and E2E env names without secrets", () => {
     const requiredKeys = [
       "DATABASE_URL",
-      "BETTER_AUTH_SECRET",
-      "BETTER_AUTH_URL",
-      "NEXT_PUBLIC_BETTER_AUTH_URL",
+      "JWT_SECRET",
+      "APP_URL",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
       "NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID",

@@ -24,9 +24,8 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erpboilerplate_ci
-      BETTER_AUTH_SECRET: ci-build-secret-with-at-least-32-characters
-      BETTER_AUTH_URL: http://127.0.0.1:3000
-      NEXT_PUBLIC_BETTER_AUTH_URL: http://127.0.0.1:3000
+      JWT_SECRET: ci-build-secret-with-at-least-32-characters
+      APP_URL: http://127.0.0.1:3000
       PORT: "3000"
       E2E_DATABASE_PORT: "55432"
     steps:
@@ -63,8 +62,7 @@ jobs:
           # smoke step starts `next start`; killing the npm wrapper can leave the
           # child Next process bound to 3000 on GitHub-hosted runners.
           PORT: "3001"
-          BETTER_AUTH_URL: http://127.0.0.1:3001
-          NEXT_PUBLIC_BETTER_AUTH_URL: http://127.0.0.1:3001
+          APP_URL: http://127.0.0.1:3001
           E2E_ALLOWED_SKIPS: ""
         run: npm run test:e2e
       - name: Upload Playwright HTML report

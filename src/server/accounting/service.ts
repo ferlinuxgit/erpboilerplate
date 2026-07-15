@@ -4,6 +4,7 @@ import { accountChart, company, journal, journalEntry, journalLine } from "@/db/
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
 import { validateJournalLines, type JournalLineInput } from "@/server/accounting/journal-validation";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 
 export async function getTrialBalance(companyId: string) {
   return db
@@ -152,6 +153,7 @@ export async function createJournalEntry(
   payload: { postedAt: Date; reference?: string; lines: JournalLineInput[] },
 ) {
   const { lines } = validateJournalLines(payload.lines);
+  await assertFiscalPeriodOpen(companyId, payload.postedAt);
   await assertAccountsBelongToCompany(companyId, lines);
   const defaultJournal = await ensureDefaultJournal(companyId);
 
@@ -177,7 +179,11 @@ export async function updateJournalEntry(
   payload: { postedAt: Date; reference?: string; lines: JournalLineInput[] },
 ) {
   const { lines } = validateJournalLines(payload.lines);
+  await assertFiscalPeriodOpen(companyId, payload.postedAt);
   await assertAccountsBelongToCompany(companyId, lines);
+
+  const [editable] = await db.select({ isAutomatic: journalEntry.isAutomatic }).from(journalEntry).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).limit(1);
+  if (editable?.isAutomatic) throw new Error("Los asientos automáticos no se pueden editar; corrige el documento de origen.");
 
   const updated = await db.transaction(async (tx) => {
     const [entry] = await tx.update(journalEntry).set({ postedAt: payload.postedAt, reference: payload.reference ?? null }).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).returning();
@@ -197,6 +203,10 @@ export async function updateJournalEntry(
 }
 
 export async function deleteJournalEntry(companyId: string, tenantId: string, actorUserId: string, id: string) {
+  const [editable] = await db.select({ postedAt: journalEntry.postedAt, isAutomatic: journalEntry.isAutomatic }).from(journalEntry).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).limit(1);
+  if (!editable) return false;
+  if (editable.isAutomatic) throw new Error("Los asientos automáticos no se pueden eliminar; corrige el documento de origen.");
+  await assertFiscalPeriodOpen(companyId, editable.postedAt);
   const [deleted] = await db.delete(journalEntry).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).returning({ id: journalEntry.id });
   if (!deleted) return false;
   await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.delete", entityName: "journalEntry", entityId: id });

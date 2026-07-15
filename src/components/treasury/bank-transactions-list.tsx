@@ -8,6 +8,7 @@ import { reconciliationStatusLabels, statusLabel } from "@/lib/status-labels";
 
 type BankTransactionRow = {
   id: string;
+  bankAccountId: string;
   bankName: string;
   iban: string;
   amount: string;
@@ -17,12 +18,13 @@ type BankTransactionRow = {
 };
 
 type BankTransactionsListProps = {
+  accounts: { id: string; bankName: string; iban: string }[];
   canManage?: boolean;
   currencyCode: string;
   rows: BankTransactionRow[];
 };
 
-const columns = (currencyCode: string, canManage: boolean): ResourceListColumn<BankTransactionRow>[] => [
+const columns = (currencyCode: string, canManage: boolean, accounts: BankTransactionsListProps["accounts"]): ResourceListColumn<BankTransactionRow>[] => [
   {
     header: "Movimiento",
     cell: (row) => (
@@ -60,17 +62,17 @@ const columns = (currencyCode: string, canManage: boolean): ResourceListColumn<B
     ? [
         {
           header: "Acciones",
-          cell: (row: BankTransactionRow) => <BankTransactionRowActions id={row.id} />,
+          cell: (row: BankTransactionRow) => <BankTransactionRowActions accounts={accounts} transaction={row} />,
           className: "text-right",
         },
       ]
     : []),
 ];
 
-export function BankTransactionsList({ canManage = true, currencyCode, rows }: BankTransactionsListProps) {
+export function BankTransactionsList({ accounts, canManage = true, currencyCode, rows }: BankTransactionsListProps) {
   return (
     <ResourceList
-      columns={columns(currencyCode, canManage)}
+      columns={columns(currencyCode, canManage, accounts)}
       emptyDescription="Registra movimientos bancarios para controlar cobros, pagos y conciliación."
       emptyTitle="Sin movimientos bancarios."
       exportFileName="movimientos-bancarios.csv"
@@ -87,7 +89,7 @@ export function BankTransactionsList({ canManage = true, currencyCode, rows }: B
               {statusLabel(reconciliationStatusLabels, row.reconciliationStatus)}
             </StatusBadge>
           </div>
-          <BankTransactionRowActions id={row.id} />
+          <BankTransactionRowActions accounts={accounts} transaction={row} />
         </div>
       )}
       searchPlaceholder="Buscar movimiento por banco, concepto, importe o estado"

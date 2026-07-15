@@ -10,7 +10,7 @@ export default function Home() {
         <CardHeader className="space-y-4">
           <CardTitle className="text-3xl">ERP SaaS Starter</CardTitle>
           <CardDescription>
-            Base con Next.js, Tailwind, shadcn/ui, better-auth y PostgreSQL para empezar tu producto.
+            ERP con Next.js, Tailwind, shadcn/ui y PostgreSQL para gestionar tu empresa.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">

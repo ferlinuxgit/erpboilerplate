@@ -88,7 +88,7 @@ describe("security policy state and auditing", () => {
     const apiRotation = state.controls.find((control) => control.key === "apiKeyRotationDays");
 
     expect(sessionTimeout?.status).toBe("enabled");
-    expect(sessionTimeout?.summary).toContain("30 minutes");
+    expect(sessionTimeout?.summary).toContain("30 minutos");
     expect(twoFactor?.status).toBe("not_configured");
     expect(apiRotation?.status).toBe("enabled");
     expect(state.controls.find((control) => control.key === "allowedDomains")?.status).toBe("enabled");

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     actor: { id: session.user.id, email: session.user.email },
     context: { tenantId: ctx.tenant.id, companyId: ctx.company.id },
     stripeCustomerId,
-    baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    baseUrl: process.env.APP_URL ?? "http://localhost:3000",
   });
   return NextResponse.json({ url: portal.url });
 }

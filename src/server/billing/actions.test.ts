@@ -26,6 +26,8 @@ describe("billing action auditing", () => {
     expect(createCheckoutSession).toHaveBeenCalledWith({
       customerEmail: "owner@example.com",
       priceId: "price_business",
+      tenantId: "tenant_1",
+      planCode: undefined,
       successUrl: "https://erp.example.com/billing",
       cancelUrl: "https://erp.example.com/billing",
     });

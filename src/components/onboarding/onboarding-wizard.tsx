@@ -58,7 +58,7 @@ export function OnboardingWizard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link className={buttonVariants()} href="/customers">
+          <Link className={buttonVariants()} href="/customers/new">
             Crear primer cliente
           </Link>
           <Link className={buttonVariants({ variant: "outline" })} href="/dashboard">

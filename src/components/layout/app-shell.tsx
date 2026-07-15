@@ -3,7 +3,7 @@
 import { Menu, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ActiveContextSwitcher } from "@/components/layout/active-context-switcher";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
@@ -106,8 +106,29 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [navQuery, setNavQuery] = useState("");
-  const isPublicRoute = pathname === "/" || pathname.startsWith("/auth");
+  const mobileDrawerRef = useRef<HTMLDivElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const isPublicRoute = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/invitations/");
   const currentLink = links.find((link) => isActiveRoute(pathname, link.href));
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const menuButton = mobileMenuButtonRef.current;
+    document.body.style.overflow = "hidden";
+    mobileDrawerRef.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(mobileDrawerRef.current?.querySelectorAll<HTMLElement>("a[href],button:not([disabled]),input,select,[tabindex]:not([tabindex='-1'])") ?? []);
+      if (focusable.length === 0) return;
+      const first = focusable[0]; const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", onKeyDown); menuButton?.focus(); };
+  }, [mobileNavOpen]);
 
   if (isPublicRoute) {
     return <div className="flex-1">{children}</div>;
@@ -159,6 +180,7 @@ export function AppShell({ children }: AppShellProps) {
             aria-label="Abrir navegación"
             className={cn(buttonVariants({ variant: "outline", size: "icon" }), "shrink-0")}
             onClick={() => setMobileNavOpen(true)}
+            ref={mobileMenuButtonRef}
             type="button"
           >
             <Menu aria-hidden="true" />
@@ -184,6 +206,7 @@ export function AppShell({ children }: AppShellProps) {
               className="relative flex h-full w-[min(22rem,calc(100vw-2rem))] flex-col border-r bg-background p-4 shadow-xl"
               id="mobile-navigation-drawer"
               role="dialog"
+              ref={mobileDrawerRef}
             >
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>

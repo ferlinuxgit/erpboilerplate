@@ -15,11 +15,17 @@ async function registerAndSignIn(page: Page, email: string) {
 }
 
 async function createAccount(page: Page, code: string, name: string, type: string) {
-  await page.getByPlaceholder("Codigo").fill(code);
-  await page.getByPlaceholder("Nombre").fill(name);
-  await page.locator("form").filter({ has: page.getByRole("button", { name: "Crear cuenta" }) }).locator("select").selectOption(type);
-  await page.getByRole("button", { name: "Crear cuenta" }).click();
-  await expect(page.getByText(`${code} - ${name} (${type})`)).toBeVisible();
+  await page.goto("/accounting");
+  await page.getByRole("button", { name: "Nueva cuenta" }).click();
+  const dialog = page.getByRole("dialog", { name: "Nueva cuenta contable" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Código").fill(code);
+  await dialog.getByLabel("Nombre").fill(name);
+  await dialog.getByLabel("Tipo").selectOption(type);
+  await dialog.getByRole("button", { name: "Crear cuenta" }).click();
+  await expect(page).toHaveURL(/\/accounting$/);
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(new RegExp(`${code}.*${name}`)).first()).toBeVisible();
 }
 
 test("journal entry form creates a balanced multi-line entry and exposes ledger impact", async ({ page }, testInfo) => {
@@ -31,14 +37,16 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
   await createAccount(page, "4770", "IVA repercutido", "LIABILITY");
 
   await expect(page.getByRole("link", { name: "Ver mayor" }).first()).toBeVisible();
-  await page.getByLabel("Fecha").fill("2026-05-09");
+  await page.goto("/accounting/entries/new");
+  const dateInput = page.getByLabel("Fecha");
+  await dateInput.fill("2026-05-09");
   await page.getByLabel("Referencia").fill("E2E-BALANCE");
-  await page.getByLabel("Cuenta linea 1").selectOption({ label: "1000 - Caja" });
+  await page.getByLabel("Cuenta de la línea 1").selectOption({ label: "1000 - Caja" });
   await page.getByLabel("Debe").first().fill("100");
-  await page.getByLabel("Cuenta linea 2").selectOption({ label: "7000 - Ventas" });
+  await page.getByLabel("Cuenta de la línea 2").selectOption({ label: "7000 - Ventas" });
   await page.getByLabel("Haber").nth(1).fill("80");
-  await page.getByRole("button", { name: "Anadir linea" }).click();
-  await page.getByLabel("Cuenta linea 3").selectOption({ label: "4770 - IVA repercutido" });
+  await page.getByRole("button", { name: "Añadir línea" }).click();
+  await page.getByLabel("Cuenta de la línea 3").selectOption({ label: "4770 - IVA repercutido" });
   await page.getByLabel("Haber").nth(2).fill("19");
 
   await expect(page.getByText(/Desbalanceado/)).toBeVisible();
@@ -46,6 +54,10 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
   await expect(page.getByRole("button", { name: "Crear asiento" })).toBeDisabled();
 
   await page.getByLabel("Haber").nth(2).fill("20");
+  // Reassert the required date after adding dynamic lines; this also guards
+  // against a pre-hydration edit being replaced by the controlled input state.
+  await dateInput.fill("2026-05-09");
+  await expect(dateInput).toHaveValue("2026-05-09");
   await expect(page.getByText(/Balanceado/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Crear asiento" })).toBeEnabled();
   await page.getByRole("button", { name: "Crear asiento" }).click();

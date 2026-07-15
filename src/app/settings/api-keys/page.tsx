@@ -21,7 +21,7 @@ export default async function ApiKeysPage() {
       <PageHeader
         eyebrow="Administración"
         title="API"
-        description={`Documentación y credenciales técnicas del tenant ${ctx.tenant.name} para conectar otros programas.`}
+        description={`Documentación y credenciales técnicas del espacio ${ctx.tenant.name} para conectar otros programas.`}
         meta={<StatusBadge tone={canManage ? "success" : "warning"}>{canManage ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
       />
       <PageSection title="Documentación de endpoints" description="Contratos disponibles para clientes, facturas y generación de PDF.">

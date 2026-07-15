@@ -29,17 +29,17 @@ export default async function MastersSettingsPage() {
         actions={<a className={buttonVariants({ variant: "outline" })} href="/settings/company">Editar empresa</a>}
       />
       <PageSection
-        title="Configuracion de empresa"
-        description="Estado de los ajustes necesarios para operar sin introducir codigos contables a mano."
+        title="Configuración de empresa"
+        description="Estado de los ajustes necesarios para operar sin introducir códigos contables a mano."
       >
         <CompanyDefaultsPanel initialStatus={defaultsStatus} />
       </PageSection>
       <PageSection title="Catálogos base" description="Mantén unidades, impuestos, series, diarios y datos maestros alineados con la operación.">
         <MastersPanel />
       </PageSection>
-      <PageSection title="Avanzado" description="Catalogo contable predefinido para revisar o completar cuentas y diarios concretos.">
+      <PageSection title="Avanzado" description="Catálogo contable predefinido para revisar o completar cuentas y diarios concretos.">
         <details>
-          <summary className="cursor-pointer text-sm font-medium">Ver catalogo contable de la plantilla</summary>
+          <summary className="cursor-pointer text-sm font-medium">Ver catálogo contable de la plantilla</summary>
           <div className="mt-4">
             <AccountingMastersForm
               catalogAccounts={template?.accounts ?? []}

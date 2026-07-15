@@ -29,8 +29,8 @@ for (const viewport of viewports) {
         if (viewport.name === "desktop") {
           await expect(page.getByTestId("desktop-sidebar")).toBeVisible();
           await expect(page.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
-          await expect(page.getByText("Operación", { exact: true })).toBeVisible();
-          await expect(page.getByText("Administración", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Operación", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Administración", { exact: true })).toBeVisible();
           await expect(page.getByTestId("context-switcher-desktop")).toBeVisible();
           await expect(activeLink).toBeVisible();
         } else {

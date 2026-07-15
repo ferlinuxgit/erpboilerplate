@@ -9,10 +9,12 @@ import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 type CreateBankAccountFormProps = {
+  onCancel?: () => void;
+  onSuccess?: () => void;
   redirectHref?: string;
 };
 
-export function CreateBankAccountForm({ redirectHref }: CreateBankAccountFormProps = {}) {
+export function CreateBankAccountForm({ onCancel, onSuccess, redirectHref }: CreateBankAccountFormProps = {}) {
   const router = useRouter();
   const [iban, setIban] = useState("");
   const [bankName, setBankName] = useState("");
@@ -34,7 +36,9 @@ export function CreateBankAccountForm({ redirectHref }: CreateBankAccountFormPro
           if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");
           setIban("");
           setBankName("");
-          if (redirectHref) {
+          if (onSuccess) {
+            onSuccess();
+          } else if (redirectHref) {
             router.push(redirectHref);
           } else {
             router.refresh();
@@ -52,8 +56,9 @@ export function CreateBankAccountForm({ redirectHref }: CreateBankAccountFormPro
       <AccessibleField id="bank-account-iban" label="IBAN" required>
         <Input id="bank-account-iban" value={iban} onChange={(e) => setIban(e.target.value)} placeholder="ES00 0000 0000 0000 0000 0000" required />
       </AccessibleField>
-      <div className="self-end">
-        <Button className="w-full" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear cuenta"}</Button>
+      <div className="flex gap-2 self-end md:justify-end">
+        {onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}
+        <Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear cuenta"}</Button>
       </div>
       {error ? <InlineAlert className="md:col-span-3" tone="danger">{error}</InlineAlert> : null}
     </form>

@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 
-import { stockMovement } from "@/db/schema";
+import { stockLocation, stockMovement } from "@/db/schema";
 import { db } from "@/lib/db";
 
 import { buildStockMovementEntries, type StockMovementOperationInput } from "./movements";
@@ -32,7 +32,22 @@ export async function registerStockMovementOperation(input: StockMovementOperati
       if (hasSameWarehouseContext) return matchingExisting;
     }
 
-    const created = await tx.insert(stockMovement).values(entries).returning();
+    for (const entry of entries) {
+      const stockDelta = entry.movementType === "OUT" ? -Math.abs(Number(entry.quantity)) : Number(entry.quantity);
+      if (stockDelta >= 0) continue;
+      const [location] = await tx
+        .select({ currentQuantity: stockLocation.currentQuantity })
+        .from(stockLocation)
+        .where(and(eq(stockLocation.companyId, input.companyId), eq(stockLocation.itemId, input.itemId), eq(stockLocation.warehouseId, entry.warehouseId)))
+        .for("update")
+        .limit(1);
+      if (Number(location?.currentQuantity ?? 0) + stockDelta < -0.0005) throw new Error("Stock insuficiente para completar la salida o transferencia.");
+    }
+
+    const created = await tx.insert(stockMovement).values(entries).onConflictDoNothing().returning();
+    if (created.length !== entries.length && reference) {
+      return tx.select().from(stockMovement).where(and(eq(stockMovement.companyId, input.companyId), eq(stockMovement.itemId, input.itemId), eq(stockMovement.movementType, input.movementType), eq(stockMovement.reference, reference)));
+    }
 
     await Promise.all(
       Array.from(warehouseIds).map((warehouseId) =>

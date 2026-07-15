@@ -60,7 +60,7 @@ export function AccountingMastersForm({
   if (catalogAccounts.length === 0 && catalogJournals.length === 0) {
     return (
       <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-        No hay un catalogo contable automatico para el pais de esta empresa.
+        No hay un catálogo contable automático para el país de esta empresa.
       </p>
     );
   }
@@ -157,7 +157,7 @@ export function AccountingMastersForm({
         <div className="space-y-2">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-medium">Catalogo de cuentas</p>
+              <p className="text-sm font-medium">Catálogo de cuentas</p>
               <p className="text-sm text-muted-foreground">Busca por código, nombre, tipo o uso. Las cuentas ya existentes aparecen bloqueadas.</p>
             </div>
             <Input
@@ -197,7 +197,7 @@ export function AccountingMastersForm({
         <div className="space-y-2">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-medium">Catalogo de diarios</p>
+              <p className="text-sm font-medium">Catálogo de diarios</p>
               <p className="text-sm text-muted-foreground">Selecciona los diarios operativos que necesita la empresa.</p>
             </div>
             <Input
@@ -243,7 +243,7 @@ export function AccountingMastersForm({
           onClick={submit}
           type="button"
         >
-          {loading ? "Creando..." : "Crear configuración recomendada"}
+          {loading ? "Creando…" : "Crear configuración recomendada"}
         </Button>
       </div>
     </div>

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
@@ -92,9 +93,8 @@ export function EditInvoiceForm({
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <div className="space-y-2">
         <Label htmlFor="invoice-status">Estado</Label>
-        <select
+        <Select
           id="invoice-status"
-          className="h-8 rounded-md border px-2 text-sm"
           aria-invalid={Boolean(errors.status)}
           aria-describedby={statusErrorId}
           {...register("status")}
@@ -104,7 +104,7 @@ export function EditInvoiceForm({
               {statusLabel(invoiceStatusLabels, status)}
             </option>
           ))}
-        </select>
+        </Select>
         {errors.status ? (
           <p id="invoice-status-error" className="text-sm text-red-600" role="alert">
             {errors.status.message}

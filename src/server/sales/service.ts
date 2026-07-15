@@ -5,7 +5,6 @@ import {
   customer,
   deliveryNote,
   deliveryNoteLine,
-  documentSeries,
   invoice,
   invoiceLine,
   salesOrder,
@@ -13,13 +12,14 @@ import {
   salesQuote,
   salesQuoteLine,
   stockMovement,
+  stockLocation,
   warehouse,
 } from "@/db/schema";
 import { db } from "@/lib/db";
-import { formatSeriesNumber } from "@/lib/document-series-format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
+import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshStockLocation } from "@/server/inventory/stock-location";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
@@ -45,41 +45,8 @@ export function assertDeliveryCanConvertToInvoice(status: SalesDocumentStatus) {
   assertSalesTransitionAllowed(getDeliveryNoteTransition(status));
 }
 
-async function reserveDocumentNumber(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  companyId: string,
-  fiscalYearId: string,
-  type: SeriesType,
-  referenceDate?: Date | string | null,
-) {
-  const [series] = await tx
-    .select()
-    .from(documentSeries)
-    .where(
-      and(
-        eq(documentSeries.companyId, companyId),
-        eq(documentSeries.fiscalYearId, fiscalYearId),
-        eq(documentSeries.type, type),
-      ),
-    )
-    .limit(1);
-
-  if (!series) {
-    throw new Error(`No existe serie para ${type}.`);
-  }
-
-  const reservedNumber = formatSeriesNumber({
-    format: series.format,
-    nextNumber: series.nextNumber,
-    prefix: series.prefix,
-    referenceDate,
-  });
-  await tx
-    .update(documentSeries)
-    .set({ nextNumber: series.nextNumber + 1 })
-    .where(eq(documentSeries.id, series.id));
-
-  return reservedNumber;
+async function reserveDocumentNumber(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], companyId: string, fiscalYearId: string, type: SeriesType, referenceDate?: Date | string | null) {
+  return reserveSeriesNumber(tx, { companyId, fiscalYearId, type, referenceDate });
 }
 
 function finiteMoney(value: unknown): number | null {
@@ -153,6 +120,7 @@ export async function convertQuoteToOrder(input: {
       .select()
       .from(salesQuote)
       .where(and(eq(salesQuote.id, input.quoteId), eq(salesQuote.companyId, input.companyId)))
+      .for("update")
       .limit(1);
     if (!quote) throw new Error("Presupuesto no encontrado.");
     assertQuoteCanConvert(quote.status as SalesDocumentStatus);
@@ -214,6 +182,7 @@ export async function convertOrderToDelivery(input: {
       .select()
       .from(salesOrder)
       .where(and(eq(salesOrder.id, input.salesOrderId), eq(salesOrder.companyId, input.companyId)))
+      .for("update")
       .limit(1);
     if (!order) throw new Error("Pedido no encontrado.");
     assertSalesTransitionAllowed(getSalesOrderTransition(order.status as SalesDocumentStatus));
@@ -258,6 +227,15 @@ export async function convertOrderToDelivery(input: {
 
     for (const line of insertedLines) {
       if (!line.itemId) continue;
+      const [location] = await tx
+        .select({ currentQuantity: stockLocation.currentQuantity })
+        .from(stockLocation)
+        .where(and(eq(stockLocation.companyId, input.companyId), eq(stockLocation.itemId, line.itemId), eq(stockLocation.warehouseId, ownedWarehouse.id)))
+        .for("update")
+        .limit(1);
+      if (Number(location?.currentQuantity ?? 0) + 0.0005 < Number(line.quantity)) {
+        throw new Error(`Stock insuficiente para entregar ${line.description}.`);
+      }
       await tx.insert(stockMovement).values({
         companyId: input.companyId,
         itemId: line.itemId,
@@ -265,6 +243,8 @@ export async function convertOrderToDelivery(input: {
         movementType: "OUT",
         quantity: line.quantity,
         movedAt: new Date(),
+        reason: "Entrega de pedido de venta",
+        reference: `delivery-note:${created.id}`,
       });
       await refreshStockLocation({ companyId: input.companyId, itemId: line.itemId, warehouseId: ownedWarehouse.id }, tx);
     }

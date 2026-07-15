@@ -123,36 +123,36 @@ export function getSecurityPolicyState(record: TenantSecurityPolicyRecord | null
         key: "sessionTimeoutMinutes",
         status: numericStatus(values.sessionTimeoutMinutes),
         value: values.sessionTimeoutMinutes,
-        label: "Session timeout",
-        summary: values.sessionTimeoutMinutes ? `${values.sessionTimeoutMinutes} minutes` : "Not configured",
+        label: "Tiempo máximo de sesión",
+        summary: values.sessionTimeoutMinutes ? `${values.sessionTimeoutMinutes} minutos` : "Sin configurar",
       },
       {
         key: "requireTwoFactor",
         status: booleanStatus(values.requireTwoFactor),
         value: values.requireTwoFactor,
-        label: "Two-factor authentication",
-        summary: values.requireTwoFactor === null ? "Not configured" : values.requireTwoFactor ? "Required" : "Disabled",
+        label: "Autenticación de doble factor",
+        summary: values.requireTwoFactor === null ? "Sin configurar" : values.requireTwoFactor ? "Obligatoria" : "Desactivada",
       },
       {
         key: "apiKeyRotationDays",
         status: numericStatus(values.apiKeyRotationDays),
         value: values.apiKeyRotationDays,
-        label: "API key rotation",
-        summary: values.apiKeyRotationDays ? `Every ${values.apiKeyRotationDays} days` : "Not configured",
+        label: "Rotación de claves API",
+        summary: values.apiKeyRotationDays ? `Cada ${values.apiKeyRotationDays} días` : "Sin configurar",
       },
       {
         key: "allowedDomains",
         status: textStatus(values.allowedDomains),
         value: values.allowedDomains,
-        label: "Allowed domains",
-        summary: values.allowedDomains ?? "Not configured",
+        label: "Dominios permitidos",
+        summary: values.allowedDomains ?? "Sin configurar",
       },
       {
         key: "allowedIpNotes",
         status: textStatus(values.allowedIpNotes),
         value: values.allowedIpNotes,
-        label: "Allowed IP policy",
-        summary: values.allowedIpNotes ?? "Not configured",
+        label: "Política de acceso por IP",
+        summary: values.allowedIpNotes ?? "Sin configurar",
       },
     ],
   };
@@ -216,12 +216,15 @@ export async function updateTenantSecurityPolicy(params: {
   payload: unknown;
   store?: SecurityPolicyStore;
   audit?: AuditWriter;
-}): Promise<{ status: 200 | 201 | 403; policy?: SecurityPolicyState; changes?: SecurityPolicyChange[]; error?: string }> {
+}): Promise<{ status: 200 | 201 | 400 | 403; policy?: SecurityPolicyState; changes?: SecurityPolicyChange[]; error?: string }> {
   if (!can(params.role, "settings.manage")) {
     return { status: 403, error: "Sin permisos para cambiar la política de seguridad." };
   }
 
   const values = securityPolicyPayloadSchema.parse(params.payload);
+  if (values.requireTwoFactor && process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY) {
+    return { status: 400, error: "Configura RESEND_API_KEY antes de exigir doble factor por email." };
+  }
   const store = params.store ?? drizzleSecurityPolicyStore;
   const audit = params.audit ?? recordAudit;
   const existing = await store.findByTenantId(params.tenantId);

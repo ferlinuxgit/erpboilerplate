@@ -17,7 +17,7 @@ export default async function AuditPage() {
         title="Auditoría"
         description={`Últimos eventos sensibles de ${ctx.company.name}; usa este registro para revisar cambios operativos y de seguridad.`}
       />
-      <PageSection title="Eventos recientes" description="Mostramos los 100 eventos más recientes del tenant y empresa activa.">
+      <PageSection title="Eventos recientes" description="Mostramos los 100 eventos más recientes del espacio y la empresa activa.">
         <AuditLogList rows={logs} />
       </PageSection>
     </PageShell>

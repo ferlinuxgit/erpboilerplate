@@ -9,6 +9,7 @@ import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postCustomerPayment } from "@/server/accounting/auto-post";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 
 const payloadSchema = z.object({
   invoiceId: z.string().trim().min(1),
@@ -47,11 +48,14 @@ export async function POST(request: Request) {
   try {
     const applied = await db.transaction(async (tx) => {
       const [ownedInvoice] = await tx
-        .select({ id: invoice.id, totalAmount: invoice.totalAmount })
+        .select({ id: invoice.id, totalAmount: invoice.totalAmount, status: invoice.status })
         .from(invoice)
         .where(and(eq(invoice.id, parsed.data.invoiceId), eq(invoice.companyId, ctx.company.id)))
+        .for("update")
         .limit(1);
       if (!ownedInvoice) throw new Error("INVOICE_NOT_FOUND");
+      if (ownedInvoice.status === "VOID") throw new Error("INVOICE_VOID");
+      await assertFiscalPeriodOpen(ctx.company.id, postedAt, tx);
 
       const [ownedPaymentMethod] = await tx
         .select({ id: paymentMethod.id })
@@ -120,6 +124,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "INVOICE_OVERPAYMENT") {
       return NextResponse.json({ message: "El importe supera el saldo pendiente de la factura." }, { status: 400 });
     }
+    if (error instanceof Error && error.message === "INVOICE_VOID") return NextResponse.json({ message: "No se puede cobrar una factura anulada." }, { status: 409 });
     if (error instanceof Error && error.message === "PAYMENT_METHOD_NOT_FOUND") {
       return NextResponse.json({ message: "Forma de pago no encontrada." }, { status: 404 });
     }

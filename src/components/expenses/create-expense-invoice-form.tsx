@@ -635,9 +635,11 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateE
       ) : null}
     </form>
     <Dialog
+      description="Busca un proveedor existente o prepara uno nuevo para este gasto."
       initialFocusId={supplierDialogMode === "search" ? "expense-supplier-search" : "expense-new-supplier-name"}
       onClose={() => setSupplierDialogOpen(false)}
       open={supplierDialogOpen}
+      size="xl"
       title="Seleccionar proveedor"
     >
       {supplierDialogMode === "choice" ? (

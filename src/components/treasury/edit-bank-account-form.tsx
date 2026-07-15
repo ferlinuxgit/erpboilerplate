@@ -3,10 +3,12 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
-export function EditBankAccountForm({ id, defaultBankName, defaultIban }: { id: string; defaultBankName: string; defaultIban: string }) {
+export function EditBankAccountForm({ id, defaultBankName, defaultIban, onCancel, onSuccess }: { id: string; defaultBankName: string; defaultIban: string; onCancel?: () => void; onSuccess?: () => void }) {
   const router = useRouter();
   const [bankName, setBankName] = useState(defaultBankName);
   const [iban, setIban] = useState(defaultIban);
@@ -27,8 +29,8 @@ export function EditBankAccountForm({ id, defaultBankName, defaultIban }: { id: 
             body: JSON.stringify({ bankName, iban }),
           });
           if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");
-          router.push("/treasury");
-          router.refresh();
+          if (onSuccess) onSuccess();
+          else { router.push("/treasury"); router.refresh(); }
         } catch (e) {
           setError(e instanceof Error ? e.message : "Error inesperado.");
         } finally {
@@ -36,10 +38,10 @@ export function EditBankAccountForm({ id, defaultBankName, defaultIban }: { id: 
         }
       }}
     >
-      <Input value={bankName} onChange={(e) => setBankName(e.target.value)} required />
-      <Input value={iban} onChange={(e) => setIban(e.target.value)} required />
-      <Button type="submit" disabled={loading}>{loading ? "Guardando..." : "Guardar cambios"}</Button>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      <AccessibleField id={`edit-bank-name-${id}`} label="Banco" required><Input id={`edit-bank-name-${id}`} value={bankName} onChange={(e) => setBankName(e.target.value)} required /></AccessibleField>
+      <AccessibleField id={`edit-bank-iban-${id}`} label="IBAN" required><Input id={`edit-bank-iban-${id}`} value={iban} onChange={(e) => setIban(e.target.value)} required /></AccessibleField>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button></div>
+      {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

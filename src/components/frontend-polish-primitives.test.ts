@@ -29,12 +29,29 @@ describe("frontend polish primitives", () => {
 
     expect(deleteButton).not.toMatch(/window\.(confirm|alert)\(/);
     expect(deleteButton).toContain("DestructiveActionDialog");
-    expect(dialog).toContain('role="dialog"');
-    expect(dialog).toContain('aria-modal="true"');
-    expect(dialog).toContain("onKeyDown");
+    expect(dialog).toContain("<Dialog");
+    expect(sourceFor("src/components/ui/dialog.tsx")).toContain('role="dialog"');
+    expect(sourceFor("src/components/ui/dialog.tsx")).toContain('aria-modal="true"');
+    expect(sourceFor("src/components/ui/dialog.tsx")).toContain("onKeyDown");
     expect(dialog).toMatch(/role="alert"/);
     expect(deleteButton).toContain("toast.success");
     expect(deleteButton).toContain("toast.error");
+  });
+
+  it("uses one robust dialog system for contextual CRUD actions", () => {
+    const dialog = sourceFor("src/components/ui/dialog.tsx");
+    const accountingDialogs = sourceFor("src/components/accounting/account-dialogs.tsx");
+    const treasuryDialogs = sourceFor("src/components/treasury/bank-dialogs.tsx");
+    const fiscalDialogs = sourceFor("src/components/fiscal/fiscal-report-dialogs.tsx");
+
+    expect(dialog).toContain("createPortal");
+    expect(dialog).toContain('document.body.style.overflow = "hidden"');
+    expect(dialog).toContain("previouslyFocused?.focus()");
+    expect(dialog).toContain('event.key !== "Tab"');
+    expect(dialog).toContain("aria-describedby");
+    expect(accountingDialogs).toContain("CreateAccountDialog");
+    expect(treasuryDialogs).toContain("CreateBankTransactionDialog");
+    expect(fiscalDialogs).toContain("CreateFiscalReportDialog");
   });
 
   it("passes contextual destructive action copy from customer and invoice rows", () => {

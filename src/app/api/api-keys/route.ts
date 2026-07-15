@@ -33,11 +33,12 @@ export async function POST(request: Request) {
   if (!payload) return invalidJsonResponse();
 
   if (!payload.name?.trim()) return NextResponse.json({ message: "Nombre obligatorio." }, { status: 400 });
-  const plainKey = `ak_${crypto.randomUUID().replaceAll("-", "")}`;
+  const keyPrefix = `ak_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const plainKey = `${keyPrefix}_${crypto.randomUUID().replaceAll("-", "")}`;
   const keyHash = await argon2.hash(plainKey);
   const [created] = await db
     .insert(apiKey)
-    .values({ tenantId: ctx.tenant.id, name: payload.name.trim(), keyHash })
+    .values({ tenantId: ctx.tenant.id, companyId: ctx.company.id, keyPrefix, name: payload.name.trim(), keyHash })
     .returning({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt });
   await recordAudit({
     tenantId: ctx.tenant.id,

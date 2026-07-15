@@ -7,6 +7,7 @@ import { getCsrfHeader } from "@/lib/csrf-client";
 import { defaultSeriesFormat, previewSeriesFormat } from "@/lib/document-series-format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 type DocumentSeriesRow = {
   id: string;
@@ -149,10 +150,10 @@ export function MastersPanel() {
       </div>
 
       <div className="space-y-2 rounded-md border p-3">
-        <p className="font-medium">Categorias de item</p>
+        <p className="font-medium">Categorías de artículos</p>
         <div className="grid gap-2 md:grid-cols-3">
-          <Input placeholder="Codigo" value={categoryCode} onChange={(event) => setCategoryCode(event.target.value)} />
-          <Input placeholder="Nombre" value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+          <Input aria-label="Código de categoría" placeholder="Código" value={categoryCode} onChange={(event) => setCategoryCode(event.target.value)} />
+          <Input aria-label="Nombre de categoría" placeholder="Nombre" value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
           <Button disabled={loading} onClick={() => submit("/api/item-categories", { code: categoryCode, name: categoryName }, () => { setCategoryCode(""); setCategoryName(""); })} type="button">Crear</Button>
         </div>
       </div>
@@ -160,27 +161,27 @@ export function MastersPanel() {
       <div className="space-y-2 rounded-md border p-3">
         <p className="font-medium">Unidades de medida</p>
         <div className="grid gap-2 md:grid-cols-3">
-          <Input placeholder="Codigo" value={unitCode} onChange={(event) => setUnitCode(event.target.value)} />
-          <Input placeholder="Nombre" value={unitName} onChange={(event) => setUnitName(event.target.value)} />
+          <Input aria-label="Código de unidad" placeholder="Código" value={unitCode} onChange={(event) => setUnitCode(event.target.value)} />
+          <Input aria-label="Nombre de unidad" placeholder="Nombre" value={unitName} onChange={(event) => setUnitName(event.target.value)} />
           <Button disabled={loading} onClick={() => submit("/api/unit-of-measure", { code: unitCode, name: unitName }, () => { setUnitCode(""); setUnitName(""); })} type="button">Crear</Button>
         </div>
       </div>
 
       <div className="space-y-2 rounded-md border p-3">
-        <p className="font-medium">Metodos de pago</p>
+        <p className="font-medium">Métodos de pago</p>
         <div className="grid gap-2 md:grid-cols-5">
-          <Input placeholder="Codigo" value={paymentCode} onChange={(event) => setPaymentCode(event.target.value)} />
-          <Input placeholder="Nombre" value={paymentName} onChange={(event) => setPaymentName(event.target.value)} />
-          <select className="h-8 rounded-md border px-2 text-sm" value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>
+          <Input aria-label="Código del método de pago" placeholder="Código" value={paymentCode} onChange={(event) => setPaymentCode(event.target.value)} />
+          <Input aria-label="Nombre del método de pago" placeholder="Nombre" value={paymentName} onChange={(event) => setPaymentName(event.target.value)} />
+          <Select aria-label="Tipo de método de pago" value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>
             <option value="BANK_TRANSFER">Transferencia</option>
             <option value="CARD">Tarjeta</option>
             <option value="CASH">Efectivo</option>
-            <option value="DIRECT_DEBIT">Domiciliacion</option>
-          </select>
+            <option value="DIRECT_DEBIT">Domiciliación</option>
+          </Select>
           {paymentType === "BANK_TRANSFER" ? (
             <Input
-              aria-label="Numero de cuenta"
-              placeholder="Numero de cuenta"
+              aria-label="Número de cuenta"
+              placeholder="Número de cuenta"
               value={paymentBankAccountNumber}
               onChange={(event) => setPaymentBankAccountNumber(event.target.value)}
             />
@@ -215,8 +216,8 @@ export function MastersPanel() {
       <div className="space-y-2 rounded-md border p-3">
         <p className="font-medium">Retenciones</p>
         <div className="grid gap-2 md:grid-cols-3">
-          <Input placeholder="Nombre" value={retentionName} onChange={(event) => setRetentionName(event.target.value)} />
-          <Input placeholder="Rate" type="number" step="0.001" value={retentionRate} onChange={(event) => setRetentionRate(event.target.value)} />
+          <Input aria-label="Nombre de la retención" placeholder="Nombre" value={retentionName} onChange={(event) => setRetentionName(event.target.value)} />
+          <Input aria-label="Porcentaje de retención" placeholder="Porcentaje" type="number" step="0.001" value={retentionRate} onChange={(event) => setRetentionRate(event.target.value)} />
           <Button disabled={loading} onClick={() => submit("/api/tax-retentions", { name: retentionName, rate: Number(retentionRate) }, () => { setRetentionName(""); setRetentionRate(""); })} type="button">Crear</Button>
         </div>
       </div>

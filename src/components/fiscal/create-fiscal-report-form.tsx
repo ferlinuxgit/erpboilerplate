@@ -14,10 +14,12 @@ import { fiscalStatusLabels, spanishFiscalModels } from "@/lib/fiscal-spain";
 const statuses = ["DRAFT", "READY", "FILED"] as const;
 
 type CreateFiscalReportFormProps = {
+  onCancel?: () => void;
+  onSuccess?: () => void;
   redirectHref?: string;
 };
 
-export function CreateFiscalReportForm({ redirectHref }: CreateFiscalReportFormProps = {}) {
+export function CreateFiscalReportForm({ onCancel, onSuccess, redirectHref }: CreateFiscalReportFormProps = {}) {
   const router = useRouter();
   const [code, setCode] = useState("303");
   const [period, setPeriod] = useState("");
@@ -27,7 +29,7 @@ export function CreateFiscalReportForm({ redirectHref }: CreateFiscalReportFormP
   const errorId = error ? "fiscal-report-error" : undefined;
 
   return (
-    <form className="grid gap-4 rounded-lg border p-4 md:grid-cols-[minmax(180px,1fr)_minmax(160px,0.7fr)_minmax(140px,0.6fr)_auto]" onSubmit={async (event) => {
+    <form className="grid gap-4 md:grid-cols-3" onSubmit={async (event) => {
       event.preventDefault();
       setError(null);
       setLoading(true);
@@ -45,7 +47,9 @@ export function CreateFiscalReportForm({ redirectHref }: CreateFiscalReportFormP
         setPeriod("");
         setStatus("DRAFT");
         toast.success("Reporte fiscal creado correctamente.");
-        if (redirectHref) {
+        if (onSuccess) {
+          onSuccess();
+        } else if (redirectHref) {
           router.push(redirectHref);
         } else {
           router.refresh();
@@ -96,8 +100,8 @@ export function CreateFiscalReportForm({ redirectHref }: CreateFiscalReportFormP
           {statuses.map((option) => <option key={option} value={option}>{fiscalStatusLabels[option]}</option>)}
         </Select>
       </div>
-      <Button className="self-end" type="submit" disabled={loading}>{loading ? "Guardando..." : "Crear borrador"}</Button>
-      {error ? <InlineAlert id="fiscal-report-error" className="md:col-span-4" role="alert" tone="danger">{error}</InlineAlert> : null}
+      <div className="flex flex-col-reverse gap-2 md:col-span-3 sm:flex-row sm:justify-end">{onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear borrador"}</Button></div>
+      {error ? <InlineAlert id="fiscal-report-error" className="md:col-span-3" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

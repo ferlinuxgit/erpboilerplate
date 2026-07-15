@@ -14,15 +14,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 # Public build-time values. Runtime secrets must be configured in Coolify env vars.
 ARG APP_ORIGIN=http://localhost:3000
-ARG APP_PUBLIC_ORIGIN=http://localhost:3000
 ARG APP_PUBLIC_STRIPE_PRICE_ID=
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build" \
-    BETTER_AUTH_SECRET="build-placeholder-minimum-32-characters" \
-    BETTER_AUTH_URL="$APP_ORIGIN" \
-    NEXT_PUBLIC_BETTER_AUTH_URL="$APP_PUBLIC_ORIGIN" \
+    JWT_SECRET="build-placeholder-minimum-32-characters" \
+    APP_URL="$APP_ORIGIN" \
     NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID="$APP_PUBLIC_STRIPE_PRICE_ID" \
     npm run build
 

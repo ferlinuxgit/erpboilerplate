@@ -6,6 +6,7 @@ import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postBankTransaction } from "@/server/accounting/auto-post";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { createBankTransaction, listBankTransactions } from "@/server/treasury/service";
 
 export async function GET() {
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
   }
 
   const created = await db.transaction(async (tx) => {
+    await assertFiscalPeriodOpen(ctx.company.id, postedAt, tx);
     const createdTransaction = await createBankTransaction(ctx.company.id, ctx.tenant.id, session.user.id, {
       bankAccountId,
       amount: amountValue,

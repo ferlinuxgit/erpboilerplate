@@ -35,10 +35,10 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
       const payload = (await response.json().catch(() => null)) as unknown;
       if (!response.ok || !isCompanyDefaultsStatus(payload)) {
         const message = payload && typeof payload === "object" && "message" in payload ? String(payload.message) : null;
-        throw new Error(message ?? "No se pudo reparar la configuracion.");
+        throw new Error(message ?? "No se pudo reparar la configuración.");
       }
       setStatus(payload);
-      toast.success("Configuracion revisada.");
+      toast.success("Configuración revisada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error inesperado.");
     } finally {
@@ -77,7 +77,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
           {!ready && canRepair ? (
             <Button disabled={loading} onClick={repair} type="button">
               <Wrench />
-              {loading ? "Reparando..." : "Reparar automaticamente"}
+              {loading ? "Reparando…" : "Reparar automáticamente"}
             </Button>
           ) : null}
           {!ready && !canRepair ? (
@@ -92,7 +92,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
       {!compact || !ready ? (
         <details className="mt-4 rounded-md border bg-background/70">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-            {ready ? "Ver detalle de configuracion" : "Ver elementos pendientes"}
+            {ready ? "Ver detalle de configuración" : "Ver elementos pendientes"}
           </summary>
           <div className="grid gap-2 border-t p-3 md:grid-cols-2">
             {status.groups.map((group) => (

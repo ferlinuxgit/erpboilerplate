@@ -55,11 +55,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   if (payload.action === "rotate") {
-    const plainKey = `ak_${crypto.randomUUID().replaceAll("-", "")}`;
+    const keyPrefix = `ak_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+    const plainKey = `${keyPrefix}_${crypto.randomUUID().replaceAll("-", "")}`;
     const keyHash = await argon2.hash(plainKey);
     const [updated] = await db
       .update(apiKey)
-      .set({ keyHash, revokedAt: null })
+      .set({ keyHash, keyPrefix, companyId: auth.ctx.company.id, createdAt: new Date(), revokedAt: null, lastUsedAt: null })
       .where(and(eq(apiKey.id, id), eq(apiKey.tenantId, auth.ctx.tenant.id)))
       .returning({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt });
 

@@ -33,7 +33,9 @@ const child = spawn("node", ["scripts/e2e-web-server.mjs"], {
   cwd: root,
   env: {
     ...process.env,
-    DATABASE_URL: process.env.DATABASE_URL ?? databaseUrl,
+    // E2E is isolated from the build/runtime DATABASE_URL by default. Opt in to
+    // an external test database explicitly; never let tests mutate production.
+    DATABASE_URL: process.env.E2E_DATABASE_URL ?? databaseUrl,
     PGSSLMODE: "disable",
   },
   stdio: "inherit",

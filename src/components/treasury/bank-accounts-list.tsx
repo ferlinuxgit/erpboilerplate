@@ -31,7 +31,7 @@ const columns = (canManage: boolean): ResourceListColumn<BankAccountRow>[] => [
     ? [
         {
           header: "Acciones",
-          cell: (account: BankAccountRow) => <BankAccountRowActions id={account.id} />,
+          cell: (account: BankAccountRow) => <BankAccountRowActions account={account} />,
           className: "text-right",
         },
       ]
@@ -48,6 +48,7 @@ export function BankAccountsList({ canManage = true, rows }: BankAccountsListPro
       getRowId={(account) => account.id}
       getSearchText={(account) => [account.bankName, account.iban].join(" ")}
       items={rows}
+      renderMobileCard={(account) => <div className="space-y-3"><div><p className="font-medium">{account.bankName}</p><p className="break-all text-sm text-muted-foreground">{account.iban}</p></div>{canManage ? <BankAccountRowActions account={account} /> : null}</div>}
       searchPlaceholder="Buscar cuenta por banco o IBAN"
       testId="bank-accounts-list"
       title="Cuentas bancarias"

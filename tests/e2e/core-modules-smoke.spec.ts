@@ -20,13 +20,13 @@ const coreModules: ModuleSmokeCase[] = [
     path: "/customers",
     navLabel: "Clientes",
     heading: "Clientes",
-    evidence: "Listado",
+    evidence: "Clientes registrados",
   },
   {
     path: "/invoices",
     navLabel: "Facturas",
     heading: "Facturas",
-    evidence: "Listado",
+    evidence: "Facturas emitidas",
   },
   {
     path: "/purchases",
@@ -49,7 +49,7 @@ const coreModules: ModuleSmokeCase[] = [
   {
     path: "/treasury",
     navLabel: "Tesorería",
-    heading: "Tesorería y Bancos",
+    heading: "Tesorería y bancos",
     evidence: "Cuentas bancarias",
   },
   {
@@ -61,14 +61,14 @@ const coreModules: ModuleSmokeCase[] = [
   {
     path: "/reporting",
     navLabel: "Informes",
-    heading: "Reporting y BI",
+    heading: "Informes y BI",
     evidence: /KPIs/i,
   },
   {
     path: "/settings/security",
     navLabel: "Seguridad",
-    heading: "Tenant security controls",
-    evidence: "Admin controls enabled",
+    heading: "Seguridad",
+    evidence: "Gestión habilitada",
   },
 ];
 
@@ -80,7 +80,7 @@ async function registerSignInAndSeed(page: Page, runId: string) {
 test.describe("core product module smoke coverage", () => {
   test.beforeEach(async ({ page }, testInfo) => {
     const safeTitle = testInfo.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-    await registerSignInAndSeed(page, `${testInfo.workerIndex}-${safeTitle}-${Date.now()}`);
+    await registerAndSignIn(page, `Core Smoke E2E ${testInfo.workerIndex}-${safeTitle}-${Date.now()}`);
   });
 
   for (const moduleCase of coreModules) {
@@ -119,7 +119,7 @@ test("customers and invoices create flows work after prerequisite onboarding and
 
   await registerSignInAndSeed(page, `create-flow-${runId}`);
 
-  await page.goto("/customers");
+  await page.goto("/customers/new");
   await page.getByTestId("customer-name-input").fill(customerName);
   await page.getByTestId("customer-tax-id-input").fill("B12345674");
   await page.getByTestId("customer-address-input").fill("Calle Smoke 1");

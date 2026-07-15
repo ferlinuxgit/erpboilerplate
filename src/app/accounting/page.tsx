@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AccountsList } from "@/components/accounting/accounts-list";
+import { CreateAccountDialog } from "@/components/accounting/account-dialogs";
 import { JournalEntryRowActions } from "@/components/accounting/journal-entry-row-actions";
 import { CompanyDefaultsPanel } from "@/components/company/company-defaults-panel";
 import { buttonVariants } from "@/components/ui/button";
@@ -43,7 +44,7 @@ export default async function AccountingPage() {
       </section>
 
       {!defaultsStatus.ready ? (
-        <PageSection title="Configuracion necesaria" description="La empresa necesita completar ajustes antes de operar con normalidad.">
+        <PageSection title="Configuración necesaria" description="La empresa necesita completar ajustes antes de operar con normalidad.">
           <CompanyDefaultsPanel
             canRepair={can(ctx.membership.role, "settings.manage")}
             compact
@@ -57,9 +58,7 @@ export default async function AccountingPage() {
         description="Cuentas disponibles y acceso directo al libro mayor."
         actions={
           canWriteAccounting ? (
-            <Link className={buttonVariants()} href="/accounting/accounts/new">
-              Nueva cuenta
-            </Link>
+            <CreateAccountDialog />
           ) : null
         }
         contentClassName="space-y-2"

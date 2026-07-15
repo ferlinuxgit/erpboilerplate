@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -199,8 +200,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
           <label className="text-sm font-medium" htmlFor="api-doc-token">
             Token seleccionado
           </label>
-          <select
-            className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
+          <Select
             id="api-doc-token"
             onChange={(event) => setSelectedTokenId(event.target.value)}
             value={selectedTokenId}
@@ -211,7 +211,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
                 {token.name}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="api-doc-token-secret">

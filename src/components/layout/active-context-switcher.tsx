@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 
 type CompanyOption = {
   id: string;
@@ -23,6 +25,7 @@ type ActiveContextPayload = {
   };
   availableCompanies: CompanyOption[];
   availableFiscalYears: FiscalYearOption[];
+  availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;
 };
 
 export function ActiveContextSwitcher() {
@@ -32,6 +35,8 @@ export function ActiveContextSwitcher() {
   const [fiscalYearId, setFiscalYearId] = useState("");
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [fiscalYears, setFiscalYears] = useState<FiscalYearOption[]>([]);
+  const [fiscalYearsByCompany, setFiscalYearsByCompany] = useState<Record<string, FiscalYearOption[]>>({});
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -43,6 +48,7 @@ export function ActiveContextSwitcher() {
       const payload = (await response.json()) as ActiveContextPayload;
       setCompanies(payload.availableCompanies);
       setFiscalYears(payload.availableFiscalYears);
+      setFiscalYearsByCompany(payload.availableFiscalYearsByCompany);
       setCompanyId(payload.active.companyId);
       setFiscalYearId(payload.active.fiscalYearId);
       setLoading(false);
@@ -51,15 +57,21 @@ export function ActiveContextSwitcher() {
   }, []);
 
   if (loading) {
-    return <p className="text-xs text-muted-foreground">Contexto...</p>;
+    return <p className="text-xs text-muted-foreground">Cargando contexto…</p>;
   }
 
   return (
     <div className="space-y-1">
-      <select
+      <Select
         aria-label="Empresa activa"
-        className="h-8 w-full rounded-md border px-2 text-sm"
-        onChange={(event) => setCompanyId(event.target.value)}
+        onChange={(event) => {
+          const nextCompanyId = event.target.value;
+          const nextYears = fiscalYearsByCompany[nextCompanyId] ?? [];
+          setCompanyId(nextCompanyId);
+          setFiscalYears(nextYears);
+          setFiscalYearId(nextYears[0]?.id ?? "");
+          setError("");
+        }}
         value={companyId}
       >
         {companies.map((company) => (
@@ -67,10 +79,9 @@ export function ActiveContextSwitcher() {
             {company.name}
           </option>
         ))}
-      </select>
-      <select
+      </Select>
+      <Select
         aria-label="Ejercicio fiscal activo"
-        className="h-8 w-full rounded-md border px-2 text-sm"
         onChange={(event) => setFiscalYearId(event.target.value)}
         value={fiscalYearId}
       >
@@ -79,10 +90,11 @@ export function ActiveContextSwitcher() {
             {fiscalYear.code}
           </option>
         ))}
-      </select>
-      <button
-        className="w-full rounded-md border px-2 py-1 text-xs hover:bg-muted"
+      </Select>
+      <Button
+        className="w-full"
         onClick={async () => {
+          setError("");
           const response = await fetch("/api/context/active", {
             method: "PATCH",
             headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -90,12 +102,18 @@ export function ActiveContextSwitcher() {
           });
           if (response.ok) {
             router.refresh();
+          } else {
+            const payload = await response.json().catch(() => null);
+            setError(payload?.message ?? "No se pudo cambiar el contexto.");
           }
         }}
+        size="sm"
         type="button"
+        variant="outline"
       >
         Aplicar
-      </button>
+      </Button>
+      {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
     </div>
   );
 }

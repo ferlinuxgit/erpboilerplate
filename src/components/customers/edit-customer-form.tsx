@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { updateCustomerSchema } from "@/server/schemas/forms";
 
@@ -118,8 +119,7 @@ export function EditCustomerForm({
         <Input id="customer-phone" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? "customer-phone-error" : undefined} {...register("phone")} />
       </AccessibleField>
       <AccessibleField id="customer-status" label="Estado" error={errors.status?.message}>
-        <select
-          className="h-8 rounded-md border px-2 text-sm"
+        <Select
           id="customer-status"
           aria-invalid={Boolean(errors.status)}
           aria-describedby={errors.status ? "customer-status-error" : undefined}
@@ -127,7 +127,7 @@ export function EditCustomerForm({
         >
           <option value="ACTIVE">Activo</option>
           <option value="INACTIVE">Inactivo</option>
-        </select>
+        </Select>
       </AccessibleField>
       <div className="self-end md:col-span-6">
         <Button disabled={isSubmitting} type="submit">

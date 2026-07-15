@@ -1,4 +1,5 @@
-import { boolean, index, integer, numeric, pgEnum, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, check, index, integer, numeric, pgEnum, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export const membershipRoleEnum = pgEnum("membership_role", ["OWNER", "ADMIN", "MEMBER"]);
 export const customerStatusEnum = pgEnum("customer_status", ["ACTIVE", "INACTIVE"]);
@@ -125,14 +126,18 @@ export const company = pgTable("company", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
-export const fiscalYear = pgTable("fiscal_year", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  code: text("code").notNull(),
-  startsAt: timestamp("startsAt", { withTimezone: true, mode: "date" }).notNull(),
-  endsAt: timestamp("endsAt", { withTimezone: true, mode: "date" }).notNull(),
-  isClosed: boolean("isClosed").notNull().default(false),
-});
+export const fiscalYear = pgTable(
+  "fiscal_year",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    startsAt: timestamp("startsAt", { withTimezone: true, mode: "date" }).notNull(),
+    endsAt: timestamp("endsAt", { withTimezone: true, mode: "date" }).notNull(),
+    isClosed: boolean("isClosed").notNull().default(false),
+  },
+  (table) => [unique("fiscal_year_company_code_unique").on(table.companyId, table.code), index("fiscal_year_company_dates_idx").on(table.companyId, table.startsAt, table.endsAt)],
+);
 
 export const country = pgTable("country", {
   code: text("code").primaryKey(),
@@ -187,15 +192,19 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
-export const documentSeries = pgTable("document_series", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
-  type: documentTypeEnum("type").notNull(),
-  prefix: text("prefix").notNull(),
-  format: text("format").notNull().default("{PREFIX}{NUMBER:6}"),
-  nextNumber: integer("nextNumber").notNull().default(1),
-});
+export const documentSeries = pgTable(
+  "document_series",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+    fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
+    type: documentTypeEnum("type").notNull(),
+    prefix: text("prefix").notNull(),
+    format: text("format").notNull().default("{PREFIX}{NUMBER:6}"),
+    nextNumber: integer("nextNumber").notNull().default(1),
+  },
+  (table) => [unique("document_series_company_year_type_unique").on(table.companyId, table.fiscalYearId, table.type)],
+);
 
 export const documentAttachment = pgTable("document_attachment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -214,7 +223,7 @@ export const itemCategory = pgTable("item_category", {
   name: text("name").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("item_category_company_code_unique").on(table.companyId, table.code)]);
 
 export const unitOfMeasure = pgTable("unit_of_measure", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -223,7 +232,7 @@ export const unitOfMeasure = pgTable("unit_of_measure", {
   name: text("name").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("unit_of_measure_company_code_unique").on(table.companyId, table.code)]);
 
 export const paymentMethod = pgTable("payment_method", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -234,7 +243,7 @@ export const paymentMethod = pgTable("payment_method", {
   bankAccountNumber: text("bankAccountNumber"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("payment_method_company_code_unique").on(table.companyId, table.code)]);
 
 export const taxRetention = pgTable("tax_retention", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -285,7 +294,7 @@ export const partner = pgTable("partner", {
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("partner_company_name_idx").on(table.companyId, table.name), index("partner_company_tax_id_idx").on(table.companyId, table.taxId)]);
 
 export const customer = pgTable("customer", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -297,7 +306,7 @@ export const customer = pgTable("customer", {
   status: customerStatusEnum("status").notNull().default("ACTIVE"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("customer_company_status_idx").on(table.companyId, table.status), index("customer_partner_idx").on(table.partnerId)]);
 
 export const item = pgTable("item", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -315,14 +324,14 @@ export const item = pgTable("item", {
   costPrice: numeric("costPrice", { precision: 12, scale: 2 }).notNull().default("0"),
   averageCost: numeric("averageCost", { precision: 12, scale: 2 }).notNull().default("0"),
   minimumStock: numeric("minimumStock", { precision: 12, scale: 3 }).notNull().default("0"),
-});
+}, (table) => [unique("item_company_sku_unique").on(table.companyId, table.sku)]);
 
 export const warehouse = pgTable("warehouse", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code").notNull(),
-});
+}, (table) => [unique("warehouse_company_code_unique").on(table.companyId, table.code)]);
 
 export const stockMovement = pgTable("stock_movement", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -334,7 +343,7 @@ export const stockMovement = pgTable("stock_movement", {
   movedAt: timestamp("movedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   reason: text("reason").notNull().default("Ajuste operativo"),
   reference: text("reference"),
-});
+}, (table) => [unique("stock_movement_idempotency_unique").on(table.companyId, table.itemId, table.warehouseId, table.movementType, table.reference), index("stock_movement_snapshot_idx").on(table.companyId, table.itemId, table.warehouseId)]);
 
 export const stockLocation = pgTable(
   "stock_location",
@@ -406,7 +415,7 @@ export const salesQuote = pgTable("sales_quote", {
   status: salesDocumentStatusEnum("status").notNull().default("DRAFT"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("sales_quote_company_number_unique").on(table.companyId, table.number)]);
 
 export const salesQuoteLine = pgTable("sales_quote_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -435,7 +444,7 @@ export const salesOrder = pgTable("sales_order", {
   status: salesDocumentStatusEnum("status").notNull().default("DRAFT"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("sales_order_company_number_unique").on(table.companyId, table.number)]);
 
 export const salesOrderLine = pgTable("sales_order_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -460,7 +469,7 @@ export const deliveryNote = pgTable("delivery_note", {
   status: salesDocumentStatusEnum("status").notNull().default("DRAFT"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("delivery_note_company_number_unique").on(table.companyId, table.number)]);
 
 export const deliveryNoteLine = pgTable("delivery_note_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -477,7 +486,7 @@ export const invoicePayment = pgTable("invoice_payment", {
   paymentId: text("paymentId").notNull().references(() => payment.id, { onDelete: "cascade" }),
   amountApplied: numeric("amountApplied", { precision: 12, scale: 2 }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("invoice_payment_company_invoice_idx").on(table.companyId, table.invoiceId), check("invoice_payment_amount_positive", sql`${table.amountApplied} > 0`)]);
 
 export const purchaseOrder = pgTable("purchase_order", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -486,7 +495,7 @@ export const purchaseOrder = pgTable("purchase_order", {
   number: text("number").notNull(),
   status: text("status").notNull().default("DRAFT"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [unique("purchase_order_company_number_unique").on(table.companyId, table.number)]);
 
 export const purchaseOrderLine = pgTable("purchase_order_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -531,7 +540,11 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   notes: text("notes"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [
+  unique("supplier_invoice_company_number_unique").on(table.companyId, table.number),
+  unique("supplier_invoice_supplier_document_unique").on(table.companyId, table.supplierPartnerId, table.supplierDocumentNumber),
+  index("supplier_invoice_company_supplier_idx").on(table.companyId, table.supplierPartnerId),
+]);
 
 export const supplierInvoiceLine = pgTable("supplier_invoice_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -585,7 +598,7 @@ export const journal = pgTable("journal", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   code: text("code").notNull(),
   name: text("name").notNull(),
-});
+}, (table) => [unique("journal_company_code_unique").on(table.companyId, table.code)]);
 
 export const accountChart = pgTable(
   "account_chart",
@@ -615,7 +628,12 @@ export const journalEntry = pgTable("journal_entry", {
   journalId: text("journalId").notNull().references(() => journal.id, { onDelete: "restrict" }),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   reference: text("reference"),
-});
+  sourceType: text("sourceType"),
+  sourceId: text("sourceId"),
+  isAutomatic: boolean("isAutomatic").notNull().default(false),
+  reversedAt: timestamp("reversedAt", { withTimezone: true, mode: "date" }),
+  reversesEntryId: text("reversesEntryId"),
+}, (table) => [index("journal_entry_company_date_idx").on(table.companyId, table.postedAt), index("journal_entry_source_idx").on(table.companyId, table.sourceType, table.sourceId)]);
 
 export const journalLine = pgTable("journal_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -623,14 +641,18 @@ export const journalLine = pgTable("journal_line", {
   accountId: text("accountId").notNull().references(() => accountChart.id, { onDelete: "restrict" }),
   debit: numeric("debit", { precision: 12, scale: 2 }).notNull().default("0"),
   credit: numeric("credit", { precision: 12, scale: 2 }).notNull().default("0"),
-});
+}, (table) => [
+  index("journal_line_entry_idx").on(table.journalEntryId),
+  index("journal_line_account_idx").on(table.accountId),
+  check("journal_line_valid_amounts", sql`${table.debit} >= 0 AND ${table.credit} >= 0 AND ((${table.debit} > 0 AND ${table.credit} = 0) OR (${table.credit} > 0 AND ${table.debit} = 0))`),
+]);
 
 export const bankAccount = pgTable("bank_account", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   iban: text("iban").notNull(),
   bankName: text("bankName").notNull(),
-});
+}, (table) => [unique("bank_account_company_iban_unique").on(table.companyId, table.iban)]);
 
 export const bankTransaction = pgTable("bank_transaction", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -642,14 +664,14 @@ export const bankTransaction = pgTable("bank_transaction", {
   matchedInvoicePaymentId: text("matchedInvoicePaymentId").references(() => invoicePayment.id, { onDelete: "set null" }),
   matchedSupplierPaymentId: text("matchedSupplierPaymentId").references(() => supplierInvoicePayment.id, { onDelete: "set null" }),
   reconciledAt: timestamp("reconciledAt", { withTimezone: true, mode: "date" }),
-});
+}, (table) => [index("bank_transaction_account_date_idx").on(table.bankAccountId, table.postedAt)]);
 
 export const tax = pgTable("tax", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
-});
+}, (table) => [unique("tax_company_name_unique").on(table.companyId, table.name)]);
 
 export const fiscalReport = pgTable(
   "fiscal_report",
@@ -683,10 +705,10 @@ export const subscription = pgTable(
     status: text("status").notNull().default("ACTIVE"),
     currentPeriodEndsAt: timestamp("currentPeriodEndsAt", { withTimezone: true, mode: "date" }),
     stripeCustomerId: text("stripeCustomerId"),
-    stripeSubscriptionId: text("stripeSubscriptionId"),
+    stripeSubscriptionId: text("stripeSubscriptionId").unique(),
     cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").notNull().default(false),
   },
-  (table) => [unique("subscription_tenant_unique").on(table.tenantId)],
+  (table) => [unique("subscription_tenant_unique").on(table.tenantId), index("subscription_customer_idx").on(table.stripeCustomerId)],
 );
 
 export const tenantSecurityPolicy = pgTable(
@@ -708,11 +730,14 @@ export const tenantSecurityPolicy = pgTable(
 export const apiKey = pgTable("api_key", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+  companyId: text("companyId").references(() => company.id, { onDelete: "cascade" }),
+  keyPrefix: text("keyPrefix"),
   keyHash: text("keyHash").notNull(),
   name: text("name").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   revokedAt: timestamp("revokedAt", { withTimezone: true, mode: "date" }),
-});
+  lastUsedAt: timestamp("lastUsedAt", { withTimezone: true, mode: "date" }),
+}, (table) => [unique("api_key_prefix_unique").on(table.keyPrefix), index("api_key_tenant_idx").on(table.tenantId)]);
 
 export const invitation = pgTable("invitation", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -743,7 +768,7 @@ export const payment = pgTable("payment", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("payment_company_invoice_date_idx").on(table.companyId, table.invoiceId, table.postedAt), check("payment_amount_positive", sql`${table.amount} > 0`)]);
 
 export const supplierPayment = pgTable("supplier_payment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -752,7 +777,7 @@ export const supplierPayment = pgTable("supplier_payment", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("supplier_payment_company_invoice_date_idx").on(table.companyId, table.supplierInvoiceId, table.postedAt), check("supplier_payment_amount_positive", sql`${table.amount} > 0`)]);
 
 export const supplierInvoicePayment = pgTable("supplier_invoice_payment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -761,4 +786,4 @@ export const supplierInvoicePayment = pgTable("supplier_invoice_payment", {
   supplierPaymentId: text("supplierPaymentId").notNull().references(() => supplierPayment.id, { onDelete: "cascade" }),
   amountApplied: numeric("amountApplied", { precision: 12, scale: 2 }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("supplier_invoice_payment_invoice_idx").on(table.companyId, table.supplierInvoiceId), check("supplier_invoice_payment_amount_positive", sql`${table.amountApplied} > 0`)]);

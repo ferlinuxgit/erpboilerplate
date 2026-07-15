@@ -10,6 +10,7 @@ const payloadSchema = z.object({
   code: z.enum(spanishFiscalModelCodes),
   period: z.string().trim().min(4).max(7),
   status: z.enum(["DRAFT", "READY", "FILED"]),
+  reopenReason: z.string().trim().min(3).max(500).optional(),
 });
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -44,9 +45,13 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const ctx = await requireApiContext("fiscal.write");
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;
-  const deleted = await deleteFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, id);
-  if (!deleted) return NextResponse.json({ message: "Reporte no encontrado." }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  try {
+    const deleted = await deleteFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, id);
+    if (!deleted) return NextResponse.json({ message: "Reporte no encontrado." }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo eliminar el reporte." }, { status: 400 });
+  }
 }
 
 async function requireApiContext(permission: "fiscal.read" | "fiscal.write") {

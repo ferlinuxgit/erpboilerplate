@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 const encoder = new TextEncoder();
 
@@ -14,6 +14,7 @@ export type JwtUser = {
 export type JwtSession = {
   user: JwtUser;
   expiresAt: Date;
+  issuedAt: Date;
 };
 
 type JwtPayload = {
@@ -25,9 +26,9 @@ type JwtPayload = {
 };
 
 function getJwtSecret() {
-  const secret = process.env.JWT_SECRET ?? process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET;
+  const secret = process.env.JWT_SECRET;
 
-  if (secret) {
+  if (secret && (process.env.NODE_ENV !== "production" || secret.length >= 32)) {
     return secret;
   }
 
@@ -90,6 +91,8 @@ export function verifyAuthToken(token: string | undefined | null): JwtSession | 
   }
 
   try {
+    const decodedHeader = JSON.parse(base64UrlDecode(header)) as { alg?: string; typ?: string };
+    if (decodedHeader.alg !== "HS256" || decodedHeader.typ !== "JWT") return null;
     const payload = JSON.parse(base64UrlDecode(body)) as Partial<JwtPayload>;
     if (!payload.sub || !payload.email || !payload.name || !payload.exp) {
       return null;
@@ -106,10 +109,15 @@ export function verifyAuthToken(token: string | undefined | null): JwtSession | 
         email: payload.email,
       },
       expiresAt: new Date(payload.exp * 1000),
+      issuedAt: new Date((payload.iat ?? 0) * 1000),
     };
   } catch {
     return null;
   }
+}
+
+export function hashAuthToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 export function getAuthCookieOptions() {

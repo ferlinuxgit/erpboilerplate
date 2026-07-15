@@ -30,7 +30,7 @@ export default async function ReportingPage() {
       <PageHeader
         eyebrow="Operación"
         title="Informes y BI"
-        description="KPIs accionables del tenant activo para revisar salud comercial, caja y siguientes módulos de origen."
+        description="Indicadores accionables del espacio activo para revisar salud comercial, caja y módulos de origen."
         backHref="/dashboard"
         backLabel="Volver al panel"
       />
@@ -53,7 +53,7 @@ export default async function ReportingPage() {
                 </Select>
               </div>
               <p className="text-sm text-muted-foreground" data-testid="reporting-kpi-explanation">
-                KPIs calculados del tenant activo para el periodo seleccionado. Empieza por Este mes, valida la señal contra los módulos
+                Indicadores calculados del espacio activo para el periodo seleccionado. Empieza por Este mes y valida la señal contra los módulos
                 de origen y exporta el Excel cuando necesites compartir el corte.
               </p>
             </div>
