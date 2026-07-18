@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, Settings2, TriangleAlert, Wrench } from "lucide-react";
+import { CheckCircle as CheckCircle2, GearSix as Settings2, Warning as TriangleAlert, Wrench } from "@phosphor-icons/react";
 import { useState } from "react";
 import { toast } from "sonner";
 

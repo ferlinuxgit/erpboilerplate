@@ -19,14 +19,14 @@ type AuthMode = "sign-in" | "sign-up";
 const modeContent: Record<AuthMode, { title: string; description: string; cta: string; switchLabel: string; switchHref: string }> = {
   "sign-in": {
     title: "Iniciar sesión",
-    description: "Accede a tu panel ERP SaaS.",
+    description: "Accede al espacio operativo de tu empresa.",
     cta: "Entrar",
     switchLabel: "¿No tienes cuenta? Crear una cuenta",
     switchHref: "/auth/register",
   },
   "sign-up": {
     title: "Crear cuenta",
-    description: "Empieza a configurar tu ERP SaaS.",
+    description: "Crea tu espacio de trabajo y configura la empresa.",
     cta: "Registrarme",
     switchLabel: "¿Ya tienes cuenta? Iniciar sesión",
     switchHref: "/auth/login",
@@ -120,7 +120,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
   }
 
   return (
-    <Card className="mx-auto w-full max-w-md">
+    <Card className="w-full border-0 bg-transparent shadow-none">
       <CardHeader>
         <CardTitle aria-level={1} role="heading">
           {content.title}

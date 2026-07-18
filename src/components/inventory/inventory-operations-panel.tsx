@@ -58,6 +58,9 @@ type Props = {
   movements: StockMovementHistoryRow[];
   initialItemId?: string;
   initialWarehouseId?: string;
+  redirectAfterSubmit?: string;
+  showMovementForm?: boolean;
+  showOverview?: boolean;
 };
 
 const movementLabels = {
@@ -89,6 +92,9 @@ export function InventoryOperationsPanel({
   movements,
   initialItemId = "all",
   initialWarehouseId = "all",
+  redirectAfterSubmit,
+  showMovementForm = true,
+  showOverview = true,
 }: Props) {
   const router = useRouter();
   const [movementType, setMovementType] = useState<keyof typeof movementLabels>("ADJUSTMENT");
@@ -152,6 +158,7 @@ export function InventoryOperationsPanel({
       setReason("");
       setReference("");
       toast.success("Movimiento de stock registrado.");
+      if (redirectAfterSubmit) router.push(redirectAfterSubmit);
       router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Error inesperado.";
@@ -164,6 +171,7 @@ export function InventoryOperationsPanel({
 
   return (
     <div className="space-y-4">
+      {showMovementForm ? (
       <section className="rounded-lg border bg-card p-4 shadow-sm" aria-labelledby="inventory-actions-title">
         <div className="mb-4 space-y-1">
           <h2 id="inventory-actions-title" className="text-lg font-semibold">
@@ -241,7 +249,9 @@ export function InventoryOperationsPanel({
           </div>
         </form>
       </section>
+      ) : null}
 
+      {showOverview ? <>
       <section className="rounded-lg border bg-card p-4 shadow-sm" aria-labelledby="stock-alerts-title">
         <h2 id="stock-alerts-title" className="text-lg font-semibold">
           Alertas de stock mínimo
@@ -274,7 +284,18 @@ export function InventoryOperationsPanel({
         <h2 id="stock-snapshot-title" className="text-lg font-semibold">
           Stock por producto y almacén
         </h2>
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3 grid gap-2 md:hidden">
+          {stock.length === 0 ? <p className="text-sm text-muted-foreground">No hay datos de stock.</p> : stock.map((row) => (
+            <article className="rounded-xl border bg-background p-3" id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`} key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div><p className="font-medium">{row.itemName}</p><p className="text-xs text-muted-foreground">{row.itemSku} · {row.warehouseName ?? "Sin almacén"}</p></div>
+                <p className="font-mono text-lg font-semibold">{formatQuantity(row.quantity)}</p>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">Stock mínimo: {formatQuantity(row.minimumStock)}</p>
+            </article>
+          ))}
+        </div>
+        <div className="mt-3 hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -354,7 +375,19 @@ export function InventoryOperationsPanel({
             <Input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Motivo o referencia" />
           </label>
         </div>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 grid gap-2 md:hidden">
+          {filteredMovements.length === 0 ? <p className="text-sm text-muted-foreground">No hay movimientos para los filtros seleccionados.</p> : filteredMovements.map((movement) => (
+            <article className="rounded-xl border bg-background p-3" key={movement.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div><p className="font-medium">{movement.itemName}</p><p className="text-xs text-muted-foreground">{movement.itemSku} · {movement.warehouseName}</p></div>
+                <p className="font-mono font-semibold">{formatQuantity(movement.quantity)}</p>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>{movementLabels[movement.movementType]}</span><time>{formatDate(movement.movedAt)}</time></div>
+              <p className="mt-2 text-sm">{movement.reason}{movement.reference ? <span className="text-muted-foreground"> · Ref. {movement.reference}</span> : null}</p>
+            </article>
+          ))}
+        </div>
+        <div className="mt-4 hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -395,6 +428,7 @@ export function InventoryOperationsPanel({
           </Table>
         </div>
       </section>
+      </> : null}
     </div>
   );
 }

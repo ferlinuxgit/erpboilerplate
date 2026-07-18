@@ -1,3 +1,4 @@
+import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 import type { HTMLAttributes, ReactNode } from "react";
 
@@ -21,7 +22,7 @@ type PageHeaderProps = {
   className?: string;
 };
 
-type PageSectionProps = {
+type PageSectionProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
@@ -70,7 +71,7 @@ const metricToneClasses = {
 };
 
 export function PageShell({ children, className }: PageShellProps) {
-  return <main className={cn("mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8", className)}>{children}</main>;
+  return <main className={cn("mx-auto w-full max-w-[1480px] space-y-7 px-4 py-6 sm:px-6 lg:px-8 lg:py-9", className)}>{children}</main>;
 }
 
 export function PageHeader({
@@ -84,19 +85,20 @@ export function PageHeader({
   title,
 }: PageHeaderProps) {
   return (
-    <section className={cn("flex flex-col gap-4 border-b pb-5 md:flex-row md:items-end md:justify-between", className)}>
-      <div className="min-w-0 space-y-2">
-        {eyebrow ? <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{eyebrow}</p> : null}
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{title}</h1>
-          {description ? <p className="max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
+    <section className={cn("flex flex-col gap-5 border-b border-border/80 pb-6 md:flex-row md:items-end md:justify-between", className)}>
+      <div className="min-w-0 space-y-2.5">
+        {eyebrow ? <p className="text-[0.7rem] font-semibold uppercase tracking-[0.11em] text-primary/75">{eyebrow}</p> : null}
+        <div className="space-y-1.5">
+          <h1 className="text-2xl font-semibold tracking-[-0.035em] text-foreground text-balance md:text-[2rem] md:leading-none">{title}</h1>
+          {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground text-pretty">{description}</p> : null}
         </div>
         {meta ? <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">{meta}</div> : null}
       </div>
       {actions || backHref ? (
-        <div className="flex shrink-0 flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {backHref ? (
-            <Link className={buttonVariants({ variant: "outline" })} href={backHref}>
+            <Link className={buttonVariants({ variant: "ghost" })} href={backHref}>
+              <ArrowLeft aria-hidden="true" />
               {backLabel}
             </Link>
           ) : null}
@@ -107,10 +109,10 @@ export function PageHeader({
   );
 }
 
-export function PageSection({ actions, children, className, contentClassName, description, size = "default", title }: PageSectionProps) {
+export function PageSection({ actions, children, className, contentClassName, description, size = "default", title, ...props }: PageSectionProps) {
   return (
-    <Card className={className} size={size}>
-      <CardHeader>
+    <Card className={className} size={size} {...props}>
+      <CardHeader className="border-b border-border/70 pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 space-y-1">
             <CardTitle>{title}</CardTitle>
@@ -126,9 +128,9 @@ export function PageSection({ actions, children, className, contentClassName, de
 
 export function EmptyState({ action, className, description, title }: EmptyStateProps) {
   return (
-    <div className={cn("rounded-lg border border-dashed bg-muted/20 p-6 text-center", className)}>
-      <p className="font-medium">{title}</p>
-      <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">{description}</p>
+    <div className={cn("rounded-lg border border-dashed border-border bg-muted/25 px-6 py-10 text-center", className)}>
+      <p className="font-semibold tracking-[-0.01em]">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );
@@ -153,9 +155,9 @@ export function MetricCard({ className, helper, href, label, tone = "neutral", v
   );
 
   const classes = cn(
-    "rounded-lg border bg-card p-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    "rounded-xl border border-border/90 bg-card p-5 transition-[background-color,border-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/15",
     metricToneClasses[tone],
-    href && "hover:bg-muted/40",
+    href && "hover:-translate-y-0.5 hover:border-primary/30 hover:bg-accent/30",
     className,
   );
 

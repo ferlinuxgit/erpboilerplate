@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm";
 import Link from "next/link";
+import { ArrowRight, CheckCircle, Circle } from "@phosphor-icons/react/dist/ssr";
 
 import { SignOutButton } from "@/components/sign-out-button";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageShell } from "@/components/ui/page";
+import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { customer, deliveryNote, invoice, invoicePayment, item, salesOrder, salesQuote, stockLocation } from "@/db/schema";
 import { buildDashboardCockpit, type DashboardCockpitInput } from "@/lib/dashboard-cockpit";
 import { requireUserSession } from "@/lib/current-user";
@@ -115,62 +116,33 @@ export default async function DashboardPage() {
 
   return (
     <PageShell>
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
-        <Card>
-          <CardHeader className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border bg-muted px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {cockpit.stateLabel}
-              </span>
-              <span className="text-sm text-muted-foreground">Tenant activo: {tenantContext.tenant.name}</span>
-            </div>
-            <div>
-              <CardTitle>Panel ERP SaaS</CardTitle>
-              <CardDescription>Tu cockpit operativo para pasar de demo a datos reales: clientes, ventas, facturas y stock.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-metrics">
-              {cockpit.metricCards.map((metric) => (
-                <Link
-                  className="rounded-lg border p-4 transition-colors hover:border-primary hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  href={metric.href}
-                  key={metric.label}
-                >
-                  <p className="text-sm text-muted-foreground">{metric.label}</p>
-                  <p className="mt-2 text-3xl font-semibold">{metric.value}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{metric.helper}</p>
-                </Link>
-              ))}
-            </div>
+      <PageHeader
+        eyebrow="Vista general"
+        title={`Buenos días, ${session.user.name.split(" ")[0]}`}
+        description={`Actividad de ${tenantContext.company.name} en el ejercicio ${tenantContext.fiscalYear.code}.`}
+        meta={<StatusBadge tone="success">{cockpit.stateLabel}</StatusBadge>}
+        actions={<><Link className={buttonVariants({ variant: "outline" })} href="/customers/new">Nuevo cliente</Link><Link className={buttonVariants()} href="/invoices/new">Nueva factura</Link></>}
+      />
 
-            <div className="grid gap-3 md:grid-cols-3" data-testid="dashboard-primary-actions">
-              {cockpit.primaryActions.map((action) => (
-                <Link className="rounded-lg border p-4 hover:border-primary hover:bg-muted/50" href={action.href} key={`${action.href}-${action.title}`}>
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">{action.eyebrow}</span>
-                  <h2 className="mt-2 text-base font-semibold">{action.title}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{action.description}</p>
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Contexto activo</CardTitle>
-            <CardDescription>Sesión y empresa usada para todos los indicadores.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p>Usuario: {session.user.name}</p>
-            <p>Email: {session.user.email}</p>
-            <p>Empresa activa: {tenantContext.company.name}</p>
-            <p>Ejercicio activo: {tenantContext.fiscalYear.code}</p>
-            <p>Rol: {tenantContext.membership.role}</p>
-            <SignOutButton />
-          </CardContent>
-        </Card>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-metrics">
+        {cockpit.metricCards.map((metric) => (
+          <Link className="group rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring" href={metric.href} key={metric.label}>
+            <MetricCard label={metric.label} value={metric.value} helper={metric.helper} className="h-full group-hover:-translate-y-0.5 group-hover:border-primary/35" />
+          </Link>
+        ))}
       </section>
+
+      <PageSection title="Acciones prioritarias" description="Atajos calculados según el estado actual de la empresa." contentClassName="grid gap-px overflow-hidden rounded-xl border bg-border md:grid-cols-3" data-testid="dashboard-primary-actions">
+        {cockpit.primaryActions.map((action) => (
+          <Link className="group bg-card p-5 transition-colors hover:bg-accent" href={action.href} key={`${action.href}-${action.title}`}>
+            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{action.eyebrow}</span>
+            <div className="mt-7 flex items-end justify-between gap-3">
+              <div><h2 className="font-semibold">{action.title}</h2><p className="mt-1 text-sm text-muted-foreground">{action.description}</p></div>
+              <ArrowRight aria-hidden="true" className="size-5 shrink-0 transition-transform group-hover:translate-x-1" />
+            </div>
+          </Link>
+        ))}
+      </PageSection>
 
       {dashboardDataError ? (
         <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">
@@ -193,16 +165,11 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Demo guiada</CardTitle>
-            <CardDescription>Ruta de primeros pasos conectada a datos reales del tenant.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3" data-testid="dashboard-guided-demo">
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(20rem,0.7fr)]">
+        <PageSection title="Ruta operativa" description="Primeros pasos conectados a datos reales del espacio activo." contentClassName="space-y-2" data-testid="dashboard-guided-demo">
             {cockpit.guidedDemoSteps.map((step) => (
               <div
-                className={`rounded-lg border p-4 ${step.isNext ? "border-primary bg-primary/5" : step.completed ? "bg-muted/50" : "border-dashed"}`}
+                className={`rounded-xl border p-4 ${step.isNext ? "border-primary/40 bg-primary/5" : step.completed ? "bg-muted/40" : "border-dashed"}`}
                 key={step.step}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -212,9 +179,7 @@ export default async function DashboardPage() {
                     </p>
                     <h2 className="mt-1 font-semibold">{step.title}</h2>
                   </div>
-                  <span aria-hidden="true" className="text-lg">
-                    {step.completed ? "✓" : step.isNext ? "→" : "○"}
-                  </span>
+                  {step.completed ? <CheckCircle aria-hidden="true" className="size-5 text-primary" weight="fill" /> : step.isNext ? <ArrowRight aria-hidden="true" className="size-5 text-primary" /> : <Circle aria-hidden="true" className="size-5 text-muted-foreground" />}
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{step.description}</p>
                 {!step.completed ? (
@@ -224,15 +189,10 @@ export default async function DashboardPage() {
                 ) : null}
               </div>
             ))}
-          </CardContent>
-        </Card>
+        </PageSection>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Estados vacíos y siguientes pasos</CardTitle>
-            <CardDescription>Acciones concretas para sustituir la demo por operación diaria.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3" data-testid="dashboard-empty-states">
+        <div className="space-y-4">
+        <PageSection title="Siguientes pasos" description="Tareas que aún necesitan datos." contentClassName="space-y-3" data-testid="dashboard-empty-states">
             {cockpit.emptyStates.map((state) => (
               <div className="rounded-lg border border-dashed p-4" key={state.title}>
                 <h2 className="font-semibold">{state.title}</h2>
@@ -247,41 +207,20 @@ export default async function DashboardPage() {
                 Los módulos principales ya tienen señales operativas. Revisa alertas, cobros y reporting para priorizar.
               </p>
             ) : null}
-          </CardContent>
-        </Card>
+        </PageSection>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Módulos disponibles</CardTitle>
-            <CardDescription>Acceso rápido al resto del ERP.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            <Link className={buttonVariants({ variant: "secondary" })} href="/customers">
-              Ir a clientes
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/suppliers">
-              Ir a proveedores
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/sales">
-              Ir a ciclo de ventas
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/invoices">
-              Ir a facturas
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/purchases">
-              Ir a compras
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/inventory">
-              Ir a inventario
-            </Link>
-            {moduleLinks.map((moduleLink) => (
-              <Link className={buttonVariants({ variant: "secondary" })} href={moduleLink.href} key={moduleLink.href}>
-                Ir a {moduleLink.label.toLowerCase()}
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
+        <PageSection title="Contexto activo" description="Empresa y permisos de esta sesión." contentClassName="space-y-3 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2"><dt className="text-muted-foreground">Usuario</dt><dd className="text-right font-medium">{session.user.name}</dd><dt className="text-muted-foreground">Empresa</dt><dd className="text-right font-medium">{tenantContext.company.name}</dd><dt className="text-muted-foreground">Ejercicio</dt><dd className="text-right font-medium">{tenantContext.fiscalYear.code}</dd><dt className="text-muted-foreground">Rol</dt><dd className="text-right font-medium">{tenantContext.membership.role}</dd></dl>
+            <SignOutButton />
+        </PageSection>
+        </div>
       </section>
+
+      <PageSection title="Todos los módulos" description="Acceso directo al resto de áreas." contentClassName="flex flex-wrap gap-2">
+            {[{ href: "/customers", label: "Clientes" }, { href: "/suppliers", label: "Proveedores" }, { href: "/sales", label: "Ventas" }, { href: "/invoices", label: "Facturas" }, { href: "/purchases", label: "Compras" }, { href: "/inventory", label: "Inventario" }, ...moduleLinks].map((moduleLink) => (
+              <Link className={buttonVariants({ variant: "outline" })} href={moduleLink.href} key={moduleLink.href}>{moduleLink.label}</Link>
+            ))}
+      </PageSection>
     </PageShell>
   );
 }

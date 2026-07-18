@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, FileText, Globe2, Image as ImageIcon, Landmark, Mail, MapPin, Save, Upload, X } from "lucide-react";
+import { Bank as Landmark, Buildings as Building2, Envelope as Mail, FileText, FloppyDisk as Save, GlobeHemisphereWest as Globe2, ImageSquare as ImageIcon, MapPin, UploadSimple as Upload, X } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useMemo, type ChangeEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";

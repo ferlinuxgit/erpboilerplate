@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, KeyRound, RotateCw, ShieldX } from "lucide-react";
+import { ArrowsClockwise as RotateCw, Copy, Key as KeyRound, ShieldWarning as ShieldX } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";

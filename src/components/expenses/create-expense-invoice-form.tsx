@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
+import { FileText, MagnifyingGlass as Search, Plus, Sparkle as Sparkles, Trash as Trash2, UploadSimple as Upload } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";

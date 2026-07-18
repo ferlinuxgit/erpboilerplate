@@ -4,7 +4,6 @@ import { desc, eq } from "drizzle-orm";
 import { BankAccountsList } from "@/components/treasury/bank-accounts-list";
 import { BankTransactionsList } from "@/components/treasury/bank-transactions-list";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
-import { CreateBankAccountDialog, CreateBankTransactionDialog } from "@/components/treasury/bank-dialogs";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -109,7 +108,9 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         description="Cuentas operativas disponibles para movimientos y conciliación."
         actions={
           canWriteTreasury ? (
-            <CreateBankAccountDialog />
+            <Link className={buttonVariants()} href="/treasury/bank-accounts/new">
+              Nueva cuenta
+            </Link>
           ) : null
         }
       >
@@ -121,7 +122,9 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         description="Histórico de transacciones bancarias y estado de conciliación."
         actions={
           canWriteTreasury ? (
-            <CreateBankTransactionDialog accounts={accounts} />
+            <Link className={buttonVariants()} href="/treasury/bank-transactions/new">
+              Nuevo movimiento
+            </Link>
           ) : null
         }
       >

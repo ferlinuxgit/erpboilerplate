@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 
 import {
   InventoryOperationsPanel,
@@ -8,6 +9,7 @@ import {
   type StockSnapshotRow,
 } from "@/components/inventory/inventory-operations-panel";
 import { PageHeader, PageShell } from "@/components/ui/page";
+import { buttonVariants } from "@/components/ui/button";
 import { requireUserSession } from "@/lib/current-user";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getInventoryOptions, getLowStockAlerts, getStockMovementHistory, getStockSnapshot } from "@/server/inventory/service";
@@ -67,6 +69,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         eyebrow="Operación"
         title="Control de stock"
         description="Recibe mercancía, registra conteos y ajustes, transfiere entre almacenes y revisa el histórico con contexto por producto y ubicación."
+        actions={<Link className={buttonVariants()} href="/inventory/movements/new">Nuevo movimiento</Link>}
       />
 
       <Suspense fallback={<div className="rounded-lg border p-4 text-sm text-muted-foreground">Cargando inventario...</div>}>
@@ -78,6 +81,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
           movements={movementRows.map(serializeMovement)}
           initialItemId={params?.itemId ?? "all"}
           initialWarehouseId={params?.warehouseId ?? "all"}
+          showMovementForm={false}
         />
       </Suspense>
     </PageShell>

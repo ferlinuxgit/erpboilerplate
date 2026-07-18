@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { Download } from "lucide-react";
+import { DownloadSimple as Download } from "@phosphor-icons/react";
 
 import { DeleteButton } from "@/components/delete-button";
-import { EditFiscalReportDialog } from "@/components/fiscal/fiscal-report-dialogs";
 import { buttonVariants } from "@/components/ui/button";
 
 export function FiscalReportRowActions({ report }: { report: { id: string; code: string; period: string; status: "DRAFT" | "READY" | "FILED" } }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <EditFiscalReportDialog report={report} />
+      <Link href={`/fiscal/${report.id}/edit`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+        Editar
+      </Link>
       <Link href={`/api/fiscal-reports/${report.id}/pdf`} className={buttonVariants({ variant: "outline", size: "sm" })}>
         <Download aria-hidden="true" />
         PDF

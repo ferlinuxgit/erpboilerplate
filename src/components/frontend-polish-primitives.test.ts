@@ -38,20 +38,23 @@ describe("frontend polish primitives", () => {
     expect(deleteButton).toContain("toast.error");
   });
 
-  it("uses one robust dialog system for contextual CRUD actions", () => {
+  it("uses independent pages for create and edit flows while preserving robust contextual dialogs", () => {
     const dialog = sourceFor("src/components/ui/dialog.tsx");
-    const accountingDialogs = sourceFor("src/components/accounting/account-dialogs.tsx");
-    const treasuryDialogs = sourceFor("src/components/treasury/bank-dialogs.tsx");
-    const fiscalDialogs = sourceFor("src/components/fiscal/fiscal-report-dialogs.tsx");
+    const accountingPage = sourceFor("src/app/accounting/page.tsx");
+    const treasuryPage = sourceFor("src/app/treasury/page.tsx");
+    const fiscalPage = sourceFor("src/app/fiscal/page.tsx");
 
     expect(dialog).toContain("createPortal");
     expect(dialog).toContain('document.body.style.overflow = "hidden"');
     expect(dialog).toContain("previouslyFocused?.focus()");
     expect(dialog).toContain('event.key !== "Tab"');
     expect(dialog).toContain("aria-describedby");
-    expect(accountingDialogs).toContain("CreateAccountDialog");
-    expect(treasuryDialogs).toContain("CreateBankTransactionDialog");
-    expect(fiscalDialogs).toContain("CreateFiscalReportDialog");
+    expect(accountingPage).toContain('href="/accounting/accounts/new"');
+    expect(treasuryPage).toContain('href="/treasury/bank-transactions/new"');
+    expect(fiscalPage).toContain('href="/fiscal/new"');
+    expect(existsSync(join(root, "src/app/accounting/accounts/[id]/edit/page.tsx"))).toBe(true);
+    expect(existsSync(join(root, "src/app/treasury/bank-transactions/[id]/edit/page.tsx"))).toBe(true);
+    expect(existsSync(join(root, "src/app/fiscal/[id]/edit/page.tsx"))).toBe(true);
   });
 
   it("passes contextual destructive action copy from customer and invoice rows", () => {

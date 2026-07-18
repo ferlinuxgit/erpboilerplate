@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardCopy } from "lucide-react";
+import { ClipboardText as ClipboardCopy } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 

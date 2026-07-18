@@ -13,8 +13,8 @@ const coreModules: ModuleSmokeCase[] = [
   {
     path: "/dashboard",
     navLabel: "Panel",
-    heading: "Panel ERP SaaS",
-    evidence: /Tenant activo:/,
+    heading: /Buenos días,/,
+    evidence: /Actividad de/,
   },
   {
     path: "/customers",
@@ -105,7 +105,7 @@ test.describe("core product module smoke coverage", () => {
         await expect(emptyStates).toBeVisible();
         await expect(emptyStates).toContainText("Sin clientes todavía");
         await expect(emptyStates).toContainText("Sin documentos de venta");
-        await expect(surface).toContainText("Demo guiada");
+        await expect(surface).toContainText("Ruta operativa");
         await expect(page.getByTestId("dashboard-guided-demo")).toContainText("Crear cliente");
         await expect(page.getByTestId("dashboard-guided-demo")).toContainText("Crear presupuesto/pedido");
       }

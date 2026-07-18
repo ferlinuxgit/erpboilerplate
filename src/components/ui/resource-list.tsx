@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, ChevronsUpDown, Download, Search, X } from "lucide-react";
+import { CaretDown, CaretUp, CaretUpDown, DownloadSimple, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -115,24 +115,24 @@ export function ResourceList<TItem>({
   }
 
   return (
-    <section className="space-y-4" data-testid={testId} aria-labelledby={`${testId ?? "resource-list"}-title`}>
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <section className="space-y-5" data-testid={testId} aria-labelledby={`${testId ?? "resource-list"}-title`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h3 className="text-sm font-medium" id={`${testId ?? "resource-list"}-title`}>
+          <h3 className="text-sm font-semibold" id={`${testId ?? "resource-list"}-title`}>
             {title}
           </h3>
           <p className="text-sm text-muted-foreground" aria-live="polite" data-testid={`${testId ?? "resource-list"}-summary`}>
             {sortedItems.length} de {items.length} registros visibles
           </p>
         </div>
-        {items.length > 0 ? <div className="flex w-full flex-col gap-2 sm:flex-row md:max-w-2xl">
+        {items.length > 0 ? <div className="flex w-full flex-col gap-2 sm:flex-row lg:max-w-2xl">
           <label className="sr-only" htmlFor={`${testId ?? "resource-list"}-search`}>
             Buscar en {title}
           </label>
           <div className="relative min-w-0 flex-1">
-            <Search aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <MagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-8 pr-8"
+              className="pl-9 pr-9"
               id={`${testId ?? "resource-list"}-search`}
               placeholder={searchPlaceholder ?? `Buscar en ${title.toLocaleLowerCase()}`}
               value={searchQuery}
@@ -159,7 +159,7 @@ export function ResourceList<TItem>({
           </div>
           {exportableColumns.length > 0 ? (
             <Button disabled={sortedItems.length === 0} onClick={exportVisibleRows} type="button" variant="outline">
-              <Download aria-hidden="true" />
+              <DownloadSimple aria-hidden="true" />
               Exportar
             </Button>
           ) : null}
@@ -184,7 +184,7 @@ export function ResourceList<TItem>({
       </div>
 
       {paginatedItems.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-center">
+        <div className="rounded-lg border border-dashed bg-muted/20 px-6 py-12 text-center">
           <p className="font-medium">{hasSearch ? "Sin resultados" : emptyTitle}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {hasSearch ? "Prueba con otro término de búsqueda o limpia el filtro." : emptyDescription}
@@ -192,7 +192,7 @@ export function ResourceList<TItem>({
         </div>
       ) : (
         <>
-          <div className="hidden overflow-x-auto rounded-lg border md:block">
+          <div className="hidden overflow-x-auto rounded-lg border border-border/90 bg-card md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -206,9 +206,9 @@ export function ResourceList<TItem>({
                         <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort(column.header)} type="button">
                           {column.header}
                           {sort?.header === column.header ? (
-                            sort.direction === "asc" ? <ChevronUp aria-hidden="true" className="size-3" /> : <ChevronDown aria-hidden="true" className="size-3" />
+                            sort.direction === "asc" ? <CaretUp aria-hidden="true" className="size-3" /> : <CaretDown aria-hidden="true" className="size-3" />
                           ) : (
-                            <ChevronsUpDown aria-hidden="true" className="size-3" />
+                            <CaretUpDown aria-hidden="true" className="size-3" />
                           )}
                         </button>
                       ) : (
@@ -234,7 +234,7 @@ export function ResourceList<TItem>({
 
           <div className="grid gap-3 md:hidden" data-testid="resource-list-mobile">
             {paginatedItems.map((item) => (
-              <article className="rounded-lg border p-3" data-testid={getRowTestId ? `${getRowTestId(item)}-mobile` : undefined} key={getRowId(item)}>
+              <article className="rounded-xl border border-border/90 bg-card p-4" data-testid={getRowTestId ? `${getRowTestId(item)}-mobile` : undefined} key={getRowId(item)}>
                 {renderMobileCard ? (
                   renderMobileCard(item)
                 ) : (

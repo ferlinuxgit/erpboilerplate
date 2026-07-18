@@ -14,13 +14,10 @@ import {
   type SalesDocumentStatus,
   type TransitionResult,
 } from "@/lib/document-pipelines";
-import { Button } from "@/components/ui/button";
-import { buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { salesDocumentStatusLabels, statusLabel } from "@/lib/status-labels";
 
-type CustomerOption = { id: string; name: string };
 type QuoteOption = { id: string; number: string; status: SalesDocumentStatus };
 type OrderOption = { id: string; number: string; status: SalesDocumentStatus };
 type DeliveryOption = { id: string; number: string; status: SalesDocumentStatus };
@@ -93,25 +90,18 @@ function FirstEligibleSelect<T extends { id: string; number: string; status: Sal
 }
 
 export function SalesFlowActions({
-  customers,
   deliveryNotes,
-  initialCustomerId,
   invoicesCount,
   orders,
   quotes,
 }: {
-  customers: CustomerOption[];
   deliveryNotes: DeliveryOption[];
-  initialCustomerId?: string;
   invoicesCount: number;
   orders: OrderOption[];
   quotes: QuoteOption[];
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const initialCustomer = customers.some((customer) => customer.id === initialCustomerId) ? initialCustomerId : customers[0]?.id;
-  const [customerId, setCustomerId] = useState(initialCustomer ?? "");
-  const [quoteNumber, setQuoteNumber] = useState("");
 
   const eligibleQuotes = useMemo(() => quotes.filter((quote) => getSalesQuoteTransition(quote.status).allowed), [quotes]);
   const eligibleOrders = useMemo(() => orders.filter((order) => getSalesOrderTransition(order.status).allowed), [orders]);
@@ -176,48 +166,7 @@ export function SalesFlowActions({
       </div>
 
       <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">1) Crear presupuesto</p>
-        {customers.length === 0 ? (
-          <p className="rounded-md border border-dashed p-2 text-sm text-amber-700">
-            Necesitas crear un cliente antes de iniciar presupuestos de venta.
-          </p>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-3">
-            <label className="sr-only" htmlFor="sales-quote-customer">
-              Cliente para presupuesto
-            </label>
-            <Select
-              id="sales-quote-customer"
-              onChange={(event) => setCustomerId(event.target.value)}
-              value={customerId}
-            >
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                </option>
-              ))}
-            </Select>
-            <Input onChange={(event) => setQuoteNumber(event.target.value)} placeholder="PRE-000001" value={quoteNumber} />
-            <Button
-              disabled={loading || !customerId}
-              onClick={() =>
-                post("/api/sales-quotes", {
-                  customerId,
-                  number: quoteNumber,
-                  issueDate: new Date().toISOString(),
-                  lines: [{ quantity: 1, unitPrice: 100, taxRate: 21 }],
-                })
-              }
-              type="button"
-            >
-              Crear presupuesto
-            </Button>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">2) Presupuesto a pedido</p>
+        <p className="mb-2 font-medium">Presupuesto a pedido</p>
         <div className="grid gap-2 md:grid-cols-2">
           <FirstEligibleSelect
             emptyMessage="No hay presupuestos convertibles: crea un presupuesto nuevo o revisa que no esté anulado/ya convertido."
@@ -232,7 +181,7 @@ export function SalesFlowActions({
       </div>
 
       <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">3) Pedido a albarán</p>
+        <p className="mb-2 font-medium">Pedido a albarán</p>
         <div className="grid gap-2 md:grid-cols-2">
           <FirstEligibleSelect
             emptyMessage="No hay pedidos confirmados pendientes de entregar. Convierte primero un presupuesto a pedido."
@@ -247,7 +196,7 @@ export function SalesFlowActions({
       </div>
 
       <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">4) Albarán a factura</p>
+        <p className="mb-2 font-medium">Albarán a factura</p>
         <div className="grid gap-2 md:grid-cols-2">
           <FirstEligibleSelect
             emptyMessage="No hay albaranes entregados pendientes de factura. Genera un albarán desde un pedido confirmado."

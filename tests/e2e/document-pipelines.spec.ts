@@ -42,17 +42,17 @@ test("sales pipeline guides quote to order to delivery to invoice", async ({ pag
 
   const customerRow = page.getByTestId("customers-table").locator("tr", { hasText: customerName });
   await customerRow.getByRole("link", { name: "Crear presupuesto" }).click();
-  await expect(page).toHaveURL(/\/sales\?customerId=/);
-  await expect(page.getByLabel("Cliente para presupuesto")).toHaveValue(/.+/);
-
+  await expect(page).toHaveURL(/\/sales\/new\?customerId=/);
+  await expect(page.getByLabel("Cliente")).toHaveValue(/.+/);
+  await page.getByLabel("Número").fill(quoteNumber);
+  await page.getByLabel("Concepto").fill("Servicio de implantación");
+  await page.getByLabel("Precio unitario").fill("100");
+  await clickAndExpectPost(page, "/api/sales-quotes", () => page.getByRole("button", { name: "Crear presupuesto" }).click());
+  await expect(page).toHaveURL(/\/sales$/);
   await expect(page.getByTestId("sales-stage-quotes")).toContainText("Presupuestos");
   await expect(page.getByTestId("sales-stage-orders")).toContainText("Pedidos");
   await expect(page.getByTestId("sales-stage-delivery-notes")).toContainText("Albaranes");
   await expect(page.getByTestId("sales-stage-invoices")).toContainText("Facturas");
-  await expect(page.getByText("No hay presupuestos convertibles")).toBeVisible();
-
-  await page.getByPlaceholder("PRE-000001").fill(quoteNumber);
-  await clickAndExpectPost(page, "/api/sales-quotes", () => page.getByRole("button", { name: "Crear presupuesto" }).click());
   await expect(page.getByTestId(`sales-transition-quote-${quoteNumber}`)).toContainText("Estado: Borrador", { timeout: 15_000 });
 
   await clickAndExpectPost(page, "/to-order", () =>

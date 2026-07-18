@@ -16,15 +16,13 @@ async function registerAndSignIn(page: Page, email: string) {
 
 async function createAccount(page: Page, code: string, name: string, type: string) {
   await page.goto("/accounting");
-  await page.getByRole("button", { name: "Nueva cuenta" }).click();
-  const dialog = page.getByRole("dialog", { name: "Nueva cuenta contable" });
-  await expect(dialog).toBeVisible();
-  await dialog.getByLabel("Código").fill(code);
-  await dialog.getByLabel("Nombre").fill(name);
-  await dialog.getByLabel("Tipo").selectOption(type);
-  await dialog.getByRole("button", { name: "Crear cuenta" }).click();
+  await page.getByRole("link", { name: "Nueva cuenta" }).click();
+  await expect(page).toHaveURL(/\/accounting\/accounts\/new$/);
+  await page.getByLabel("Código").fill(code);
+  await page.getByLabel("Nombre").fill(name);
+  await page.getByLabel("Tipo").selectOption(type);
+  await page.getByRole("button", { name: "Crear cuenta" }).click();
   await expect(page).toHaveURL(/\/accounting$/);
-  await expect(dialog).toBeHidden();
   await expect(page.getByText(new RegExp(`${code}.*${name}`)).first()).toBeVisible();
 }
 

@@ -18,14 +18,15 @@ test("crear ajuste desde inventario actualiza stock e historial filtrable", asyn
   });
 
   await page.goto("/inventory");
-  await expect(page.getByRole("heading", { name: "Operaciones de stock" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Alertas de stock mínimo" })).toBeVisible();
 
   const alertsSection = page.getByRole("region", { name: "Alertas de stock mínimo" });
   const lowStockLink = alertsSection.getByRole("link").filter({ hasText: item.name });
   await expect(lowStockLink).toContainText("Sin almacén");
   await expect(lowStockLink).toHaveAttribute("href", /#stock-/);
-  await lowStockLink.click();
+  await page.getByRole("link", { name: "Nuevo movimiento" }).click();
+  await expect(page).toHaveURL(/\/inventory\/movements\/new$/);
+  await expect(page.getByRole("heading", { name: "Nuevo movimiento" })).toBeVisible();
 
   const operationForm = page.locator("form").first();
   await operationForm.getByLabel("Tipo de operación").selectOption("ADJUSTMENT");
@@ -37,7 +38,7 @@ test("crear ajuste desde inventario actualiza stock e historial filtrable", asyn
   await operationForm.getByLabel("Referencia").fill(`CNT-${runId}`);
   await operationForm.getByRole("button", { name: "Registrar movimiento" }).click();
 
-  await expect(page.getByText("Movimiento de stock registrado. Datos actualizados.")).toBeVisible();
+  await expect(page).toHaveURL(/\/inventory$/);
 
   const stockSection = page.getByRole("region", { name: "Stock por producto y almacén" });
   const stockRow = stockSection.getByRole("row").filter({ hasText: item.name }).filter({ hasText: warehouse.name });
@@ -51,7 +52,7 @@ test("crear ajuste desde inventario actualiza stock e historial filtrable", asyn
   await historySection.getByLabel("Buscar").fill(`CNT-${runId}`);
   await expect(historySection.getByRole("row").filter({ hasText: item.name })).toBeVisible();
   await historySection.getByLabel("Tipo").selectOption("IN");
-  await expect(historySection.getByText("No hay movimientos para los filtros seleccionados.")).toBeVisible();
+  await expect(historySection.getByRole("cell", { name: "No hay movimientos para los filtros seleccionados." })).toBeVisible();
   await historySection.getByLabel("Tipo").selectOption("ADJUSTMENT");
   await expect(historySection.getByRole("row").filter({ hasText: item.name })).toBeVisible();
 });

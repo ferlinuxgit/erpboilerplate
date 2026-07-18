@@ -1,9 +1,10 @@
 import { AuthForm } from "@/components/auth-form";
+import { AuthPageShell } from "@/components/auth-page-shell";
 
 export default function RegisterPage() {
   return (
-    <main className="container mx-auto flex min-h-[80vh] items-center px-4 py-10">
+    <AuthPageShell>
       <AuthForm mode="sign-up" />
-    </main>
+    </AuthPageShell>
   );
 }

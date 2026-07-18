@@ -44,15 +44,17 @@ export function AccountingMastersForm({
   const [selectedJournalCodes, setSelectedJournalCodes] = useState(() => new Set(missingJournals.map((journal) => journal.code)));
   const [accountSearch, setAccountSearch] = useState("");
   const [journalSearch, setJournalSearch] = useState("");
+  const [accountLimit, setAccountLimit] = useState(40);
   const [loading, setLoading] = useState(false);
   const missingAccountCodes = new Set(missingAccounts.map((account) => account.code));
   const missingJournalCodes = new Set(missingJournals.map((journal) => journal.code));
   const hasMissingMasters = missingAccountCodes.size > 0 || missingJournalCodes.size > 0;
   const normalizedAccountSearch = accountSearch.trim().toLocaleLowerCase();
   const normalizedJournalSearch = journalSearch.trim().toLocaleLowerCase();
-  const visibleAccounts = catalogAccounts.filter((account) =>
+  const matchingAccounts = catalogAccounts.filter((account) =>
     [account.code, account.name, accountTypeLabels[account.type], account.role].join(" ").toLocaleLowerCase().includes(normalizedAccountSearch),
   );
+  const visibleAccounts = matchingAccounts.slice(0, accountLimit);
   const visibleJournals = catalogJournals.filter((journal) =>
     [journal.code, journal.name, journal.role].join(" ").toLocaleLowerCase().includes(normalizedJournalSearch),
   );
@@ -164,7 +166,10 @@ export function AccountingMastersForm({
               className="md:max-w-sm"
               placeholder="Buscar cuenta, IVA, clientes, ventas..."
               value={accountSearch}
-              onChange={(event) => setAccountSearch(event.target.value)}
+              onChange={(event) => {
+                setAccountSearch(event.target.value);
+                setAccountLimit(40);
+              }}
             />
           </div>
           <div className="grid gap-2 md:grid-cols-2">
@@ -189,6 +194,16 @@ export function AccountingMastersForm({
                 </label>
               );
             })}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            <p className="text-sm text-muted-foreground">
+              Mostrando {visibleAccounts.length} de {matchingAccounts.length} cuentas
+            </p>
+            {visibleAccounts.length < matchingAccounts.length ? (
+              <Button onClick={() => setAccountLimit((current) => current + 40)} type="button" variant="outline">
+                Mostrar 40 más
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}

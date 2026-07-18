@@ -24,7 +24,7 @@ export async function registerAndSignIn(page: Page, prefix: string): Promise<Tes
   expect(response.ok()).toBeTruthy();
 
   await page.goto("/dashboard");
-  await expect(page.getByText("Panel ERP SaaS").first()).toBeVisible();
+  await expect(page.getByText("Vista general").first()).toBeVisible();
 
   return user;
 }
@@ -40,7 +40,7 @@ export async function signIn(page: Page, user: TestUser) {
   expect(response.ok()).toBeTruthy();
 
   await page.goto("/dashboard");
-  await expect(page.getByText("Panel ERP SaaS").first()).toBeVisible();
+  await expect(page.getByText("Vista general").first()).toBeVisible();
 }
 
 export async function completeOnboarding(page: Page, legalName: string) {

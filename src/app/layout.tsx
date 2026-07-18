@@ -16,8 +16,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ERP SaaS Boilerplate",
-  description: "ERP SaaS multiempresa con contabilidad, facturación, compras, inventario y tesorería",
+  title: {
+    default: "ERP Suite",
+    template: "%s · ERP Suite",
+  },
+  description: "Gestión multiempresa de ventas, facturación, compras, inventario, contabilidad y tesorería.",
 };
 
 export default function RootLayout({
@@ -26,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="es" data-scroll-behavior="smooth" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <AppShell>{children}</AppShell>
         <Toaster richColors position="top-right" />

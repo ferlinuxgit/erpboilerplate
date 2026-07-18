@@ -1,5 +1,5 @@
-import { AccountingMastersForm } from "@/components/accounting/accounting-masters-form";
 import { CompanyDefaultsPanel } from "@/components/company/company-defaults-panel";
+import { LazyAccountingMasters } from "@/components/settings/lazy-accounting-masters";
 import { MastersPanel } from "@/components/settings/masters-panel";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -38,18 +38,13 @@ export default async function MastersSettingsPage() {
         <MastersPanel />
       </PageSection>
       <PageSection title="Avanzado" description="Catálogo contable predefinido para revisar o completar cuentas y diarios concretos.">
-        <details>
-          <summary className="cursor-pointer text-sm font-medium">Ver catálogo contable de la plantilla</summary>
-          <div className="mt-4">
-            <AccountingMastersForm
-              catalogAccounts={template?.accounts ?? []}
-              catalogJournals={template?.journals ?? []}
-              catalogLabel={template?.label ?? "Sin plantilla"}
-              missingAccounts={accountingMasterStatus.missingAccounts}
-              missingJournals={accountingMasterStatus.missingJournals}
-            />
-          </div>
-        </details>
+        <LazyAccountingMasters
+          catalogAccounts={template?.accounts ?? []}
+          catalogJournals={template?.journals ?? []}
+          catalogLabel={template?.label ?? "Sin plantilla"}
+          missingAccounts={accountingMasterStatus.missingAccounts}
+          missingJournals={accountingMasterStatus.missingJournals}
+        />
       </PageSection>
     </PageShell>
   );
