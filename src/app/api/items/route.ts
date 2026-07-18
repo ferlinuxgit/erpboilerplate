@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { item } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
@@ -7,6 +8,16 @@ import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
+import { recordAudit } from "@/server/audit";
+
+const itemPayloadSchema = z.object({
+  name: z.string().trim().min(1, "El nombre es obligatorio."),
+  sku: z.string().trim().min(1, "El SKU es obligatorio."),
+  isService: z.boolean().default(false),
+  salePrice: z.coerce.number().nonnegative().default(0),
+  costPrice: z.coerce.number().nonnegative().default(0),
+  minimumStock: z.coerce.number().nonnegative().default(0),
+});
 
 export async function GET() {
   const session = await getUserSession();
@@ -21,10 +32,11 @@ export async function POST(request: Request) {
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "stock.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const payload = (await readJsonBody(request)) as { name?: string; sku?: string } | null;
+  const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
-
-  if (!payload.name?.trim() || !payload.sku?.trim()) return NextResponse.json({ message: "name y sku obligatorios." }, { status: 400 });
-  const [created] = await db.insert(item).values({ companyId: ctx.company.id, name: payload.name.trim(), sku: payload.sku.trim() }).returning();
+  const parsed = itemPayloadSchema.safeParse(payload);
+  if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
+  const [created] = await db.insert(item).values({ companyId: ctx.company.id, name: parsed.data.name, sku: parsed.data.sku, isService: parsed.data.isService, salePrice: parsed.data.salePrice.toFixed(2), costPrice: parsed.data.costPrice.toFixed(2), averageCost: parsed.data.costPrice.toFixed(2), minimumStock: parsed.data.minimumStock.toFixed(3) }).returning();
+  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "item.create", entityName: "item", entityId: created.id, payload: parsed.data });
   return NextResponse.json(created, { status: 201 });
 }

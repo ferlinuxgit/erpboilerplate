@@ -7,8 +7,10 @@ import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { listBankAccounts } from "@/server/treasury/service";
 
-export default async function NewBankTransactionPage() {
+export default async function NewBankTransactionPage({ searchParams }: { searchParams?: Promise<{ bankAccountId?: string | string[] }> }) {
   const ctx = await requireContext("treasury.write");
+  const query = await searchParams;
+  const initialBankAccountId = Array.isArray(query?.bankAccountId) ? query.bankAccountId[0] : query?.bankAccountId;
   const accounts = await listBankAccounts(ctx.company.id);
   const canWriteTreasury = can(ctx.membership.role, "treasury.write");
 
@@ -36,7 +38,7 @@ export default async function NewBankTransactionPage() {
             }
           />
         ) : (
-          <CreateBankTransactionForm accounts={accounts} redirectHref="/treasury" />
+          <CreateBankTransactionForm accounts={accounts} initialBankAccountId={initialBankAccountId} redirectHref={initialBankAccountId ? `/treasury/bank-accounts/${initialBankAccountId}` : "/treasury"} />
         )}
       </PageSection>
     </PageShell>

@@ -46,10 +46,12 @@ const emptyLine = {
 export function CreateInvoiceForm({
   canCreateCustomer,
   customers,
+  initialCustomerId,
   nextInvoiceNumberPreview,
 }: {
   canCreateCustomer: boolean;
   customers: CustomerOption[];
+  initialCustomerId?: string;
   nextInvoiceNumberPreview?: string | null;
 }) {
   const router = useRouter();
@@ -70,7 +72,7 @@ export function CreateInvoiceForm({
     resolver: zodResolver(createInvoiceSchema),
     shouldUnregister: true,
     defaultValues: {
-      customerId: "",
+      customerId: customers.some((customer) => customer.id === initialCustomerId) ? initialCustomerId : "",
       issueDate: "",
       dueDate: "",
       totalAmount: 0,

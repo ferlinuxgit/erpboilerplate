@@ -18,7 +18,7 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Contabilidad" title="Editar asiento" description={entry.reference ?? "Sin referencia"} backHref="/accounting" backLabel="Volver a contabilidad" />
+      <PageHeader eyebrow="Contabilidad" title="Editar asiento" description={entry.reference ?? "Sin referencia"} backHref={`/accounting/entries/${entry.id}`} backLabel="Volver al asiento" />
       <PageSection title="Datos del asiento" description="Actualiza fecha, referencia y líneas contables.">
         <EditJournalEntryForm
           id={entry.id}

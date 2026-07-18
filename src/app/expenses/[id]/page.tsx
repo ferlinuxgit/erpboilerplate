@@ -19,16 +19,17 @@ export default async function ExpenseDetailPage({ params }: { params: Promise<{ 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Gastos"
+        eyebrow={expense.origin === "PURCHASE" ? "Compras · Factura" : "Gastos"}
         title={expense.supplierDocumentNumber || expense.number}
         description={`${expense.supplierName} · ${formatDate(expense.issueDate)}`}
-        backHref="/expenses"
-        backLabel="Volver a gastos"
+        backHref={expense.purchaseOrderId ? `/purchases/${expense.purchaseOrderId}` : "/expenses"}
+        backLabel={expense.purchaseOrderId ? "Volver al pedido" : "Volver a gastos"}
         meta={
           <StatusBadge tone={invoicePaymentStatusTone(expense.paymentStatus)}>
             {statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}
           </StatusBadge>
         }
+        actions={<><Link className={buttonVariants({ variant: "outline" })} href={`/suppliers/${expense.supplierPartnerId}`}>Ver proveedor</Link>{expense.purchaseOrderId ? <Link className={buttonVariants({ variant: "outline" })} href={`/purchases/${expense.purchaseOrderId}`}>Ver pedido</Link> : null}</>}
       />
 
       <section className="grid gap-3 md:grid-cols-4">

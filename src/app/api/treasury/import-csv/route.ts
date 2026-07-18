@@ -9,7 +9,7 @@ import { importBankCsv } from "@/server/treasury/reconciliation";
 
 const payloadSchema = z.object({
   bankAccountId: z.string().trim().min(1),
-  csv: z.string().trim().min(1),
+  csv: z.string().trim().min(1).max(2_000_000),
 });
 
 export async function POST(request: Request) {
@@ -24,6 +24,12 @@ export async function POST(request: Request) {
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
-  const imported = await importBankCsv(ctx.company.id, parsed.data.bankAccountId, parsed.data.csv);
+  const imported = await importBankCsv({
+    companyId: ctx.company.id,
+    tenantId: ctx.tenant.id,
+    actorUserId: session.user.id,
+    bankAccountId: parsed.data.bankAccountId,
+    content: parsed.data.csv,
+  });
   return NextResponse.json({ count: imported.length, rows: imported }, { status: 201 });
 }

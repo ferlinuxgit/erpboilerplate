@@ -629,6 +629,8 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       id: supplierInvoice.id,
       number: supplierInvoice.number,
       supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
+      origin: supplierInvoice.origin,
+      purchaseOrderId: supplierInvoice.purchaseOrderId,
       supplierPartnerId: supplierInvoice.supplierPartnerId,
       supplierName: partner.name,
       issueDate: supplierInvoice.issueDate,
@@ -645,7 +647,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
     })
     .from(supplierInvoice)
     .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
-    .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.id, id), eq(supplierInvoice.origin, "EXPENSE")))
+    .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.id, id)))
     .limit(1);
   if (!invoiceRow) return null;
 

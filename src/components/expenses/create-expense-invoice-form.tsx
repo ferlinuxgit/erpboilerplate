@@ -65,6 +65,7 @@ type OcrDraft = {
 
 type CreateExpenseInvoiceFormProps = {
   expenseAccounts: ExpenseAccount[];
+  initialSupplierId?: string;
   suppliers: Supplier[];
 };
 
@@ -100,11 +101,12 @@ function lineTotals(line: ExpenseLineDraft) {
   return { subtotal, tax, retention, total: subtotal + tax - retention };
 }
 
-export function CreateExpenseInvoiceForm({ expenseAccounts, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
+  const validInitialSupplierId = suppliers.some((supplier) => supplier.id === initialSupplierId) ? initialSupplierId ?? "" : "";
   const [creationMode, setCreationMode] = useState<CreationMode | null>(null);
   const [supplierMode, setSupplierMode] = useState<"existing" | "new">(suppliers.length > 0 ? "existing" : "new");
-  const [supplierPartnerId, setSupplierPartnerId] = useState("");
+  const [supplierPartnerId, setSupplierPartnerId] = useState(validInitialSupplierId);
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [supplierDialogMode, setSupplierDialogMode] = useState<SupplierDialogMode>(suppliers.length > 0 ? "choice" : "new");
   const [supplierSearch, setSupplierSearch] = useState("");

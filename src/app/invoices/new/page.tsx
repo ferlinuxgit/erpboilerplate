@@ -11,11 +11,13 @@ import { db } from "@/lib/db";
 import { formatSeriesNumber } from "@/lib/document-series-format";
 import { canManageCustomers, canManageInvoices } from "@/lib/rbac";
 
-export default async function NewInvoicePage() {
+export default async function NewInvoicePage({ searchParams }: { searchParams: Promise<{ customerId?: string | string[] }> }) {
   await requireUserSession();
   const tenantContext = await requireContext("invoice.create");
   const canCreateInvoice = canManageInvoices(tenantContext.membership.role);
   const canCreateCustomer = canManageCustomers(tenantContext.membership.role);
+  const query = await searchParams;
+  const initialCustomerId = Array.isArray(query.customerId) ? query.customerId[0] : query.customerId;
 
   const customers = await db
     .select({
@@ -79,7 +81,7 @@ export default async function NewInvoicePage() {
             }
           />
         ) : (
-          <CreateInvoiceForm canCreateCustomer={canCreateCustomer} customers={customers} nextInvoiceNumberPreview={nextInvoiceNumberPreview} />
+          <CreateInvoiceForm canCreateCustomer={canCreateCustomer} customers={customers} initialCustomerId={initialCustomerId} nextInvoiceNumberPreview={nextInvoiceNumberPreview} />
         )}
       </PageSection>
     </PageShell>

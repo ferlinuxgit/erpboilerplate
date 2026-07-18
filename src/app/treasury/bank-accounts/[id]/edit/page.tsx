@@ -17,7 +17,7 @@ export default async function EditBankAccountPage({ params }: { params: Promise<
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Tesorería" title="Editar cuenta bancaria" description={account.bankName} backHref="/treasury" backLabel="Volver a tesorería" />
+      <PageHeader eyebrow="Tesorería" title="Editar cuenta bancaria" description={account.bankName} backHref={`/treasury/bank-accounts/${account.id}`} backLabel="Volver a la cuenta" />
       <PageSection title="Datos bancarios" description="Actualiza banco e IBAN asociado a la empresa activa.">
         <EditBankAccountForm id={account.id} defaultBankName={account.bankName} defaultIban={account.iban} />
       </PageSection>

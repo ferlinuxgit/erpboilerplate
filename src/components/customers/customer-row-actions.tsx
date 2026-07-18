@@ -10,7 +10,10 @@ type CustomerRowActionsProps = {
 
 export function CustomerRowActions({ id, name }: CustomerRowActionsProps) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
+      <Link className={buttonVariants({ variant: "ghost", size: "sm" })} href={`/customers/${id}`}>
+        Ver ficha
+      </Link>
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/sales/new?customerId=${id}`}>
         Crear presupuesto
       </Link>

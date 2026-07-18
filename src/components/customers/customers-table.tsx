@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { CustomerRowActions } from "@/components/customers/customer-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -24,7 +26,7 @@ type CustomersTableProps = {
 const columns: ResourceListColumn<CustomerRow>[] = [
   {
     header: "Nombre",
-    cell: (customer) => <span className="font-medium">{customer.name}</span>,
+    cell: (customer) => <Link className="font-medium underline-offset-4 hover:underline" href={`/customers/${customer.id}`}>{customer.name}</Link>,
     exportValue: (customer) => customer.name,
     sortValue: (customer) => customer.name,
   },

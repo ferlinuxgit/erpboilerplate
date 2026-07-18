@@ -2,48 +2,58 @@ import { and, eq, gte, ilike, lte } from "drizzle-orm";
 
 import { bankAccount, bankTransaction, invoice, invoicePayment, payment, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { db } from "@/lib/db";
+import { parseBankCsv } from "@/lib/bank-csv";
+import { postBankTransaction } from "@/server/accounting/auto-post";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
+import { createBankTransaction } from "@/server/treasury/service";
 
-type CsvRow = {
-  postedAt: Date;
-  amount: number;
-  description: string;
-};
-
-export function parseBankCsv(content: string): CsvRow[] {
-  const lines = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (lines.length <= 1) return [];
-
-  const rows: CsvRow[] = [];
-  for (const line of lines.slice(1)) {
-    const [postedAtRaw, amountRaw, descriptionRaw] = line.split(";");
-    if (!postedAtRaw || !amountRaw || !descriptionRaw) continue;
-    const amount = Number(amountRaw.replace(",", "."));
-    if (Number.isNaN(amount)) continue;
-    const postedAt = new Date(postedAtRaw);
-    if (Number.isNaN(postedAt.getTime())) continue;
-    rows.push({ postedAt, amount, description: descriptionRaw.trim() });
-  }
-  return rows;
-}
-
-export async function importBankCsv(companyId: string, bankAccountId: string, content: string) {
+export async function importBankCsv(input: { companyId: string; tenantId: string; actorUserId: string; bankAccountId: string; content: string }) {
   const [ownedAccount] = await db
     .select({ id: bankAccount.id })
     .from(bankAccount)
-    .where(and(eq(bankAccount.id, bankAccountId), eq(bankAccount.companyId, companyId)))
+    .where(and(eq(bankAccount.id, input.bankAccountId), eq(bankAccount.companyId, input.companyId)))
     .limit(1);
   if (!ownedAccount) throw new Error("Cuenta bancaria no encontrada.");
 
-  const rows = parseBankCsv(content);
+  const rows = parseBankCsv(input.content);
   if (rows.length === 0) return [];
 
-  return db
-    .insert(bankTransaction)
-    .values(rows.map((row) => ({ bankAccountId, postedAt: row.postedAt, amount: row.amount.toFixed(2), description: row.description })))
-    .returning();
+  return db.transaction(async (tx) => {
+    const created = [];
+    for (const row of rows) {
+      const amount = row.amount.toFixed(2);
+      const [duplicate] = await tx
+        .select({ id: bankTransaction.id })
+        .from(bankTransaction)
+        .where(and(
+          eq(bankTransaction.bankAccountId, input.bankAccountId),
+          eq(bankTransaction.postedAt, row.postedAt),
+          eq(bankTransaction.amount, amount),
+          eq(bankTransaction.description, row.description),
+        ))
+        .limit(1);
+      if (duplicate) continue;
+      await assertFiscalPeriodOpen(input.companyId, row.postedAt, tx);
+      const transaction = await createBankTransaction(input.companyId, input.tenantId, input.actorUserId, {
+        bankAccountId: input.bankAccountId,
+        postedAt: row.postedAt,
+        amount,
+        description: row.description,
+      }, tx);
+      await postBankTransaction({
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        bankTransactionId: transaction.id,
+        postedAt: row.postedAt,
+        reference: `Movimiento bancario importado ${transaction.id}`,
+        amount: row.amount,
+        dbClient: tx,
+      });
+      created.push(transaction);
+    }
+    return created;
+  });
 }
 
 export async function autoReconcileBankTransactions(companyId: string) {

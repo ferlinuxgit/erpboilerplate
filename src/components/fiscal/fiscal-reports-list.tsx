@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { FiscalReportRowActions } from "@/components/fiscal/fiscal-report-row-actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
@@ -37,7 +39,7 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
       </>
     );
 
-    return <span className="font-medium">{content}</span>;
+    return <Link className="font-medium text-primary hover:underline" href={`/fiscal/${report.id}`}>{content}</Link>;
   }
 
   const columns: ResourceListColumn<FiscalReportWithSummary>[] = [
@@ -101,7 +103,7 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
     },
     {
       header: "Acciones",
-      cell: (report) => (canWrite ? <FiscalReportRowActions report={report} /> : null),
+      cell: (report) => <FiscalReportRowActions canWrite={canWrite} report={report} />,
       className: "text-right",
     },
   ];
@@ -134,7 +136,7 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
               <dd className="font-medium">{formatMoney(report.summary?.settlementAmount ?? 0)}</dd>
             </div>
           </dl>
-          {canWrite ? <FiscalReportRowActions report={report} /> : null}
+          <FiscalReportRowActions canWrite={canWrite} report={report} />
         </div>
       )}
       searchPlaceholder="Buscar modelo, periodo o estado"

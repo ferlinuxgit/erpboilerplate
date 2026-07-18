@@ -5,7 +5,10 @@ import { buttonVariants } from "@/components/ui/button";
 
 export function PurchaseOrderRowActions({ id }: { id: string }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <Link className={buttonVariants({ variant: "ghost", size: "sm" })} href={`/purchases/${id}`}>
+        Ver pedido
+      </Link>
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/purchases/${id}/edit`}>
         Editar
       </Link>

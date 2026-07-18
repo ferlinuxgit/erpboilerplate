@@ -58,6 +58,8 @@ type Props = {
   movements: StockMovementHistoryRow[];
   initialItemId?: string;
   initialWarehouseId?: string;
+  initialMovementItemId?: string;
+  initialMovementWarehouseId?: string;
   redirectAfterSubmit?: string;
   showMovementForm?: boolean;
   showOverview?: boolean;
@@ -92,14 +94,16 @@ export function InventoryOperationsPanel({
   movements,
   initialItemId = "all",
   initialWarehouseId = "all",
+  initialMovementItemId,
+  initialMovementWarehouseId,
   redirectAfterSubmit,
   showMovementForm = true,
   showOverview = true,
 }: Props) {
   const router = useRouter();
   const [movementType, setMovementType] = useState<keyof typeof movementLabels>("ADJUSTMENT");
-  const [itemId, setItemId] = useState(items[0]?.id ?? "");
-  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? "");
+  const [itemId, setItemId] = useState(items.some((item) => item.id === initialMovementItemId) ? initialMovementItemId ?? "" : items[0]?.id ?? "");
+  const [warehouseId, setWarehouseId] = useState(warehouses.some((warehouse) => warehouse.id === initialMovementWarehouseId) ? initialMovementWarehouseId ?? "" : warehouses[0]?.id ?? "");
   const [destinationWarehouseId, setDestinationWarehouseId] = useState(warehouses[1]?.id ?? "");
   const [quantity, setQuantity] = useState("1");
   const [movedAt, setMovedAt] = useState(nowForDateTimeInput());

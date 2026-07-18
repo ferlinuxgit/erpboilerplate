@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { BankTransactionRowActions } from "@/components/treasury/bank-transaction-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -29,7 +31,7 @@ const columns = (currencyCode: string, canManage: boolean, accounts: BankTransac
     header: "Movimiento",
     cell: (row) => (
       <div>
-        <p className="font-medium">{row.description}</p>
+        <Link className="font-medium text-primary hover:underline" href={`/treasury/bank-transactions/${row.id}`}>{row.description}</Link>
         <p className="text-sm text-muted-foreground">{row.bankName}</p>
       </div>
     ),
@@ -82,7 +84,7 @@ export function BankTransactionsList({ accounts, canManage = true, currencyCode,
       renderMobileCard={(row) => (
         <div className="space-y-3">
           <div>
-            <p className="font-medium">{row.description}</p>
+            <Link className="font-medium text-primary hover:underline" href={`/treasury/bank-transactions/${row.id}`}>{row.description}</Link>
             <p className="text-sm text-muted-foreground">{row.bankName}</p>
             <p className="text-sm text-muted-foreground">{formatDate(row.postedAt)} · {formatMoney(row.amount, currencyCode)}</p>
             <StatusBadge className="mt-2" tone={row.reconciliationStatus === "RECONCILED" ? "success" : "warning"}>

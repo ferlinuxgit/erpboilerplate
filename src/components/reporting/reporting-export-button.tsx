@@ -19,14 +19,14 @@ function stateCopy(state: ExportState) {
   }
 }
 
-export function ReportingExportButton() {
+export function ReportingExportButton({ period = "month" }: { period?: "month" | "quarter" | "year" }) {
   const [state, setState] = useState<ExportState>("idle");
 
   async function handleExport() {
     setState("loading");
 
     try {
-      const response = await fetch("/api/reporting/export");
+      const response = await fetch(period === "month" ? "/api/reporting/export" : `/api/reporting/export?period=${period}`);
       if (!response.ok) {
         throw new Error("Export failed");
       }
@@ -35,7 +35,7 @@ export function ReportingExportButton() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "kpis.xlsx";
+      link.download = `kpis-${period}.xlsx`;
       document.body.append(link);
       link.click();
       link.remove();

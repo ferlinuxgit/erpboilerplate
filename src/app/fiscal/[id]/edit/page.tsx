@@ -12,7 +12,7 @@ export default async function EditFiscalPage({ params }: { params: Promise<{ id:
   if (!report) notFound();
   return (
     <PageShell>
-      <PageHeader eyebrow="Fiscalidad" title="Editar modelo fiscal" description={`${report.code} - ${report.period}`} backHref="/fiscal" backLabel="Volver a fiscalidad" />
+      <PageHeader eyebrow="Fiscalidad" title="Editar modelo fiscal" description={`${report.code} - ${report.period}`} backHref={`/fiscal/${report.id}`} backLabel="Volver al modelo" />
       <PageSection title="Datos del modelo" description="Ajusta periodo, estado y modelo del borrador español.">
         <EditFiscalReportForm id={report.id} defaultCode={report.code} defaultPeriod={report.period} defaultStatus={report.status} />
       </PageSection>

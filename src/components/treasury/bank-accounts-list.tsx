@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { BankAccountRowActions } from "@/components/treasury/bank-account-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 
@@ -17,7 +19,7 @@ type BankAccountsListProps = {
 const columns = (canManage: boolean): ResourceListColumn<BankAccountRow>[] => [
   {
     header: "Banco",
-    cell: (account) => <span className="font-medium">{account.bankName}</span>,
+    cell: (account) => <Link className="font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link>,
     exportValue: (account) => account.bankName,
     sortValue: (account) => account.bankName,
   },
@@ -48,7 +50,7 @@ export function BankAccountsList({ canManage = true, rows }: BankAccountsListPro
       getRowId={(account) => account.id}
       getSearchText={(account) => [account.bankName, account.iban].join(" ")}
       items={rows}
-      renderMobileCard={(account) => <div className="space-y-3"><div><p className="font-medium">{account.bankName}</p><p className="break-all text-sm text-muted-foreground">{account.iban}</p></div>{canManage ? <BankAccountRowActions account={account} /> : null}</div>}
+      renderMobileCard={(account) => <div className="space-y-3"><div><Link className="font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link><p className="break-all text-sm text-muted-foreground">{account.iban}</p></div>{canManage ? <BankAccountRowActions account={account} /> : null}</div>}
       searchPlaceholder="Buscar cuenta por banco o IBAN"
       testId="bank-accounts-list"
       title="Cuentas bancarias"

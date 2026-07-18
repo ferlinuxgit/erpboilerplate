@@ -17,11 +17,12 @@ type CreateBankTransactionFormProps = {
   onCancel?: () => void;
   onSuccess?: () => void;
   redirectHref?: string;
+  initialBankAccountId?: string;
 };
 
-export function CreateBankTransactionForm({ accounts, onCancel, onSuccess, redirectHref }: CreateBankTransactionFormProps) {
+export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCancel, onSuccess, redirectHref }: CreateBankTransactionFormProps) {
   const router = useRouter();
-  const [bankAccountId, setBankAccountId] = useState(accounts[0]?.id ?? "");
+  const [bankAccountId, setBankAccountId] = useState(accounts.some((account) => account.id === initialBankAccountId) ? initialBankAccountId ?? "" : accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [postedAt, setPostedAt] = useState("");

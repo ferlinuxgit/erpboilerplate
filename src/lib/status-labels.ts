@@ -75,3 +75,10 @@ export function purchaseOrderStatusTone(status: string): StatusTone {
   if (status === "VOID" || status === "CANCELLED") return "danger";
   return "neutral";
 }
+
+export function salesDocumentStatusTone(status: string): StatusTone {
+  if (status === "DELIVERED" || status === "INVOICED" || status === "PAID") return "success";
+  if (status === "SENT" || status === "CONFIRMED") return "info";
+  if (status === "VOID") return "danger";
+  return "neutral";
+}

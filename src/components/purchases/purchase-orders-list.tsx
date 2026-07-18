@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { PurchaseOrderRowActions } from "@/components/purchases/purchase-order-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -24,7 +26,7 @@ const columns = (canManage: boolean): ResourceListColumn<PurchaseOrderRow>[] => 
     header: "Pedido",
     cell: (order) => (
       <div>
-        <p className="font-medium">{order.number}</p>
+        <Link className="font-medium underline-offset-4 hover:underline" href={`/purchases/${order.id}`}>{order.number}</Link>
         <p className="text-sm text-muted-foreground">{order.supplierName}</p>
       </div>
     ),

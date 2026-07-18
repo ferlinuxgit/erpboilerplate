@@ -88,9 +88,10 @@ export default async function AccountingPage() {
         ) : (
           entries.map((entry) => (
             <div key={entry.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
-              <p className="min-w-0 truncate text-sm">
-                <span className="font-medium">{entry.postedAt.toISOString().slice(0, 10)}</span> - {entry.reference ?? "Sin referencia"} - {entry.debit}/{entry.credit}
-              </p>
+              <Link className="min-w-0 text-sm hover:text-primary" href={`/accounting/entries/${entry.id}`}>
+                <span className="block font-medium">{entry.reference ?? "Sin referencia"}</span>
+                <span className="block text-xs text-muted-foreground">{entry.postedAt.toISOString().slice(0, 10)} · Debe {entry.debit} · Haber {entry.credit}</span>
+              </Link>
               {canWriteAccounting ? <JournalEntryRowActions id={entry.id} /> : null}
             </div>
           ))

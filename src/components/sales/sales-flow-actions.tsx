@@ -23,6 +23,7 @@ type OrderOption = { id: string; number: string; status: SalesDocumentStatus };
 type DeliveryOption = { id: string; number: string; status: SalesDocumentStatus };
 
 type RowProps = {
+  href: string;
   label: string;
   status: string;
   testId?: string;
@@ -46,14 +47,14 @@ function PipelineCards({ stages }: { stages: ReturnType<typeof buildSalesPipelin
   );
 }
 
-function DocumentTransitionRow({ label, loading, onAction, status, testId, transition }: RowProps) {
+function DocumentTransitionRow({ href, label, loading, onAction, status, testId, transition }: RowProps) {
   return (
     <div
       className="flex flex-col gap-2 rounded-md border bg-background p-3 md:flex-row md:items-center md:justify-between"
       data-testid={testId}
     >
       <div>
-        <p className="text-sm font-medium">{label}</p>
+        <Link className="text-sm font-medium underline-offset-4 hover:underline" href={href}>{label}</Link>
         <p className="text-xs text-muted-foreground">Estado: {status}</p>
         {!transition.allowed ? <p className="mt-1 text-xs text-amber-700">Bloqueado: {transition.reason}</p> : null}
       </div>
@@ -220,6 +221,7 @@ export function SalesFlowActions({
         {quotes.map((quote) => (
           <DocumentTransitionRow
             key={quote.id}
+            href={`/sales/quotes/${quote.id}`}
             label={`Presupuesto ${quote.number}`}
             loading={loading}
             onAction={() => post(`/api/sales-quotes/${quote.id}/to-order`)}
@@ -231,6 +233,7 @@ export function SalesFlowActions({
         {orders.map((order) => (
           <DocumentTransitionRow
             key={order.id}
+            href={`/sales/orders/${order.id}`}
             label={`Pedido ${order.number}`}
             loading={loading}
             onAction={() => post(`/api/sales-orders/${order.id}/to-delivery`)}
@@ -242,6 +245,7 @@ export function SalesFlowActions({
         {deliveryNotes.map((note) => (
           <DocumentTransitionRow
             key={note.id}
+            href={`/sales/delivery-notes/${note.id}`}
             label={`Albarán ${note.number}`}
             loading={loading}
             onAction={() => post(`/api/delivery-notes/${note.id}/to-invoice`)}

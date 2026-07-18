@@ -107,4 +107,25 @@ describe("frontend polish primitives", () => {
     expect(dashboardPage).toContain("loadDashboardData");
     expect(dashboardPage).toContain('aria-label="Alertas operativas"');
   });
+
+  it("provides a global command palette and independent record detail routes", () => {
+    const palette = sourceFor("src/components/layout/global-command-palette.tsx");
+    const appShell = sourceFor("src/components/layout/app-shell.tsx");
+    const detailRoutes = [
+      "src/app/customers/[id]/page.tsx",
+      "src/app/purchases/[id]/page.tsx",
+      "src/app/accounting/entries/[id]/page.tsx",
+      "src/app/fiscal/[id]/page.tsx",
+      "src/app/treasury/bank-accounts/[id]/page.tsx",
+      "src/app/treasury/bank-transactions/[id]/page.tsx",
+      "src/app/inventory/items/[id]/page.tsx",
+      "src/app/inventory/warehouses/[id]/page.tsx",
+    ];
+
+    expect(appShell).toContain("GlobalCommandPalette");
+    expect(appShell).toContain('id="main-content"');
+    expect(palette).toContain('event.metaKey || event.ctrlKey');
+    expect(palette).toContain('/api/search?q=');
+    detailRoutes.forEach((route) => expect(existsSync(join(root, route)), `${route} must exist`).toBe(true));
+  });
 });

@@ -10,6 +10,7 @@ import { getCsrfHeader } from "@/lib/csrf-client";
 
 type DeleteButtonProps = {
   url: string;
+  redirectTo?: string;
   label?: string;
   title?: string;
   description?: string;
@@ -18,6 +19,7 @@ type DeleteButtonProps = {
 
 export function DeleteButton({
   url,
+  redirectTo,
   label = "Eliminar",
   title = "Eliminar registro",
   description = "Esta acción no se puede deshacer. Confirma que quieres eliminar este registro.",
@@ -39,7 +41,8 @@ export function DeleteButton({
       }
       setIsOpen(false);
       toast.success(successMessage);
-      router.refresh();
+      if (redirectTo) router.push(redirectTo);
+      else router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Error inesperado al eliminar.";
       setErrorMessage(message);

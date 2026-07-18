@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { BankAccountsList } from "@/components/treasury/bank-accounts-list";
 import { BankTransactionsList } from "@/components/treasury/bank-transactions-list";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
+import { TreasuryOperations } from "@/components/treasury/treasury-operations";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -52,6 +53,7 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
     customerInvoices.find((candidate) => candidate.paymentStatus !== "PAID") ??
     customerInvoices[0];
   const paidInvoicesCount = customerInvoices.filter((candidate) => candidate.paymentStatus === "PAID").length;
+  const pendingReconciliationCount = rows.filter((row) => row.reconciliationStatus === "PENDING").length;
   const canWriteTreasury = can(ctx.membership.role, "treasury.write");
 
   return (
@@ -102,6 +104,12 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
         </div>
         <MetricCard label="Facturas en seguimiento" value={customerInvoices.length} helper="Incluye pagadas, parciales y pendientes" />
       </PageSection>
+
+      {canWriteTreasury && accounts.length > 0 ? (
+        <PageSection title="Importación y conciliación" description="Incorpora extractos bancarios y vincula movimientos con cobros y pagos existentes.">
+          <TreasuryOperations accounts={accounts} pendingCount={pendingReconciliationCount} />
+        </PageSection>
+      ) : null}
 
       <PageSection
         title="Cuentas bancarias"

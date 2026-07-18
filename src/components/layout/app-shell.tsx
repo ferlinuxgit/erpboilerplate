@@ -28,6 +28,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ActiveContextSwitcher } from "@/components/layout/active-context-switcher";
+import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -160,6 +161,8 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-background lg:flex">
+      <a className="fixed left-4 top-4 z-50 -translate-y-24 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform focus:translate-y-0" href="#main-content">Saltar al contenido</a>
+      <GlobalCommandPalette />
       <aside
         className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4 lg:flex"
         data-testid="desktop-sidebar"
@@ -178,6 +181,7 @@ export function AppShell({ children }: AppShellProps) {
           <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.11em] text-muted-foreground">Contexto activo</p>
           <ActiveContextSwitcher />
         </div>
+        <CommandPaletteButton className="mb-3 w-full" />
         <div className="relative mb-5">
           <label className="sr-only" htmlFor="desktop-module-search">
             Buscar módulo
@@ -264,6 +268,8 @@ export function AppShell({ children }: AppShellProps) {
                 </div>
               </details>
 
+              <CommandPaletteButton className="mb-3 w-full" compact />
+
               <div className="relative mb-4">
                 <label className="sr-only" htmlFor="mobile-module-search">
                   Buscar módulo
@@ -285,7 +291,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         ) : null}
 
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1" id="main-content">{children}</div>
       </div>
     </div>
   );

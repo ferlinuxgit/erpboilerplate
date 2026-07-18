@@ -1,11 +1,12 @@
 import Link from "next/link";
 
 import { ReportingExportButton } from "@/components/reporting/reporting-export-button";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { requireContext } from "@/lib/current-context";
-import { listKpis } from "@/server/reporting/service";
+import { getReportingPeriodRanges, listKpis, type ReportingPeriod } from "@/server/reporting/service";
 
 const reportingSources = [
   { href: "/customers", label: "Clientes", description: "Segmenta ventas y riesgo por cartera." },
@@ -21,9 +22,35 @@ const periodOptions = [
   { value: "year", label: "Ejercicio activo" },
 ] as const;
 
-export default async function ReportingPage() {
+function latestByMetric(rows: Awaited<ReturnType<typeof listKpis>>) {
+  const result = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) if (!result.has(row.metricKey)) result.set(row.metricKey, row);
+  return result;
+}
+
+function metricLabel(value: string) {
+  const normalized = value.replaceAll("_", " ").replaceAll("-", " ");
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function metricHref(value: string) {
+  const key = value.toLowerCase();
+  if (key.includes("customer") || key.includes("cliente")) return "/customers";
+  if (key.includes("supplier") || key.includes("proveedor") || key.includes("purchase")) return "/suppliers";
+  if (key.includes("cash") || key.includes("bank") || key.includes("caja") || key.includes("cobro")) return "/treasury";
+  if (key.includes("stock") || key.includes("inventory") || key.includes("inventario")) return "/inventory";
+  return "/invoices";
+}
+
+export default async function ReportingPage({ searchParams }: { searchParams?: Promise<{ period?: string | string[] }> }) {
   const ctx = await requireContext("reporting.read");
-  const kpis = await listKpis(ctx.company.id);
+  const query = await searchParams;
+  const requestedPeriod = Array.isArray(query?.period) ? query.period[0] : query?.period;
+  const period: ReportingPeriod = requestedPeriod === "quarter" || requestedPeriod === "year" ? requestedPeriod : "month";
+  const ranges = getReportingPeriodRanges(period);
+  const [currentRows, previousRows] = await Promise.all([listKpis(ctx.company.id, ranges.current), listKpis(ctx.company.id, ranges.previous)]);
+  const kpis = [...latestByMetric(currentRows).values()];
+  const previousByMetric = latestByMetric(previousRows);
 
   return (
     <PageShell>
@@ -36,12 +63,12 @@ export default async function ReportingPage() {
       />
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,1fr)]">
         <PageSection title="KPIs operativos" description="Valida las señales contra sus módulos de origen antes de exportar." contentClassName="space-y-5">
-            <div className="grid gap-4 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+            <form action="/reporting" className="grid gap-4 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end">
               <div className="space-y-2">
                 <Label htmlFor="reporting-period">Periodo del informe</Label>
                 <Select
                   className="h-9"
-                  defaultValue="month"
+                  defaultValue={period}
                   id="reporting-period"
                   name="period"
                 >
@@ -52,25 +79,31 @@ export default async function ReportingPage() {
                   ))}
                 </Select>
               </div>
+              <Button type="submit" variant="secondary">Aplicar periodo</Button>
               <p className="text-sm text-muted-foreground" data-testid="reporting-kpi-explanation">
-                Indicadores calculados del espacio activo para el periodo seleccionado. Empieza por Este mes y valida la señal contra los módulos
-                de origen y exporta el Excel cuando necesites compartir el corte.
+                Indicadores calculados del espacio activo. Corte del {ranges.current.start.toLocaleDateString("es-ES")} al {new Date(ranges.current.end.getTime() - 1).toLocaleDateString("es-ES")}; cada tarjeta abre el módulo que origina el dato.
               </p>
-            </div>
+            </form>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="reporting-kpi-cards">
               {kpis.length === 0 ? (
                 <EmptyState className="sm:col-span-2 xl:col-span-3" title="Sin métricas calculadas aún" description="Crea clientes, facturas y cobros para que el reporting sustituya esta guía por indicadores reales." />
               ) : (
                 kpis.map((kpi) => (
-                  <MetricCard key={kpi.id} label={kpi.metricKey} value={kpi.metricValue.toString()} helper={`Capturado: ${kpi.capturedAt.toLocaleDateString("es-ES")}`} />
+                  <MetricCard
+                    key={kpi.id}
+                    label={metricLabel(kpi.metricKey)}
+                    value={kpi.metricValue.toString()}
+                    helper={previousByMetric.has(kpi.metricKey) ? `Periodo anterior: ${previousByMetric.get(kpi.metricKey)?.metricValue.toString()}` : `Capturado: ${kpi.capturedAt.toLocaleDateString("es-ES")}`}
+                    href={metricHref(kpi.metricKey)}
+                  />
                 ))
               )}
             </div>
         </PageSection>
 
         <PageSection title="Exportación" description="Genera un Excel con estado visible antes de volver al panel." contentClassName="space-y-3">
-          <ReportingExportButton />
+          <ReportingExportButton period={period} />
         </PageSection>
       </section>
 

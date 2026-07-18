@@ -18,7 +18,7 @@ export default async function EditPurchasePage({ params }: { params: Promise<{ i
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Compras" title="Editar pedido de compra" description={order.number} backHref="/purchases" backLabel="Volver a compras" />
+      <PageHeader eyebrow="Compras" title="Editar pedido de compra" description={order.number} backHref={`/purchases/${order.id}`} backLabel="Volver al pedido" />
       <PageSection title="Datos del pedido" description="Ajusta número y estado del pedido de compra.">
         <EditPurchaseOrderForm orderId={order.id} defaultNumber={order.number} defaultStatus={order.status} />
       </PageSection>

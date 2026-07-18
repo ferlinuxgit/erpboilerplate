@@ -18,7 +18,7 @@ export default async function EditBankTransactionPage({ params }: { params: Prom
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Tesorería" title="Editar movimiento bancario" description={transaction.description} backHref="/treasury" backLabel="Volver a tesorería" />
+      <PageHeader eyebrow="Tesorería" title="Editar movimiento bancario" description={transaction.description} backHref={`/treasury/bank-transactions/${transaction.id}`} backLabel="Volver al movimiento" />
       <PageSection title="Datos del movimiento" description="Actualiza cuenta, fecha, importe y descripción.">
         <EditBankTransactionForm
           id={transaction.id}

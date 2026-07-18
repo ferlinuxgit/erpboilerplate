@@ -8,8 +8,10 @@ import { requireContext } from "@/lib/current-context";
 import { listPostingAccounts } from "@/server/accounting/service";
 import { listSupplierPartners } from "@/server/supplier-invoices/service";
 
-export default async function NewExpensePage() {
+export default async function NewExpensePage({ searchParams }: { searchParams?: Promise<{ supplierId?: string | string[] }> }) {
   const ctx = await requireContext("expense.write");
+  const query = await searchParams;
+  const initialSupplierId = Array.isArray(query?.supplierId) ? query.supplierId[0] : query?.supplierId;
   const [accounts, suppliers] = await Promise.all([
     listPostingAccounts(ctx.company.id),
     listSupplierPartners(ctx.company.id),
@@ -43,7 +45,7 @@ export default async function NewExpensePage() {
             }
           />
         ) : (
-          <CreateExpenseInvoiceForm expenseAccounts={expenseAccounts} suppliers={suppliers} />
+          <CreateExpenseInvoiceForm expenseAccounts={expenseAccounts} initialSupplierId={initialSupplierId} suppliers={suppliers} />
         )}
       </PageSection>
     </PageShell>

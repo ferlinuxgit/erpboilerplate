@@ -42,6 +42,7 @@ const apiRouteFiles = [
   "src/app/api/invoices/route.ts",
   "src/app/api/item-categories/route.ts",
   "src/app/api/items/route.ts",
+  "src/app/api/items/[id]/route.ts",
   "src/app/api/journal-entries/[id]/route.ts",
   "src/app/api/journal-entries/route.ts",
   "src/app/api/onboarding/seed/route.ts",
@@ -62,6 +63,7 @@ const apiRouteFiles = [
   "src/app/api/treasury/import-csv/route.ts",
   "src/app/api/unit-of-measure/route.ts",
   "src/app/api/warehouses/route.ts",
+  "src/app/api/warehouses/[id]/route.ts",
 ];
 
 function sourceFor(path: string) {

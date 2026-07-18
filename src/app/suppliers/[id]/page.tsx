@@ -11,6 +11,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
+import { invoicePaymentStatusLabels, invoicePaymentStatusTone, purchaseOrderStatusLabels, statusLabel } from "@/lib/status-labels";
 import { getSupplier, getSupplierActivity } from "@/server/suppliers/service";
 
 export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -44,7 +45,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <Link className={buttonVariants({ variant: "outline" })} href={`/suppliers/${supplier.id}/edit`}>
               Editar
             </Link>
-            <Link className={buttonVariants()} href={`/expenses?supplierId=${supplier.id}`}>
+            <Link className={buttonVariants()} href={`/expenses/new?supplierId=${supplier.id}`}>
               Registrar gasto
             </Link>
           </div>
@@ -113,10 +114,10 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                 <tr><td className="p-3 text-muted-foreground" colSpan={6}>Sin facturas registradas.</td></tr>
               ) : activity.invoices.map((invoice) => (
                 <tr className="border-t" key={invoice.id}>
-                  <td className="p-3">{invoice.supplierDocumentNumber ?? invoice.number}</td>
+                  <td className="p-3"><Link className="font-medium text-primary hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></td>
                   <td className="p-3">{invoice.origin === "EXPENSE" ? "Gasto" : "Compra"}</td>
                   <td className="p-3">{formatDate(invoice.issueDate)}</td>
-                  <td className="p-3">{invoice.paymentStatus}</td>
+                  <td className="p-3"><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></td>
                   <td className="p-3 text-right">{formatMoney(invoice.totalAmount, supplier.currencyCode)}</td>
                   <td className="p-3 text-right">{formatMoney(invoice.outstandingAmount, supplier.currencyCode)}</td>
                 </tr>
@@ -130,10 +131,10 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <PageSection title="Pedidos recientes" description="Últimos pedidos de compra asociados.">
           <div className="space-y-2 text-sm">
             {activity.purchaseOrders.length === 0 ? <p className="text-muted-foreground">Sin pedidos registrados.</p> : activity.purchaseOrders.map((order) => (
-              <div className="flex items-center justify-between rounded-md border p-3" key={order.id}>
-                <span>{order.number}</span>
-                <span className="text-muted-foreground">{order.status} · {formatDate(order.createdAt)}</span>
-              </div>
+              <Link className="flex items-center justify-between rounded-md border p-3 hover:bg-accent" href={`/purchases/${order.id}`} key={order.id}>
+                <span className="font-medium">{order.number}</span>
+                <span className="text-muted-foreground">{statusLabel(purchaseOrderStatusLabels, order.status)} · {formatDate(order.createdAt)}</span>
+              </Link>
             ))}
           </div>
         </PageSection>
