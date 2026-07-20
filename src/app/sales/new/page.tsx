@@ -16,7 +16,7 @@ export default async function NewSalesQuotePage({ searchParams }: { searchParams
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Ventas" title="Nuevo presupuesto" description={`Prepara una propuesta comercial para ${ctx.company.name}.`} backHref="/sales" backLabel="Volver a ventas" />
+      <PageHeader eyebrow="Ventas · Presupuestos" title="Nuevo presupuesto" description={`Prepara una propuesta comercial para ${ctx.company.name}.`} backHref="/sales/quotes" backLabel="Volver a presupuestos" />
       <PageSection title="Datos del presupuesto" description="Selecciona el cliente, define la vigencia y añade los conceptos de la propuesta.">
         {customers.length === 0 ? (
           <EmptyState title="Falta un cliente" description="Crea al menos un cliente antes de preparar un presupuesto." action={<Link className={buttonVariants()} href="/customers/new">Crear cliente</Link>} />

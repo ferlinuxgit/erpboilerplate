@@ -12,7 +12,7 @@ async function clickAndExpectPost<T = unknown>(page: Page, urlPart: string, clic
   return (text ? JSON.parse(text) : null) as T;
 }
 
-test("sales pipeline guides quote to order to delivery to invoice", async ({ page }) => {
+test("sales documents progress from quote to order, delivery note and invoice", async ({ page }) => {
   const runId = Date.now();
   const customerName = `Cliente pipeline ${runId}`;
   const quoteNumber = `PRE-E2E-${runId}`;
@@ -28,6 +28,11 @@ test("sales pipeline guides quote to order to delivery to invoice", async ({ pag
     code: `WH-${runId}`,
     name: `Almacén pipeline ${runId}`,
   });
+
+  await page.goto("/sales");
+  await expect(page.getByRole("heading", { name: "Ventas", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver listado" })).toHaveCount(3);
+  await expect(page.getByText("Continuidad del journey")).toHaveCount(0);
 
   await page.goto("/customers/new");
   await page.getByLabel("Nombre").fill(customerName);
@@ -48,32 +53,25 @@ test("sales pipeline guides quote to order to delivery to invoice", async ({ pag
   await page.getByLabel("Concepto").fill("Servicio de implantación");
   await page.getByLabel("Precio unitario").fill("100");
   await clickAndExpectPost(page, "/api/sales-quotes", () => page.getByRole("button", { name: "Crear presupuesto" }).click());
-  await expect(page).toHaveURL(/\/sales$/);
-  await expect(page.getByTestId("sales-stage-quotes")).toContainText("Presupuestos");
-  await expect(page.getByTestId("sales-stage-orders")).toContainText("Pedidos");
-  await expect(page.getByTestId("sales-stage-delivery-notes")).toContainText("Albaranes");
-  await expect(page.getByTestId("sales-stage-invoices")).toContainText("Facturas");
-  await expect(page.getByTestId(`sales-transition-quote-${quoteNumber}`)).toContainText("Estado: Borrador", { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/sales\/quotes$/);
+  await expect(page.getByTestId("sales-quotes-list")).toContainText(quoteNumber);
+  await page.getByTestId("sales-quotes-list").getByRole("link", { name: quoteNumber }).click();
+  await expect(page).toHaveURL(/\/sales\/quotes\/.+/, { timeout: 15_000 });
+  await expect(page.getByText("Borrador", { exact: true })).toBeVisible();
 
-  await clickAndExpectPost(page, "/to-order", () =>
-    page.getByTestId(`sales-transition-quote-${quoteNumber}`).getByRole("button", { name: "Convertir a pedido" }).click(),
-  );
-  await expect(page.getByTestId("sales-stage-orders")).toContainText("1", { timeout: 15_000 });
-  await expect(page.getByTestId("sales-transition-order").first()).toContainText("Estado: Confirmado", { timeout: 15_000 });
+  await clickAndExpectPost(page, "/to-order", () => page.getByRole("button", { name: "Convertir a pedido" }).click());
+  await expect(page).toHaveURL(/\/sales\/orders\/.+/, { timeout: 15_000 });
+  await expect(page.getByText("Confirmado", { exact: true })).toBeVisible();
 
-  await clickAndExpectPost(page, "/to-delivery", () =>
-    page.getByTestId("sales-transition-order").first().getByRole("button", { name: "Generar albarán" }).click(),
-  );
-  await expect(page.getByTestId("sales-stage-delivery-notes")).toContainText("1", { timeout: 15_000 });
-  await expect(page.getByTestId("sales-transition-delivery").first()).toContainText("Estado: Entregado", { timeout: 15_000 });
+  await clickAndExpectPost(page, "/to-delivery", () => page.getByRole("button", { name: "Generar albarán" }).click());
+  await expect(page).toHaveURL(/\/sales\/delivery-notes\/.+/, { timeout: 15_000 });
+  await expect(page.getByText("Entregado", { exact: true }).first()).toBeVisible();
 
   const createdInvoice = await clickAndExpectPost<{ id: string; number: string; totalAmount: string }>(page, "/to-invoice", () =>
-    page.getByTestId("sales-transition-delivery").first().getByRole("button", { name: "Generar factura" }).click(),
+    page.getByRole("button", { name: "Generar factura" }).click(),
   );
-  await expect(page.getByTestId("sales-stage-invoices")).toContainText("1", { timeout: 15_000 });
-  await expect(page.getByText("Bloqueado: Este albarán ya fue facturado.")).toBeVisible();
-
-  await page.getByRole("link", { name: "Ir a facturas" }).click();
+  await expect(page).toHaveURL(new RegExp(`/invoices/${createdInvoice.id}$`), { timeout: 15_000 });
+  await page.goto("/invoices");
   await expect(page.getByTestId("invoices-list")).toContainText(createdInvoice.number, { timeout: 15_000 });
   const invoiceRow = page.getByTestId(`invoice-row-${createdInvoice.id}`);
   await expect(invoiceRow).toContainText("Pendiente");

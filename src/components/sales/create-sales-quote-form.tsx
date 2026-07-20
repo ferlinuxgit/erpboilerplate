@@ -58,7 +58,7 @@ export function CreateSalesQuoteForm({ customers, initialCustomerId }: { custome
       const payload = (await response.json()) as { message?: string };
       if (!response.ok) throw new Error(payload.message ?? "No se pudo crear el presupuesto.");
       toast.success("Presupuesto creado.");
-      router.push("/sales");
+      router.push("/sales/quotes");
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error inesperado.");

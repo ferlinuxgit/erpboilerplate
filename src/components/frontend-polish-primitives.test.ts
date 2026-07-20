@@ -128,4 +128,21 @@ describe("frontend polish primitives", () => {
     expect(palette).toContain('/api/search?q=');
     detailRoutes.forEach((route) => expect(existsSync(join(root, route)), `${route} must exist`).toBe(true));
   });
+
+  it("organizes sales as independent quote, order, and delivery-note sections", () => {
+    const salesPage = sourceFor("src/app/sales/page.tsx");
+    const salesRoutes = [
+      "src/app/sales/quotes/page.tsx",
+      "src/app/sales/orders/page.tsx",
+      "src/app/sales/delivery-notes/page.tsx",
+    ];
+
+    expect(salesPage).toContain('title="Ventas"');
+    expect(salesPage).not.toContain("Ciclo de ventas");
+    expect(salesPage).not.toContain("Continuidad del journey");
+    salesRoutes.forEach((route) => expect(existsSync(join(root, route)), `${route} must exist`).toBe(true));
+    expect(sourceFor("src/app/sales/quotes/page.tsx")).toContain('testId="sales-quotes-list"');
+    expect(sourceFor("src/app/sales/orders/page.tsx")).toContain('testId="sales-orders-list"');
+    expect(sourceFor("src/app/sales/delivery-notes/page.tsx")).toContain('testId="sales-delivery-notes-list"');
+  });
 });
