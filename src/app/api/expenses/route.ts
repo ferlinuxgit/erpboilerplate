@@ -24,6 +24,7 @@ const payloadSchema = z.object({
   issueDate: z.string().datetime(),
   dueDate: z.string().datetime().optional(),
   notes: z.string().trim().optional().or(z.literal("")),
+  ocrJobId: z.string().trim().optional().or(z.literal("")),
   attachments: z
     .array(
       z.object({
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
       issueDate: new Date(parsed.data.issueDate),
       dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
       notes: parsed.data.notes || undefined,
+      ocrJobId: parsed.data.ocrJobId || undefined,
       attachments: parsed.data.attachments?.map((attachment) => ({
         fileName: attachment.fileName,
         fileUrl: attachment.fileUrl,

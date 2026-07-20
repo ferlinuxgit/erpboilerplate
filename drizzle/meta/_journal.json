@@ -134,6 +134,13 @@
       "when": 1784567149189,
       "tag": "0018_flippant_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784569947822,
+      "tag": "0019_slim_blink",
+      "breakpoints": true
     }
   ]
 }

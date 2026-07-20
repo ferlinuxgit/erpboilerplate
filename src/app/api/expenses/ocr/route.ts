@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       buffer,
     });
     void processExpenseOcrJob(job.id);
-    return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName }, { status: 202 });
+    return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo crear el job OCR.";
     return NextResponse.json({ message }, { status: 400 });

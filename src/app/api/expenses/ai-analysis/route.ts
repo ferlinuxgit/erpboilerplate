@@ -4,6 +4,7 @@ import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { analyzeExpenseInvoiceWithOpenAI } from "@/server/ai/expense-invoice-analysis";
+import { completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
 
 const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
 
@@ -19,16 +20,36 @@ export async function POST(request: Request) {
   if (!supportedContentTypes.has(file.type)) return NextResponse.json({ message: "Formato no soportado. Usa PDF, PNG, JPG o WEBP." }, { status: 400 });
   if (file.size > 12 * 1024 * 1024) return NextResponse.json({ message: "El archivo no puede superar 12 MB." }, { status: 400 });
 
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let job: Awaited<ReturnType<typeof createExpenseOcrJob>> | null = null;
   try {
+    job = await createExpenseOcrJob({
+      tenantId: ctx.tenant.id,
+      companyId: ctx.company.id,
+      actorUserId: session.user.id,
+      fileName: file.name,
+      contentType: file.type,
+      buffer,
+      initialStatus: "PROCESSING",
+    });
     const result = await analyzeExpenseInvoiceWithOpenAI({
       fileName: file.name,
       contentType: file.type,
-      buffer: Buffer.from(await file.arrayBuffer()),
+      buffer,
     });
-    return NextResponse.json({ fileName: file.name, ...result });
+    await completeExpenseOcrJob(job.id, result.draft, JSON.stringify(result.analysis));
+    return NextResponse.json({
+      fileName: job.fileName,
+      fileUrl: job.fileUrl,
+      contentType: job.contentType,
+      sizeBytes: job.sizeBytes,
+      jobId: job.id,
+      ...result,
+    });
   } catch (error) {
+    if (job) await failExpenseOcrJob(job.id, error);
     const message = error instanceof Error ? error.message : "No se pudo analizar la factura con OpenAI.";
     const status = message.includes("OPENAI_API_KEY") ? 503 : 400;
-    return NextResponse.json({ message }, { status });
+    return NextResponse.json({ message, jobId: job?.id, fileName: job?.fileName, fileUrl: job?.fileUrl, contentType: job?.contentType, sizeBytes: job?.sizeBytes }, { status });
   }
 }

@@ -244,6 +244,8 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
     setOcrError(null);
     setOcrDraft(null);
     setDraftSource(null);
+    setOcrJobId(null);
+    setAttachment({ fileName: "", fileUrl: "" });
     setOcrStatus("UPLOADING");
     try {
       const formData = new FormData();
@@ -257,9 +259,10 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
         const payload = (await response.json()) as { message?: string };
         throw new Error(payload.message ?? "No se pudo iniciar OCR.");
       }
-      const job = (await response.json()) as { id: string; status: string };
+      const job = (await response.json()) as { id: string; status: string; fileName: string; fileUrl?: string | null };
       setOcrJobId(job.id);
       setOcrStatus(job.status);
+      setAttachment({ fileName: job.fileName, fileUrl: job.fileUrl ?? `/api/expenses/ocr/${job.id}/file` });
       await pollOcrJob(job.id);
       toast.success("OCR completado. Revisa el borrador antes de guardar.");
     } catch (error) {
@@ -274,6 +277,8 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
     setAiError(null);
     setOcrDraft(null);
     setDraftSource(null);
+    setOcrJobId(null);
+    setAttachment({ fileName: "", fileUrl: "" });
     setAiStatus("PROCESSING");
     try {
       const formData = new FormData();
@@ -283,10 +288,18 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
         headers: getCsrfHeader(),
         body: formData,
       });
-      const payload = (await response.json()) as { message?: string; draft?: OcrDraft; model?: string };
+      const payload = (await response.json()) as { message?: string; draft?: OcrDraft; model?: string; jobId?: string; fileName?: string; fileUrl?: string | null };
+      if (payload.jobId && payload.fileName) {
+        setOcrJobId(payload.jobId);
+        setAttachment({ fileName: payload.fileName, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${payload.jobId}/file` });
+      }
       if (!response.ok || !payload.draft) throw new Error(payload.message ?? "No se pudo analizar la factura con OpenAI.");
+      if (!payload.jobId || !payload.fileName) throw new Error("El análisis terminó sin conservar el archivo original.");
       setOcrDraft(payload.draft);
       setDraftSource("openai");
+      setOcrJobId(payload.jobId);
+      setOcrStatus("DONE");
+      setAttachment({ fileName: payload.fileName, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${payload.jobId}/file` });
       setAiStatus(payload.model ? `DONE · ${payload.model}` : "DONE");
       toast.success("Análisis OpenAI completado. Revisa el borrador antes de guardar.");
     } catch (error) {
@@ -357,7 +370,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
         };
       });
 
-      const attachments = attachment.fileName.trim() && attachment.fileUrl.trim()
+      const attachments = !ocrJobId && attachment.fileName.trim() && attachment.fileUrl.trim()
         ? [{ fileName: attachment.fileName, fileUrl: attachment.fileUrl }]
         : undefined;
 
@@ -380,6 +393,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
           issueDate: toIsoDate(issueDate),
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
           notes,
+          ocrJobId: ocrJobId ?? undefined,
           attachments,
           lines: parsedLines,
         }),
@@ -405,6 +419,11 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
       setNotes("");
       setLines([newLine(expenseAccounts[0]?.id ?? "")]);
       setAttachment({ fileName: "", fileUrl: "" });
+      setOcrJobId(null);
+      setOcrStatus(null);
+      setOcrDraft(null);
+      setDraftSource(null);
+      setAiStatus(null);
       toast.success("Gasto contabilizado correctamente.");
       if (created.id) {
         router.push(`/expenses/${created.id}`);
@@ -551,11 +570,18 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
           <Input aria-describedby={errorId} id="expense-due-date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
         </div>
         <div className="space-y-2 lg:col-span-2">
-          <Label htmlFor="expense-attachment-url">Adjunto</Label>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input id="expense-attachment-name" onChange={(event) => setAttachment((current) => ({ ...current, fileName: event.target.value }))} placeholder="factura.pdf" value={attachment.fileName} />
-            <Input id="expense-attachment-url" onChange={(event) => setAttachment((current) => ({ ...current, fileUrl: event.target.value }))} placeholder="https://..." type="url" value={attachment.fileUrl} />
-          </div>
+          {ocrJobId ? <p className="text-sm font-medium">Adjunto</p> : <Label htmlFor="expense-attachment-url">Adjunto</Label>}
+          {ocrJobId ? (
+            <div className="flex min-h-10 items-center justify-between gap-3 rounded-md border bg-primary/5 px-3 py-2 text-sm">
+              <span className="min-w-0"><span className="block truncate font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">Original almacenado · se asociará automáticamente al gasto</span></span>
+              {attachment.fileUrl ? <a className="shrink-0 font-medium text-primary hover:underline" href={attachment.fileUrl} rel="noreferrer" target="_blank">Abrir</a> : null}
+            </div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input id="expense-attachment-name" onChange={(event) => setAttachment((current) => ({ ...current, fileName: event.target.value }))} placeholder="factura.pdf" value={attachment.fileName} />
+              <Input id="expense-attachment-url" onChange={(event) => setAttachment((current) => ({ ...current, fileUrl: event.target.value }))} placeholder="https://..." type="url" value={attachment.fileUrl} />
+            </div>
+          )}
         </div>
       </div>
 

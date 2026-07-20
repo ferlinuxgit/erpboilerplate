@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import {
   accountChart,
   companySettings,
+  expenseOcrJob,
   goodsReceipt,
   goodsReceiptLine,
   partner,
@@ -82,6 +83,7 @@ export type CreateExpenseInvoiceInput = {
   notes?: string;
   lines: SupplierInvoiceLineInput[];
   attachments?: SupplierInvoiceAttachmentInput[];
+  ocrJobId?: string;
 };
 
 function roundMoney(value: number) {
@@ -548,6 +550,25 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
 
 export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
   return db.transaction(async (tx) => {
+    const [ocrJob] = input.ocrJobId
+      ? await tx
+          .select({
+            id: expenseOcrJob.id,
+            supplierInvoiceId: expenseOcrJob.supplierInvoiceId,
+            fileName: expenseOcrJob.fileName,
+            fileUrl: expenseOcrJob.fileUrl,
+            storageKey: expenseOcrJob.storageKey,
+            contentType: expenseOcrJob.contentType,
+            sizeBytes: expenseOcrJob.sizeBytes,
+          })
+          .from(expenseOcrJob)
+          .where(and(eq(expenseOcrJob.id, input.ocrJobId), eq(expenseOcrJob.companyId, input.companyId)))
+          .for("update")
+          .limit(1)
+      : [];
+    if (input.ocrJobId && !ocrJob) throw new Error("El archivo OCR no pertenece a la empresa activa.");
+    if (ocrJob?.supplierInvoiceId) throw new Error("El archivo OCR ya está asociado a otra factura de gasto.");
+
     const supplierPartnerId = await resolveSupplier({
       companyId: input.companyId,
       supplierPartnerId: input.supplierPartnerId,
@@ -572,14 +593,41 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       totalAmount: duplicateCheckTotals.totalAmount,
       client: tx,
     });
-    return createSupplierInvoiceHeader({
+    const ocrAttachment: SupplierInvoiceAttachmentInput[] = ocrJob
+      ? [{
+          fileName: ocrJob.fileName,
+          fileUrl: ocrJob.fileUrl ?? `/api/expenses/ocr/${ocrJob.id}/file`,
+          storageKey: ocrJob.storageKey ?? undefined,
+          contentType: ocrJob.contentType,
+          sizeBytes: ocrJob.sizeBytes ?? undefined,
+        }]
+      : [];
+    const clientAttachments = (input.attachments ?? []).filter((attachment) => !ocrJob || attachment.fileUrl !== ocrJob.fileUrl);
+    const created = await createSupplierInvoiceHeader({
       ...input,
+      attachments: [...ocrAttachment, ...clientAttachments],
       origin: "EXPENSE",
       supplierPartnerId,
       purchaseOrderId: null,
       goodsReceiptId: null,
       client: tx,
     });
+    if (ocrJob) {
+      await tx
+        .update(expenseOcrJob)
+        .set({ supplierInvoiceId: created.id })
+        .where(and(eq(expenseOcrJob.id, ocrJob.id), eq(expenseOcrJob.companyId, input.companyId)));
+      await recordAudit({
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "expense.ocr.attach",
+        entityName: "supplierInvoice",
+        entityId: created.id,
+        payload: { ocrJobId: ocrJob.id, fileName: ocrJob.fileName },
+      }, tx);
+    }
+    return created;
   });
 }
 

@@ -7,6 +7,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { expenseOcrJob } from "@/db/schema";
 import { db } from "@/lib/db";
 import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { isObjectStorageConfigured, putPrivateObject, readPrivateObject } from "@/server/storage/s3";
 
 export type ExpenseOcrStatus = "PENDING" | "PROCESSING" | "DONE" | "FAILED";
 
@@ -261,6 +262,7 @@ export async function createExpenseOcrJob(input: {
   fileName: string;
   contentType: string;
   buffer: Buffer;
+  initialStatus?: "PENDING" | "PROCESSING";
 }) {
   if (!supportedContentTypes.has(input.contentType)) throw new Error("Formato no soportado. Usa PDF, PNG, JPG o WEBP.");
   const [created] = await db
@@ -269,10 +271,12 @@ export async function createExpenseOcrJob(input: {
       tenantId: input.tenantId,
       companyId: input.companyId,
       actorUserId: input.actorUserId,
-      status: "PENDING",
+      status: input.initialStatus ?? "PENDING",
       fileName: sanitizeFileName(input.fileName),
       filePath: "pending",
       contentType: input.contentType,
+      sizeBytes: input.buffer.byteLength,
+      startedAt: input.initialStatus === "PROCESSING" ? new Date() : null,
     })
     .returning({ id: expenseOcrJob.id });
   const dir = path.join(uploadRoot, input.companyId, "expense-ocr");
@@ -280,12 +284,50 @@ export async function createExpenseOcrJob(input: {
   const filePath = path.join(dir, `${created.id}-${sanitizeFileName(input.fileName)}`);
   await writeFile(filePath, input.buffer);
   const fileUrl = `/api/expenses/ocr/${created.id}/file`;
+  const objectKey = `${input.tenantId}/${input.companyId}/expense-ocr/${created.id}-${sanitizeFileName(input.fileName)}`;
+  let storageKey = `local:${objectKey}`;
+  if (isObjectStorageConfigured()) {
+    try {
+      await putPrivateObject(objectKey, input.contentType, input.buffer);
+      storageKey = `s3:${objectKey}`;
+    } catch {
+      storageKey = `local:${objectKey}`;
+    }
+  }
   const [updated] = await db
     .update(expenseOcrJob)
-    .set({ filePath, fileUrl })
+    .set({ filePath, fileUrl, storageKey })
     .where(and(eq(expenseOcrJob.companyId, input.companyId), eq(expenseOcrJob.id, created.id)))
     .returning();
   return updated;
+}
+
+export async function readExpenseOcrFile(job: { filePath: string; storageKey: string | null }) {
+  try {
+    return await readFile(job.filePath);
+  } catch (error) {
+    if (job.storageKey?.startsWith("s3:")) return readPrivateObject(job.storageKey.slice(3));
+    throw error;
+  }
+}
+
+export async function completeExpenseOcrJob(jobId: string, draft: ExpenseOcrDraft, sourceText?: string) {
+  const [updated] = await db
+    .update(expenseOcrJob)
+    .set({ status: "DONE", extractedJson: JSON.stringify(draft), sourceText: sourceText ?? null, errorMessage: null, finishedAt: new Date() })
+    .where(eq(expenseOcrJob.id, jobId))
+    .returning();
+  return updated ?? null;
+}
+
+export async function failExpenseOcrJob(jobId: string, error: unknown) {
+  const message = error instanceof Error ? error.message : "Error inesperado procesando OCR.";
+  const [updated] = await db
+    .update(expenseOcrJob)
+    .set({ status: "FAILED", errorMessage: message, finishedAt: new Date() })
+    .where(eq(expenseOcrJob.id, jobId))
+    .returning();
+  return updated ?? null;
 }
 
 export async function processExpenseOcrJob(jobId: string) {

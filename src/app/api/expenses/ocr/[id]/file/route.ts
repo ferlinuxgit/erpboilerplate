@@ -1,11 +1,9 @@
-import { readFile } from "node:fs/promises";
-
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { getExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { getExpenseOcrJob, readExpenseOcrFile } from "@/server/ocr/expense-ocr";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
@@ -15,11 +13,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const job = await getExpenseOcrJob(ctx.company.id, id);
   if (!job) return NextResponse.json({ message: "Archivo OCR no encontrado." }, { status: 404 });
-  const data = await readFile(job.filePath);
+  const data = await readExpenseOcrFile(job);
   return new Response(data, {
     headers: {
       "Content-Type": job.contentType,
       "Content-Disposition": `inline; filename="${job.fileName.replaceAll("\"", "")}"`,
+      "Content-Length": String(job.sizeBytes ?? data.byteLength),
+      "Cache-Control": "private, no-store",
     },
   });
 }
