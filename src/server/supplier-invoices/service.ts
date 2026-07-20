@@ -12,6 +12,7 @@ import {
   supplierInvoiceAttachment,
   supplierInvoiceLine,
   supplierInvoicePayment,
+  supplierPayment,
 } from "@/db/schema";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
@@ -523,12 +524,25 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
       if (cumulativeQuantity > (receiptQtyByItem.get(itemId) ?? 0) + 0.0005) throw new Error("La cantidad facturada acumulada supera la cantidad recepcionada.");
     }
 
-    return createSupplierInvoiceHeader({
+    const created = await createSupplierInvoiceHeader({
       ...input,
       origin: "PURCHASE",
       issueDate: input.issueDate ?? new Date(),
       client: tx,
     });
+    const fullyInvoiced = [...poQtyByItem.entries()].every(
+      ([itemId, orderedQuantity]) =>
+        (invoicedQtyByItem.get(itemId) ?? 0) +
+          (requestedQtyByItem.get(itemId) ?? 0) >=
+        orderedQuantity - 0.0005,
+    );
+    if (fullyInvoiced && poQtyByItem.size > 0) {
+      await tx
+        .update(purchaseOrder)
+        .set({ status: "INVOICED" })
+        .where(eq(purchaseOrder.id, input.purchaseOrderId));
+    }
+    return created;
   });
 }
 
@@ -685,8 +699,9 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       .from(supplierInvoiceAttachment)
       .where(and(eq(supplierInvoiceAttachment.companyId, companyId), eq(supplierInvoiceAttachment.supplierInvoiceId, id))),
     db
-      .select({ amountApplied: supplierInvoicePayment.amountApplied })
+      .select({ id: supplierPayment.id, amountApplied: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
       .from(supplierInvoicePayment)
+      .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
       .where(and(eq(supplierInvoicePayment.companyId, companyId), eq(supplierInvoicePayment.supplierInvoiceId, id))),
   ]);
   const paidAmount = payments.reduce((total, payment) => total + Number(payment.amountApplied), 0);
@@ -697,6 +712,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
     paymentStatus: invoiceRow.status === "VOID" ? "VOID" : getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount, invoiceRow.dueDate),
     lines,
     attachments,
+    payments,
   };
 }
 
@@ -761,49 +777,6 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
     );
 
     return updated;
-  });
-}
-
-export async function deleteExpenseInvoice(input: { tenantId: string; companyId: string; actorUserId: string; id: string }) {
-  return db.transaction(async (tx) => {
-    const [invoiceRow] = await tx
-      .select({
-        id: supplierInvoice.id,
-        number: supplierInvoice.number,
-        status: supplierInvoice.status,
-      })
-      .from(supplierInvoice)
-      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
-      .limit(1);
-    if (!invoiceRow) return null;
-    if (invoiceRow.status !== "VOID") throw new Error("Solo se pueden eliminar gastos anulados. Anula el gasto antes de eliminarlo.");
-
-    const paymentRows = await tx
-      .select({ id: supplierInvoicePayment.id })
-      .from(supplierInvoicePayment)
-      .where(and(eq(supplierInvoicePayment.companyId, input.companyId), eq(supplierInvoicePayment.supplierInvoiceId, input.id)));
-    if (paymentRows.length > 0) throw new Error("No se puede eliminar un gasto con pagos registrados.");
-
-    const [deleted] = await tx
-      .delete(supplierInvoice)
-      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
-      .returning({ id: supplierInvoice.id });
-    if (!deleted) return null;
-
-    await recordAudit(
-      {
-        tenantId: input.tenantId,
-        companyId: input.companyId,
-        actorUserId: input.actorUserId,
-        action: "expense.delete",
-        entityName: "supplierInvoice",
-        entityId: input.id,
-        payload: { number: invoiceRow.number, previousStatus: invoiceRow.status },
-      },
-      tx,
-    );
-
-    return deleted;
   });
 }
 

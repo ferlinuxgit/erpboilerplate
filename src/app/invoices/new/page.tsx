@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, documentSeries, partner } from "@/db/schema";
+import { customer, documentSeries, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -33,7 +33,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
     .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(customer.companyId, tenantContext.company.id), eq(customer.status, "ACTIVE")))
     .orderBy(asc(customer.name));
-  const [invoiceSeries] = await db
+  const [[invoiceSeries], [defaultTax]] = await Promise.all([db
     .select({
       format: documentSeries.format,
       nextNumber: documentSeries.nextNumber,
@@ -47,7 +47,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         eq(documentSeries.type, "SALES_INVOICE"),
       ),
     )
-    .limit(1);
+    .limit(1), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, tenantContext.company.id)).orderBy(tax.rate).limit(1)]);
   const nextInvoiceNumberPreview = invoiceSeries
     ? formatSeriesNumber({
         format: invoiceSeries.format,
@@ -81,7 +81,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             }
           />
         ) : (
-          <CreateInvoiceForm canCreateCustomer={canCreateCustomer} customers={customers} initialCustomerId={initialCustomerId} nextInvoiceNumberPreview={nextInvoiceNumberPreview} />
+          <CreateInvoiceForm canCreateCustomer={canCreateCustomer} customers={customers} defaultTaxRate={Number(defaultTax?.rate ?? 0)} initialCustomerId={initialCustomerId} nextInvoiceNumberPreview={nextInvoiceNumberPreview} />
         )}
       </PageSection>
     </PageShell>

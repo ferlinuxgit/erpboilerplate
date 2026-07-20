@@ -10,6 +10,7 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { reconciliationStatusLabels, statusLabel } from "@/lib/status-labels";
 import { getBankTransaction } from "@/server/treasury/service";
+import { ManualReconcileButton } from "@/components/treasury/manual-reconcile-button";
 
 export default async function BankTransactionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("treasury.read");
@@ -34,7 +35,7 @@ export default async function BankTransactionDetailPage({ params }: { params: Pr
         backHref={`/treasury/bank-accounts/${transaction.bankAccountId}`}
         backLabel="Volver a la cuenta"
         meta={<StatusBadge tone={isReconciled ? "success" : "warning"}>{statusLabel(reconciliationStatusLabels, transaction.reconciliationStatus)}</StatusBadge>}
-        actions={canWrite && !isReconciled ? <><Link className={buttonVariants({ variant: "outline" })} href={`/treasury/bank-transactions/${transaction.id}/edit`}>Editar</Link><DeleteButton url={`/api/bank-transactions/${transaction.id}`} redirectTo={`/treasury/bank-accounts/${transaction.bankAccountId}`} /></> : null}
+        actions={canWrite ? <><ManualReconcileButton currencyCode={ctx.company.baseCurrencyCode} reconciled={isReconciled} transactionId={transaction.id} />{!isReconciled ? <><Link className={buttonVariants({ variant: "outline" })} href={`/treasury/bank-transactions/${transaction.id}/edit`}>Editar</Link><DeleteButton url={`/api/bank-transactions/${transaction.id}`} redirectTo={`/treasury/bank-accounts/${transaction.bankAccountId}`} /></> : null}</> : null}
       />
 
       <section className="grid gap-3 md:grid-cols-3">

@@ -3,10 +3,17 @@
 import Link from "next/link";
 
 import { PurchaseOrderRowActions } from "@/components/purchases/purchase-order-row-actions";
-import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
+import {
+  ResourceList,
+  type ResourceListColumn,
+} from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate } from "@/lib/format";
-import { purchaseOrderStatusLabels, purchaseOrderStatusTone, statusLabel } from "@/lib/status-labels";
+import {
+  purchaseOrderStatusLabels,
+  purchaseOrderStatusTone,
+  statusLabel,
+} from "@/lib/status-labels";
 
 type PurchaseOrderRow = {
   id: string;
@@ -21,12 +28,19 @@ type PurchaseOrdersListProps = {
   rows: PurchaseOrderRow[];
 };
 
-const columns = (canManage: boolean): ResourceListColumn<PurchaseOrderRow>[] => [
+const columns = (
+  canManage: boolean,
+): ResourceListColumn<PurchaseOrderRow>[] => [
   {
     header: "Pedido",
     cell: (order) => (
       <div>
-        <Link className="font-medium underline-offset-4 hover:underline" href={`/purchases/${order.id}`}>{order.number}</Link>
+        <Link
+          className="font-medium underline-offset-4 hover:underline"
+          href={`/purchases/${order.id}`}
+        >
+          {order.number}
+        </Link>
         <p className="text-sm text-muted-foreground">{order.supplierName}</p>
       </div>
     ),
@@ -35,8 +49,13 @@ const columns = (canManage: boolean): ResourceListColumn<PurchaseOrderRow>[] => 
   },
   {
     header: "Estado",
-    cell: (order) => <StatusBadge tone={purchaseOrderStatusTone(order.status)}>{statusLabel(purchaseOrderStatusLabels, order.status)}</StatusBadge>,
-    exportValue: (order) => statusLabel(purchaseOrderStatusLabels, order.status),
+    cell: (order) => (
+      <StatusBadge tone={purchaseOrderStatusTone(order.status)}>
+        {statusLabel(purchaseOrderStatusLabels, order.status)}
+      </StatusBadge>
+    ),
+    exportValue: (order) =>
+      statusLabel(purchaseOrderStatusLabels, order.status),
     sortValue: (order) => order.status,
   },
   {
@@ -49,14 +68,19 @@ const columns = (canManage: boolean): ResourceListColumn<PurchaseOrderRow>[] => 
     ? [
         {
           header: "Acciones",
-          cell: (order: PurchaseOrderRow) => <PurchaseOrderRowActions id={order.id} />,
+          cell: (order: PurchaseOrderRow) => (
+            <PurchaseOrderRowActions id={order.id} />
+          ),
           className: "text-right",
         },
       ]
     : []),
 ];
 
-export function PurchaseOrdersList({ canManage = true, rows }: PurchaseOrdersListProps) {
+export function PurchaseOrdersList({
+  canManage = true,
+  rows,
+}: PurchaseOrdersListProps) {
   return (
     <ResourceList
       columns={columns(canManage)}
@@ -65,15 +89,32 @@ export function PurchaseOrdersList({ canManage = true, rows }: PurchaseOrdersLis
       exportFileName="pedidos-compra.csv"
       getRowId={(order) => order.id}
       getRowTestId={(order) => `purchase-order-row-${order.id}`}
-      getSearchText={(order) => [order.number, order.supplierName, order.status, statusLabel(purchaseOrderStatusLabels, order.status), formatDate(order.createdAt)].join(" ")}
+      getSearchText={(order) =>
+        [
+          order.number,
+          order.supplierName,
+          order.status,
+          statusLabel(purchaseOrderStatusLabels, order.status),
+          formatDate(order.createdAt),
+        ].join(" ")
+      }
       items={rows}
       renderMobileCard={(order) => (
         <div className="space-y-3">
           <div>
             <p className="font-medium">{order.number}</p>
-            <p className="text-sm text-muted-foreground">{order.supplierName}</p>
-            <StatusBadge className="mt-2" tone={purchaseOrderStatusTone(order.status)}>{statusLabel(purchaseOrderStatusLabels, order.status)}</StatusBadge>
-            <p className="mt-2 text-sm text-muted-foreground">Creado: {formatDate(order.createdAt)}</p>
+            <p className="text-sm text-muted-foreground">
+              {order.supplierName}
+            </p>
+            <StatusBadge
+              className="mt-2"
+              tone={purchaseOrderStatusTone(order.status)}
+            >
+              {statusLabel(purchaseOrderStatusLabels, order.status)}
+            </StatusBadge>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Creado: {formatDate(order.createdAt)}
+            </p>
           </div>
           <PurchaseOrderRowActions id={order.id} />
         </div>
@@ -81,6 +122,17 @@ export function PurchaseOrdersList({ canManage = true, rows }: PurchaseOrdersLis
       searchPlaceholder="Buscar pedido por número, proveedor o estado"
       testId="purchase-orders-list"
       title="Pedidos de compra"
+      filters={[
+        {
+          key: "status",
+          label: "Estado",
+          allLabel: "Todos los estados",
+          options: Object.entries(purchaseOrderStatusLabels).map(
+            ([value, label]) => ({ value, label }),
+          ),
+          getValue: (order) => order.status,
+        },
+      ]}
     />
   );
 }

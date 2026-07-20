@@ -10,8 +10,7 @@ import {
 } from "@/components/inventory/inventory-operations-panel";
 import { PageHeader, PageShell } from "@/components/ui/page";
 import { buttonVariants } from "@/components/ui/button";
-import { requireUserSession } from "@/lib/current-user";
-import { ensureUserTenant } from "@/lib/tenant";
+import { requireContext } from "@/lib/current-context";
 import { getInventoryOptions, getLowStockAlerts, getStockMovementHistory, getStockSnapshot } from "@/server/inventory/service";
 
 type InventoryPageProps = {
@@ -49,8 +48,7 @@ function serializeMovement(row: Awaited<ReturnType<typeof getStockMovementHistor
 }
 
 export default async function InventoryPage({ searchParams }: InventoryPageProps) {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("stock.read");
   const params = await searchParams;
 
   const [options, stockRows, alertRows, movementRows] = await Promise.all([

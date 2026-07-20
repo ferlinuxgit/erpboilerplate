@@ -1,33 +1,52 @@
-import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
+import Link from "next/link";
 
-import { BankAccountsList } from "@/components/treasury/bank-accounts-list";
-import { BankTransactionsList } from "@/components/treasury/bank-transactions-list";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
-import { TreasuryOperations } from "@/components/treasury/treasury-operations";
 import { buttonVariants } from "@/components/ui/button";
-import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import {
+  EmptyState,
+  MetricCard,
+  PageHeader,
+  PageSection,
+  PageShell,
+} from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { customer, invoice, paymentMethod } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
-import { listBankAccounts, listBankTransactions } from "@/server/treasury/service";
+import {
+  listBankAccounts,
+  listBankTransactions,
+} from "@/server/treasury/service";
 
-type TreasuryPageProps = {
-  searchParams?: Promise<{ invoiceId?: string | string[] }>;
-};
+const areas = [
+  {
+    href: "/treasury/bank-accounts",
+    title: "Cuentas bancarias",
+    description: "Bancos e IBAN operativos.",
+  },
+  {
+    href: "/treasury/bank-transactions",
+    title: "Movimientos",
+    description: "Extractos y transacciones.",
+  },
+  {
+    href: "/treasury/reconciliation",
+    title: "Conciliación",
+    description: "Cruce de cobros y pagos.",
+  },
+  {
+    href: "/treasury/forecast",
+    title: "Previsión",
+    description: "Calendario de caja futura.",
+  },
+];
 
-function firstQueryValue(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-export default async function TreasuryPage({ searchParams }: TreasuryPageProps) {
+export default async function TreasuryPage() {
   const ctx = await requireContext("treasury.read");
-  const params = await searchParams;
-  const requestedInvoiceId = firstQueryValue(params?.invoiceId);
-  const [accounts, rows, customerInvoices, paymentMethods] = await Promise.all([
+  const [accounts, rows, invoices, methods] = await Promise.all([
     listBankAccounts(ctx.company.id),
     listBankTransactions(ctx.company.id),
     db
@@ -48,95 +67,117 @@ export default async function TreasuryPage({ searchParams }: TreasuryPageProps) 
       .where(eq(paymentMethod.companyId, ctx.company.id))
       .orderBy(paymentMethod.name),
   ]);
-  const selectedInvoice =
-    customerInvoices.find((candidate) => candidate.id === requestedInvoiceId) ??
-    customerInvoices.find((candidate) => candidate.paymentStatus !== "PAID") ??
-    customerInvoices[0];
-  const paidInvoicesCount = customerInvoices.filter((candidate) => candidate.paymentStatus === "PAID").length;
-  const pendingReconciliationCount = rows.filter((row) => row.reconciliationStatus === "PENDING").length;
-  const canWriteTreasury = can(ctx.membership.role, "treasury.write");
+  const canWrite = can(ctx.membership.role, "treasury.write");
+  const pending = rows.filter(
+    (row) => row.reconciliationStatus === "PENDING",
+  ).length;
+  const selected = invoices.find((row) => row.paymentStatus !== "PAID");
+  const paidInvoices = invoices.filter((row) => row.paymentStatus === "PAID").length;
+  const balance = rows.reduce((sum, row) => sum + Number(row.amount), 0);
 
   return (
     <PageShell>
       <PageHeader
         eyebrow="Operación"
         title="Tesorería y bancos"
-        description="Cuentas bancarias, movimientos, conciliación y cobros de clientes."
+        description="Caja, bancos, conciliación y previsión de cobros y pagos."
         backHref="/dashboard"
         backLabel="Volver al panel"
-        meta={<StatusBadge tone={canWriteTreasury ? "success" : "warning"}>{canWriteTreasury ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
-        actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="#customer-to-cash-report">
-            Ver cobros
-          </Link>
+        meta={
+          <StatusBadge tone={canWrite ? "success" : "warning"}>
+            {canWrite ? "Gestión habilitada" : "Solo lectura"}
+          </StatusBadge>
         }
-      />
-
-      <section className="grid gap-3 md:grid-cols-3">
-        <MetricCard label="Cuentas bancarias" value={accounts.length} helper="Cuentas activas de la empresa" />
-        <MetricCard label="Movimientos" value={rows.length} helper="Transacciones registradas" />
-        <MetricCard label="Facturas cobradas" value={paidInvoicesCount} helper={`${customerInvoices.length} facturas en seguimiento`} />
-      </section>
-
-      <PageSection title="Cobro de clientes" description="Aplica cobros contra facturas pendientes y actualiza el estado de caja.">
-        {selectedInvoice && canWriteTreasury ? (
-          <CustomerCashActions
-            invoice={{
-              id: selectedInvoice.id,
-              number: selectedInvoice.number,
-              customerName: selectedInvoice.customerName,
-              totalAmount: Number(selectedInvoice.totalAmount),
-              totalAmountLabel: formatMoney(selectedInvoice.totalAmount.toString(), ctx.company.baseCurrencyCode),
-              paymentStatus: selectedInvoice.paymentStatus,
-            }}
-            paymentMethods={paymentMethods}
-          />
-        ) : !selectedInvoice ? (
-          <EmptyState title="Sin facturas pendientes" description="No hay facturas disponibles para registrar cobros." />
-        ) : (
-          <EmptyState title="Solo lectura" description="Necesitas permisos de escritura para registrar cobros." />
-        )}
-      </PageSection>
-
-      <PageSection title="Informes de cobros" description="Resumen del ciclo de cobro de la empresa activa." contentClassName="grid gap-3 md:grid-cols-2" className="scroll-mt-20">
-        <div data-testid="customer-to-cash-report" id="customer-to-cash-report">
-          <MetricCard label="Facturas cobradas" value={paidInvoicesCount} helper="Cobros completados" />
-        </div>
-        <MetricCard label="Facturas en seguimiento" value={customerInvoices.length} helper="Incluye pagadas, parciales y pendientes" />
-      </PageSection>
-
-      {canWriteTreasury && accounts.length > 0 ? (
-        <PageSection title="Importación y conciliación" description="Incorpora extractos bancarios y vincula movimientos con cobros y pagos existentes.">
-          <TreasuryOperations accounts={accounts} pendingCount={pendingReconciliationCount} />
-        </PageSection>
-      ) : null}
-
-      <PageSection
-        title="Cuentas bancarias"
-        description="Cuentas operativas disponibles para movimientos y conciliación."
         actions={
-          canWriteTreasury ? (
-            <Link className={buttonVariants()} href="/treasury/bank-accounts/new">
-              Nueva cuenta
-            </Link>
-          ) : null
-        }
-      >
-        <BankAccountsList canManage={canWriteTreasury} rows={accounts} />
-      </PageSection>
-
-      <PageSection
-        title="Movimientos bancarios"
-        description="Histórico de transacciones bancarias y estado de conciliación."
-        actions={
-          canWriteTreasury ? (
-            <Link className={buttonVariants()} href="/treasury/bank-transactions/new">
+          canWrite ? (
+            <Link
+              className={buttonVariants()}
+              href="/treasury/bank-transactions/new"
+            >
               Nuevo movimiento
             </Link>
           ) : null
         }
+      />
+      <section className="grid gap-3 md:grid-cols-4">
+        <MetricCard
+          label="Saldo registrado"
+          value={formatMoney(balance, ctx.company.baseCurrencyCode)}
+          helper={`${accounts.length} cuentas`}
+        />
+        <MetricCard
+          label="Movimientos"
+          value={rows.length}
+          helper="Transacciones bancarias"
+        />
+        <MetricCard
+          href="/treasury/reconciliation"
+          label="Por conciliar"
+          value={pending}
+          helper="Movimientos pendientes"
+          tone={pending ? "warning" : "success"}
+        />
+        <MetricCard
+          href="/treasury/forecast"
+          label="Facturas pendientes"
+          value={invoices.filter((row) => row.paymentStatus !== "PAID").length}
+          helper="Cobros en seguimiento"
+        />
+      </section>
+      <div data-testid="customer-to-cash-report" id="customer-to-cash-report">
+        <MetricCard label="Facturas cobradas" value={paidInvoices} helper={`${invoices.length} facturas en seguimiento`} />
+      </div>
+      <PageSection
+        title="Áreas de tesorería"
+        description="Accede al espacio de trabajo correspondiente."
       >
-        <BankTransactionsList accounts={accounts} canManage={canWriteTreasury} currencyCode={ctx.company.baseCurrencyCode} rows={rows} />
+        <div className="grid gap-px overflow-hidden border bg-border sm:grid-cols-2 xl:grid-cols-4">
+          {areas.map((area) => (
+            <Link
+              className="bg-background p-5 hover:bg-muted/40"
+              href={area.href}
+              key={area.href}
+            >
+              <h2 className="font-semibold">{area.title}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {area.description}
+              </p>
+              <span className="mt-5 block text-sm font-medium text-primary">
+                Abrir
+              </span>
+            </Link>
+          ))}
+        </div>
+      </PageSection>
+      <PageSection
+        title="Registrar cobro"
+        description="Aplica un cobro a la siguiente factura pendiente."
+      >
+        {selected && canWrite ? (
+          <CustomerCashActions
+            invoice={{
+              id: selected.id,
+              number: selected.number,
+              customerName: selected.customerName,
+              totalAmount: Number(selected.totalAmount),
+              totalAmountLabel: formatMoney(
+                selected.totalAmount,
+                ctx.company.baseCurrencyCode,
+              ),
+              paymentStatus: selected.paymentStatus,
+            }}
+            paymentMethods={methods}
+          />
+        ) : (
+          <EmptyState
+            title={selected ? "Solo lectura" : "Sin cobros pendientes"}
+            description={
+              selected
+                ? "Tu rol no permite registrar cobros."
+                : "Todas las facturas disponibles están cobradas."
+            }
+          />
+        )}
       </PageSection>
     </PageShell>
   );

@@ -12,7 +12,7 @@ import { can } from "@/lib/rbac";
 export default async function ApiKeysPage() {
   const ctx = await requireContext("apiKey.read");
   const keys = await db
-    .select({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt })
+    .select({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt })
     .from(apiKey)
     .where(eq(apiKey.tenantId, ctx.tenant.id));
   const canManage = can(ctx.membership.role, "apiKey.write");

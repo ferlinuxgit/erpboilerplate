@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { tenantSecurityPolicy } from "@/db/schema";
 import { db } from "@/lib/db";
+import { getInvalidIpRules } from "@/lib/ip-policy";
 import { can, type AppRole } from "@/lib/rbac";
 import { recordAudit } from "@/server/audit";
 
@@ -151,7 +152,7 @@ export function getSecurityPolicyState(record: TenantSecurityPolicyRecord | null
         key: "allowedIpNotes",
         status: textStatus(values.allowedIpNotes),
         value: values.allowedIpNotes,
-        label: "Política de acceso por IP",
+        label: "IPs y redes permitidas",
         summary: values.allowedIpNotes ?? "Sin configurar",
       },
     ],
@@ -221,7 +222,18 @@ export async function updateTenantSecurityPolicy(params: {
     return { status: 403, error: "Sin permisos para cambiar la política de seguridad." };
   }
 
-  const values = securityPolicyPayloadSchema.parse(params.payload);
+  const parsed = securityPolicyPayloadSchema.safeParse(params.payload);
+  if (!parsed.success) {
+    return { status: 400, error: parsed.error.issues[0]?.message ?? "La política de seguridad no es válida." };
+  }
+  const values = parsed.data;
+  const invalidIpRules = getInvalidIpRules(values.allowedIpNotes);
+  if (invalidIpRules.length > 0) {
+    return {
+      status: 400,
+      error: `Revisa estas IP o redes IPv4: ${invalidIpRules.join(", ")}. Usa una IP exacta o notación CIDR.`,
+    };
+  }
   if (values.requireTwoFactor && process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY) {
     return { status: 400, error: "Configura RESEND_API_KEY antes de exigir doble factor por email." };
   }

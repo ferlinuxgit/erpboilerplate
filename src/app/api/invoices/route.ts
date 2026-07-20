@@ -5,8 +5,7 @@ import { customer, invoice, invoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
-import { can, canManageCustomers, canManageInvoices } from "@/lib/rbac";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { logger } from "@/lib/logger";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { createCustomerWithPartner } from "@/server/customers/service";
@@ -61,7 +60,7 @@ export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
 
-  if (!can(actor.context.membership.role, "invoice.read")) {
+  if (!hasApiActorPermission(actor, "invoice.read")) {
     return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   }
 
@@ -92,7 +91,7 @@ export async function POST(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
 
-  if (!canManageInvoices(actor.context.membership.role)) {
+  if (!hasApiActorPermission(actor, "invoice.create")) {
     return NextResponse.json(
       { message: "No tienes permisos para crear facturas en esta empresa." },
       { status: 403 },
@@ -122,7 +121,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (shouldCreateCustomer && !canManageCustomers(actor.context.membership.role)) {
+  if (shouldCreateCustomer && !hasApiActorPermission(actor, "customer.create")) {
     return NextResponse.json(
       { message: "No tienes permisos para crear clientes en esta empresa." },
       { status: 403 },

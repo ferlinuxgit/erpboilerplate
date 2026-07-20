@@ -172,14 +172,14 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
         </label>
 
         <label className="space-y-2 block">
-          <span className="text-sm font-medium">Notas de política IP</span>
+          <span className="text-sm font-medium">IPs y redes permitidas</span>
           <Textarea
             name="allowedIpNotes"
             defaultValue={policy.record.allowedIpNotes ?? ""}
-            placeholder="CIDR de VPN, IPs de oficina, notas de revisión..."
+            placeholder="203.0.113.24, 10.20.0.0/16"
             disabled={!canManage || isPending}
           />
-          <span className="text-xs text-muted-foreground">Documenta restricciones IP o déjalo vacío si aún no aplica.</span>
+          <span className="text-xs text-muted-foreground">IPv4 o redes CIDR separadas por coma o salto de línea. Al guardar, cualquier sesión fuera de estas redes quedará bloqueada.</span>
         </label>
 
         {state.type !== "idle" ? (

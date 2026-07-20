@@ -113,6 +113,27 @@
       "when": 1784111140958,
       "tag": "0015_solid_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784565744736,
+      "tag": "0016_clever_preak",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784566878012,
+      "tag": "0017_curly_mandroid",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784567149189,
+      "tag": "0018_flippant_reavers",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "goods_receipt_line" ADD COLUMN "purchaseOrderLineId" text;--> statement-breakpoint
+ALTER TABLE "goods_receipt_line" ADD CONSTRAINT "goods_receipt_line_purchaseOrderLineId_purchase_order_line_id_fk" FOREIGN KEY ("purchaseOrderLineId") REFERENCES "public"."purchase_order_line"("id") ON DELETE restrict ON UPDATE no action;

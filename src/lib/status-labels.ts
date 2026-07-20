@@ -20,6 +20,7 @@ export const purchaseOrderStatusLabels: Record<string, string> = {
   DRAFT: "Borrador",
   SENT: "Enviado",
   APPROVED: "Aprobado",
+  PARTIALLY_RECEIVED: "Recepción parcial",
   RECEIVED: "Recibido",
   INVOICED: "Facturado",
   PAID: "Pagado",
@@ -71,6 +72,7 @@ export function invoicePaymentStatusTone(status: string): StatusTone {
 
 export function purchaseOrderStatusTone(status: string): StatusTone {
   if (status === "RECEIVED" || status === "INVOICED" || status === "PAID") return "success";
+  if (status === "PARTIALLY_RECEIVED") return "warning";
   if (status === "SENT" || status === "APPROVED") return "info";
   if (status === "VOID" || status === "CANCELLED") return "danger";
   return "neutral";

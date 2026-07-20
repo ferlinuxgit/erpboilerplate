@@ -324,6 +324,7 @@ export const item = pgTable("item", {
   costPrice: numeric("costPrice", { precision: 12, scale: 2 }).notNull().default("0"),
   averageCost: numeric("averageCost", { precision: 12, scale: 2 }).notNull().default("0"),
   minimumStock: numeric("minimumStock", { precision: 12, scale: 3 }).notNull().default("0"),
+  isActive: boolean("isActive").notNull().default(true),
 }, (table) => [unique("item_company_sku_unique").on(table.companyId, table.sku)]);
 
 export const warehouse = pgTable("warehouse", {
@@ -331,13 +332,14 @@ export const warehouse = pgTable("warehouse", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code").notNull(),
+  isActive: boolean("isActive").notNull().default(true),
 }, (table) => [unique("warehouse_company_code_unique").on(table.companyId, table.code)]);
 
 export const stockMovement = pgTable("stock_movement", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
-  warehouseId: text("warehouseId").notNull().references(() => warehouse.id, { onDelete: "cascade" }),
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "restrict" }),
+  warehouseId: text("warehouseId").notNull().references(() => warehouse.id, { onDelete: "restrict" }),
   movementType: stockMovementTypeEnum("movementType").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   movedAt: timestamp("movedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -464,6 +466,7 @@ export const deliveryNote = pgTable("delivery_note", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   customerId: text("customerId").notNull().references(() => customer.id, { onDelete: "restrict" }),
   salesOrderId: text("salesOrderId").references(() => salesOrder.id, { onDelete: "set null" }),
+  warehouseId: text("warehouseId").references(() => warehouse.id, { onDelete: "restrict" }),
   number: text("number").notNull(),
   issuedAt: timestamp("issuedAt", { withTimezone: true, mode: "date" }).notNull(),
   status: salesDocumentStatusEnum("status").notNull().default("DRAFT"),
@@ -474,6 +477,7 @@ export const deliveryNote = pgTable("delivery_note", {
 export const deliveryNoteLine = pgTable("delivery_note_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   deliveryNoteId: text("deliveryNoteId").notNull().references(() => deliveryNote.id, { onDelete: "cascade" }),
+  salesOrderLineId: text("salesOrderLineId").references(() => salesOrderLine.id, { onDelete: "restrict" }),
   itemId: text("itemId").references(() => item.id, { onDelete: "set null" }),
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
@@ -510,12 +514,16 @@ export const purchaseOrderLine = pgTable("purchase_order_line", {
 export const goodsReceipt = pgTable("goods_receipt", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   purchaseOrderId: text("purchaseOrderId").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouseId").references(() => warehouse.id, { onDelete: "restrict" }),
+  supplierDocumentNumber: text("supplierDocumentNumber"),
+  notes: text("notes"),
   receivedAt: timestamp("receivedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
 export const goodsReceiptLine = pgTable("goods_receipt_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   goodsReceiptId: text("goodsReceiptId").notNull().references(() => goodsReceipt.id, { onDelete: "cascade" }),
+  purchaseOrderLineId: text("purchaseOrderLineId").references(() => purchaseOrderLine.id, { onDelete: "restrict" }),
   itemId: text("itemId").references(() => item.id, { onDelete: "set null" }),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
 });
@@ -736,6 +744,7 @@ export const apiKey = pgTable("api_key", {
   keyPrefix: text("keyPrefix"),
   keyHash: text("keyHash").notNull(),
   name: text("name").notNull(),
+  scopes: text("scopes").notNull().default('["customer.read","supplier.read","invoice.read"]'),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   revokedAt: timestamp("revokedAt", { withTimezone: true, mode: "date" }),
   lastUsedAt: timestamp("lastUsedAt", { withTimezone: true, mode: "date" }),
@@ -776,6 +785,10 @@ export const supplierPayment = pgTable("supplier_payment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   supplierInvoiceId: text("supplierInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  paymentMethodId: text("paymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
+  reference: text("reference"),
+  notes: text("notes"),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

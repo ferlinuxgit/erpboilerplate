@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const limit = vi.fn();
-  const where = vi.fn(() => ({ limit }));
-  const from = vi.fn(() => ({ where }));
+  const forLock = vi.fn(() => ({ limit }));
+  const from = vi.fn(() => ({ where: vi.fn(() => ({ limit, for: forLock })) }));
   const select = vi.fn(() => ({ from }));
   const returning = vi.fn();
   const values = vi.fn(() => ({ returning }));
@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => {
   const transaction = vi.fn(async (callback) => callback(tx));
   const recordAudit = vi.fn();
 
-  return { deleteFn, deleteReturning, insert, limit, recordAudit, returning, select, transaction, tx, update, updateReturning, values };
+  return { deleteFn, deleteReturning, forLock, insert, limit, recordAudit, returning, select, transaction, tx, update, updateReturning, values };
 });
 
 vi.mock("@/lib/db", () => ({ db: { delete: mocks.deleteFn, transaction: mocks.transaction, update: mocks.update } }));
@@ -37,6 +37,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.limit.mockReset();
   mocks.limit.mockResolvedValue([{ id: "supplier-1" }]);
   mocks.returning.mockResolvedValue([{ id: "purchase-1", number: "PO-1", status: "DRAFT" }]);
   mocks.updateReturning.mockResolvedValue([{ id: "purchase-1", number: "PO-2", status: "CONFIRMED" }]);
@@ -81,7 +82,18 @@ describe("createPurchaseOrder", () => {
   });
 
   it("records the update audit entry inside the purchase update transaction", async () => {
-    await updatePurchaseOrder("company-1", "tenant-1", "actor-1", "purchase-1", { number: "PO-2", status: "CONFIRMED" });
+    mocks.limit.mockResolvedValue([]);
+    mocks.limit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "DRAFT" }])
+      .mockResolvedValueOnce([{ id: "supplier-1" }]);
+    await updatePurchaseOrder("company-1", "tenant-1", "actor-1", "purchase-1", {
+      number: "PO-2",
+      status: "APPROVED",
+      supplierName: "Supplier A",
+      lines: [{ description: "Servicio", quantity: 1, unitPrice: 100 }],
+    });
 
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.recordAudit).toHaveBeenCalledWith(
@@ -98,6 +110,7 @@ describe("createPurchaseOrder", () => {
   });
 
   it("records the delete audit entry inside the purchase delete transaction", async () => {
+    mocks.limit.mockResolvedValue([]);
     await deletePurchaseOrder("company-1", "tenant-1", "actor-1", "purchase-1");
 
     expect(mocks.transaction).toHaveBeenCalledTimes(1);

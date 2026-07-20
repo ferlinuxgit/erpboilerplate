@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
+import { bankAccount, paymentMethod, purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -11,11 +11,16 @@ import { ensureUserTenant } from "@/lib/tenant";
 import { postSupplierPayment } from "@/server/accounting/auto-post";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshSupplierInvoicePaymentStatus } from "@/server/supplier-invoices/service";
+import { recordAudit } from "@/server/audit";
 
 const payloadSchema = z.object({
   supplierInvoiceId: z.string().trim().min(1),
   amountApplied: z.number().positive(),
   postedAt: z.string().trim().min(1),
+  paymentMethodId: z.string().trim().optional().or(z.literal("")),
+  bankAccountId: z.string().trim().optional().or(z.literal("")),
+  reference: z.string().trim().max(160).optional().or(z.literal("")),
+  notes: z.string().trim().max(1000).optional().or(z.literal("")),
 });
 
 function toCents(value: number | string) {
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
   try {
     const applied = await db.transaction(async (tx) => {
       const [ownedInvoice] = await tx
-        .select({ id: supplierInvoice.id, origin: supplierInvoice.origin, totalAmount: supplierInvoice.totalAmount, status: supplierInvoice.status })
+        .select({ id: supplierInvoice.id, origin: supplierInvoice.origin, purchaseOrderId: supplierInvoice.purchaseOrderId, totalAmount: supplierInvoice.totalAmount, status: supplierInvoice.status })
         .from(supplierInvoice)
         .where(and(eq(supplierInvoice.id, parsed.data.supplierInvoiceId), eq(supplierInvoice.companyId, ctx.company.id)))
         .for("update")
@@ -58,6 +63,17 @@ export async function POST(request: Request) {
       await assertFiscalPeriodOpen(ctx.company.id, postedAt, tx);
       if (ownedInvoice.origin === "EXPENSE" && !can(ctx.membership.role, "expense.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
       if (ownedInvoice.origin !== "EXPENSE" && !can(ctx.membership.role, "purchase.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
+
+      const [ownedPaymentMethods, ownedBankAccounts] = await Promise.all([
+        parsed.data.paymentMethodId
+          ? tx.select({ id: paymentMethod.id }).from(paymentMethod).where(and(eq(paymentMethod.id, parsed.data.paymentMethodId), eq(paymentMethod.companyId, ctx.company.id))).limit(1)
+          : Promise.resolve([]),
+        parsed.data.bankAccountId
+          ? tx.select({ id: bankAccount.id }).from(bankAccount).where(and(eq(bankAccount.id, parsed.data.bankAccountId), eq(bankAccount.companyId, ctx.company.id))).limit(1)
+          : Promise.resolve([]),
+      ]);
+      if (parsed.data.paymentMethodId && !ownedPaymentMethods[0]) throw new Error("PAYMENT_METHOD_NOT_FOUND");
+      if (parsed.data.bankAccountId && !ownedBankAccounts[0]) throw new Error("BANK_ACCOUNT_NOT_FOUND");
 
       const appliedPayments = await tx
         .select({ amountApplied: supplierInvoicePayment.amountApplied })
@@ -73,6 +89,10 @@ export async function POST(request: Request) {
         .values({
           companyId: ctx.company.id,
           supplierInvoiceId: parsed.data.supplierInvoiceId,
+          paymentMethodId: parsed.data.paymentMethodId || null,
+          bankAccountId: parsed.data.bankAccountId || null,
+          reference: parsed.data.reference || null,
+          notes: parsed.data.notes || null,
           amount: parsed.data.amountApplied.toFixed(2),
           postedAt,
         })
@@ -94,12 +114,46 @@ export async function POST(request: Request) {
         actorUserId: session.user.id,
         supplierPaymentId: createdPayment.id,
         postedAt,
-        reference: `Pago factura proveedor ${parsed.data.supplierInvoiceId}`,
+        reference: parsed.data.reference || `Pago factura proveedor ${parsed.data.supplierInvoiceId}`,
         amount: parsed.data.amountApplied,
         dbClient: tx,
       });
 
-      await refreshSupplierInvoicePaymentStatus(ctx.company.id, parsed.data.supplierInvoiceId, tx);
+      const refreshedInvoice = await refreshSupplierInvoicePaymentStatus(ctx.company.id, parsed.data.supplierInvoiceId, tx);
+      if (refreshedInvoice?.paymentStatus === "PAID" && ownedInvoice.purchaseOrderId) {
+        const orderInvoices = await tx
+          .select({ paymentStatus: supplierInvoice.paymentStatus, status: supplierInvoice.status })
+          .from(supplierInvoice)
+          .where(and(eq(supplierInvoice.companyId, ctx.company.id), eq(supplierInvoice.purchaseOrderId, ownedInvoice.purchaseOrderId)));
+        const orderPaid =
+          orderInvoices.length > 0 &&
+          orderInvoices.every(
+            (invoice) =>
+              invoice.paymentStatus === "PAID" || invoice.status === "VOID",
+          );
+        if (orderPaid) {
+          await tx
+            .update(purchaseOrder)
+            .set({ status: "PAID" })
+            .where(and(eq(purchaseOrder.companyId, ctx.company.id), eq(purchaseOrder.id, ownedInvoice.purchaseOrderId)));
+        }
+      }
+
+      await recordAudit({
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: session.user.id,
+        action: "supplier_payment.create",
+        entityName: "supplier_payment",
+        entityId: createdPayment.id,
+        payload: {
+          supplierInvoiceId: parsed.data.supplierInvoiceId,
+          amount: parsed.data.amountApplied,
+          paymentMethodId: parsed.data.paymentMethodId || null,
+          bankAccountId: parsed.data.bankAccountId || null,
+          reference: parsed.data.reference || null,
+        },
+      }, tx);
 
       return appliedPayment;
     });
@@ -116,6 +170,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "El importe supera el saldo pendiente de la factura de proveedor." }, { status: 400 });
     }
     if (error instanceof Error && error.message === "SUPPLIER_INVOICE_VOID") return NextResponse.json({ message: "No se puede pagar una factura anulada." }, { status: 409 });
+    if (error instanceof Error && error.message === "PAYMENT_METHOD_NOT_FOUND") return NextResponse.json({ message: "La forma de pago no pertenece a la empresa activa." }, { status: 400 });
+    if (error instanceof Error && error.message === "BANK_ACCOUNT_NOT_FOUND") return NextResponse.json({ message: "La cuenta bancaria no pertenece a la empresa activa." }, { status: 400 });
     throw error;
   }
 }

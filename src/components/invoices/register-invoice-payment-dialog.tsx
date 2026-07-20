@@ -43,7 +43,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isPaid = invoice.paymentStatus === "PAID";
+  const isPaid = invoice.paymentStatus === "PAID" || invoice.paymentStatus === "VOID";
   const hasPaymentMethods = paymentMethods.length > 0;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

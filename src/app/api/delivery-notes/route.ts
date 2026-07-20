@@ -16,6 +16,7 @@ const payloadSchema = z.object({
   salesOrderId: z.string().trim().optional().or(z.literal("")),
   number: z.string().trim().optional().or(z.literal("")),
   issuedAt: z.string().trim().min(1),
+  lines: z.array(z.object({ salesOrderLineId: z.string().trim().min(1), quantity: z.coerce.number().positive() })).min(1).optional(),
 });
 
 export async function GET() {
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
       fiscalYearId: ctx.fiscalYear.id,
       salesOrderId: parsed.data.salesOrderId,
       warehouseId: parsed.data.warehouseId || null,
+      lines: parsed.data.lines,
     });
     return NextResponse.json(converted, { status: 201 });
   } catch (error) {

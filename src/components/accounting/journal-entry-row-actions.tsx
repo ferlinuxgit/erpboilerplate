@@ -8,7 +8,7 @@ export function JournalEntryRowActions({ id }: { id: string }) {
     <div className="flex gap-2">
       <Link href={`/accounting/entries/${id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>Ver</Link>
       <Link href={`/accounting/entries/${id}/edit`} className={buttonVariants({ variant: "outline", size: "sm" })}>Editar</Link>
-      <DeleteButton url={`/api/journal-entries/${id}`} />
+      <DeleteButton description="Se creará un contraasiento y el original quedará marcado como revertido." label="Revertir" successMessage="Asiento revertido mediante contraasiento." title="Revertir asiento" url={`/api/journal-entries/${id}`} />
     </div>
   );
 }

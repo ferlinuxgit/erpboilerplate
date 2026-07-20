@@ -203,14 +203,42 @@ export async function updateJournalEntry(
 }
 
 export async function deleteJournalEntry(companyId: string, tenantId: string, actorUserId: string, id: string) {
-  const [editable] = await db.select({ postedAt: journalEntry.postedAt, isAutomatic: journalEntry.isAutomatic }).from(journalEntry).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).limit(1);
-  if (!editable) return false;
-  if (editable.isAutomatic) throw new Error("Los asientos automáticos no se pueden eliminar; corrige el documento de origen.");
-  await assertFiscalPeriodOpen(companyId, editable.postedAt);
-  const [deleted] = await db.delete(journalEntry).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).returning({ id: journalEntry.id });
-  if (!deleted) return false;
-  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.delete", entityName: "journalEntry", entityId: id });
-  return true;
+  return db.transaction(async (tx) => {
+    const [editable] = await tx
+      .select({ postedAt: journalEntry.postedAt, journalId: journalEntry.journalId, reference: journalEntry.reference, isAutomatic: journalEntry.isAutomatic, reversedAt: journalEntry.reversedAt })
+      .from(journalEntry)
+      .where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id)))
+      .for("update")
+      .limit(1);
+    if (!editable) return false;
+    if (editable.isAutomatic) throw new Error("Los asientos automáticos no se pueden revertir; corrige el documento de origen.");
+    if (editable.reversedAt) throw new Error("Este asiento ya está revertido.");
+    const reversedAt = new Date();
+    await assertFiscalPeriodOpen(companyId, reversedAt, tx);
+    const lines = await tx.select().from(journalLine).where(eq(journalLine.journalEntryId, id));
+    if (lines.length === 0) throw new Error("No se puede revertir un asiento sin líneas.");
+    const [reversal] = await tx
+      .insert(journalEntry)
+      .values({
+        companyId,
+        journalId: editable.journalId,
+        postedAt: reversedAt,
+        reference: `Reversión · ${editable.reference ?? id}`,
+        sourceType: "journalEntryReversal",
+        sourceId: id,
+        reversesEntryId: id,
+      })
+      .returning({ id: journalEntry.id });
+    await tx.insert(journalLine).values(lines.map((line) => ({
+      journalEntryId: reversal.id,
+      accountId: line.accountId,
+      debit: line.credit,
+      credit: line.debit,
+    })));
+    await tx.update(journalEntry).set({ reversedAt }).where(eq(journalEntry.id, id));
+    await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.reverse", entityName: "journalEntry", entityId: id, payload: { reversalEntryId: reversal.id } }, tx);
+    return true;
+  });
 }
 
 export async function getLedgerByAccount(companyId: string, accountId: string) {

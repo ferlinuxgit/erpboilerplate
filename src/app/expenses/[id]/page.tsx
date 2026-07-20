@@ -1,45 +1,122 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { buttonVariants } from "@/components/ui/button";
-import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import {
+  EmptyState,
+  MetricCard,
+  PageHeader,
+  PageSection,
+  PageShell,
+} from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatDate, formatMoney } from "@/lib/format";
 import { requireContext } from "@/lib/current-context";
-import { invoicePaymentStatusLabels, invoicePaymentStatusTone, statusLabel } from "@/lib/status-labels";
+import { can } from "@/lib/rbac";
+import {
+  invoicePaymentStatusLabels,
+  invoicePaymentStatusTone,
+  statusLabel,
+} from "@/lib/status-labels";
 import { getExpenseInvoice } from "@/server/supplier-invoices/service";
 
-export default async function ExpenseDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ExpenseDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ returnTo?: string | string[] }>;
+}) {
   const ctx = await requireContext("expense.read");
   const { id } = await params;
+  const query = await searchParams;
+  const returnTo = Array.isArray(query.returnTo)
+    ? query.returnTo[0]
+    : query.returnTo;
   const expense = await getExpenseInvoice(ctx.company.id, id);
   if (!expense) notFound();
+  const canPay =
+    expense.origin === "PURCHASE"
+      ? can(ctx.membership.role, "purchase.write")
+      : can(ctx.membership.role, "expense.write");
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow={expense.origin === "PURCHASE" ? "Compras · Factura" : "Gastos"}
+        eyebrow={expense.origin === "PURCHASE" ? "Factura de proveedor" : "Gastos"}
         title={expense.supplierDocumentNumber || expense.number}
         description={`${expense.supplierName} · ${formatDate(expense.issueDate)}`}
-        backHref={expense.purchaseOrderId ? `/purchases/${expense.purchaseOrderId}` : "/expenses"}
-        backLabel={expense.purchaseOrderId ? "Volver al pedido" : "Volver a gastos"}
+        backHref={
+          expense.origin === "PURCHASE" || returnTo === "supplier-invoices"
+            ? "/purchases/supplier-invoices"
+            : "/expenses"
+        }
+        backLabel={
+          expense.origin === "PURCHASE" || returnTo === "supplier-invoices"
+            ? "Volver a facturas de proveedor"
+            : "Volver a gastos"
+        }
         meta={
           <StatusBadge tone={invoicePaymentStatusTone(expense.paymentStatus)}>
             {statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}
           </StatusBadge>
         }
-        actions={<><Link className={buttonVariants({ variant: "outline" })} href={`/suppliers/${expense.supplierPartnerId}`}>Ver proveedor</Link>{expense.purchaseOrderId ? <Link className={buttonVariants({ variant: "outline" })} href={`/purchases/${expense.purchaseOrderId}`}>Ver pedido</Link> : null}</>}
+        actions={
+          <>
+            <Link
+              className={buttonVariants({ variant: "outline" })}
+              href={`/suppliers/${expense.supplierPartnerId}`}
+            >
+              Ver proveedor
+            </Link>
+            {expense.purchaseOrderId ? (
+              <Link
+                className={buttonVariants({ variant: "outline" })}
+                href={`/purchases/${expense.purchaseOrderId}`}
+              >
+                Ver pedido
+              </Link>
+            ) : null}
+            {canPay &&
+            Number(expense.outstandingAmount) > 0 &&
+            expense.paymentStatus !== "VOID" ? (
+              <RegisterSupplierPaymentButton
+                currencyCode={ctx.company.baseCurrencyCode}
+                invoiceId={expense.id}
+                outstandingAmount={Number(expense.outstandingAmount)}
+              />
+            ) : null}
+          </>
+        }
       />
 
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard label="Base" value={formatMoney(expense.subtotalAmount)} />
         <MetricCard label="IVA" value={formatMoney(expense.taxAmount)} />
-        <MetricCard label="Retención" value={formatMoney(expense.retentionAmount)} />
-        <MetricCard label="Pendiente" value={formatMoney(expense.outstandingAmount)} tone={Number(expense.outstandingAmount) > 0 ? "warning" : "success"} />
+        <MetricCard
+          label="Retención"
+          value={formatMoney(expense.retentionAmount)}
+        />
+        <MetricCard
+          label="Pendiente"
+          value={formatMoney(expense.outstandingAmount)}
+          tone={Number(expense.outstandingAmount) > 0 ? "warning" : "success"}
+        />
       </section>
 
-      <PageSection title="Líneas" description="Desglose contable y fiscal del gasto.">
+      <PageSection
+        title="Líneas"
+        description="Desglose contable y fiscal del gasto."
+      >
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
@@ -57,12 +134,26 @@ export default async function ExpenseDetailPage({ params }: { params: Promise<{ 
               {expense.lines.map((line) => (
                 <TableRow key={line.id}>
                   <TableCell>{line.description}</TableCell>
-                  <TableCell>{line.expenseAccountCode ? `${line.expenseAccountCode} - ${line.expenseAccountName}` : "Cuenta por defecto"}</TableCell>
-                  <TableCell className="text-right">{formatMoney(line.subtotalAmount)}</TableCell>
-                  <TableCell className="text-right">{Number(line.taxRate).toFixed(2)}%</TableCell>
-                  <TableCell className="text-right">{Number(line.taxDeductiblePct).toFixed(2)}%</TableCell>
-                  <TableCell className="text-right">{Number(line.retentionRate).toFixed(2)}%</TableCell>
-                  <TableCell className="text-right">{formatMoney(line.lineTotal)}</TableCell>
+                  <TableCell>
+                    {line.expenseAccountCode
+                      ? `${line.expenseAccountCode} - ${line.expenseAccountName}`
+                      : "Cuenta por defecto"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatMoney(line.subtotalAmount)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {Number(line.taxRate).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {Number(line.taxDeductiblePct).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {Number(line.retentionRate).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatMoney(line.lineTotal)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -70,18 +161,69 @@ export default async function ExpenseDetailPage({ params }: { params: Promise<{ 
         </div>
       </PageSection>
 
-      <PageSection title="Adjuntos" description="Documentos vinculados a la factura de gasto.">
+      <PageSection
+        title="Pagos"
+        description="Importes aplicados a esta factura de proveedor."
+      >
+        {expense.payments.length === 0 ? (
+          <EmptyState
+            title="Sin pagos"
+            description="La factura conserva todo su saldo pendiente."
+          />
+        ) : (
+          <div className="space-y-2">
+            {expense.payments.map((payment) => (
+              <div
+                className="flex items-center justify-between border-b border-border/70 py-3 text-sm last:border-b-0"
+                key={payment.id}
+              >
+                <div>
+                  <p className="font-mono font-semibold">
+                    PAG-{payment.id.slice(0, 8).toUpperCase()}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {formatDate(payment.postedAt)}
+                  </p>
+                </div>
+                <p className="font-mono font-semibold">
+                  {formatMoney(
+                    payment.amountApplied,
+                    ctx.company.baseCurrencyCode,
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </PageSection>
+
+      <PageSection
+        title="Adjuntos"
+        description="Documentos vinculados a la factura de gasto."
+      >
         {expense.attachments.length === 0 ? (
-          <EmptyState title="Sin adjuntos" description="Esta factura no tiene documentos vinculados." />
+          <EmptyState
+            title="Sin adjuntos"
+            description="Esta factura no tiene documentos vinculados."
+          />
         ) : (
           <div className="space-y-2">
             {expense.attachments.map((attachment) => (
-              <div className="flex items-center justify-between gap-3 rounded-md border p-3" key={attachment.id}>
+              <div
+                className="flex items-center justify-between gap-3 rounded-md border p-3"
+                key={attachment.id}
+              >
                 <div className="min-w-0">
                   <p className="truncate font-medium">{attachment.fileName}</p>
-                  <p className="text-xs text-muted-foreground">{attachment.contentType ?? "Documento"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {attachment.contentType ?? "Documento"}
+                  </p>
                 </div>
-                <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={attachment.fileUrl} target="_blank">
+                <Link
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                  href={attachment.fileUrl}
+                  target="_blank"
+                >
                   Abrir
                 </Link>
               </div>

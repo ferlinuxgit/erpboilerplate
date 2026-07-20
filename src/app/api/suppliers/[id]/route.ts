@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
-import { can } from "@/lib/rbac";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
 import { getSupplier, removeSupplierRole, updateSupplierWithPartner } from "@/server/suppliers/service";
 import { updateSupplierSchema } from "@/server/schemas/forms";
@@ -12,7 +11,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "supplier.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "supplier.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const { id } = await params;
   const row = await getSupplier(db, ctx.company.id, id);
@@ -24,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "supplier.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "supplier.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
@@ -52,7 +51,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "supplier.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "supplier.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
   const updated = await removeSupplierRole(db, ctx.company.id, id);
   if (!updated) return NextResponse.json({ message: "Proveedor no encontrado." }, { status: 404 });

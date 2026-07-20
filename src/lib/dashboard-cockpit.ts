@@ -247,9 +247,9 @@ export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCo
   if (salesInProgress === 0) {
     emptyStates.push({
       title: "Sin documentos de venta",
-      description: "Crea una oferta guiada para recorrer presupuesto → pedido → albarán → factura.",
+      description: "Registra presupuestos, pedidos o albaranes desde sus secciones independientes.",
       href: "/sales",
-      actionLabel: "Abrir ciclo de ventas",
+      actionLabel: "Abrir ventas",
     });
   }
   if (lowStockAlerts === 0) {
@@ -297,7 +297,7 @@ export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCo
     },
     {
       title: "Prepara una oferta o pedido",
-      description: "Sigue el flujo presupuesto → pedido → albarán con transiciones seguras.",
+      description: "Crea un presupuesto o registra directamente un pedido confirmado.",
       href: "/sales",
       eyebrow: "2",
     },

@@ -4,8 +4,7 @@ import { NextResponse } from "next/server";
 import { customer, partner } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
-import { can } from "@/lib/rbac";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
 import { updateCustomerWithPartner } from "@/server/customers/service";
 import { updateCustomerSchema } from "@/server/schemas/forms";
@@ -14,7 +13,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "customer.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "customer.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const { id } = await params;
   const [row] = await db
@@ -48,7 +47,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "customer.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "customer.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
@@ -79,7 +78,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "customer.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "customer.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
   const [deleted] = await db.delete(customer).where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id))).returning({ id: customer.id });
   if (!deleted) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });

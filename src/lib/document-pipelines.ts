@@ -38,6 +38,34 @@ export function assertSalesTransitionAllowed(result: TransitionResult) {
   if (result.allowed === false) throw new Error(result.reason);
 }
 
+export const purchaseOrderStatuses = ["DRAFT", "SENT", "APPROVED", "PARTIALLY_RECEIVED", "RECEIVED", "INVOICED", "PAID", "VOID", "CANCELLED"] as const;
+export type PurchaseOrderStatus = (typeof purchaseOrderStatuses)[number];
+
+const manualPurchaseTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> = {
+  DRAFT: ["DRAFT", "SENT", "APPROVED", "CANCELLED"],
+  SENT: ["SENT", "APPROVED", "CANCELLED"],
+  APPROVED: ["APPROVED", "CANCELLED"],
+  PARTIALLY_RECEIVED: ["PARTIALLY_RECEIVED"],
+  RECEIVED: ["RECEIVED"],
+  INVOICED: ["INVOICED"],
+  PAID: ["PAID"],
+  VOID: ["VOID"],
+  CANCELLED: ["CANCELLED"],
+};
+
+export function getManualPurchaseOrderStatuses(current: string): PurchaseOrderStatus[] {
+  return purchaseOrderStatuses.includes(current as PurchaseOrderStatus)
+    ? [...manualPurchaseTransitions[current as PurchaseOrderStatus]]
+    : [];
+}
+
+export function assertManualPurchaseOrderTransition(current: string, next: string) {
+  if (!purchaseOrderStatuses.includes(next as PurchaseOrderStatus)) throw new Error("Estado de pedido de compra inválido.");
+  if (!getManualPurchaseOrderStatuses(current).includes(next as PurchaseOrderStatus)) {
+    throw new Error("La transición de estado no es válida. Recepción, facturación y pago se actualizan desde sus documentos.");
+  }
+}
+
 export function buildSalesPipelineStages(input: {
   customersCount?: number;
   quotesCount: number;
@@ -71,14 +99,14 @@ export function buildSalesPipelineStages(input: {
       key: "orders",
       label: "Pedidos",
       count: input.ordersCount,
-      nextActionLabel: "Pedido → albarán",
+      nextActionLabel: "Generar albarán",
       emptyState: "Convierte un presupuesto confirmado para habilitar albaranes.",
     },
     {
       key: "delivery-notes",
       label: "Albaranes",
       count: input.deliveryNotesCount,
-      nextActionLabel: "Albarán → factura",
+      nextActionLabel: "Generar factura",
       emptyState: "Genera un albarán entregado antes de facturar.",
     },
     {
@@ -166,14 +194,14 @@ export function buildPurchasePipelineStages(input: {
       key: "purchase-orders",
       label: "Pedidos compra",
       count: input.ordersCount,
-      nextActionLabel: "Pedido → recepción",
+      nextActionLabel: "Registrar recepción",
       emptyState: "Crea un pedido de compra con proveedor y líneas.",
     },
     {
       key: "goods-receipts",
       label: "Recepciones",
       count: input.receiptsCount,
-      nextActionLabel: "Recepción → factura proveedor",
+      nextActionLabel: "Generar factura proveedor",
       emptyState: "Recepciona mercancía antes de registrar la factura del proveedor.",
     },
     {

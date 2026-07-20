@@ -7,17 +7,21 @@ import {
   Buildings,
   Calculator,
   ChartLineUp,
+  ClipboardText,
+  Coins,
   CreditCard,
   Factory,
+  FileText,
+  FileArrowDown,
   List,
   MagnifyingGlass,
   Package,
   Receipt,
-  Storefront,
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
   SquaresFour,
+  Truck,
   UserCircleGear,
   UsersThree,
   Wallet,
@@ -29,7 +33,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ActiveContextSwitcher } from "@/components/layout/active-context-switcher";
 import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
-import { LanguageSwitcher } from "@/components/layout/language-switcher";
+import { ContextNavigation } from "@/components/layout/context-navigation";
+import { FormNavigationGuard } from "@/components/layout/form-navigation-guard";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -40,14 +45,29 @@ const navGroups = [
     links: [{ href: "/dashboard", label: "Panel", icon: SquaresFour }],
   },
   {
-    label: "Operación",
+    label: "Comercial",
     links: [
       { href: "/customers", label: "Clientes", icon: UsersThree },
-      { href: "/suppliers", label: "Proveedores", icon: Factory },
-      { href: "/sales", label: "Ventas", icon: Storefront },
+      { href: "/sales/quotes", label: "Presupuestos", icon: FileText },
+      { href: "/sales/orders", label: "Pedidos", icon: ShoppingCart },
+      { href: "/sales/delivery-notes", label: "Albaranes", icon: Truck },
       { href: "/invoices", label: "Facturas", icon: Receipt },
-      { href: "/purchases", label: "Compras", icon: ShoppingCart },
+    ],
+  },
+  {
+    label: "Aprovisionamiento",
+    links: [
+      { href: "/suppliers", label: "Proveedores", icon: Factory },
+      { href: "/purchases/orders", label: "Pedidos de compra", icon: ClipboardText },
+      { href: "/purchases/receipts", label: "Recepciones", icon: Package },
+      { href: "/purchases/supplier-invoices", label: "Facturas de proveedor", icon: FileArrowDown },
+      { href: "/purchases/payments", label: "Pagos a proveedores", icon: Coins },
       { href: "/expenses", label: "Gastos", icon: Wallet },
+    ],
+  },
+  {
+    label: "Finanzas y operaciones",
+    links: [
       { href: "/inventory", label: "Inventario", icon: Package },
       { href: "/accounting", label: "Contabilidad", icon: BookOpenText },
       { href: "/treasury", label: "Tesorería", icon: Bank },
@@ -79,6 +99,13 @@ type NavigationGroupsProps = {
 };
 
 function isActiveRoute(pathname: string, href: string) {
+  if (href === "/sales/quotes" && pathname === "/sales/new") return true;
+  if (
+    href === "/purchases/orders" &&
+    (pathname === "/purchases/new" ||
+      /^\/purchases\/[^/]+(?:\/edit)?$/.test(pathname))
+  )
+    return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -163,11 +190,12 @@ export function AppShell({ children }: AppShellProps) {
     <div className="min-h-screen bg-background lg:flex">
       <a className="fixed left-4 top-4 z-50 -translate-y-24 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform focus:translate-y-0" href="#main-content">Saltar al contenido</a>
       <GlobalCommandPalette />
+      <FormNavigationGuard />
       <aside
         className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4 lg:flex"
         data-testid="desktop-sidebar"
       >
-        <div className="mb-5 flex items-center justify-between gap-3 px-1">
+        <div className="mb-5 flex items-center gap-3 px-1">
           <div className="flex items-center gap-3">
             <div className="grid size-9 place-items-center rounded-lg bg-primary text-xs font-bold tracking-[-0.04em] text-primary-foreground">ER</div>
             <div>
@@ -175,7 +203,6 @@ export function AppShell({ children }: AppShellProps) {
               <p className="mt-1 text-[0.7rem] text-muted-foreground">Workspace operativo</p>
             </div>
           </div>
-          <LanguageSwitcher />
         </div>
         <div className="mb-4 rounded-xl border border-sidebar-border bg-card/75 p-3" data-testid="context-switcher-desktop">
           <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.11em] text-muted-foreground">Contexto activo</p>
@@ -224,7 +251,6 @@ export function AppShell({ children }: AppShellProps) {
             <p className="truncate text-sm font-semibold tracking-[-0.01em]">{currentLink?.label ?? "ERP Suite"}</p>
             <p className="truncate text-[0.7rem] text-muted-foreground">Workspace operativo</p>
           </div>
-          <LanguageSwitcher />
         </header>
 
         {mobileNavOpen ? (
@@ -291,6 +317,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         ) : null}
 
+        <ContextNavigation />
         <div className="min-w-0 flex-1" id="main-content">{children}</div>
       </div>
     </div>

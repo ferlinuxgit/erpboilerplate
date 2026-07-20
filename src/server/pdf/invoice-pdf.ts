@@ -10,9 +10,9 @@ function formatDate(value: Date | null) {
   return new Intl.DateTimeFormat("es-ES", { dateStyle: "short" }).format(value);
 }
 
-function formatMoney(value: number | string) {
+function formatMoney(value: number | string, currency: string) {
   const numericValue = typeof value === "string" ? Number(value) : value;
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(Number.isFinite(numericValue) ? numericValue : 0);
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(Number.isFinite(numericValue) ? numericValue : 0);
 }
 
 function formatDecimal(value: number | string, digits = 2) {
@@ -45,6 +45,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       companyWebsite: company.website,
       companyLogoDataUrl: company.logoDataUrl,
       companyInvoiceFooter: company.invoiceFooter,
+      companyBaseCurrencyCode: company.baseCurrencyCode,
       customerName: customer.name,
       customerTaxId: partner.taxId,
       customerAddress: partner.address,
@@ -89,7 +90,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       number: row.number,
       issueDate: formatDate(row.issueDate) ?? "",
       dueDate: formatDate(row.dueDate),
-      amount: formatMoney(row.amount),
+      amount: formatMoney(row.amount, row.companyBaseCurrencyCode),
       company: {
         name: row.companyName,
         legalName: row.companyLegalName,
@@ -119,16 +120,16 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       lines: lines.map((line) => ({
         description: line.description,
         quantity: formatDecimal(line.quantity, 3),
-        unitPrice: formatMoney(line.unitPrice),
+        unitPrice: formatMoney(line.unitPrice, row.companyBaseCurrencyCode),
         taxRate: `${formatDecimal(line.taxRate, 3)}%`,
-        lineTotal: formatMoney(line.lineTotal),
+        lineTotal: formatMoney(line.lineTotal, row.companyBaseCurrencyCode),
       })),
       totals: {
-        subtotal: formatMoney(totals.subtotal),
-        taxAmount: formatMoney(totals.taxAmount),
-        retentionAmount: formatMoney(totals.retentionAmount),
+        subtotal: formatMoney(totals.subtotal, row.companyBaseCurrencyCode),
+        taxAmount: formatMoney(totals.taxAmount, row.companyBaseCurrencyCode),
+        retentionAmount: formatMoney(totals.retentionAmount, row.companyBaseCurrencyCode),
         hasRetention: totals.retentionAmount > 0,
-        totalAmount: formatMoney(totals.totalAmount),
+        totalAmount: formatMoney(totals.totalAmount, row.companyBaseCurrencyCode),
       },
     },
   };

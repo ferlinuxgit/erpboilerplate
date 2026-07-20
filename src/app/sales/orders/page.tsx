@@ -8,6 +8,7 @@ import { customer, salesOrder, salesQuote } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
+import { can } from "@/lib/rbac";
 
 export default async function SalesOrdersPage() {
   const ctx = await requireContext("invoice.read");
@@ -30,16 +31,15 @@ export default async function SalesOrdersPage() {
   const confirmed = rows.filter((row) => row.status === "CONFIRMED").length;
   const delivered = rows.filter((row) => row.status === "DELIVERED" || row.status === "INVOICED").length;
   const amount = rows.filter((row) => row.status !== "VOID").reduce((sum, row) => sum + Number(row.totalAmount), 0);
+  const canCreate = can(ctx.membership.role, "invoice.create");
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Ventas"
+        eyebrow="Pedidos"
         title="Pedidos"
         description="Compromisos de venta confirmados, preparados para generar la entrega al cliente."
-        backHref="/sales"
-        backLabel="Volver a ventas"
-        actions={<Link className={buttonVariants({ variant: "outline" })} href="/sales/quotes">Ver presupuestos</Link>}
+        actions={<><Link className={buttonVariants({ variant: "outline" })} href="/sales/quotes">Ver presupuestos</Link>{canCreate ? <Link className={buttonVariants()} href="/sales/orders/new">Nuevo pedido</Link> : null}</>}
       />
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard label="Pedidos" value={rows.length} helper="Documentos registrados" />

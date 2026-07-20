@@ -39,7 +39,7 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Ventas · Albarán"
+        eyebrow="Albarán"
         title={record.number}
         description={`${record.customerName} · Entregado el ${formatDate(record.issuedAt)}`}
         backHref="/sales/delivery-notes"
@@ -47,6 +47,7 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
         meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
         actions={
           <>
+            <a className={buttonVariants({ variant: "outline" })} href={`/api/delivery-notes/${record.id}/pdf`} rel="noreferrer" target="_blank">PDF</a>
             <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.customerId}`}>Ver cliente</Link>
             {record.salesOrderId ? <Link className={buttonVariants({ variant: "outline" })} href={`/sales/orders/${record.salesOrderId}`}>Ver pedido</Link> : null}
             {transition.allowed ? <SalesTransitionButton label={transition.actionLabel ?? "Generar factura"} targetBasePath="/invoices" url={`/api/delivery-notes/${record.id}/to-invoice`} /> : null}

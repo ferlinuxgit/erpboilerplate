@@ -1,0 +1,4 @@
+ALTER TABLE "delivery_note" ADD COLUMN "warehouseId" text;--> statement-breakpoint
+ALTER TABLE "delivery_note_line" ADD COLUMN "salesOrderLineId" text;--> statement-breakpoint
+ALTER TABLE "delivery_note" ADD CONSTRAINT "delivery_note_warehouseId_warehouse_id_fk" FOREIGN KEY ("warehouseId") REFERENCES "public"."warehouse"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "delivery_note_line" ADD CONSTRAINT "delivery_note_line_salesOrderLineId_sales_order_line_id_fk" FOREIGN KEY ("salesOrderLineId") REFERENCES "public"."sales_order_line"("id") ON DELETE restrict ON UPDATE no action;

@@ -35,11 +35,9 @@ export default async function SalesQuotesPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Ventas"
+        eyebrow="Presupuestos"
         title="Presupuestos"
         description="Propuestas comerciales enviadas a clientes, con vigencia, importe y estado de aceptación."
-        backHref="/sales"
-        backLabel="Volver a ventas"
         actions={canCreate ? <Link className={buttonVariants()} href="/sales/new">Nuevo presupuesto</Link> : null}
       />
       <section className="grid gap-3 md:grid-cols-4">

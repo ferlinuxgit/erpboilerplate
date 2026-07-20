@@ -63,7 +63,7 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
       />
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,1fr)]">
         <PageSection title="KPIs operativos" description="Valida las señales contra sus módulos de origen antes de exportar." contentClassName="space-y-5">
-            <form action="/reporting" className="grid gap-4 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end">
+            <form action="/reporting" className="grid gap-4 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end" data-ignore-dirty-guard="true" method="get">
               <div className="space-y-2">
                 <Label htmlFor="reporting-period">Periodo del informe</Label>
                 <Select

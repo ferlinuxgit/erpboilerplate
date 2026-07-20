@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   reserveSeriesNumber: vi.fn(),
   refreshStockLocation: vi.fn(),
   registerInMovementCost: vi.fn(),
+  recordAudit: vi.fn(),
   db: {
     select: vi.fn(),
     transaction: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("@/server/inventory/stock-location", () => ({
   refreshStockLocation: mocks.refreshStockLocation,
   registerInMovementCost: mocks.registerInMovementCost,
 }));
+vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 
 const session = {
   user: {
@@ -93,6 +95,7 @@ describe("sales document route tenant boundaries", () => {
     mocks.reserveSeriesNumber.mockResolvedValue("AUTO-1");
     mocks.refreshStockLocation.mockResolvedValue(undefined);
     mocks.registerInMovementCost.mockResolvedValue(undefined);
+    mocks.recordAudit.mockResolvedValue(undefined);
   });
 
   it("rejects creating a sales order from a quote outside the current company before mutating data", async () => {
@@ -183,7 +186,8 @@ describe("sales document route tenant boundaries", () => {
       selectRows: [
         [{ id: "order_1", customerId: "customer_1", status: "CONFIRMED" }],
         [{ id: "warehouse_1" }],
-        [{ itemId: "item_1", description: "Consultoría", quantity: "2" }],
+        [{ id: "order_line_1", itemId: "item_1", description: "Consultoría", quantity: "2" }],
+        [],
         [{ currentQuantity: "10.000" }],
       ],
       insertReturningRows: [[{ id: "delivery_1", salesOrderId: "order_1" }], [{ itemId: "item_1", quantity: "2" }]],
@@ -203,7 +207,7 @@ describe("sales document route tenant boundaries", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({ id: "delivery_1", salesOrderId: "order_1" });
     expect(mocks.db.select).not.toHaveBeenCalled();
-    expect(tx.insert).toHaveBeenCalledTimes(4);
+    expect(tx.insert).toHaveBeenCalledTimes(3);
     expect(tx.update).toHaveBeenCalledTimes(1);
     expect(mocks.refreshStockLocation).toHaveBeenCalledWith(
       { companyId: "company_1", itemId: "item_1", warehouseId: "warehouse_1" },
@@ -220,18 +224,19 @@ describe("purchase goods receipt stock atomicity", () => {
     mocks.can.mockReturnValue(true);
     mocks.refreshStockLocation.mockResolvedValue(undefined);
     mocks.registerInMovementCost.mockResolvedValue(undefined);
+    mocks.recordAudit.mockResolvedValue(undefined);
   });
 
   function makeGoodsReceiptTransaction() {
     const tx = makeTransactionClient({
       selectRows: [
         [{ id: "po_1" }],
-        [{ itemId: "item_1", quantity: "3.000", unitPrice: "11.50" }],
+        [{ id: "po_line_1", itemId: "item_1", quantity: "3.000", unitPrice: "11.50" }],
         [],
       ],
       insertReturningRows: [
         [{ id: "receipt_1", purchaseOrderId: "po_1" }],
-        [{ itemId: "item_1", quantity: "3.000" }],
+        [{ purchaseOrderLineId: "po_line_1", itemId: "item_1", quantity: "3.000" }],
         [{ id: "movement_1" }],
       ],
     });
@@ -268,6 +273,10 @@ describe("purchase goods receipt stock atomicity", () => {
     );
     expect(mocks.refreshStockLocation).toHaveBeenCalledWith(
       { companyId: "company_1", itemId: "item_1", warehouseId: "warehouse_1" },
+      tx,
+    );
+    expect(mocks.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "purchase.receipt.create", entityId: "receipt_1" }),
       tx,
     );
   });

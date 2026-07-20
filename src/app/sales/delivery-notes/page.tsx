@@ -7,6 +7,7 @@ import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { customer, deliveryNote, salesOrder } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+import { can } from "@/lib/rbac";
 
 export default async function DeliveryNotesPage() {
   const ctx = await requireContext("invoice.read");
@@ -28,16 +29,15 @@ export default async function DeliveryNotesPage() {
   const delivered = rows.filter((row) => row.status === "DELIVERED").length;
   const invoiced = rows.filter((row) => row.status === "INVOICED").length;
   const voided = rows.filter((row) => row.status === "VOID").length;
+  const canCreate = can(ctx.membership.role, "invoice.create");
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Ventas"
+        eyebrow="Albaranes"
         title="Albaranes"
         description="Entregas realizadas al cliente y pendientes de convertir en factura."
-        backHref="/sales"
-        backLabel="Volver a ventas"
-        actions={<Link className={buttonVariants({ variant: "outline" })} href="/sales/orders">Ver pedidos</Link>}
+        actions={<><Link className={buttonVariants({ variant: "outline" })} href="/sales/orders">Ver pedidos</Link>{canCreate ? <Link className={buttonVariants()} href="/sales/delivery-notes/new">Nuevo albarán</Link> : null}</>}
       />
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard label="Albaranes" value={rows.length} helper="Entregas registradas" />

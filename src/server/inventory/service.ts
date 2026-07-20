@@ -43,11 +43,11 @@ export async function getInventoryOptions(companyId: string) {
     db
       .select({ id: item.id, sku: item.sku, name: item.name, minimumStock: item.minimumStock })
       .from(item)
-      .where(eq(item.companyId, companyId)),
+      .where(and(eq(item.companyId, companyId), eq(item.isActive, true))),
     db
       .select({ id: warehouse.id, code: warehouse.code, name: warehouse.name })
       .from(warehouse)
-      .where(eq(warehouse.companyId, companyId)),
+      .where(and(eq(warehouse.companyId, companyId), eq(warehouse.isActive, true))),
   ]);
 
   return { items, warehouses };

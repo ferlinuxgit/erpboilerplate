@@ -90,8 +90,8 @@ export async function POST(request: Request) {
 
   const warehouseIds = [payload.warehouseId, payload.destinationWarehouseId].filter(Boolean) as string[];
   const [ownedItem, ownedWarehouses] = await Promise.all([
-    db.select({ id: item.id }).from(item).where(and(eq(item.id, payload.itemId), eq(item.companyId, ctx.company.id))).limit(1),
-    db.select({ id: warehouse.id }).from(warehouse).where(and(eq(warehouse.companyId, ctx.company.id), inArray(warehouse.id, warehouseIds))),
+    db.select({ id: item.id }).from(item).where(and(eq(item.id, payload.itemId), eq(item.companyId, ctx.company.id), eq(item.isActive, true))).limit(1),
+    db.select({ id: warehouse.id }).from(warehouse).where(and(eq(warehouse.companyId, ctx.company.id), eq(warehouse.isActive, true), inArray(warehouse.id, warehouseIds))),
   ]);
   if (!ownedItem[0] || ownedWarehouses.length !== new Set(warehouseIds).size) return NextResponse.json({ message: "Item o almacén inválido." }, { status: 404 });
 

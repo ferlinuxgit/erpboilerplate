@@ -1,4 +1,4 @@
-import { and, eq, gte, ilike, lte } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 
 import { bankAccount, bankTransaction, invoice, invoicePayment, payment, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { db } from "@/lib/db";
@@ -57,7 +57,7 @@ export async function importBankCsv(input: { companyId: string; tenantId: string
 }
 
 export async function autoReconcileBankTransactions(companyId: string) {
-  const pending = await db
+  const [pending, existingMatches] = await Promise.all([db
     .select({
       id: bankTransaction.id,
       amount: bankTransaction.amount,
@@ -66,42 +66,33 @@ export async function autoReconcileBankTransactions(companyId: string) {
     })
     .from(bankTransaction)
     .innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
-    .where(and(eq(bankAccount.companyId, companyId), eq(bankTransaction.reconciliationStatus, "PENDING")));
+    .where(and(eq(bankAccount.companyId, companyId), eq(bankTransaction.reconciliationStatus, "PENDING"))),
+  db
+    .select({ invoicePaymentId: bankTransaction.matchedInvoicePaymentId, supplierPaymentId: bankTransaction.matchedSupplierPaymentId })
+    .from(bankTransaction)
+    .innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
+    .where(and(eq(bankAccount.companyId, companyId), eq(bankTransaction.reconciliationStatus, "RECONCILED"))),
+  ]);
+
+  const usedInvoicePayments = new Set(existingMatches.map((row) => row.invoicePaymentId).filter((id): id is string => Boolean(id)));
+  const usedSupplierPayments = new Set(existingMatches.map((row) => row.supplierPaymentId).filter((id): id is string => Boolean(id)));
+  const normalizeReference = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
 
   let reconciled = 0;
   for (const tx of pending) {
     const amountAbs = Math.abs(Number(tx.amount));
-    const normalizedDescription = tx.description.trim().toLowerCase();
+    const normalizedDescription = normalizeReference(tx.description);
     const from = new Date(tx.postedAt);
     from.setDate(from.getDate() - 3);
     const to = new Date(tx.postedAt);
     to.setDate(to.getDate() + 3);
 
     if (Number(tx.amount) >= 0) {
-      const byReference = await db
-        .select({ id: invoicePayment.id })
+      const candidates = (await db
+        .select({ id: invoicePayment.id, number: invoice.number, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
         .from(invoicePayment)
         .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
         .innerJoin(invoice, eq(invoice.id, invoicePayment.invoiceId))
-        .where(and(eq(invoicePayment.companyId, companyId), ilike(invoice.number, `%${normalizedDescription}%`)))
-        .limit(1);
-      if (byReference[0]) {
-        await db
-          .update(bankTransaction)
-          .set({
-            reconciliationStatus: "RECONCILED",
-            matchedInvoicePaymentId: byReference[0].id,
-            reconciledAt: new Date(),
-          })
-          .where(eq(bankTransaction.id, tx.id));
-        reconciled += 1;
-        continue;
-      }
-
-      const [match] = await db
-        .select({ id: invoicePayment.id })
-        .from(invoicePayment)
-        .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
         .where(
           and(
             eq(invoicePayment.companyId, companyId),
@@ -110,7 +101,12 @@ export async function autoReconcileBankTransactions(companyId: string) {
             lte(payment.postedAt, to),
           ),
         )
-        .limit(1);
+      ).filter((candidate) => !usedInvoicePayments.has(candidate.id));
+      const referenceMatches = candidates.filter((candidate) => {
+        const reference = normalizeReference(candidate.number);
+        return reference.length >= 4 && normalizedDescription.includes(reference);
+      });
+      const match = referenceMatches.length === 1 ? referenceMatches[0] : referenceMatches.length === 0 && candidates.length === 1 ? candidates[0] : null;
 
       if (match) {
         await db
@@ -122,33 +118,15 @@ export async function autoReconcileBankTransactions(companyId: string) {
           })
           .where(eq(bankTransaction.id, tx.id));
         reconciled += 1;
+        usedInvoicePayments.add(match.id);
         continue;
       }
     } else {
-      const byReference = await db
-        .select({ id: supplierInvoicePayment.id })
+      const candidates = (await db
+        .select({ id: supplierInvoicePayment.id, number: supplierInvoice.number, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
         .from(supplierInvoicePayment)
         .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
         .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoicePayment.supplierInvoiceId))
-        .where(and(eq(supplierInvoicePayment.companyId, companyId), ilike(supplierInvoice.number, `%${normalizedDescription}%`)))
-        .limit(1);
-      if (byReference[0]) {
-        await db
-          .update(bankTransaction)
-          .set({
-            reconciliationStatus: "RECONCILED",
-            matchedSupplierPaymentId: byReference[0].id,
-            reconciledAt: new Date(),
-          })
-          .where(eq(bankTransaction.id, tx.id));
-        reconciled += 1;
-        continue;
-      }
-
-      const [match] = await db
-        .select({ id: supplierInvoicePayment.id })
-        .from(supplierInvoicePayment)
-        .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
         .where(
           and(
             eq(supplierInvoicePayment.companyId, companyId),
@@ -157,7 +135,12 @@ export async function autoReconcileBankTransactions(companyId: string) {
             lte(supplierPayment.postedAt, to),
           ),
         )
-        .limit(1);
+      ).filter((candidate) => !usedSupplierPayments.has(candidate.id));
+      const referenceMatches = candidates.filter((candidate) => {
+        const reference = normalizeReference(candidate.number);
+        return reference.length >= 4 && normalizedDescription.includes(reference);
+      });
+      const match = referenceMatches.length === 1 ? referenceMatches[0] : referenceMatches.length === 0 && candidates.length === 1 ? candidates[0] : null;
 
       if (match) {
         await db
@@ -169,6 +152,7 @@ export async function autoReconcileBankTransactions(companyId: string) {
           })
           .where(eq(bankTransaction.id, tx.id));
         reconciled += 1;
+        usedSupplierPayments.add(match.id);
         continue;
       }
     }

@@ -3,9 +3,17 @@ import { createElement } from "react";
 
 import { FiscalReportPdfTemplate } from "@/server/pdf/templates/fiscal-report-template";
 import { InvoicePdfTemplate } from "@/server/pdf/templates/invoice-template";
+import { PurchaseOrderPdfTemplate } from "@/server/pdf/templates/purchase-order-template";
 import type { SpanishFiscalSummary } from "@/server/fiscal/spain";
 
 export type InvoicePdfInput = {
+  documentTitle?: string;
+  documentEyebrow?: string;
+  issueDateLabel?: string;
+  dueDateLabel?: string;
+  summaryLabel?: string;
+  summaryValue?: string;
+  showFinancials?: boolean;
   number: string;
   issueDate: string;
   dueDate: string | null;
@@ -52,12 +60,53 @@ export type InvoicePdfInput = {
   };
 };
 
+export type PurchaseOrderPdfInput = {
+  number: string;
+  createdAt: string;
+  status: string;
+  total: string;
+  company: {
+    name: string;
+    legalName: string | null;
+    vatNumber: string | null;
+    address: string | null;
+    postalCode: string | null;
+    city: string | null;
+    province: string | null;
+    countryCode: string | null;
+  };
+  supplier: {
+    name: string;
+    taxId: string | null;
+    address: string | null;
+    postalCode: string | null;
+    city: string | null;
+    province: string | null;
+    countryCode: string | null;
+    email: string | null;
+  };
+  lines: Array<{
+    id: string;
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    lineTotal: string;
+  }>;
+};
+
 export async function renderInvoicePdf(input: InvoicePdfInput) {
+  return renderToBuffer(createElement(InvoicePdfTemplate, input) as never);
+}
+
+export async function renderPurchaseOrderPdf(input: PurchaseOrderPdfInput) {
   return renderToBuffer(
-    createElement(InvoicePdfTemplate, input) as never,
+    createElement(PurchaseOrderPdfTemplate, input) as never,
   );
 }
 
-export async function renderFiscalReportPdf(input: { companyName: string; summary: SpanishFiscalSummary }) {
+export async function renderFiscalReportPdf(input: {
+  companyName: string;
+  summary: SpanishFiscalSummary;
+}) {
   return renderToBuffer(createElement(FiscalReportPdfTemplate, input) as never);
 }

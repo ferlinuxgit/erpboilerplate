@@ -43,12 +43,10 @@ export default async function InvoicesPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Operación"
+        eyebrow="Facturas"
         title="Facturas"
         description={`Emisión y seguimiento de facturas de ${tenantContext.company.name}.`}
         meta={<StatusBadge tone="neutral">Rol: {tenantContext.membership.role}</StatusBadge>}
-        backHref="/dashboard"
-        backLabel="Volver al panel"
         actions={
           canCreateInvoice ? (
             <Link className={buttonVariants()} href="/invoices/new">

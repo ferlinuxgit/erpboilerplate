@@ -29,7 +29,9 @@ for (const viewport of viewports) {
         if (viewport.name === "desktop") {
           await expect(page.getByTestId("desktop-sidebar")).toBeVisible();
           await expect(page.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("Operación", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Comercial", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Aprovisionamiento", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Finanzas y operaciones", { exact: true })).toBeVisible();
           await expect(page.getByTestId("desktop-sidebar").getByText("Administración", { exact: true })).toBeVisible();
           await expect(page.getByTestId("context-switcher-desktop")).toBeVisible();
           await expect(activeLink).toBeVisible();

@@ -96,6 +96,13 @@ function findSourceOrderLine(
   availableOrderLines: Array<Record<string, unknown> & { __matched?: boolean }>,
 ) {
   const unmatchedLines = availableOrderLines.filter((line) => !line.__matched);
+  const salesOrderLineId = deliveryLine.salesOrderLineId;
+  if (salesOrderLineId) {
+    const direct = unmatchedLines.find((line) => line.id === salesOrderLineId);
+    if (!direct) return null;
+    direct.__matched = true;
+    return direct;
+  }
   const itemId = deliveryLine.itemId;
   const matches = itemId ? unmatchedLines.filter((line) => line.itemId === itemId) : unmatchedLines;
   const deliveryDescription = String(deliveryLine.description ?? "").trim();
@@ -176,6 +183,7 @@ export async function convertOrderToDelivery(input: {
   fiscalYearId: string;
   salesOrderId: string;
   warehouseId?: string | null;
+  lines?: Array<{ salesOrderLineId: string; quantity: number }>;
 }) {
   return db.transaction(async (tx) => {
     const [order] = await tx
@@ -198,30 +206,57 @@ export async function convertOrderToDelivery(input: {
 
     const issuedAt = new Date();
     const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "DELIVERY_NOTE", issuedAt);
+    const orderLines = await tx.select().from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, order.id));
+    if (orderLines.length === 0) throw new Error("No se puede crear el albarán sin líneas del pedido de origen.");
+
+    const previousDeliveryLines = await tx
+      .select({ salesOrderLineId: deliveryNoteLine.salesOrderLineId, quantity: deliveryNoteLine.quantity })
+      .from(deliveryNoteLine)
+      .innerJoin(deliveryNote, eq(deliveryNote.id, deliveryNoteLine.deliveryNoteId))
+      .where(eq(deliveryNote.salesOrderId, order.id));
+    const deliveredByLine = new Map<string, number>();
+    for (const line of previousDeliveryLines) if (line.salesOrderLineId) deliveredByLine.set(line.salesOrderLineId, (deliveredByLine.get(line.salesOrderLineId) ?? 0) + Number(line.quantity));
+    const orderLineById = new Map(orderLines.map((line) => [line.id, line]));
+    const requested = input.lines?.length ? input.lines : orderLines.flatMap((line) => {
+      const remaining = Number(line.quantity) - (deliveredByLine.get(line.id) ?? 0);
+      return remaining > 0.0005 ? [{ salesOrderLineId: line.id, quantity: remaining }] : [];
+    });
+    if (requested.length === 0) throw new Error("El pedido ya está entregado por completo.");
+    const quantitiesByLine = new Map<string, number>();
+    for (const requestLine of requested) {
+      const source = orderLineById.get(requestLine.salesOrderLineId);
+      if (!source || !Number.isFinite(requestLine.quantity) || requestLine.quantity <= 0) throw new Error("Las líneas del albarán no pertenecen al pedido o tienen una cantidad inválida.");
+      const accumulated = (quantitiesByLine.get(source.id) ?? 0) + requestLine.quantity;
+      const remaining = Number(source.quantity) - (deliveredByLine.get(source.id) ?? 0);
+      if (accumulated > remaining + 0.0005) throw new Error(`La cantidad de ${source.description} supera la pendiente de entrega.`);
+      quantitiesByLine.set(source.id, accumulated);
+    }
+
     const [created] = await tx
       .insert(deliveryNote)
       .values({
         companyId: input.companyId,
         customerId: order.customerId,
         salesOrderId: order.id,
+        warehouseId: ownedWarehouse.id,
         number,
         issuedAt,
         status: "DELIVERED",
       })
       .returning();
 
-    const orderLines = await tx.select().from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, order.id));
-    if (orderLines.length === 0) throw new Error("No se puede crear el albarán sin líneas del pedido de origen.");
-
     const insertedLines = await tx
       .insert(deliveryNoteLine)
       .values(
-        orderLines.map((line) => ({
+        [...quantitiesByLine.entries()].map(([salesOrderLineId, quantity]) => {
+          const line = orderLineById.get(salesOrderLineId)!;
+          return {
           deliveryNoteId: created.id,
+          salesOrderLineId,
           itemId: line.itemId,
           description: line.description,
-          quantity: line.quantity,
-        })),
+          quantity: quantity.toFixed(3),
+        }}),
       )
       .returning();
 
@@ -249,9 +284,10 @@ export async function convertOrderToDelivery(input: {
       await refreshStockLocation({ companyId: input.companyId, itemId: line.itemId, warehouseId: ownedWarehouse.id }, tx);
     }
 
+    const fullyDelivered = orderLines.every((line) => (deliveredByLine.get(line.id) ?? 0) + (quantitiesByLine.get(line.id) ?? 0) >= Number(line.quantity) - 0.0005);
     await tx
       .update(salesOrder)
-      .set({ status: "DELIVERED", updatedAt: new Date() })
+      .set({ status: fullyDelivered ? "DELIVERED" : "CONFIRMED", updatedAt: new Date() })
       .where(eq(salesOrder.id, order.id));
 
     if (input.tenantId && input.actorUserId) {
@@ -410,12 +446,12 @@ export async function convertDeliveryToInvoice(input: {
       .set({ status: "INVOICED", updatedAt: new Date() })
       .where(eq(deliveryNote.id, note.id));
 
-    if (order) {
-      await tx
-        .update(salesOrder)
-        .set({ status: "INVOICED", updatedAt: new Date() })
-        .where(eq(salesOrder.id, order.id));
-    }
+    const siblingDeliveries = await tx.select({ id: deliveryNote.id, status: deliveryNote.status }).from(deliveryNote).where(eq(deliveryNote.salesOrderId, order.id));
+    const allDeliveriesInvoiced = siblingDeliveries.every((delivery) => delivery.id === note.id || delivery.status === "INVOICED" || delivery.status === "PAID");
+    await tx
+      .update(salesOrder)
+      .set({ status: allDeliveriesInvoiced ? "INVOICED" : "DELIVERED", updatedAt: new Date() })
+      .where(eq(salesOrder.id, order.id));
 
     await recordAudit(
       {

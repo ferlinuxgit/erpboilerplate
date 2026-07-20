@@ -1,7 +1,10 @@
 "use client";
 
 import { SupplierRowActions } from "@/components/suppliers/supplier-row-actions";
-import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
+import {
+  ResourceList,
+  type ResourceListColumn,
+} from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 
 type SupplierRow = {
@@ -41,7 +44,8 @@ const columns: ResourceListColumn<SupplierRow>[] = [
   },
   {
     header: "Tipo",
-    cell: (supplier) => supplier.type === "BOTH" ? "Cliente y proveedor" : "Proveedor",
+    cell: (supplier) =>
+      supplier.type === "BOTH" ? "Cliente y proveedor" : "Proveedor",
     exportValue: (supplier) => supplier.type,
     sortValue: (supplier) => supplier.type,
   },
@@ -53,9 +57,28 @@ const columns: ResourceListColumn<SupplierRow>[] = [
   },
   {
     header: "Domicilio",
-    cell: (supplier) => [supplier.postalCode, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(", ") || "Sin domicilio",
-    exportValue: (supplier) => [supplier.postalCode, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(", "),
-    sortValue: (supplier) => [supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(" "),
+    cell: (supplier) =>
+      [
+        supplier.postalCode,
+        supplier.city,
+        supplier.province,
+        supplier.countryCode,
+      ]
+        .filter(Boolean)
+        .join(", ") || "Sin domicilio",
+    exportValue: (supplier) =>
+      [
+        supplier.postalCode,
+        supplier.city,
+        supplier.province,
+        supplier.countryCode,
+      ]
+        .filter(Boolean)
+        .join(", "),
+    sortValue: (supplier) =>
+      [supplier.city, supplier.province, supplier.countryCode]
+        .filter(Boolean)
+        .join(" "),
   },
   {
     header: "Email",
@@ -71,7 +94,9 @@ const columns: ResourceListColumn<SupplierRow>[] = [
   },
   {
     header: "Acciones",
-    cell: (supplier) => <SupplierRowActions id={supplier.id} name={supplier.name} />,
+    cell: (supplier) => (
+      <SupplierRowActions id={supplier.id} name={supplier.name} />
+    ),
     className: "text-right",
   },
 ];
@@ -84,23 +109,72 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
       columns={columns}
       getRowId={(supplier) => supplier.id}
       getRowTestId={(supplier) => `supplier-row-${supplier.id}`}
-      getSearchText={(supplier) => [supplier.name, supplier.isActive ? "Activo" : "Inactivo", supplier.taxId, supplier.city, supplier.province, supplier.email, supplier.phone].filter(Boolean).join(" ")}
+      getSearchText={(supplier) =>
+        [
+          supplier.name,
+          supplier.isActive ? "Activo" : "Inactivo",
+          supplier.taxId,
+          supplier.city,
+          supplier.province,
+          supplier.email,
+          supplier.phone,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      }
       emptyTitle="Todavía no hay proveedores registrados."
       emptyDescription="Crea el primer proveedor para registrar gastos, compras y facturas recibidas."
       exportFileName="proveedores.csv"
       searchPlaceholder="Buscar proveedor por nombre, CIF/NIF, email o teléfono"
       testId="suppliers-table"
+      filters={[
+        {
+          key: "status",
+          label: "Estado",
+          allLabel: "Todos los estados",
+          options: [
+            { value: "ACTIVE", label: "Activos" },
+            { value: "INACTIVE", label: "Inactivos" },
+          ],
+          getValue: (supplier) => (supplier.isActive ? "ACTIVE" : "INACTIVE"),
+        },
+        {
+          key: "type",
+          label: "Tipo",
+          allLabel: "Todos los tipos",
+          options: [
+            { value: "SUPPLIER", label: "Proveedor" },
+            { value: "BOTH", label: "Cliente y proveedor" },
+          ],
+          getValue: (supplier) => supplier.type,
+        },
+      ]}
       renderMobileCard={(supplier) => (
         <div className="space-y-3">
           <div>
             <p className="font-medium">{supplier.name}</p>
-            <p className="text-sm text-muted-foreground">{supplier.isActive ? "Activo" : "Inactivo"}</p>
-            <p className="text-sm text-muted-foreground">{supplier.taxId ?? "Sin CIF/NIF"}</p>
             <p className="text-sm text-muted-foreground">
-              {[supplier.postalCode, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(", ") || "Sin domicilio"}
+              {supplier.isActive ? "Activo" : "Inactivo"}
             </p>
-            <p className="text-sm text-muted-foreground">{supplier.email ?? "Sin email"}</p>
-            <p className="text-sm text-muted-foreground">{supplier.phone ?? "Sin teléfono"}</p>
+            <p className="text-sm text-muted-foreground">
+              {supplier.taxId ?? "Sin CIF/NIF"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {[
+                supplier.postalCode,
+                supplier.city,
+                supplier.province,
+                supplier.countryCode,
+              ]
+                .filter(Boolean)
+                .join(", ") || "Sin domicilio"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {supplier.email ?? "Sin email"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {supplier.phone ?? "Sin teléfono"}
+            </p>
           </div>
           <SupplierRowActions id={supplier.id} name={supplier.name} />
         </div>

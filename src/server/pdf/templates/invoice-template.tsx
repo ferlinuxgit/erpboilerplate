@@ -52,7 +52,7 @@ function formatAddress(party: InvoicePdfInput["customer"] | InvoicePdfInput["com
     .join(", ");
 }
 
-export function InvoicePdfTemplate({ company, customer, dueDate, issueDate, lines, number, totals }: InvoicePdfInput) {
+export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
   const companyName = company.legalName?.trim() || company.name;
   const companyAddress = formatAddress(company);
   const companyContact = [company.email, company.phone, company.website].filter(Boolean).join(" | ");
@@ -75,24 +75,24 @@ export function InvoicePdfTemplate({ company, customer, dueDate, issueDate, line
             )}
           </View>
           <View style={styles.invoiceBlock}>
-            <Text style={styles.eyebrow}>Documento comercial</Text>
-            <Text style={styles.title}>Factura</Text>
+            <Text style={styles.eyebrow}>{documentEyebrow}</Text>
+            <Text style={styles.title}>{documentTitle}</Text>
             <Text style={styles.number}>{number}</Text>
           </View>
         </View>
 
         <View style={styles.summary}>
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Emision</Text>
+            <Text style={styles.summaryLabel}>{issueDateLabel}</Text>
             <Text style={styles.summaryValue}>{issueDate}</Text>
           </View>
           <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Vencimiento</Text>
+            <Text style={styles.summaryLabel}>{dueDateLabel}</Text>
             <Text style={styles.summaryValue}>{dueDate ?? "-"}</Text>
           </View>
           <View style={styles.summaryItemLast}>
-            <Text style={styles.summaryLabel}>Total</Text>
-            <Text style={styles.summaryValue}>{totals.totalAmount}</Text>
+            <Text style={styles.summaryLabel}>{summaryLabel}</Text>
+            <Text style={styles.summaryValue}>{summaryValue ?? totals.totalAmount}</Text>
           </View>
         </View>
 
@@ -116,21 +116,21 @@ export function InvoicePdfTemplate({ company, customer, dueDate, issueDate, line
           <View style={[styles.tableRow, styles.tableHeader]}>
             <Text style={styles.descriptionCell}>Concepto</Text>
             <Text style={styles.cell}>Cantidad</Text>
-            <Text style={styles.cell}>Precio</Text>
-            <Text style={styles.cell}>IVA</Text>
-            <Text style={styles.cell}>Importe</Text>
+            {showFinancials ? <Text style={styles.cell}>Precio</Text> : null}
+            {showFinancials ? <Text style={styles.cell}>IVA</Text> : null}
+            {showFinancials ? <Text style={styles.cell}>Importe</Text> : null}
           </View>
           {lines.map((line, index) => (
             <View key={`${line.description}-${index}`} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]}>
               <Text style={styles.descriptionCell}>{line.description}</Text>
               <Text style={styles.cell}>{line.quantity}</Text>
-              <Text style={styles.cell}>{line.unitPrice}</Text>
-              <Text style={styles.cell}>{line.taxRate}</Text>
-              <Text style={styles.cell}>{line.lineTotal}</Text>
+              {showFinancials ? <Text style={styles.cell}>{line.unitPrice}</Text> : null}
+              {showFinancials ? <Text style={styles.cell}>{line.taxRate}</Text> : null}
+              {showFinancials ? <Text style={styles.cell}>{line.lineTotal}</Text> : null}
             </View>
           ))}
         </View>
-        <View style={styles.totalsWrap}>
+        {showFinancials ? <View style={styles.totalsWrap}>
           <View style={styles.totals}>
             <View style={styles.totalRow}>
               <Text>Base imponible</Text>
@@ -151,7 +151,7 @@ export function InvoicePdfTemplate({ company, customer, dueDate, issueDate, line
               <Text style={styles.total}>{totals.totalAmount}</Text>
             </View>
           </View>
-        </View>
+        </View> : null}
         {company.invoiceFooter ? <Text style={styles.footer}>{company.invoiceFooter}</Text> : null}
       </Page>
     </Document>

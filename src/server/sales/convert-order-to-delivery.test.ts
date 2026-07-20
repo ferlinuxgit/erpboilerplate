@@ -80,9 +80,10 @@ describe("convertOrderToDelivery", () => {
       [{ id: "order-1", companyId: "company-1", customerId: "customer-1", status: "CONFIRMED" }],
       [{ id: "warehouse-1" }],
       [
-        { itemId: "item-1", description: "Widget", quantity: "2.000" },
-        { itemId: null, description: "Service", quantity: "1.000" },
+        { id: "line-1", itemId: "item-1", description: "Widget", quantity: "2.000" },
+        { id: "line-2", itemId: null, description: "Service", quantity: "1.000" },
       ],
+      [],
       [{ currentQuantity: "10.000" }],
     );
     mocks.insertResults.splice(0, mocks.insertResults.length,

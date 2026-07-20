@@ -4,7 +4,10 @@ import Link from "next/link";
 
 import { FiscalReportRowActions } from "@/components/fiscal/fiscal-report-row-actions";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
+import {
+  ResourceList,
+  type ResourceListColumn,
+} from "@/components/ui/resource-list";
 import { fiscalStatusLabels } from "@/lib/fiscal-spain";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import type { FiscalReportWithSummary } from "@/server/fiscal/service";
@@ -26,20 +29,28 @@ const dueTone = {
   overdue: "danger",
 } as const;
 
-export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps) {
+export function FiscalReportsList({
+  canWrite,
+  reports,
+}: FiscalReportsListProps) {
   function dueLabel(daysUntilDue: number | null) {
     if (daysUntilDue === null) return "";
-    return daysUntilDue < 0 ? `${Math.abs(daysUntilDue)} días vencido` : `${daysUntilDue} días`;
+    return daysUntilDue < 0
+      ? `${Math.abs(daysUntilDue)} días vencido`
+      : `${daysUntilDue} días`;
   }
 
   function renderModelName(report: FiscalReportWithSummary) {
-    const content = (
-      <>
-        {report.summary?.modelName ?? report.code}
-      </>
-    );
+    const content = <>{report.summary?.modelName ?? report.code}</>;
 
-    return <Link className="font-medium text-primary hover:underline" href={`/fiscal/${report.id}`}>{content}</Link>;
+    return (
+      <Link
+        className="font-medium text-primary hover:underline"
+        href={`/fiscal/${report.id}`}
+      >
+        {content}
+      </Link>
+    );
   }
 
   const columns: ResourceListColumn<FiscalReportWithSummary>[] = [
@@ -48,7 +59,9 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
       cell: (report) => (
         <div>
           {renderModelName(report)}
-          <p className="text-xs text-muted-foreground">{report.summary?.periodLabel ?? report.period}</p>
+          <p className="text-xs text-muted-foreground">
+            {report.summary?.periodLabel ?? report.period}
+          </p>
         </div>
       ),
       exportValue: (report) => report.code,
@@ -56,15 +69,23 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
     },
     {
       header: "Estado",
-      cell: (report) => <StatusBadge tone={statusTone[report.status]}>{fiscalStatusLabels[report.status]}</StatusBadge>,
+      cell: (report) => (
+        <StatusBadge tone={statusTone[report.status]}>
+          {fiscalStatusLabels[report.status]}
+        </StatusBadge>
+      ),
       exportValue: (report) => fiscalStatusLabels[report.status],
       sortValue: (report) => report.status,
     },
     {
       header: "Facturas",
-      cell: (report) => `${report.summary?.salesInvoiceCount ?? 0} / ${report.summary?.supplierInvoiceCount ?? 0}`,
-      exportValue: (report) => `${report.summary?.salesInvoiceCount ?? 0}/${report.summary?.supplierInvoiceCount ?? 0}`,
-      sortValue: (report) => (report.summary?.salesInvoiceCount ?? 0) + (report.summary?.supplierInvoiceCount ?? 0),
+      cell: (report) =>
+        `${report.summary?.salesInvoiceCount ?? 0} / ${report.summary?.supplierInvoiceCount ?? 0}`,
+      exportValue: (report) =>
+        `${report.summary?.salesInvoiceCount ?? 0}/${report.summary?.supplierInvoiceCount ?? 0}`,
+      sortValue: (report) =>
+        (report.summary?.salesInvoiceCount ?? 0) +
+        (report.summary?.supplierInvoiceCount ?? 0),
     },
     {
       header: "IVA repercutido",
@@ -74,7 +95,11 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
     },
     {
       header: "A ingresar",
-      cell: (report) => <span className="font-medium">{formatMoney(report.summary?.settlementAmount ?? 0)}</span>,
+      cell: (report) => (
+        <span className="font-medium">
+          {formatMoney(report.summary?.settlementAmount ?? 0)}
+        </span>
+      ),
       exportValue: (report) => report.summary?.settlementAmount ?? 0,
       sortValue: (report) => report.summary?.settlementAmount ?? 0,
     },
@@ -86,14 +111,23 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
     },
     {
       header: "Vencimiento",
-      cell: (report) => report.summary?.dueDate ? (
-        <div className="space-y-1">
-          <span>{formatDate(report.summary.dueDate)}</span>
-          {report.summary.dueStatus ? <StatusBadge tone={dueTone[report.summary.dueStatus]}>{dueLabel(report.summary.daysUntilDue)}</StatusBadge> : null}
-        </div>
-      ) : "Sin fecha",
-      exportValue: (report) => report.summary?.dueDate ? formatDate(report.summary.dueDate) : "",
-      sortValue: (report) => report.summary?.dueDate ? new Date(report.summary.dueDate) : null,
+      cell: (report) =>
+        report.summary?.dueDate ? (
+          <div className="space-y-1">
+            <span>{formatDate(report.summary.dueDate)}</span>
+            {report.summary.dueStatus ? (
+              <StatusBadge tone={dueTone[report.summary.dueStatus]}>
+                {dueLabel(report.summary.daysUntilDue)}
+              </StatusBadge>
+            ) : null}
+          </div>
+        ) : (
+          "Sin fecha"
+        ),
+      exportValue: (report) =>
+        report.summary?.dueDate ? formatDate(report.summary.dueDate) : "",
+      sortValue: (report) =>
+        report.summary?.dueDate ? new Date(report.summary.dueDate) : null,
     },
     {
       header: "Actualizado",
@@ -103,7 +137,9 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
     },
     {
       header: "Acciones",
-      cell: (report) => <FiscalReportRowActions canWrite={canWrite} report={report} />,
+      cell: (report) => (
+        <FiscalReportRowActions canWrite={canWrite} report={report} />
+      ),
       className: "text-right",
     },
   ];
@@ -115,25 +151,35 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
       emptyTitle="Sin modelos fiscales"
       exportFileName="fiscalidad-espana.csv"
       getRowId={(report) => report.id}
-      getSearchText={(report) => `${report.code} ${report.period} ${report.status} ${fiscalStatusLabels[report.status]} ${report.summary?.modelName ?? ""}`}
+      getSearchText={(report) =>
+        `${report.code} ${report.period} ${report.status} ${fiscalStatusLabels[report.status]} ${report.summary?.modelName ?? ""}`
+      }
       items={reports}
       renderMobileCard={(report) => (
         <div className="space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div>
               {renderModelName(report)}
-              <p className="text-sm text-muted-foreground">{report.summary?.periodLabel ?? report.period}</p>
+              <p className="text-sm text-muted-foreground">
+                {report.summary?.periodLabel ?? report.period}
+              </p>
             </div>
-            <StatusBadge tone={statusTone[report.status]}>{fiscalStatusLabels[report.status]}</StatusBadge>
+            <StatusBadge tone={statusTone[report.status]}>
+              {fiscalStatusLabels[report.status]}
+            </StatusBadge>
           </div>
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <div>
               <dt className="text-muted-foreground">IVA repercutido</dt>
-              <dd className="font-medium">{formatMoney(report.summary?.outputTaxAmount ?? 0)}</dd>
+              <dd className="font-medium">
+                {formatMoney(report.summary?.outputTaxAmount ?? 0)}
+              </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">A ingresar</dt>
-              <dd className="font-medium">{formatMoney(report.summary?.settlementAmount ?? 0)}</dd>
+              <dd className="font-medium">
+                {formatMoney(report.summary?.settlementAmount ?? 0)}
+              </dd>
             </div>
           </dl>
           <FiscalReportRowActions canWrite={canWrite} report={report} />
@@ -142,6 +188,27 @@ export function FiscalReportsList({ canWrite, reports }: FiscalReportsListProps)
       searchPlaceholder="Buscar modelo, periodo o estado"
       testId="fiscal-reports-list"
       title="Modelos fiscales"
+      filters={[
+        {
+          key: "status",
+          label: "Estado",
+          allLabel: "Todos los estados",
+          options: Object.entries(fiscalStatusLabels).map(([value, label]) => ({
+            value,
+            label,
+          })),
+          getValue: (report) => report.status,
+        },
+        {
+          key: "model",
+          label: "Modelo",
+          allLabel: "Todos los modelos",
+          options: [...new Set(reports.map((report) => report.code))]
+            .sort()
+            .map((value) => ({ value, label: `Modelo ${value}` })),
+          getValue: (report) => report.code,
+        },
+      ]}
     />
   );
 }

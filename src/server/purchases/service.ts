@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import {
   goodsReceipt,
@@ -14,6 +14,7 @@ import {
   getGoodsReceiptInvoiceTransition,
   getPurchaseOrderReceiptTransition,
   getSupplierInvoicePaymentTransition,
+  assertManualPurchaseOrderTransition,
 } from "@/lib/document-pipelines";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
@@ -62,7 +63,7 @@ export async function listPurchasePipeline(companyId: string) {
       .innerJoin(purchaseOrder, eq(purchaseOrderLine.purchaseOrderId, purchaseOrder.id))
       .where(eq(purchaseOrder.companyId, companyId)),
     db
-      .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId, receivedAt: goodsReceipt.receivedAt })
+      .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId, warehouseId: goodsReceipt.warehouseId, supplierDocumentNumber: goodsReceipt.supplierDocumentNumber, notes: goodsReceipt.notes, receivedAt: goodsReceipt.receivedAt })
       .from(goodsReceipt)
       .innerJoin(purchaseOrder, eq(goodsReceipt.purchaseOrderId, purchaseOrder.id))
       .where(eq(purchaseOrder.companyId, companyId))
@@ -187,16 +188,60 @@ export async function updatePurchaseOrder(
   tenantId: string,
   actorUserId: string,
   id: string,
-  payload: { number: string; status: string },
+  payload: { number: string; status: string; supplierName: string; lines: Array<{ description: string; itemId?: string; quantity: number; unitPrice: number }> },
 ) {
   return db.transaction(async (tx) => {
+    const [dependentReceipt, dependentInvoice] = await Promise.all([
+      tx
+        .select({ id: goodsReceipt.id })
+        .from(goodsReceipt)
+        .where(eq(goodsReceipt.purchaseOrderId, id))
+        .limit(1),
+      tx
+        .select({ id: supplierInvoice.id })
+        .from(supplierInvoice)
+        .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.purchaseOrderId, id)))
+        .limit(1),
+    ]);
+    if (dependentReceipt[0] || dependentInvoice[0]) {
+      throw new Error("PURCHASE_ORDER_LOCKED");
+    }
+
+    const [current] = await tx
+      .select({ status: purchaseOrder.status })
+      .from(purchaseOrder)
+      .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    assertManualPurchaseOrderTransition(current.status, payload.status);
+
+    const [existingSupplier] = await tx
+      .select({ id: partner.id })
+      .from(partner)
+      .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"]), eq(partner.name, payload.supplierName)))
+      .limit(1);
+    const supplierId = existingSupplier?.id ?? (
+      await tx.insert(partner).values({ companyId, type: "SUPPLIER", name: payload.supplierName }).returning({ id: partner.id })
+    )[0].id;
+
     const [updated] = await tx
       .update(purchaseOrder)
-      .set({ number: payload.number, status: payload.status })
+      .set({ number: payload.number, status: payload.status, supplierPartnerId: supplierId })
       .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))
       .returning({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status });
 
     if (!updated) return null;
+
+    await tx.delete(purchaseOrderLine).where(eq(purchaseOrderLine.purchaseOrderId, id));
+    await tx.insert(purchaseOrderLine).values(payload.lines.map((line) => ({
+      purchaseOrderId: id,
+      itemId: line.itemId || null,
+      description: line.description,
+      quantity: line.quantity.toFixed(3),
+      unitPrice: line.unitPrice.toFixed(2),
+      lineTotal: (line.quantity * line.unitPrice).toFixed(2),
+    })));
 
     await recordAudit(
       {
@@ -217,6 +262,22 @@ export async function updatePurchaseOrder(
 
 export async function deletePurchaseOrder(companyId: string, tenantId: string, actorUserId: string, id: string) {
   return db.transaction(async (tx) => {
+    const [dependentReceipt, dependentInvoice] = await Promise.all([
+      tx
+        .select({ id: goodsReceipt.id })
+        .from(goodsReceipt)
+        .where(eq(goodsReceipt.purchaseOrderId, id))
+        .limit(1),
+      tx
+        .select({ id: supplierInvoice.id })
+        .from(supplierInvoice)
+        .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.purchaseOrderId, id)))
+        .limit(1),
+    ]);
+    if (dependentReceipt[0] || dependentInvoice[0]) {
+      throw new Error("PURCHASE_ORDER_HAS_DEPENDENCIES");
+    }
+
     const [deleted] = await tx
       .delete(purchaseOrder)
       .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, id)))

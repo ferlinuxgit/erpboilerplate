@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
-import { can } from "@/lib/rbac";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
 import { renderInvoicePdf } from "@/server/pdf/render";
 
@@ -9,7 +8,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "invoice.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "invoice.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const { id } = await params;
   const data = await getInvoicePdfData(ctx.company.id, id);

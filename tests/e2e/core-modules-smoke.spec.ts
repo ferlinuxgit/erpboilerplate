@@ -29,9 +29,9 @@ const coreModules: ModuleSmokeCase[] = [
     evidence: "Facturas emitidas",
   },
   {
-    path: "/purchases",
-    navLabel: "Compras",
-    heading: "Compras",
+    path: "/purchases/orders",
+    navLabel: "Pedidos de compra",
+    heading: "Pedidos de compra",
     evidence: /pedido de compra/i,
   },
   {

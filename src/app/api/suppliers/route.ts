@@ -2,16 +2,15 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { logger } from "@/lib/logger";
-import { can, canManageSuppliers } from "@/lib/rbac";
 import { createSupplierWithPartner, listSuppliers } from "@/server/suppliers/service";
 import { createSupplierSchema } from "@/server/schemas/forms";
 
 export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
-  if (!can(actor.context.membership.role, "supplier.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "supplier.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const rows = await listSuppliers(db, actor.context.company.id);
   return NextResponse.json({ data: rows });
@@ -20,7 +19,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
-  if (!canManageSuppliers(actor.context.membership.role)) {
+  if (!hasApiActorPermission(actor, "supplier.create")) {
     return NextResponse.json({ message: "No tienes permisos para crear proveedores en esta empresa." }, { status: 403 });
   }
 

@@ -38,7 +38,7 @@ const countries = [
   { code: "FR", label: "Francia" },
 ];
 
-const currencies = ["EUR", "USD", "GBP"] as const;
+const currencies = ["EUR", "USD", "GBP", "CHF", "CAD", "AUD", "JPY", "CNY", "SEK", "NOK", "DKK", "PLN", "CZK", "MXN"] as const;
 
 const timezones = [
   "Europe/Madrid",

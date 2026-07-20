@@ -12,6 +12,7 @@ import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { getSalesQuoteTransition } from "@/lib/document-pipelines";
 import { formatDate, formatMoney } from "@/lib/format";
+import { can } from "@/lib/rbac";
 import { salesDocumentStatusLabels, salesDocumentStatusTone, statusLabel } from "@/lib/status-labels";
 
 export default async function SalesQuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -46,11 +47,12 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
   ]);
   const transition = getSalesQuoteTransition(record.status);
   const currency = ctx.company.baseCurrencyCode;
+  const canEdit = can(ctx.membership.role, "invoice.create") && record.status === "DRAFT";
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Ventas · Presupuesto"
+        eyebrow="Presupuesto"
         title={record.number}
         description={`${record.customerName} · Emitido el ${formatDate(record.issueDate)}`}
         backHref="/sales/quotes"
@@ -58,7 +60,9 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
         meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
         actions={
           <>
+            <a className={buttonVariants({ variant: "outline" })} href={`/api/sales-quotes/${record.id}/pdf`} rel="noreferrer" target="_blank">PDF</a>
             <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.customerId}`}>Ver cliente</Link>
+            {canEdit ? <Link className={buttonVariants({ variant: "outline" })} href={`/sales/quotes/${record.id}/edit`}>Editar</Link> : null}
             {transition.allowed ? <SalesTransitionButton label={transition.actionLabel ?? "Convertir a pedido"} targetBasePath="/sales/orders" url={`/api/sales-quotes/${record.id}/to-order`} /> : null}
           </>
         }

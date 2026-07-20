@@ -3,7 +3,13 @@ import Link from "next/link";
 import type { HTMLAttributes, ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 type PageShellProps = {
@@ -30,6 +36,7 @@ type PageSectionProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
   className?: string;
   contentClassName?: string;
   size?: "default" | "sm";
+  variant?: "plain" | "surface";
 };
 
 type EmptyStateProps = {
@@ -71,7 +78,16 @@ const metricToneClasses = {
 };
 
 export function PageShell({ children, className }: PageShellProps) {
-  return <main className={cn("mx-auto w-full max-w-[1480px] space-y-7 px-4 py-6 sm:px-6 lg:px-8 lg:py-9", className)}>{children}</main>;
+  return (
+    <main
+      className={cn(
+        "mx-auto w-full max-w-[1480px] space-y-7 px-4 py-6 sm:px-6 lg:px-8 lg:py-9",
+        className,
+      )}
+    >
+      {children}
+    </main>
+  );
 }
 
 export function PageHeader({
@@ -85,23 +101,48 @@ export function PageHeader({
   title,
 }: PageHeaderProps) {
   return (
-    <section className={cn("flex flex-col gap-5 border-b border-border/80 pb-6 md:flex-row md:items-end md:justify-between", className)}>
+    <section
+      className={cn(
+        "flex flex-col gap-5 border-b border-border/80 pb-6 md:flex-row md:items-end md:justify-between",
+        className,
+      )}
+    >
       <div className="min-w-0 space-y-2.5">
-        {eyebrow ? <p className="text-[0.7rem] font-semibold uppercase tracking-[0.11em] text-primary/75">{eyebrow}</p> : null}
+        {backHref ? (
+          <Link
+            className={cn(
+              buttonVariants({ variant: "link", size: "sm" }),
+              "-ml-3 w-fit text-muted-foreground hover:text-foreground",
+            )}
+            href={backHref}
+          >
+            <ArrowLeft aria-hidden="true" />
+            {backLabel}
+          </Link>
+        ) : null}
+        {eyebrow ? (
+          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.11em] text-primary/75">
+            {eyebrow}
+          </p>
+        ) : null}
         <div className="space-y-1.5">
-          <h1 className="text-2xl font-semibold tracking-[-0.035em] text-foreground text-balance md:text-[2rem] md:leading-none">{title}</h1>
-          {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground text-pretty">{description}</p> : null}
-        </div>
-        {meta ? <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">{meta}</div> : null}
-      </div>
-      {actions || backHref ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {backHref ? (
-            <Link className={buttonVariants({ variant: "ghost" })} href={backHref}>
-              <ArrowLeft aria-hidden="true" />
-              {backLabel}
-            </Link>
+          <h1 className="text-2xl font-semibold tracking-[-0.035em] text-foreground text-balance md:text-[2rem] md:leading-none">
+            {title}
+          </h1>
+          {description ? (
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground text-pretty">
+              {description}
+            </p>
           ) : null}
+        </div>
+        {meta ? (
+          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+            {meta}
+          </div>
+        ) : null}
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {actions}
         </div>
       ) : null}
@@ -109,16 +150,56 @@ export function PageHeader({
   );
 }
 
-export function PageSection({ actions, children, className, contentClassName, description, size = "default", title, ...props }: PageSectionProps) {
+export function PageSection({
+  actions,
+  children,
+  className,
+  contentClassName,
+  description,
+  size = "default",
+  title,
+  variant = "plain",
+  ...props
+}: PageSectionProps) {
+  if (variant === "plain") {
+    return (
+      <section
+        className={cn("border-t border-border/90 pt-5", className)}
+        {...props}
+      >
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <h2 className="font-heading text-base font-semibold leading-snug tracking-[-0.01em]">
+              {title}
+            </h2>
+            {description ? (
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {actions ? (
+            <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+          ) : null}
+        </div>
+        <div className={contentClassName}>{children}</div>
+      </section>
+    );
+  }
+
   return (
     <Card className={className} size={size} {...props}>
       <CardHeader className="border-b border-border/70 pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 space-y-1">
             <CardTitle>{title}</CardTitle>
-            {description ? <CardDescription>{description}</CardDescription> : null}
+            {description ? (
+              <CardDescription>{description}</CardDescription>
+            ) : null}
           </div>
-          {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent className={contentClassName}>{children}</CardContent>
@@ -126,36 +207,71 @@ export function PageSection({ actions, children, className, contentClassName, de
   );
 }
 
-export function EmptyState({ action, className, description, title }: EmptyStateProps) {
+export function EmptyState({
+  action,
+  className,
+  description,
+  title,
+}: EmptyStateProps) {
   return (
-    <div className={cn("rounded-lg border border-dashed border-border bg-muted/25 px-6 py-10 text-center", className)}>
+    <div
+      className={cn(
+        "rounded-lg border border-dashed border-border bg-muted/25 px-6 py-10 text-center",
+        className,
+      )}
+    >
       <p className="font-semibold tracking-[-0.01em]">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
+      <p className="mx-auto mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">
+        {description}
+      </p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );
 }
 
-export function InlineAlert({ children, className, title, tone = "neutral", ...props }: InlineAlertProps) {
+export function InlineAlert({
+  children,
+  className,
+  title,
+  tone = "neutral",
+  ...props
+}: InlineAlertProps) {
   return (
-    <div className={cn("rounded-lg border p-4 text-sm", alertToneClasses[tone], className)} role={tone === "danger" ? "alert" : "status"} {...props}>
+    <div
+      className={cn(
+        "rounded-lg border p-4 text-sm",
+        alertToneClasses[tone],
+        className,
+      )}
+      role={tone === "danger" ? "alert" : "status"}
+      {...props}
+    >
       {title ? <p className="mb-1 font-medium">{title}</p> : null}
       <div className="text-current/90">{children}</div>
     </div>
   );
 }
 
-export function MetricCard({ className, helper, href, label, tone = "neutral", value }: MetricCardProps) {
+export function MetricCard({
+  className,
+  helper,
+  href,
+  label,
+  tone = "neutral",
+  value,
+}: MetricCardProps) {
   const content = (
     <>
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
-      {helper ? <p className="mt-2 text-xs text-muted-foreground">{helper}</p> : null}
+      {helper ? (
+        <p className="mt-2 text-xs text-muted-foreground">{helper}</p>
+      ) : null}
     </>
   );
 
   const classes = cn(
-    "rounded-xl border border-border/90 bg-card p-5 transition-[background-color,border-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/15",
+    "border-t-2 border-border bg-card/25 px-4 py-4 transition-[background-color,border-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/15",
     metricToneClasses[tone],
     href && "hover:-translate-y-0.5 hover:border-primary/30 hover:bg-accent/30",
     className,

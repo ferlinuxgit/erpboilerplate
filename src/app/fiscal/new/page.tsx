@@ -1,7 +1,7 @@
 import { CreateFiscalReportForm } from "@/components/fiscal/create-fiscal-report-form";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
-import { canFromDb } from "@/lib/rbac";
+import { canFromDb } from "@/lib/rbac-server";
 
 export default async function NewFiscalReportPage() {
   const ctx = await requireContext("fiscal.write");

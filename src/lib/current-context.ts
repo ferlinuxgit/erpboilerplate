@@ -4,7 +4,8 @@ import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { getActiveContextCookies } from "@/lib/active-context";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { canFromDb, type PermissionKey } from "@/lib/rbac";
+import type { PermissionKey } from "@/lib/rbac";
+import { canFromDb } from "@/lib/rbac-server";
 import { ensureUserTenant } from "@/lib/tenant";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof ensureUserTenant>> & {

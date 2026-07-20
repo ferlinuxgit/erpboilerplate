@@ -5,8 +5,7 @@ import { invoice, invoiceLine, invoicePayment } from "@/db/schema";
 import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
-import { can } from "@/lib/rbac";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
 import { postSalesInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
@@ -17,7 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "invoice.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "invoice.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const { id } = await params;
   const [row] = await db.select().from(invoice).where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id))).limit(1);
@@ -44,7 +43,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
@@ -56,6 +55,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const values = parsedPayload.data;
   if (values.status === "PAID" || values.status === "OVERDUE") {
     return NextResponse.json({ message: "El estado de cobro se calcula a partir de los pagos y el vencimiento." }, { status: 400 });
+  }
+  if (values.status === "VOID") {
+    return NextResponse.json({ message: "Usa la acción Anular para conservar una reversión contable trazable." }, { status: 400 });
   }
   const { id } = await params;
   const invoiceTotals = calculateInvoiceTotals(values.lines);
@@ -142,39 +144,46 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
   const ctx = actor.context;
-  if (!can(ctx.membership.role, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  if (!hasApiActorPermission(actor, "invoice.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
-  const deleted = await db.transaction(async (tx) => {
+  const voided = await db.transaction(async (tx) => {
     const [existing] = await tx
-      .select({ issueDate: invoice.issueDate, number: invoice.number, paymentStatus: invoice.paymentStatus })
+      .select({ issueDate: invoice.issueDate, number: invoice.number, paymentStatus: invoice.paymentStatus, status: invoice.status })
       .from(invoice)
       .where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id)))
       .for("update")
       .limit(1);
     if (!existing) return null;
-    if (existing.paymentStatus !== "PENDING") throw new Error("No se puede eliminar una factura con cobros registrados.");
+    if (existing.status === "VOID" || existing.paymentStatus === "VOID") throw new Error("La factura ya está anulada.");
+    if (existing.paymentStatus !== "PENDING") throw new Error("No se puede anular una factura con cobros registrados.");
     const [appliedPayment] = await tx.select({ id: invoicePayment.id }).from(invoicePayment).where(eq(invoicePayment.invoiceId, id)).limit(1);
-    if (appliedPayment) throw new Error("No se puede eliminar una factura con cobros registrados.");
+    if (appliedPayment) throw new Error("No se puede anular una factura con cobros registrados.");
     await assertFiscalPeriodOpen(ctx.company.id, existing.issueDate, tx);
     await reverseAutomaticEntries({
       tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
       actorUserId: actor.actorUserId,
       postedAt: existing.issueDate,
-      reference: `Eliminación factura ${existing.number}`,
+      reference: `Anulación factura ${existing.number}`,
       sourceType: "invoice",
       sourceId: id,
-      reason: `Reversión por eliminación de factura ${existing.number}`,
+      reason: `Reversión por anulación de factura ${existing.number}`,
       dbClient: tx,
     });
-    const [deletedRow] = await tx.delete(invoice).where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id))).returning({ id: invoice.id });
-    return deletedRow;
+    const [voidedRow] = await tx
+      .update(invoice)
+      .set({ status: "VOID", paymentStatus: "VOID", updatedAt: new Date() })
+      .where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id)))
+      .returning({ id: invoice.id });
+    if (voidedRow) {
+      await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "invoice.void", entityName: "invoice", entityId: id }, tx);
+    }
+    return voidedRow;
   }).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : "No se pudo eliminar la factura.";
+    const message = error instanceof Error ? error.message : "No se pudo anular la factura.";
     return { error: message };
   });
-  if (!deleted) return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
-  if ("error" in deleted) return NextResponse.json({ message: deleted.error }, { status: 400 });
-  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "invoice.delete", entityName: "invoice", entityId: id });
+  if (!voided) return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
+  if ("error" in voided) return NextResponse.json({ message: voided.error }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

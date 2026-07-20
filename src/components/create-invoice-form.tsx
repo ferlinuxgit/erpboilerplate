@@ -36,23 +36,18 @@ type CreatedInvoicePayload = {
   customer?: CustomerOption | null;
 };
 
-const emptyLine = {
-  description: "",
-  quantity: 1,
-  unitPrice: 0,
-  taxRate: 21,
-};
-
 export function CreateInvoiceForm({
   canCreateCustomer,
   customers,
   initialCustomerId,
   nextInvoiceNumberPreview,
+  defaultTaxRate = 0,
 }: {
   canCreateCustomer: boolean;
   customers: CustomerOption[];
   initialCustomerId?: string;
   nextInvoiceNumberPreview?: string | null;
+  defaultTaxRate?: number;
 }) {
   const router = useRouter();
   const [customerOptions, setCustomerOptions] = useState(customers);
@@ -77,7 +72,7 @@ export function CreateInvoiceForm({
       dueDate: "",
       totalAmount: 0,
       notes: "",
-      lines: [emptyLine],
+      lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }],
     },
   });
   const {
@@ -153,7 +148,7 @@ export function CreateInvoiceForm({
   };
 
   const addLineAndFocus = () => {
-    append(emptyLine);
+    append({ description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate });
     setPendingFocusLineIndex(fields.length);
   };
 

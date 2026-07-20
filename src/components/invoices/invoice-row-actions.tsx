@@ -14,28 +14,28 @@ type InvoiceRowActionsProps = {
 };
 
 export function InvoiceRowActions({ id, number, paymentMethods, paymentStatus, totalAmount, totalAmountLabel }: InvoiceRowActionsProps) {
+  const isVoided = paymentStatus === "VOID";
   return (
     <div className="flex gap-2" data-testid={`invoice-row-actions-${id}`}>
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid={`invoice-view-${id}`} href={`/invoices/${id}`}>
         Ver
       </Link>
-      <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid={`invoice-edit-${id}`} href={`/invoices/${id}/edit`}>
-        Editar
-      </Link>
-      <RegisterInvoicePaymentDialog
-        invoice={{ id, number, paymentStatus, totalAmount, totalAmountLabel }}
-        paymentMethods={paymentMethods}
-        triggerSize="sm"
-      />
+      {!isVoided ? <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid={`invoice-edit-${id}`} href={`/invoices/${id}/edit`}>Editar</Link> : null}
+      {!isVoided ? <RegisterInvoicePaymentDialog
+          invoice={{ id, number, paymentStatus, totalAmount, totalAmountLabel }}
+          paymentMethods={paymentMethods}
+          triggerSize="sm"
+        /> : null}
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/api/invoices/${id}/pdf`} target="_blank">
         PDF
       </Link>
-      <DeleteButton
+      {!isVoided ? <DeleteButton
         url={`/api/invoices/${id}`}
-        title={`Eliminar factura ${number}`}
-        description={`Esta acción eliminará la factura ${number} y no se puede deshacer.`}
-        successMessage={`Factura ${number} eliminada correctamente.`}
-      />
+        label="Anular"
+        title={`Anular factura ${number}`}
+        description={`Se conservará la factura ${number} y se generará la reversión contable correspondiente. Esta acción no elimina su trazabilidad.`}
+        successMessage={`Factura ${number} anulada correctamente.`}
+      /> : null}
     </div>
   );
 }

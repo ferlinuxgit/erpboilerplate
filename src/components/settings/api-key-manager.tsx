@@ -13,12 +13,15 @@ import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDateTime } from "@/lib/format";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { apiKeyScopeOptions, parseStoredApiKeyScopes } from "@/lib/api-key-scopes";
+import type { PermissionKey } from "@/lib/rbac";
 
 type ApiKeyRow = {
   id: string;
   name: string;
   createdAt: Date | string;
   revokedAt: Date | string | null;
+  scopes: string;
 };
 
 type ApiKeyManagerProps = {
@@ -68,6 +71,15 @@ const columns = (
     cell: (key) => key.revokedAt ? <StatusBadge tone="danger">Revocada</StatusBadge> : <StatusBadge tone="success">Activa</StatusBadge>,
     exportValue: (key) => key.revokedAt ? "Revocada" : "Activa",
     sortValue: (key) => key.revokedAt ? "revocada" : "activa",
+  },
+  {
+    header: "Acceso",
+    cell: (key) => {
+      const scopes = parseStoredApiKeyScopes(key.scopes);
+      return <span className="text-sm text-muted-foreground">{scopes.length} permiso{scopes.length === 1 ? "" : "s"}</span>;
+    },
+    exportValue: (key) => parseStoredApiKeyScopes(key.scopes).join(", "),
+    sortValue: (key) => parseStoredApiKeyScopes(key.scopes).length,
   },
   {
     header: "Creada",
@@ -131,6 +143,7 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [scopes, setScopes] = useState<PermissionKey[]>(["customer.read", "supplier.read", "invoice.read", "purchase.read"]);
   const [pendingAction, setPendingAction] = useState<{ key: ApiKeyRow; action: TokenAction } | null>(null);
 
   async function createKey(event: React.FormEvent<HTMLFormElement>) {
@@ -141,11 +154,12 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
       const response = await fetch("/api/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, scopes }),
       });
       const payload = (await response.json().catch(() => null)) as { id?: string; name?: string; message?: string; plainKey?: string } | null;
       if (!response.ok || !payload?.plainKey) throw new Error(payload?.message ?? "No se pudo crear la API key.");
       setName("");
+      setScopes(["customer.read", "supplier.read", "invoice.read", "purchase.read"]);
       const secret = { keyId: payload.id ?? "new", name: payload.name ?? name, plainKey: payload.plainKey, action: "created" as const };
       setVisibleSecret(secret);
       setCreateOpen(false);
@@ -203,8 +217,27 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
         <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Tu rol actual es de solo lectura para API keys.</p>
       )}
 
-      <Dialog description="Usa un nombre que identifique con claridad la integración o el entorno." initialFocusId="api-key-name" onClose={() => setCreateOpen(false)} open={createOpen} title="Crear API key">
-        <form className="space-y-4" onSubmit={createKey}><div className="space-y-2"><label className="text-sm font-medium" htmlFor="api-key-name">Nombre</label><Input id="api-key-name" onChange={(event) => setName(event.target.value)} placeholder="Integración de producción" required value={name} /></div><DialogFooter><Button onClick={() => setCreateOpen(false)} type="button" variant="outline">Cancelar</Button><Button disabled={isSubmitting} type="submit"><KeyRound aria-hidden="true" />{isSubmitting ? "Creando…" : "Crear API key"}</Button></DialogFooter></form>
+      <Dialog description="Usa un nombre claro y concede únicamente los permisos que necesita la integración." initialFocusId="api-key-name" onClose={() => setCreateOpen(false)} open={createOpen} size="lg" title="Crear API key">
+        <form className="space-y-5" onSubmit={createKey}>
+          <div className="space-y-2"><label className="text-sm font-medium" htmlFor="api-key-name">Nombre</label><Input id="api-key-name" onChange={(event) => setName(event.target.value)} placeholder="Conector de facturación" required value={name} /></div>
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-medium">Permisos</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {apiKeyScopeOptions.map((option) => (
+                <label className="flex items-start gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/40" key={option.key}>
+                  <input
+                    checked={scopes.includes(option.key)}
+                    className="mt-0.5 size-4 accent-primary"
+                    onChange={(event) => setScopes((current) => event.target.checked ? [...new Set([...current, option.key])] : current.filter((scope) => scope !== option.key))}
+                    type="checkbox"
+                  />
+                  <span><span className="block font-medium">{option.label}</span><span className="text-xs text-muted-foreground">{option.group}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <DialogFooter><Button onClick={() => setCreateOpen(false)} type="button" variant="outline">Cancelar</Button><Button disabled={isSubmitting || scopes.length === 0} type="submit"><KeyRound aria-hidden="true" />{isSubmitting ? "Creando…" : "Crear API key"}</Button></DialogFooter>
+        </form>
       </Dialog>
 
       <Dialog description="Guárdala ahora en un gestor de secretos. Por seguridad, no volverá a mostrarse." onClose={() => setVisibleSecret(null)} open={Boolean(visibleSecret)} title={visibleSecret?.action === "rotated" ? "API key rotada" : "API key creada"}>

@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { apiKey } from "@/db/schema";
+import { normalizeApiKeyScopes } from "@/lib/api-key-scopes";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -17,7 +18,7 @@ export async function GET() {
   if (!can(ctx.membership.role, "apiKey.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   return NextResponse.json(
     await db
-      .select({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt })
+      .select({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt })
       .from(apiKey)
       .where(eq(apiKey.tenantId, ctx.tenant.id))
       .orderBy(desc(apiKey.createdAt)),
@@ -29,17 +30,19 @@ export async function POST(request: Request) {
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "apiKey.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const payload = (await readJsonBody(request)) as { name?: string } | null;
+  const payload = (await readJsonBody(request)) as { name?: string; scopes?: unknown } | null;
   if (!payload) return invalidJsonResponse();
 
   if (!payload.name?.trim()) return NextResponse.json({ message: "Nombre obligatorio." }, { status: 400 });
+  const scopes = normalizeApiKeyScopes(payload.scopes);
+  if (scopes.length === 0) return NextResponse.json({ message: "Selecciona al menos un permiso para la API key." }, { status: 400 });
   const keyPrefix = `ak_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const plainKey = `${keyPrefix}_${crypto.randomUUID().replaceAll("-", "")}`;
   const keyHash = await argon2.hash(plainKey);
   const [created] = await db
     .insert(apiKey)
-    .values({ tenantId: ctx.tenant.id, companyId: ctx.company.id, keyPrefix, name: payload.name.trim(), keyHash })
-    .returning({ id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt });
+    .values({ tenantId: ctx.tenant.id, companyId: ctx.company.id, keyPrefix, name: payload.name.trim(), scopes: JSON.stringify(scopes), keyHash })
+    .returning({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt });
   await recordAudit({
     tenantId: ctx.tenant.id,
     companyId: ctx.company.id,
@@ -47,7 +50,7 @@ export async function POST(request: Request) {
     action: "apiKey.create",
     entityName: "apiKey",
     entityId: created.id,
-    payload: { name: created.name },
+    payload: { name: created.name, scopes },
   });
   return NextResponse.json({ ...created, plainKey }, { status: 201 });
 }

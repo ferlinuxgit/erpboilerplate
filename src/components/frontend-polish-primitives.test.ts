@@ -131,15 +131,20 @@ describe("frontend polish primitives", () => {
 
   it("organizes sales as independent quote, order, and delivery-note sections", () => {
     const salesPage = sourceFor("src/app/sales/page.tsx");
+    const appShell = sourceFor("src/components/layout/app-shell.tsx");
+    const contextNavigation = sourceFor("src/components/layout/context-navigation.tsx");
     const salesRoutes = [
       "src/app/sales/quotes/page.tsx",
       "src/app/sales/orders/page.tsx",
       "src/app/sales/delivery-notes/page.tsx",
     ];
 
-    expect(salesPage).toContain('title="Ventas"');
-    expect(salesPage).not.toContain("Ciclo de ventas");
-    expect(salesPage).not.toContain("Continuidad del journey");
+    expect(salesPage).toContain('redirect("/sales/quotes")');
+    expect(appShell).not.toContain('{ href: "/sales", label: "Ventas"');
+    expect(appShell).toContain('{ href: "/sales/quotes", label: "Presupuestos"');
+    expect(appShell).toContain('{ href: "/sales/orders", label: "Pedidos"');
+    expect(appShell).toContain('{ href: "/sales/delivery-notes", label: "Albaranes"');
+    expect(contextNavigation).not.toContain('root: "/sales"');
     salesRoutes.forEach((route) => expect(existsSync(join(root, route)), `${route} must exist`).toBe(true));
     expect(sourceFor("src/app/sales/quotes/page.tsx")).toContain('testId="sales-quotes-list"');
     expect(sourceFor("src/app/sales/orders/page.tsx")).toContain('testId="sales-orders-list"');

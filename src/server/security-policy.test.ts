@@ -125,7 +125,7 @@ describe("security policy state and auditing", () => {
         requireTwoFactor: true,
         apiKeyRotationDays: 90,
         allowedDomains: "example.com",
-        allowedIpNotes: "Office VPN only",
+        allowedIpNotes: "203.0.113.0/24",
       },
       store,
       audit,
@@ -137,7 +137,7 @@ describe("security policy state and auditing", () => {
       requireTwoFactor: true,
       apiKeyRotationDays: 90,
       allowedDomains: "example.com",
-      allowedIpNotes: "Office VPN only",
+      allowedIpNotes: "203.0.113.0/24",
     });
     expect(audit).toHaveBeenCalledTimes(1);
     expect(audit).toHaveBeenCalledWith(

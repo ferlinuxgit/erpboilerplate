@@ -17,6 +17,10 @@ type DocumentSeriesRow = {
   nextNumber: number;
 };
 
+type CodeNameRow = { id: string; code: string; name: string };
+type PaymentMethodRow = CodeNameRow & { type: string; bankAccountNumber: string | null };
+type RateRow = { id: string; name: string; rate: string };
+
 export function MastersPanel() {
   const [loading, setLoading] = useState(false);
   const [seriesLoading, setSeriesLoading] = useState(true);
@@ -30,6 +34,14 @@ export function MastersPanel() {
   const [paymentBankAccountNumber, setPaymentBankAccountNumber] = useState("");
   const [retentionName, setRetentionName] = useState("");
   const [retentionRate, setRetentionRate] = useState("");
+  const [taxName, setTaxName] = useState("");
+  const [taxRate, setTaxRate] = useState("");
+  const [categories, setCategories] = useState<CodeNameRow[]>([]);
+  const [units, setUnits] = useState<CodeNameRow[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
+  const [retentions, setRetentions] = useState<RateRow[]>([]);
+  const [taxes, setTaxes] = useState<RateRow[]>([]);
+  const [catalogVersion, setCatalogVersion] = useState(0);
   const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FAC-");
   const [invoiceSeriesFormat, setInvoiceSeriesFormat] = useState(defaultSeriesFormat);
   const [invoiceSeriesNextNumber, setInvoiceSeriesNextNumber] = useState("1");
@@ -67,6 +79,24 @@ export function MastersPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    let ignore = false;
+    async function loadCatalogs() {
+      const endpoints = ["/api/item-categories", "/api/unit-of-measure", "/api/payment-methods", "/api/tax-retentions", "/api/taxes"];
+      const responses = await Promise.all(endpoints.map((endpoint) => fetch(endpoint)));
+      if (ignore) return;
+      const payloads = await Promise.all(responses.map((response) => response.ok ? response.json() : []));
+      if (ignore) return;
+      setCategories(payloads[0] as CodeNameRow[]);
+      setUnits(payloads[1] as CodeNameRow[]);
+      setPaymentMethods(payloads[2] as PaymentMethodRow[]);
+      setRetentions(payloads[3] as RateRow[]);
+      setTaxes(payloads[4] as RateRow[]);
+    }
+    void loadCatalogs().catch(() => { if (!ignore) toast.error("No se pudieron cargar todos los catálogos."); });
+    return () => { ignore = true; };
+  }, [catalogVersion]);
+
   const submit = async (url: string, payload: unknown, reset: () => void, method = "POST") => {
     setLoading(true);
     try {
@@ -76,6 +106,7 @@ export function MastersPanel() {
         throw new Error(body.message ?? "No se pudo guardar.");
       }
       reset();
+      setCatalogVersion((current) => current + 1);
       toast.success("Guardado correctamente.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error inesperado.");
@@ -156,6 +187,10 @@ export function MastersPanel() {
           <Input aria-label="Nombre de categoría" placeholder="Nombre" value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
           <Button disabled={loading} onClick={() => submit("/api/item-categories", { code: categoryCode, name: categoryName }, () => { setCategoryCode(""); setCategoryName(""); })} type="button">Crear</Button>
         </div>
+        <div className="divide-y rounded-md bg-muted/25 px-3">
+          {categories.map((row) => <p className="flex justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name}</span><span className="font-mono text-muted-foreground">{row.code}</span></p>)}
+          {categories.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin categorías configuradas.</p> : null}
+        </div>
       </div>
 
       <div className="space-y-2 rounded-md border p-3">
@@ -164,6 +199,10 @@ export function MastersPanel() {
           <Input aria-label="Código de unidad" placeholder="Código" value={unitCode} onChange={(event) => setUnitCode(event.target.value)} />
           <Input aria-label="Nombre de unidad" placeholder="Nombre" value={unitName} onChange={(event) => setUnitName(event.target.value)} />
           <Button disabled={loading} onClick={() => submit("/api/unit-of-measure", { code: unitCode, name: unitName }, () => { setUnitCode(""); setUnitName(""); })} type="button">Crear</Button>
+        </div>
+        <div className="divide-y rounded-md bg-muted/25 px-3">
+          {units.map((row) => <p className="flex justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name}</span><span className="font-mono text-muted-foreground">{row.code}</span></p>)}
+          {units.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin unidades configuradas.</p> : null}
         </div>
       </div>
 
@@ -211,6 +250,23 @@ export function MastersPanel() {
             Crear
           </Button>
         </div>
+        <div className="divide-y rounded-md bg-muted/25 px-3">
+          {paymentMethods.map((row) => <p className="flex flex-wrap justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name} <span className="text-muted-foreground">· {row.type}</span></span><span className="font-mono text-muted-foreground">{row.code}</span></p>)}
+          {paymentMethods.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin métodos de pago configurados.</p> : null}
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-md border p-3">
+        <p className="font-medium">Impuestos</p>
+        <div className="grid gap-2 md:grid-cols-3">
+          <Input aria-label="Nombre del impuesto" placeholder="Nombre" value={taxName} onChange={(event) => setTaxName(event.target.value)} />
+          <Input aria-label="Porcentaje del impuesto" placeholder="Porcentaje" type="number" min="0.001" step="0.001" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
+          <Button disabled={loading} onClick={() => submit("/api/taxes", { name: taxName, rate: Number(taxRate) }, () => { setTaxName(""); setTaxRate(""); })} type="button">Crear</Button>
+        </div>
+        <div className="divide-y rounded-md bg-muted/25 px-3">
+          {taxes.map((row) => <p className="flex justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name}</span><span className="font-mono text-muted-foreground">{Number(row.rate).toLocaleString("es-ES")}%</span></p>)}
+          {taxes.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin impuestos configurados.</p> : null}
+        </div>
       </div>
 
       <div className="space-y-2 rounded-md border p-3">
@@ -219,6 +275,10 @@ export function MastersPanel() {
           <Input aria-label="Nombre de la retención" placeholder="Nombre" value={retentionName} onChange={(event) => setRetentionName(event.target.value)} />
           <Input aria-label="Porcentaje de retención" placeholder="Porcentaje" type="number" step="0.001" value={retentionRate} onChange={(event) => setRetentionRate(event.target.value)} />
           <Button disabled={loading} onClick={() => submit("/api/tax-retentions", { name: retentionName, rate: Number(retentionRate) }, () => { setRetentionName(""); setRetentionRate(""); })} type="button">Crear</Button>
+        </div>
+        <div className="divide-y rounded-md bg-muted/25 px-3">
+          {retentions.map((row) => <p className="flex justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name}</span><span className="font-mono text-muted-foreground">{Number(row.rate).toLocaleString("es-ES")}%</span></p>)}
+          {retentions.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin retenciones configuradas.</p> : null}
         </div>
       </div>
     </div>

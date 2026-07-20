@@ -127,7 +127,3 @@ export function canManageSuppliers(role: AppRole): boolean {
 export function canManageInvoices(role: AppRole): boolean {
   return can(role, "invoice.create");
 }
-
-export async function canFromDb(role: AppRole, permissionKey: PermissionKey): Promise<boolean> {
-  return can(role, permissionKey);
-}

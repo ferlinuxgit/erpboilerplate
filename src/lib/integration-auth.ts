@@ -4,10 +4,11 @@ import { NextResponse } from "next/server";
 
 import { apiKey, company, fiscalYear, tenant, tenantSecurityPolicy } from "@/db/schema";
 import { bearerToken } from "@/lib/api-auth-header";
+import { parseStoredApiKeyScopes } from "@/lib/api-key-scopes";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
-import type { AppRole } from "@/lib/rbac";
+import { can, type AppRole, type PermissionKey } from "@/lib/rbac";
 
 type IntegrationContext = {
   tenant: {
@@ -31,10 +32,11 @@ type IntegrationContext = {
   };
 };
 
-type AuthenticatedApiActor = {
+export type AuthenticatedApiActor = {
   context: IntegrationContext;
   actorUserId: string;
   kind: "session" | "apiKey";
+  scopes: PermissionKey[] | null;
 };
 
 async function findApiKey(plainKey: string) {
@@ -117,6 +119,7 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
       context,
       actorUserId: `api-key:${verifiedKey.id}`,
       kind: "apiKey",
+      scopes: parseStoredApiKeyScopes(verifiedKey.scopes),
     };
   }
 
@@ -129,7 +132,12 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
     context: await ensureUserTenant({ id: session.user.id, name: session.user.name }),
     actorUserId: session.user.id,
     kind: "session",
+    scopes: null,
   };
+}
+
+export function hasApiActorPermission(actor: AuthenticatedApiActor, permission: PermissionKey) {
+  return actor.kind === "apiKey" ? Boolean(actor.scopes?.includes(permission)) : can(actor.context.membership.role, permission);
 }
 
 export function isAuthError(value: AuthenticatedApiActor | NextResponse): value is NextResponse {

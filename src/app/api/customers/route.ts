@@ -4,9 +4,8 @@ import { NextResponse } from "next/server";
 import { customer, partner } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { authenticateApiActor, isAuthError } from "@/lib/integration-auth";
+import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { logger } from "@/lib/logger";
-import { can, canManageCustomers } from "@/lib/rbac";
 import { createCustomerWithPartner } from "@/server/customers/service";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
@@ -14,7 +13,7 @@ export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
 
-  if (!can(actor.context.membership.role, "customer.read")) {
+  if (!hasApiActorPermission(actor, "customer.read")) {
     return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   }
 
@@ -48,7 +47,7 @@ export async function POST(request: Request) {
   const actor = await authenticateApiActor(request);
   if (isAuthError(actor)) return actor;
 
-  if (!canManageCustomers(actor.context.membership.role)) {
+  if (!hasApiActorPermission(actor, "customer.create")) {
     return NextResponse.json(
       { message: "No tienes permisos para crear clientes en esta empresa." },
       { status: 403 },

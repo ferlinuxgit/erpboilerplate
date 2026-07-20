@@ -30,9 +30,8 @@ test("sales documents progress from quote to order, delivery note and invoice", 
   });
 
   await page.goto("/sales");
-  await expect(page.getByRole("heading", { name: "Ventas", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Ver listado" })).toHaveCount(3);
-  await expect(page.getByText("Continuidad del journey")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/sales\/quotes$/);
+  await expect(page.getByRole("heading", { name: "Presupuestos", exact: true })).toBeVisible();
 
   await page.goto("/customers/new");
   await page.getByLabel("Nombre").fill(customerName);
@@ -63,7 +62,10 @@ test("sales documents progress from quote to order, delivery note and invoice", 
   await expect(page).toHaveURL(/\/sales\/orders\/.+/, { timeout: 15_000 });
   await expect(page.getByText("Confirmado", { exact: true })).toBeVisible();
 
-  await clickAndExpectPost(page, "/to-delivery", () => page.getByRole("button", { name: "Generar albarán" }).click());
+  await page.getByRole("link", { name: "Preparar albarán" }).click();
+  await expect(page).toHaveURL(/\/sales\/delivery-notes\/new\?orderId=/);
+  await expect(page.getByRole("heading", { name: "Cantidades a entregar" })).toBeVisible();
+  await clickAndExpectPost(page, "/api/delivery-notes", () => page.getByRole("button", { name: "Registrar entrega" }).click());
   await expect(page).toHaveURL(/\/sales\/delivery-notes\/.+/, { timeout: 15_000 });
   await expect(page.getByText("Entregado", { exact: true }).first()).toBeVisible();
 

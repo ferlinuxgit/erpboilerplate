@@ -14,10 +14,23 @@ export default async function TeamSettingsPage() {
         eyebrow="Administración"
         title="Equipo"
         description={`Miembros y roles con acceso al espacio ${ctx.tenant.name}.`}
-        actions={ctx.membership.role !== "MEMBER" ? <InviteMemberForm canInviteOwner={ctx.membership.role === "OWNER"} /> : null}
+        actions={
+          ctx.membership.role !== "MEMBER" ? (
+            <InviteMemberForm
+              canInviteOwner={ctx.membership.role === "OWNER"}
+            />
+          ) : null
+        }
       />
-      <PageSection title="Miembros" description="Controla quién puede operar, auditar o administrar la empresa activa.">
-        <TeamMembersList rows={members} />
+      <PageSection
+        title="Miembros"
+        description="Controla quién puede operar, auditar o administrar la empresa activa."
+      >
+        <TeamMembersList
+          canAssignOwner={ctx.membership.role === "OWNER"}
+          canManage={ctx.membership.role !== "MEMBER"}
+          rows={members}
+        />
       </PageSection>
     </PageShell>
   );

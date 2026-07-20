@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SalesDocumentLines } from "@/components/sales/sales-document-lines";
-import { SalesTransitionButton } from "@/components/sales/sales-transition-button";
 import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -50,7 +49,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Ventas · Pedido"
+        eyebrow="Pedido"
         title={record.number}
         description={`${record.customerName} · ${formatDate(record.issueDate)}`}
         backHref="/sales/orders"
@@ -58,9 +57,10 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
         meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
         actions={
           <>
+            <a className={buttonVariants({ variant: "outline" })} href={`/api/sales-orders/${record.id}/pdf`} rel="noreferrer" target="_blank">PDF</a>
             <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.customerId}`}>Ver cliente</Link>
             {record.salesQuoteId ? <Link className={buttonVariants({ variant: "outline" })} href={`/sales/quotes/${record.salesQuoteId}`}>Ver presupuesto</Link> : null}
-            {transition.allowed ? <SalesTransitionButton label={transition.actionLabel ?? "Generar albarán"} targetBasePath="/sales/delivery-notes" url={`/api/sales-orders/${record.id}/to-delivery`} /> : null}
+            {transition.allowed ? <Link className={buttonVariants()} href={`/sales/delivery-notes/new?orderId=${record.id}`}>Preparar albarán</Link> : null}
           </>
         }
       />

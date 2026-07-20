@@ -1,7 +1,11 @@
 "use client";
 
-import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
+import {
+  ResourceList,
+  type ResourceListColumn,
+} from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { TeamMemberActions } from "@/components/settings/team-member-actions";
 
 type TeamMemberRow = {
   membershipId: string;
@@ -12,10 +16,15 @@ type TeamMemberRow = {
 };
 
 type TeamMembersListProps = {
+  canManage: boolean;
+  canAssignOwner: boolean;
   rows: TeamMemberRow[];
 };
 
-const columns: ResourceListColumn<TeamMemberRow>[] = [
+const columns = (
+  canManage: boolean,
+  canAssignOwner: boolean,
+): ResourceListColumn<TeamMemberRow>[] => [
   {
     header: "Nombre",
     cell: (member) => (
@@ -29,21 +38,54 @@ const columns: ResourceListColumn<TeamMemberRow>[] = [
   },
   {
     header: "Rol",
-    cell: (member) => <StatusBadge tone={member.role === "OWNER" ? "success" : member.role === "ADMIN" ? "info" : "neutral"}>{member.role}</StatusBadge>,
+    cell: (member) => (
+      <StatusBadge
+        tone={
+          member.role === "OWNER"
+            ? "success"
+            : member.role === "ADMIN"
+              ? "info"
+              : "neutral"
+        }
+      >
+        {member.role}
+      </StatusBadge>
+    ),
     exportValue: (member) => member.role,
     sortValue: (member) => member.role,
   },
+  ...(canManage
+    ? [
+        {
+          header: "Acciones",
+          className: "text-right",
+          cell: (member: TeamMemberRow) => (
+            <TeamMemberActions
+              canAssignOwner={canAssignOwner}
+              membershipId={member.membershipId}
+              role={member.role}
+            />
+          ),
+        },
+      ]
+    : []),
 ];
 
-export function TeamMembersList({ rows }: TeamMembersListProps) {
+export function TeamMembersList({
+  canAssignOwner,
+  canManage,
+  rows,
+}: TeamMembersListProps) {
   return (
     <ResourceList
-      columns={columns}
+      columns={columns(canManage, canAssignOwner)}
       emptyDescription="Invita usuarios para colaborar dentro del espacio de trabajo."
       emptyTitle="No hay miembros en el equipo."
       exportFileName="equipo.csv"
       getRowId={(member) => member.membershipId}
-      getSearchText={(member) => [member.name, member.email, member.role].join(" ")}
+      getSearchText={(member) =>
+        [member.name, member.email, member.role].join(" ")
+      }
       items={rows}
       searchPlaceholder="Buscar miembro por nombre, email o rol"
       testId="team-members-list"
