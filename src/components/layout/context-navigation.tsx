@@ -28,6 +28,22 @@ export function ContextNavigation() {
         <nav
           aria-label={`Secciones de ${group.label}`}
           className="flex min-w-max items-stretch"
+          id="context-navigation"
+          onKeyDown={(event) => {
+            const currentLink = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]");
+            if (!currentLink) return;
+            const links = Array.from(event.currentTarget.querySelectorAll<HTMLAnchorElement>("a[href]"));
+            const currentIndex = links.indexOf(currentLink);
+            let nextIndex: number | null = null;
+            if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % links.length;
+            else if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + links.length) % links.length;
+            else if (event.key === "Home") nextIndex = 0;
+            else if (event.key === "End") nextIndex = links.length - 1;
+            if (nextIndex === null) return;
+            event.preventDefault();
+            links[nextIndex]?.focus();
+            links[nextIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+          }}
         >
           <span className="sr-only">Desplaza horizontalmente para ver todas las secciones.</span>
           {group.links.map((link) => {

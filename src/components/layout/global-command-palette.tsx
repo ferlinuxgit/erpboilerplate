@@ -2,7 +2,7 @@
 
 import { MagnifyingGlass, Plus, SquaresFour } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -54,7 +54,7 @@ export function openCommandPalette() {
 
 export function CommandPaletteButton({ className, compact = false, onOpen }: { className?: string; compact?: boolean; onOpen?: () => void }) {
   return (
-    <Button className={cn("justify-between text-window-muted", className)} onClick={() => { onOpen?.(); openCommandPalette(); }} type="button" variant="outline">
+    <Button aria-keyshortcuts="Control+K Meta+K" className={cn("justify-between text-window-muted", className)} onClick={() => { onOpen?.(); openCommandPalette(); }} type="button" variant="outline">
       <span className="flex items-center gap-2"><MagnifyingGlass aria-hidden="true" />{compact ? "Buscar" : "Buscar o crear…"}</span>
       {!compact ? <kbd className="border border-window-shadow bg-window-panel px-1 py-0.5 font-mono text-[0.58rem] text-window-muted">CTRL K</kbd> : null}
     </Button>
@@ -66,13 +66,52 @@ export function GlobalCommandPalette() {
   const [query, setQuery] = useState("");
   const [recordResults, setRecordResults] = useState<Array<{ href: string; label: string; description: string; type: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  const closePalette = () => {
+    setOpen(false);
+    setQuery("");
+  };
+
+  const commandItems = () => Array.from(resultsRef.current?.querySelectorAll<HTMLElement>("[data-command-item]") ?? [])
+    .filter((item) => item.getClientRects().length > 0);
+
+  const handleResultsKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const currentItem = (event.target as HTMLElement).closest<HTMLElement>("[data-command-item]");
+    if (!currentItem) return;
+    const items = commandItems();
+    const currentIndex = items.indexOf(currentItem);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % items.length;
+    else if (event.key === "ArrowUp") {
+      if (currentIndex === 0) {
+        event.preventDefault();
+        document.getElementById("global-command-search")?.focus();
+        return;
+      }
+      nextIndex = currentIndex - 1;
+    } else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    items[nextIndex]?.focus();
+    items[nextIndex]?.scrollIntoView({ block: "nearest" });
+  };
 
   useEffect(() => {
     const onOpen = () => setOpen(true);
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
         event.preventDefault();
+        setQuery("");
         setOpen((current) => !current);
+        return;
+      }
+      const target = event.target;
+      const isEditable = target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select, [role='textbox']"));
+      if (event.key === "/" && !isEditable && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        setOpen(true);
       }
     };
     window.addEventListener(openCommandPaletteEvent, onOpen);
@@ -119,19 +158,36 @@ export function GlobalCommandPalette() {
   }, [query]);
 
   return (
-    <Dialog description="Navega a cualquier área o inicia una operación sin abandonar el teclado." initialFocusId="global-command-search" onClose={() => setOpen(false)} open={open} size="lg" title="COMMAND.EXE — Buscar y ejecutar">
+    <Dialog description="Navega a cualquier área o inicia una operación sin abandonar el teclado." initialFocusId="global-command-search" onClose={closePalette} open={open} size="lg" title="COMMAND.EXE — Buscar y ejecutar">
       <div className="relative">
         <MagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-window-muted" />
-        <Input className="h-9 pl-8 text-sm" id="global-command-search" onChange={(event) => setQuery(event.target.value)} placeholder="Cliente, factura, nuevo gasto…" value={query} />
+        <Input
+          aria-controls="global-command-results"
+          aria-keyshortcuts="ArrowDown ArrowUp"
+          className="h-9 pl-8 text-sm"
+          id="global-command-search"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return;
+            const items = commandItems();
+            if (items.length === 0) return;
+            event.preventDefault();
+            if (event.key === "Enter") items[0]?.click();
+            else items[event.key === "ArrowDown" ? 0 : items.length - 1]?.focus();
+          }}
+          placeholder="Cliente, factura, nuevo gasto…"
+          value={query}
+        />
       </div>
-      <div className="mt-2 max-h-[24rem] space-y-3 overflow-y-auto pr-1">
+      <p className="mt-1 font-mono text-[0.6rem] text-window-muted">↑↓ seleccionar · Enter abrir · Esc cerrar</p>
+      <div className="mt-2 max-h-[24rem] space-y-3 overflow-y-auto pr-1" id="global-command-results" onKeyDown={handleResultsKeyDown} ref={resultsRef}>
         {query.trim().length >= 2 ? (
           <section>
             <p className="mb-1 border-b border-window-shadow pb-0.5 font-mono text-[0.62rem] font-bold uppercase tracking-[0.08em] text-window-muted">Resultados</p>
             {isSearching ? <p className="px-2 py-2 font-mono text-xs text-window-muted">Buscando registros…</p> : recordResults.length > 0 ? (
               <div className="grid gap-px border border-window-dark-shadow sm:grid-cols-2">
                 {recordResults.map((item) => (
-                  <Link className="flex min-w-0 items-center gap-2 bg-window-surface px-2 py-1.5 text-xs hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" href={item.href} key={`${item.type}-${item.href}`} onClick={() => { setOpen(false); setQuery(""); }}>
+                  <Link className="flex min-w-0 items-center gap-2 bg-window-surface px-2 py-1.5 text-xs hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" data-command-item href={item.href} key={`${item.type}-${item.href}`} onClick={closePalette}>
                     <span className="grid size-6 shrink-0 place-items-center border border-window-shadow bg-window-panel"><MagnifyingGlass aria-hidden="true" /></span>
                     <span className="min-w-0"><span className="block truncate font-mono font-bold">{item.label}</span><span className="block truncate text-[0.68rem] opacity-75">{item.type} · {item.description}</span></span>
                   </Link>
@@ -148,7 +204,7 @@ export function GlobalCommandPalette() {
               <p className="mb-1 border-b border-window-shadow pb-0.5 font-mono text-[0.62rem] font-bold uppercase tracking-[0.08em] text-window-muted">{group}</p>
               <div className="grid gap-px border border-window-dark-shadow sm:grid-cols-2">
                 {groupItems.map((item) => (
-                  <Link className="flex items-center gap-2 bg-window-surface px-2 py-1.5 font-mono text-xs font-bold hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" href={item.href} key={item.href} onClick={() => { setOpen(false); setQuery(""); }}>
+                  <Link className="flex items-center gap-2 bg-window-surface px-2 py-1.5 font-mono text-xs font-bold hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" data-command-item href={item.href} key={item.href} onClick={closePalette}>
                     <span className="grid size-6 place-items-center border border-window-shadow bg-window-panel">{group === "Acciones" ? <Plus aria-hidden="true" /> : <SquaresFour aria-hidden="true" />}</span>
                     {item.label}
                   </Link>

@@ -12,7 +12,7 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,6 +101,7 @@ export function ResourceList<TItem>({
   enableSelection = true,
   filters = [],
 }: ResourceListProps<TItem>) {
+  const sectionRef = useRef<HTMLElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [activePageSize, setActivePageSize] = useState(pageSize);
@@ -401,15 +402,50 @@ export function ResourceList<TItem>({
     });
   }
 
+  function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, rowId: string) {
+    if (event.target !== event.currentTarget) return;
+    const rows = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>("[data-resource-row]") ?? [])
+      .filter((row) => row.getClientRects().length > 0);
+    const currentIndex = rows.indexOf(event.currentTarget);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown") nextIndex = Math.min(rows.length - 1, currentIndex + 1);
+    else if (event.key === "ArrowUp") nextIndex = Math.max(0, currentIndex - 1);
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = rows.length - 1;
+
+    if (nextIndex !== null) {
+      event.preventDefault();
+      rows[nextIndex]?.focus();
+      rows[nextIndex]?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+
+    if (event.key === "Enter") {
+      const primaryAction = event.currentTarget.querySelector<HTMLElement>("a[href], button:not([disabled])");
+      if (primaryAction) {
+        event.preventDefault();
+        primaryAction.click();
+      }
+    } else if (event.key === " " && enableSelection) {
+      event.preventDefault();
+      toggleSelection(rowId);
+    }
+  }
+
   return (
     <section
+      aria-describedby={`${testId ?? "resource-list"}-keyboard-help`}
       className="min-w-0 space-y-2"
       data-testid={testId}
       aria-labelledby={`${testId ?? "resource-list"}-title`}
+      ref={sectionRef}
     >
       <h3 className="sr-only" id={`${testId ?? "resource-list"}-title`}>
         {title}
       </h3>
+      <p className="sr-only" id={`${testId ?? "resource-list"}-keyboard-help`}>
+        Pulsa Alt F para buscar. En las filas usa flecha arriba y abajo para moverte, Enter para abrir y Espacio para seleccionar.
+      </p>
       <div className="w-full overflow-visible rounded-[2px] border border-window-dark-shadow bg-card p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">
         <div className="mb-1.5 flex min-h-5 flex-wrap items-center justify-between gap-1">
           <p
@@ -477,7 +513,9 @@ export function ResourceList<TItem>({
                     className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                   />
                   <Input
+                    aria-keyshortcuts="Alt+F Escape"
                     className="h-8 pl-8 pr-8"
+                    data-resource-search
                     id={`${testId ?? "resource-list"}-search`}
                     placeholder={
                       searchPlaceholder ??
@@ -486,6 +524,12 @@ export function ResourceList<TItem>({
                     value={searchQuery}
                     onChange={(event) => {
                       setSearchQuery(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape" || !searchQuery) return;
+                      event.preventDefault();
+                      setSearchQuery("");
                       setCurrentPage(1);
                     }}
                   />
@@ -532,7 +576,15 @@ export function ResourceList<TItem>({
                     <DownloadSimple aria-hidden="true" />
                   </Button>
                 ) : null}
-                <details className="relative">
+                <details
+                  className="relative"
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape" || !event.currentTarget.open) return;
+                    event.preventDefault();
+                    event.currentTarget.open = false;
+                    event.currentTarget.querySelector("summary")?.focus();
+                  }}
+                >
                   <summary
                     aria-label="Configurar campos visibles"
                     className="grid size-9 cursor-pointer list-none place-items-center rounded-[2px] border border-window-dark-shadow bg-window-surface text-window-text shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus active:translate-x-px active:translate-y-px"
@@ -777,10 +829,15 @@ export function ResourceList<TItem>({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedItems.map((item) => (
+                {paginatedItems.map((item, index) => (
                   <TableRow
+                    aria-keyshortcuts="ArrowUp ArrowDown Home End Enter Space"
+                    className="focus-visible:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+                    data-resource-row
                     data-testid={getRowTestId?.(item)}
                     key={getRowId(item)}
+                    onKeyDown={(event) => handleRowKeyDown(event, getRowId(item))}
+                    tabIndex={index === 0 ? 0 : -1}
                   >
                     {enableSelection ? (
                       <TableCell>
@@ -810,13 +867,17 @@ export function ResourceList<TItem>({
             className="grid gap-2 md:hidden"
             data-testid="resource-list-mobile"
           >
-            {paginatedItems.map((item) => (
+            {paginatedItems.map((item, index) => (
               <article
-                className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]"
+                aria-keyshortcuts="ArrowUp ArrowDown Home End Enter Space"
+                className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                data-resource-row
                 data-testid={
                   getRowTestId ? `${getRowTestId(item)}-mobile` : undefined
                 }
                 key={getRowId(item)}
+                onKeyDown={(event) => handleRowKeyDown(event, getRowId(item))}
+                tabIndex={index === 0 ? 0 : -1}
               >
                 {renderMobileCard ? (
                   renderMobileCard(item)

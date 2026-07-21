@@ -115,7 +115,7 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
       >
         Aplicar
       </Button>
-      {error ? <p className={compact ? "max-w-40 truncate font-mono text-[0.58rem] text-yellow-200" : "text-xs text-destructive"} role="alert">{error}</p> : null}
+      {error ? <p className={compact ? "max-w-40 truncate font-mono text-[0.58rem] text-warning" : "text-xs text-destructive"} role="alert">{error}</p> : null}
     </div>
   );
 }

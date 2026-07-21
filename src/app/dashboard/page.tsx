@@ -145,7 +145,7 @@ export default async function DashboardPage() {
       </PageSection>
 
       {dashboardDataError ? (
-        <section className="border border-amber-900 bg-amber-100 p-2 font-mono text-xs text-amber-950" role="status">
+        <section className="border border-warning bg-warning/15 p-2 font-mono text-xs text-warning" role="status">
           No se pudieron cargar todos los indicadores del cockpit. Mostramos una ruta segura de primeros pasos para mantener el panel operativo.
         </section>
       ) : null}
@@ -154,7 +154,7 @@ export default async function DashboardPage() {
         <section className="grid gap-2 md:grid-cols-2" aria-label="Alertas operativas">
           {cockpit.alerts.map((alert) => (
             <Link
-              className="border border-amber-900 bg-amber-100 p-2.5 text-amber-950 hover:bg-amber-200"
+              className="border border-warning bg-warning/15 p-2.5 text-warning hover:bg-warning/25"
               href={alert.href}
               key={alert.title}
             >
@@ -169,7 +169,7 @@ export default async function DashboardPage() {
         <PageSection title="Ruta operativa" description="Primeros pasos conectados a datos reales del espacio activo." contentClassName="space-y-2" data-testid="dashboard-guided-demo">
             {cockpit.guidedDemoSteps.map((step) => (
               <div
-                className={`border p-2.5 ${step.isNext ? "border-primary bg-blue-50" : step.completed ? "border-window-shadow bg-window-panel" : "border-dashed border-window-dark-shadow"}`}
+                className={`border p-2.5 ${step.isNext ? "border-primary bg-primary/10" : step.completed ? "border-window-shadow bg-window-panel" : "border-dashed border-window-dark-shadow"}`}
                 key={step.step}
               >
                 <div className="flex items-start justify-between gap-3">

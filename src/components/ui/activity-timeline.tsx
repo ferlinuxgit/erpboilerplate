@@ -14,9 +14,9 @@ export type ActivityTimelineItem = {
 
 const toneClasses = {
   neutral: "bg-muted-foreground",
-  success: "bg-emerald-600",
-  warning: "bg-amber-500",
-  danger: "bg-red-600",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-destructive",
 };
 
 export function ActivityTimeline({ items, emptyMessage = "Todavía no hay actividad registrada." }: { items: ActivityTimelineItem[]; emptyMessage?: string }) {

@@ -9,6 +9,8 @@ import { ActiveContextSwitcher } from "@/components/layout/active-context-switch
 import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
 import { ContextNavigation } from "@/components/layout/context-navigation";
 import { FormNavigationGuard } from "@/components/layout/form-navigation-guard";
+import { KeyboardHelpButton, KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { ThemeSwitcher } from "@/components/layout/theme-switcher";
 import {
   getContextGroup,
   isActiveRoute,
@@ -21,13 +23,34 @@ import { cn } from "@/lib/utils";
 type AppShellProps = Readonly<{ children: ReactNode }>;
 
 type NavigationGroupsProps = {
+  id: string;
   pathname: string;
   onNavigate?: () => void;
 };
 
-function NavigationGroups({ pathname, onNavigate }: NavigationGroupsProps) {
+function NavigationGroups({ id, pathname, onNavigate }: NavigationGroupsProps) {
   return (
-    <nav aria-label="Navegación principal" className="space-y-1">
+    <nav
+      aria-label="Navegación principal"
+      className="space-y-1"
+      id={id}
+      onKeyDown={(event) => {
+        const currentLink = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]");
+        if (!currentLink) return;
+        const links = Array.from(event.currentTarget.querySelectorAll<HTMLAnchorElement>("a[href]"))
+          .filter((link) => link.getClientRects().length > 0);
+        const currentIndex = links.indexOf(currentLink);
+        let nextIndex: number | null = null;
+        if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % links.length;
+        else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + links.length) % links.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = links.length - 1;
+        if (nextIndex === null) return;
+        event.preventDefault();
+        links[nextIndex]?.focus();
+        links[nextIndex]?.scrollIntoView({ block: "nearest" });
+      }}
+    >
       {navGroups.map((group) => (
         <section key={group.label}>
           <p className="mb-px border-b border-window-shadow px-1.5 pb-px font-mono text-[0.52rem] font-bold uppercase tracking-[0.06em] text-window-muted">
@@ -119,6 +142,7 @@ export function AppShell({ children }: AppShellProps) {
       </a>
       <GlobalCommandPalette />
       <FormNavigationGuard />
+      <KeyboardShortcuts />
 
       <aside
         className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-window-dark-shadow bg-sidebar lg:flex xl:w-60"
@@ -135,12 +159,12 @@ export function AppShell({ children }: AppShellProps) {
         <div className="flex min-h-0 flex-1 flex-col p-2">
           <CommandPaletteButton className="mb-2 h-8 w-full" />
           <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-color:var(--window-shadow)_var(--window-panel)] [scrollbar-width:thin]">
-            <NavigationGroups pathname={pathname} />
+            <NavigationGroups id="primary-navigation" pathname={pathname} />
           </div>
           <div className="mt-2 flex h-7 shrink-0 items-center justify-between border border-window-dark-shadow bg-window-panel px-1.5 font-mono text-[0.58rem] text-window-muted shadow-[inset_1px_1px_0_var(--window-highlight)]">
             <span>OWNER</span>
-            <span className="text-emerald-800">● ONLINE</span>
-            <span>F1 AYUDA</span>
+            <span className="text-success">● ONLINE</span>
+            <KeyboardHelpButton compact />
           </div>
         </div>
       </aside>
@@ -152,7 +176,10 @@ export function AppShell({ children }: AppShellProps) {
             <span className="truncate text-xs font-bold uppercase">{contextGroup?.label ?? currentLink?.label ?? "Panel"}</span>
             <span className="hidden truncate text-[0.62rem] text-white/65 xl:inline">\ {currentLink?.label ?? "Vista general"}</span>
           </div>
-          <ActiveContextSwitcher compact />
+          <div className="flex min-w-0 items-center gap-1">
+            <ThemeSwitcher compact />
+            <ActiveContextSwitcher compact />
+          </div>
         </header>
 
         <header
@@ -207,13 +234,18 @@ export function AppShell({ children }: AppShellProps) {
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col p-2">
+                <div className="mb-2 border border-window-dark-shadow bg-window-panel p-2 shadow-[inset_1px_1px_0_var(--window-highlight)]">
+                  <p className="mb-1 font-mono text-[0.58rem] font-bold uppercase tracking-[0.06em] text-window-muted">Paleta de interfaz</p>
+                  <ThemeSwitcher />
+                </div>
                 <details className="mb-2 border border-window-dark-shadow bg-window-panel p-2 shadow-[inset_1px_1px_0_var(--window-highlight)]">
                   <summary className="cursor-pointer font-mono text-xs font-bold">Contexto activo</summary>
                   <div className="mt-2"><ActiveContextSwitcher /></div>
                 </details>
                 <CommandPaletteButton className="mb-2 w-full" onOpen={() => setMobileNavOpen(false)} />
+                <KeyboardHelpButton className="mb-2" onOpen={() => setMobileNavOpen(false)} />
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <NavigationGroups pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
+                  <NavigationGroups id="mobile-primary-navigation" pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
                 </div>
               </div>
             </div>
@@ -221,7 +253,13 @@ export function AppShell({ children }: AppShellProps) {
         ) : null}
 
         <ContextNavigation />
-        <div className="min-w-0 flex-1" id="main-content">{children}</div>
+        <div
+          className="min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+          id="main-content"
+          tabIndex={-1}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

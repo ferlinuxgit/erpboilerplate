@@ -6,13 +6,10 @@ type StatusTone = "neutral" | "success" | "warning" | "danger" | "info";
 
 const toneClasses: Record<StatusTone, string> = {
   neutral: "border-window-dark-shadow bg-window-panel text-window-muted",
-  success:
-    "border-emerald-200/80 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
-  warning:
-    "border-amber-200/80 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200",
-  danger:
-    "border-red-200/80 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/60 dark:text-red-200",
-  info: "border-sky-200/80 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
+  success: "border-success/70 bg-success/15 text-success",
+  warning: "border-warning/70 bg-warning/15 text-warning",
+  danger: "border-destructive/70 bg-destructive/15 text-destructive",
+  info: "border-info/70 bg-info/15 text-info",
 };
 
 type StatusBadgeProps = {

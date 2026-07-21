@@ -63,18 +63,18 @@ type MetricCardProps = {
 
 const alertToneClasses = {
   neutral: "border-window-dark-shadow bg-window-panel text-window-text",
-  info: "border-sky-900 bg-sky-100 text-sky-950",
-  success: "border-emerald-900 bg-emerald-100 text-emerald-950",
-  warning: "border-amber-900 bg-amber-100 text-amber-950",
-  danger: "border-red-900 bg-red-100 text-red-950",
+  info: "border-info bg-info/15 text-info",
+  success: "border-success bg-success/15 text-success",
+  warning: "border-warning bg-warning/15 text-warning",
+  danger: "border-destructive bg-destructive/15 text-destructive",
 };
 
 const metricToneClasses = {
   neutral: "border-window-dark-shadow",
-  info: "border-l-4 border-l-sky-800",
-  success: "border-l-4 border-l-emerald-800",
-  warning: "border-l-4 border-l-amber-700",
-  danger: "border-l-4 border-l-red-800",
+  info: "border-l-4 border-l-info",
+  success: "border-l-4 border-l-success",
+  warning: "border-l-4 border-l-warning",
+  danger: "border-l-4 border-l-destructive",
 };
 
 export function PageShell({ children, className }: PageShellProps) {

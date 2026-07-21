@@ -129,6 +129,52 @@ describe("frontend polish primitives", () => {
     detailRoutes.forEach((route) => expect(existsSync(join(root, route)), `${route} must exist`).toBe(true));
   });
 
+  it("provides persistent selectable light and dark retro palettes", () => {
+    const themeConfig = sourceFor("src/lib/theme-config.ts");
+    const themeSwitcher = sourceFor("src/components/layout/theme-switcher.tsx");
+    const rootLayout = sourceFor("src/app/layout.tsx");
+    const appShell = sourceFor("src/components/layout/app-shell.tsx");
+    const globals = sourceFor("src/app/globals.css");
+
+    expect(themeConfig).toContain('id: "classic-light"');
+    expect(themeConfig).toContain('id: "paper-light"');
+    expect(themeConfig).toContain('id: "os2-light"');
+    expect(themeConfig).toContain('id: "midnight-dark"');
+    expect(themeConfig).toContain('id: "dos-green"');
+    expect(themeConfig).toContain('id: "amber-dark"');
+    expect(themeSwitcher).toContain("useSyncExternalStore");
+    expect(themeSwitcher).toContain("window.localStorage.setItem");
+    expect(themeSwitcher).toContain('aria-label="Paleta de interfaz"');
+    expect(rootLayout).toContain("themeInitializationScript");
+    expect(rootLayout).toContain("suppressHydrationWarning");
+    expect(appShell).toContain("<ThemeSwitcher compact />");
+    expect(globals).toContain(':root[data-theme="dos-green"]');
+    expect(globals).toContain(':root[data-theme="amber-dark"]');
+  });
+
+  it("supports complete keyboard-first operation across the application shell", () => {
+    const shortcuts = sourceFor("src/components/layout/keyboard-shortcuts.tsx");
+    const appShell = sourceFor("src/components/layout/app-shell.tsx");
+    const contextNavigation = sourceFor("src/components/layout/context-navigation.tsx");
+    const commandPalette = sourceFor("src/components/layout/global-command-palette.tsx");
+    const resourceList = sourceFor("src/components/ui/resource-list.tsx");
+
+    expect(shortcuts).toContain('event.key === "F1"');
+    expect(shortcuts).toContain('event.key === "F6"');
+    expect(shortcuts).toContain("navigationByCode.get(code)");
+    expect(shortcuts).toContain("form.requestSubmit()");
+    expect(shortcuts).toContain('key === "f"');
+    expect(appShell).toContain("<KeyboardShortcuts />");
+    expect(appShell).toContain('id="primary-navigation"');
+    expect(appShell).toContain('tabIndex={-1}');
+    expect(contextNavigation).toContain('event.key === "ArrowRight"');
+    expect(commandPalette).toContain("data-command-item");
+    expect(commandPalette).toContain('event.key === "ArrowDown"');
+    expect(resourceList).toContain("data-resource-search");
+    expect(resourceList).toContain("data-resource-row");
+    expect(resourceList).toContain('event.key === "Enter"');
+  });
+
   it("organizes sales as independent quote, order, and delivery-note sections", () => {
     const salesPage = sourceFor("src/app/sales/page.tsx");
     const appShell = sourceFor("src/components/layout/app-shell.tsx");

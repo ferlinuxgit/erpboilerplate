@@ -35,6 +35,7 @@ for (const viewport of viewports) {
           await expect(page.getByTestId("desktop-sidebar").getByText("40 · Administración", { exact: true })).toBeVisible();
           await expect(page.getByLabel("Empresa activa")).toBeVisible();
           await expect(page.getByLabel("Ejercicio fiscal activo")).toBeVisible();
+          await expect(page.getByLabel("Paleta de interfaz")).toBeVisible();
           await expect(page.getByTestId("desktop-sidebar").getByTestId(navTestId)).toHaveAttribute("aria-current", "page");
         } else {
           await expect(page.getByTestId("mobile-topbar")).toBeVisible();
@@ -45,6 +46,7 @@ for (const viewport of viewports) {
           await expect(drawer).toBeVisible();
           await expect(drawer.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
           await expect(drawer.getByText("Contexto activo", { exact: true })).toBeVisible();
+          await expect(drawer.getByLabel("Paleta de interfaz")).toBeVisible();
           await expect(drawer.getByTestId(navTestId)).toHaveAttribute("aria-current", "page");
         }
 
@@ -56,3 +58,37 @@ for (const viewport of viewports) {
     }
   });
 }
+
+test.describe("app shell theme palettes", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test("switches between dark and light palettes and persists the choice", async ({ page }, testInfo) => {
+    await registerAndSignIn(page, "shell-theme-persistence@example.com");
+    await page.goto("/dashboard");
+
+    const themeSwitcher = page.getByTestId("theme-switcher");
+    await expect(themeSwitcher).toBeVisible();
+
+    const paletteIds = ["classic-light", "paper-light", "os2-light", "midnight-dark", "dos-green", "amber-dark"] as const;
+    for (const paletteId of paletteIds) {
+      await themeSwitcher.selectOption(paletteId);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", paletteId);
+      await testInfo.attach(`theme-${paletteId}`, {
+        body: await page.screenshot({ caret: "initial", fullPage: true }),
+        contentType: "image/png",
+      });
+    }
+
+    await themeSwitcher.selectOption("dos-green");
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("erp-suite-theme"))).toBe("dos-green");
+
+    await page.reload();
+    await expect(themeSwitcher).toHaveValue("dos-green");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dos-green");
+
+    await themeSwitcher.selectOption("paper-light");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "paper-light");
+    await expect(page.locator("html")).not.toHaveClass(/dark/);
+  });
+});
