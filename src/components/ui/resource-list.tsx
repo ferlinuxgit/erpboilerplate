@@ -29,6 +29,7 @@ import {
 export type ResourceListColumn<TItem> = {
   header: string;
   cell: (item: TItem) => ReactNode;
+  alwaysVisible?: boolean;
   className?: string;
   exportValue?: (item: TItem) => string | number | null | undefined;
   sortValue?: (item: TItem) => string | number | Date | null | undefined;
@@ -126,10 +127,14 @@ export function ResourceList<TItem>({
   const columnHeadersKey = columns
     .map((column) => column.header)
     .join("\u001f");
+  const alwaysVisibleHeadersKey = columns
+    .filter((column) => column.alwaysVisible)
+    .map((column) => column.header)
+    .join("\u001f");
   const filterKeysKey = filters.map((filter) => filter.key).join("\u001f");
   const urlPrefix = `rl-${testId ?? title.toLocaleLowerCase().replaceAll(/\s+/g, "-")}-`;
   const visibleColumns = columns.filter((column) =>
-    visibleHeaders.has(column.header),
+    column.alwaysVisible || visibleHeaders.has(column.header),
   );
 
   useEffect(() => {
@@ -148,9 +153,14 @@ export function ResourceList<TItem>({
             const restoredHeaders = parsed.visibleHeaders.filter((header) =>
               availableHeaders.has(header),
             );
+            const alwaysVisibleHeaders = alwaysVisibleHeadersKey
+              .split("\u001f")
+              .filter(Boolean);
             setVisibleHeaders(
               new Set(
-                restoredHeaders.length > 0 ? restoredHeaders : availableHeaders,
+                restoredHeaders.length > 0
+                  ? [...restoredHeaders, ...alwaysVisibleHeaders]
+                  : availableHeaders,
               ),
             );
           }
@@ -191,6 +201,7 @@ export function ResourceList<TItem>({
     return () => window.clearTimeout(timer);
   }, [
     columnHeadersKey,
+    alwaysVisibleHeadersKey,
     filterKeysKey,
     pageSizeOptionsKey,
     storageKey,
@@ -367,8 +378,15 @@ export function ResourceList<TItem>({
     const restoredHeaders = view.visibleHeaders.filter((header) =>
       availableHeaders.has(header),
     );
+    const alwaysVisibleHeaders = columns
+      .filter((column) => column.alwaysVisible)
+      .map((column) => column.header);
     setVisibleHeaders(
-      new Set(restoredHeaders.length > 0 ? restoredHeaders : availableHeaders),
+      new Set(
+        restoredHeaders.length > 0
+          ? [...restoredHeaders, ...alwaysVisibleHeaders]
+          : availableHeaders,
+      ),
     );
     setActivePageSize(view.pageSize);
     setCurrentPage(1);
@@ -600,10 +618,10 @@ export function ResourceList<TItem>({
                         key={column.header}
                       >
                         <input
-                          checked={visibleHeaders.has(column.header)}
+                          checked={column.alwaysVisible || visibleHeaders.has(column.header)}
                           disabled={
-                            visibleHeaders.size === 1 &&
-                            visibleHeaders.has(column.header)
+                            column.alwaysVisible ||
+                            (visibleHeaders.size === 1 && visibleHeaders.has(column.header))
                           }
                           onChange={() =>
                             setVisibleHeaders((current) => {

@@ -33,6 +33,7 @@ type SuppliersTableProps = {
 const columns: ResourceListColumn<SupplierRow>[] = [
   {
     header: "N.º proveedor",
+    alwaysVisible: true,
     cell: (supplier) => <span className="font-mono font-medium">{supplier.number}</span>,
     exportValue: (supplier) => supplier.number,
     sortValue: (supplier) => supplier.number,

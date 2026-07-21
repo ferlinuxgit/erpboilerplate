@@ -30,6 +30,7 @@ type CustomersTableProps = {
 const columns: ResourceListColumn<CustomerRow>[] = [
   {
     header: "N.º cliente",
+    alwaysVisible: true,
     cell: (customer) => <span className="font-mono font-medium">{customer.number ?? "Sin número"}</span>,
     exportValue: (customer) => customer.number ?? "",
     sortValue: (customer) => customer.number ?? "",
