@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { CreateSalesQuoteForm } from "@/components/sales/create-sales-quote-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, salesQuote, salesQuoteLine } from "@/db/schema";
+import { customer, partner, salesQuote, salesQuoteLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 
@@ -22,8 +22,9 @@ export default async function EditSalesQuotePage({
   if (!record || record.status !== "DRAFT") notFound();
   const [customers, lines] = await Promise.all([
     db
-      .select({ id: customer.id, name: customer.name })
+      .select({ id: customer.id, number: partner.number, name: customer.name })
       .from(customer)
+      .leftJoin(partner, eq(partner.id, customer.partnerId))
       .where(eq(customer.companyId, ctx.company.id))
       .orderBy(asc(customer.name)),
     db.select().from(salesQuoteLine).where(eq(salesQuoteLine.salesQuoteId, id)),

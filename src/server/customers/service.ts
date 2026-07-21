@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { customer, partner } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
+import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { reservePartnerNumber } from "@/server/partners/numbers";
 import { createCustomerSchema, updateCustomerSchema } from "@/server/schemas/forms";
 
 type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
@@ -23,6 +25,7 @@ function fiscalValues(input: CreateCustomerInput | UpdateCustomerInput) {
     email: cleanOptional(input.email),
     phone: cleanOptional(input.phone),
     taxId: normalizeSpanishTaxId(input.taxId),
+    taxIdNormalized: normalizeTaxIdentity(input.taxId, input.countryCode),
     address: input.address.trim(),
     addressLine2: cleanOptional(input.addressLine2),
     city: input.city.trim(),
@@ -39,32 +42,33 @@ function partnerTypeForCustomer(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
 export async function createCustomerWithPartner(dbClient: DbClient, companyId: string, input: CreateCustomerInput) {
   const values = fiscalValues(input);
   const existingPartners = await dbClient
-    .select({ id: partner.id, type: partner.type })
+    .select({ id: partner.id, number: partner.number, type: partner.type })
     .from(partner)
-    .where(and(eq(partner.companyId, companyId), eq(partner.taxId, values.taxId)))
+    .where(and(eq(partner.companyId, companyId), eq(partner.countryCode, values.countryCode), eq(partner.taxIdNormalized, values.taxIdNormalized)))
     .limit(1);
 
-  const partnerId =
-    existingPartners[0]?.id ??
-    (
-      await dbClient
-        .insert(partner)
-        .values({
-          companyId,
-          type: "CUSTOMER",
-          name: values.name,
-          email: values.email,
-          phone: values.phone,
-          taxId: values.taxId,
-          address: values.address,
-          addressLine2: values.addressLine2,
-          city: values.city,
-          province: values.province,
-          postalCode: values.postalCode,
-          countryCode: values.countryCode,
-        })
-        .returning({ id: partner.id })
-    )[0].id;
+  const partnerRecord = existingPartners[0] ?? (
+    await dbClient
+      .insert(partner)
+      .values({
+        companyId,
+        number: await reservePartnerNumber(dbClient, companyId),
+        type: "CUSTOMER",
+        name: values.name,
+        email: values.email,
+        phone: values.phone,
+        taxId: values.taxId,
+        taxIdNormalized: values.taxIdNormalized,
+        address: values.address,
+        addressLine2: values.addressLine2,
+        city: values.city,
+        province: values.province,
+        postalCode: values.postalCode,
+        countryCode: values.countryCode,
+      })
+      .returning({ id: partner.id, number: partner.number, type: partner.type })
+  )[0];
+  const partnerId = partnerRecord.id;
 
   if (existingPartners[0]) {
     await dbClient
@@ -75,6 +79,7 @@ export async function createCustomerWithPartner(dbClient: DbClient, companyId: s
         email: values.email,
         phone: values.phone,
         taxId: values.taxId,
+        taxIdNormalized: values.taxIdNormalized,
         address: values.address,
         addressLine2: values.addressLine2,
         city: values.city,
@@ -105,7 +110,7 @@ export async function createCustomerWithPartner(dbClient: DbClient, companyId: s
       partnerId: customer.partnerId,
     });
 
-  return createdCustomer;
+  return { ...createdCustomer, number: partnerRecord.number };
 }
 
 export async function updateCustomerWithPartner(
@@ -133,6 +138,7 @@ export async function updateCustomerWithPartner(
         email: values.email,
         phone: values.phone,
         taxId: values.taxId,
+        taxIdNormalized: values.taxIdNormalized,
         address: values.address,
         addressLine2: values.addressLine2,
         city: values.city,
@@ -149,11 +155,13 @@ export async function updateCustomerWithPartner(
         .insert(partner)
         .values({
           companyId,
+          number: await reservePartnerNumber(dbClient, companyId),
           type: "CUSTOMER",
           name: values.name,
           email: values.email,
           phone: values.phone,
           taxId: values.taxId,
+          taxIdNormalized: values.taxIdNormalized,
           address: values.address,
           addressLine2: values.addressLine2,
           city: values.city,

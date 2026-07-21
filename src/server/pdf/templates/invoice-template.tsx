@@ -107,6 +107,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
           <View style={styles.party}>
             <Text style={styles.partyHeader}>Cliente</Text>
             <Text style={styles.partyName}>{customer.name}</Text>
+            {customer.number ? <Text style={styles.line}>N.º cliente {customer.number}</Text> : null}
             {customer.taxId ? <Text style={styles.line}>{customer.taxId}</Text> : null}
             {customerAddress ? <Text style={styles.mutedLine}>{customerAddress}</Text> : null}
           </View>

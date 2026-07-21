@@ -44,6 +44,7 @@ export async function getPurchaseOrderPdfData(
       companyCity: company.city,
       companyProvince: company.province,
       companyCountryCode: company.countryCode,
+      supplierNumber: partner.number,
       supplierName: partner.name,
       supplierTaxId: partner.taxId,
       supplierAddress: partner.address,
@@ -87,6 +88,7 @@ export async function getPurchaseOrderPdfData(
         countryCode: record.companyCountryCode,
       },
       supplier: {
+        number: record.supplierNumber,
         name: record.supplierName,
         taxId: record.supplierTaxId,
         address: record.supplierAddress,

@@ -16,6 +16,7 @@ export async function POST(request: Request) {
 
   const formData = await request.formData();
   const file = formData.get("file");
+  const batchId = formData.get("batchId");
   if (!(file instanceof File)) return NextResponse.json({ message: "Adjunta un PDF o imagen." }, { status: 400 });
   if (!supportedContentTypes.has(file.type)) return NextResponse.json({ message: "Formato no soportado. Usa PDF, PNG, JPG o WEBP." }, { status: 400 });
   if (file.size > 12 * 1024 * 1024) return NextResponse.json({ message: "El archivo no puede superar 12 MB." }, { status: 400 });
@@ -31,13 +32,16 @@ export async function POST(request: Request) {
       contentType: file.type,
       buffer,
       initialStatus: "PROCESSING",
+      extractionProvider: "openai",
+      extractionModel: process.env.OPENAI_EXPENSE_ANALYSIS_MODEL || "gpt-5",
+      batchId: typeof batchId === "string" && batchId.trim() ? batchId.trim() : undefined,
     });
     const result = await analyzeExpenseInvoiceWithOpenAI({
       fileName: file.name,
       contentType: file.type,
       buffer,
     });
-    await completeExpenseOcrJob(job.id, result.draft, JSON.stringify(result.analysis));
+    await completeExpenseOcrJob(job.id, result.draft, JSON.stringify(result.analysis), { provider: "openai", model: result.model });
     return NextResponse.json({
       fileName: job.fileName,
       fileUrl: job.fileUrl,

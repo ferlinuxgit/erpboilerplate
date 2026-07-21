@@ -44,4 +44,17 @@ describe("expense OCR parser", () => {
     expect(draft.supplierTaxId).toBe("B12345674");
     expect(draft.warnings).not.toContain("No se pudo identificar el proveedor con confianza.");
   });
+
+  it("rejects impossible calendar dates instead of rolling them into another month", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Electricidad Ejemplo SL
+      CIF: B12345674
+      Factura: F-INVALID-DATE
+      Fecha factura: 31/02/2026
+      Base imponible: 100,00
+      IVA 21%: 21,00
+      Total factura: 121,00
+    `);
+    expect(draft.issueDate).toBeUndefined();
+  });
 });

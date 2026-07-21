@@ -28,7 +28,7 @@ export default async function EditSupplierPage({ params }: { params: Promise<{ i
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Proveedores" title="Editar proveedor" description={data.name} backHref="/suppliers" backLabel="Volver a proveedores" />
+      <PageHeader eyebrow="Proveedores" title="Editar proveedor" description={`${data.number} · ${data.name}`} backHref="/suppliers" backLabel="Volver a proveedores" />
       <PageSection title="Datos del proveedor" description="Actualiza identidad, contacto y estado del proveedor.">
         <EditSupplierForm
           id={data.id}

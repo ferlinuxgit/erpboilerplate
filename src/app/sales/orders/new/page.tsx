@@ -9,15 +9,16 @@ import {
   PageSection,
   PageShell,
 } from "@/components/ui/page";
-import { customer, tax } from "@/db/schema";
+import { customer, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 
 export default async function NewSalesOrderPage() {
   const ctx = await requireContext("invoice.create");
   const [customers, [defaultTax]] = await Promise.all([db
-    .select({ id: customer.id, name: customer.name })
+    .select({ id: customer.id, number: partner.number, name: customer.name })
     .from(customer)
+    .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(eq(customer.companyId, ctx.company.id))
     .orderBy(asc(customer.name)), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, ctx.company.id)).orderBy(tax.rate).limit(1)]);
   return (

@@ -129,8 +129,13 @@ export type ExpenseInvoiceAiDraft = {
   supplierProvince?: string;
   supplierCountryCode?: string;
   supplierDocumentNumber?: string;
+  currencyCode?: string;
   issueDate?: string;
   dueDate?: string;
+  subtotalAmount?: number;
+  taxAmount?: number;
+  retentionAmount?: number;
+  totalAmount?: number;
   lines: Array<{
     description: string;
     quantity: number;
@@ -138,6 +143,7 @@ export type ExpenseInvoiceAiDraft = {
     taxRate: number;
     taxDeductiblePct: number;
     retentionRate: number;
+    suggestedExpenseAccountCode?: string;
   }>;
   confidence: "high" | "medium" | "low";
   warnings: string[];
@@ -183,6 +189,7 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
       taxRate: numberOrFallback(line.tax_rate, analysis.taxes[0]?.rate ?? 21),
       taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, analysis.taxes[0]?.deductible_pct ?? 100),
       retentionRate: numberOrFallback(line.retention_rate, 0),
+      suggestedExpenseAccountCode: line.suggested_expense_account_code ?? undefined,
     }))
     : [{
       description: analysis.description || analysis.invoice_number || "Gasto analizado por IA",
@@ -191,6 +198,7 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
       taxRate: numberOrFallback(analysis.taxes[0]?.rate ?? null, 21),
       taxDeductiblePct: numberOrFallback(analysis.taxes[0]?.deductible_pct ?? null, 100),
       retentionRate: 0,
+      suggestedExpenseAccountCode: analysis.suggested_expense_account_code ?? undefined,
     }];
 
   return {
@@ -204,11 +212,16 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
     supplierProvince: analysis.supplier_province ?? undefined,
     supplierCountryCode: analysis.supplier_country_code ?? undefined,
     supplierDocumentNumber: analysis.invoice_number ?? undefined,
+    currencyCode: analysis.currency_code ?? undefined,
     issueDate: isoDateOrUndefined(analysis.invoice_issue_date),
     dueDate: isoDateOrUndefined(analysis.invoice_due_date),
+    subtotalAmount: analysis.subtotal_amount ?? undefined,
+    taxAmount: analysis.tax_amount ?? undefined,
+    retentionAmount: analysis.retention_amount ?? undefined,
+    totalAmount: analysis.total_amount ?? undefined,
     lines,
     confidence: confidenceLabel(analysis.confidence_overall),
-    warnings: [...analysis.warnings, ...analysis.blocking_errors],
+    warnings: [...analysis.warnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
   };
 }
 

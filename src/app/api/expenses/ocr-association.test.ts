@@ -37,4 +37,20 @@ describe("expense OCR association", () => {
     expect(response.status).toBe(201);
     expect(mocks.createExpenseInvoice).toHaveBeenCalledWith(expect.objectContaining({ companyId: "company-1", ocrJobId: "ocr-job-1" }));
   });
+
+  it("returns conflict for a duplicate detected during a concurrent creation", async () => {
+    mocks.createExpenseInvoice.mockRejectedValueOnce(new Error("Gasto duplicado: ya existe una factura de este proveedor con número F-1."));
+    const { POST } = await import("@/app/api/expenses/route");
+    const response = await POST(new Request("https://erp.test/api/expenses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        supplierName: "Proveedor OCR",
+        supplierDocumentNumber: "F-1",
+        issueDate: "2026-07-20T12:00:00.000Z",
+        lines: [{ description: "Servicio", quantity: 1, unitPrice: 100, taxRate: 21, taxDeductiblePct: 100, retentionRate: 0 }],
+      }),
+    }));
+    expect(response.status).toBe(409);
+  });
 });

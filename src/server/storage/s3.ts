@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const region = process.env.S3_REGION;
@@ -35,4 +35,9 @@ export async function readPrivateObject(key: string) {
   const result = await s3.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }));
   if (!result.Body) throw new Error("El archivo almacenado está vacío.");
   return Buffer.from(await result.Body.transformToByteArray());
+}
+
+export async function deletePrivateObject(key: string) {
+  if (!s3 || !process.env.S3_BUCKET) return;
+  await s3.send(new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }));
 }

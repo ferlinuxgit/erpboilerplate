@@ -10,7 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
-type CustomerOption = { id: string; name: string };
+type CustomerOption = { id: string; number?: string | null; name: string };
 export type QuoteLine = {
   description: string;
   quantity: string;
@@ -131,7 +131,7 @@ export function CreateSalesQuoteForm({
           >
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>
-                {customer.name}
+                {customer.number ? `${customer.number} · ` : ""}{customer.name}
               </option>
             ))}
           </Select>

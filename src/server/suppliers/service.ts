@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment, partner } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
+import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { reservePartnerNumber } from "@/server/partners/numbers";
 import { createSupplierSchema, updateSupplierSchema } from "@/server/schemas/forms";
 
 type CreateSupplierInput = z.infer<typeof createSupplierSchema>;
@@ -23,6 +25,7 @@ function supplierValues(input: CreateSupplierInput | UpdateSupplierInput) {
     email: cleanOptional(input.email),
     phone: cleanOptional(input.phone),
     taxId: normalizeSpanishTaxId(input.taxId),
+    taxIdNormalized: normalizeTaxIdentity(input.taxId, input.countryCode),
     address: input.address.trim(),
     addressLine2: cleanOptional(input.addressLine2),
     city: input.city.trim(),
@@ -45,6 +48,7 @@ export async function listSuppliers(dbClient: DbClient, companyId: string) {
   return dbClient
     .select({
       id: partner.id,
+      number: partner.number,
       name: partner.name,
       email: partner.email,
       phone: partner.phone,
@@ -73,6 +77,7 @@ export async function getSupplier(dbClient: DbClient, companyId: string, id: str
   const [row] = await dbClient
     .select({
       id: partner.id,
+      number: partner.number,
       name: partner.name,
       email: partner.email,
       phone: partner.phone,
@@ -103,7 +108,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
   const [existing] = await dbClient
     .select({ id: partner.id, type: partner.type })
     .from(partner)
-    .where(and(eq(partner.companyId, companyId), eq(partner.taxId, values.taxId)))
+    .where(and(eq(partner.companyId, companyId), eq(partner.countryCode, values.countryCode), eq(partner.taxIdNormalized, values.taxIdNormalized)))
     .limit(1);
 
   if (existing) {
@@ -115,6 +120,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
         email: values.email,
         phone: values.phone,
         taxId: values.taxId,
+        taxIdNormalized: values.taxIdNormalized,
         address: values.address,
         addressLine2: values.addressLine2,
         city: values.city,
@@ -129,7 +135,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
         updatedAt: new Date(),
       })
       .where(and(eq(partner.id, existing.id), eq(partner.companyId, companyId)))
-      .returning({ id: partner.id, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
+      .returning({ id: partner.id, number: partner.number, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
     return updated;
   }
 
@@ -137,11 +143,13 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
     .insert(partner)
     .values({
       companyId,
+      number: await reservePartnerNumber(dbClient, companyId),
       type: "SUPPLIER",
       name: values.name,
       email: values.email,
       phone: values.phone,
       taxId: values.taxId,
+      taxIdNormalized: values.taxIdNormalized,
       address: values.address,
       addressLine2: values.addressLine2,
       city: values.city,
@@ -154,7 +162,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
       currencyCode: values.currencyCode,
       isActive: true,
     })
-    .returning({ id: partner.id, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
+    .returning({ id: partner.id, number: partner.number, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
   return created;
 }
 
@@ -163,7 +171,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
   const [duplicate] = await dbClient
     .select({ id: partner.id })
     .from(partner)
-    .where(and(eq(partner.companyId, companyId), eq(partner.taxId, values.taxId), ne(partner.id, id)))
+    .where(and(eq(partner.companyId, companyId), eq(partner.countryCode, values.countryCode), eq(partner.taxIdNormalized, values.taxIdNormalized), ne(partner.id, id)))
     .limit(1);
   if (duplicate) throw new Error("Ya existe otro tercero con ese CIF/NIF.");
 
@@ -174,6 +182,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
       email: values.email,
       phone: values.phone,
       taxId: values.taxId,
+      taxIdNormalized: values.taxIdNormalized,
       address: values.address,
       addressLine2: values.addressLine2,
       city: values.city,
@@ -188,7 +197,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
       updatedAt: new Date(),
     })
     .where(and(eq(partner.id, id), eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
-    .returning({ id: partner.id, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
+    .returning({ id: partner.id, number: partner.number, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
   return updated;
 }
 

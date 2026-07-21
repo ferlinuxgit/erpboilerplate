@@ -19,7 +19,7 @@ export default async function NewCustomerPage() {
         backLabel="Volver a clientes"
       />
 
-      <PageSection title="Datos del cliente" description="Informa identidad fiscal, domicilio y datos de contacto.">
+      <PageSection title="Datos del cliente" description="Informa identidad fiscal, domicilio y contacto. El número de cliente se asignará automáticamente.">
         {canCreateCustomer ? (
           <CreateCustomerForm redirectHref="/customers" />
         ) : (

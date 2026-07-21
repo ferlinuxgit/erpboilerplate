@@ -45,7 +45,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
             }
           />
         ) : (
-          <CreateExpenseInvoiceForm expenseAccounts={expenseAccounts} initialSupplierId={initialSupplierId} suppliers={suppliers} />
+          <CreateExpenseInvoiceForm baseCurrencyCode={ctx.company.baseCurrencyCode} expenseAccounts={expenseAccounts} initialSupplierId={initialSupplierId} suppliers={suppliers} />
         )}
       </PageSection>
     </PageShell>

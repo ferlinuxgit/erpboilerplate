@@ -35,6 +35,7 @@ export type InvoicePdfInput = {
     invoiceFooter: string | null;
   };
   customer: {
+    number?: string | null;
     name: string;
     taxId: string | null;
     address: string | null;
@@ -76,6 +77,7 @@ export type PurchaseOrderPdfInput = {
     countryCode: string | null;
   };
   supplier: {
+    number?: string | null;
     name: string;
     taxId: string | null;
     address: string | null;

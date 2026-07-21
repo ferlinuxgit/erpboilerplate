@@ -21,6 +21,7 @@ export async function POST(request: Request) {
 
   const formData = await request.formData();
   const file = formData.get("file");
+  const batchId = formData.get("batchId");
   if (!(file instanceof File)) return NextResponse.json({ message: "Adjunta un PDF o imagen." }, { status: 400 });
   if (file.size > 12 * 1024 * 1024) return NextResponse.json({ message: "El archivo OCR no puede superar 12 MB." }, { status: 400 });
 
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
       fileName: file.name,
       contentType: file.type || "application/octet-stream",
       buffer,
+      batchId: typeof batchId === "string" && batchId.trim() ? batchId.trim() : undefined,
     });
     void processExpenseOcrJob(job.id);
     return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });

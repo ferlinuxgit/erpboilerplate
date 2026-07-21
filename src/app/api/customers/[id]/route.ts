@@ -19,6 +19,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const [row] = await db
     .select({
       id: customer.id,
+      number: partner.number,
       name: customer.name,
       email: customer.email,
       phone: customer.phone,

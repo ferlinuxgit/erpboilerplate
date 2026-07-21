@@ -36,7 +36,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
       <PageHeader
         eyebrow="Proveedores"
         title={supplier.name}
-        description={[supplier.taxId, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(" · ") || "Ficha de proveedor"}
+        description={[`N.º proveedor ${supplier.number}`, supplier.taxId, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(" · ") || "Ficha de proveedor"}
         backHref="/suppliers"
         backLabel="Volver a proveedores"
         meta={<StatusBadge tone={supplier.isActive ? "success" : "neutral"}>{supplier.isActive ? "Activo" : "Inactivo"}</StatusBadge>}
@@ -66,6 +66,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <CardDescription>Identidad y domicilio del tercero.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
+            <p>N.º proveedor: <span className="font-mono">{supplier.number}</span></p>
             <p>CIF/NIF: {supplier.taxId ?? "Sin informar"}</p>
             <p>Dirección: {[supplier.address, supplier.addressLine2].filter(Boolean).join(", ") || "Sin informar"}</p>
             <p>Población: {[supplier.postalCode, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(", ") || "Sin informar"}</p>

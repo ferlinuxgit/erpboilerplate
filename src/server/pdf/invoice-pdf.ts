@@ -46,6 +46,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       companyLogoDataUrl: company.logoDataUrl,
       companyInvoiceFooter: company.invoiceFooter,
       companyBaseCurrencyCode: company.baseCurrencyCode,
+      customerNumber: partner.number,
       customerName: customer.name,
       customerTaxId: partner.taxId,
       customerAddress: partner.address,
@@ -108,6 +109,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         invoiceFooter: row.companyInvoiceFooter,
       },
       customer: {
+        number: row.customerNumber,
         name: row.customerName,
         taxId: row.customerTaxId,
         address: row.customerAddress,

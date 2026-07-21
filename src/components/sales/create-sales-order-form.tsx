@@ -27,7 +27,7 @@ export function CreateSalesOrderForm({
   customers,
   defaultTaxRate = 0,
 }: {
-  customers: Array<{ id: string; name: string }>;
+  customers: Array<{ id: string; number?: string | null; name: string }>;
   defaultTaxRate?: number;
 }) {
   const router = useRouter();
@@ -93,7 +93,7 @@ export function CreateSalesOrderForm({
           >
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>
-                {customer.name}
+                {customer.number ? `${customer.number} · ` : ""}{customer.name}
               </option>
             ))}
           </Select>

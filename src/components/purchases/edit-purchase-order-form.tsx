@@ -34,7 +34,7 @@ export function EditPurchaseOrderForm({
   defaultSupplierName: string;
   initialLines: Array<{ id: string; itemId: string | null; description: string; quantity: string; unitPrice: string }>;
   items: ItemOption[];
-  suppliers: Array<{ id: string; name: string }>;
+  suppliers: Array<{ id: string; number: string; name: string }>;
 }) {
   const router = useRouter();
   const [number, setNumber] = useState(defaultNumber);
@@ -87,7 +87,7 @@ export function EditPurchaseOrderForm({
   return (
     <form aria-describedby={error ? "edit-purchase-order-error" : undefined} className="space-y-3" onSubmit={onSubmit}>
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="space-y-2"><Label htmlFor="edit-po-supplier">Proveedor</Label><Input id="edit-po-supplier" list="edit-po-suppliers" onChange={(event) => setSupplierName(event.target.value)} required value={supplierName} /><datalist id="edit-po-suppliers">{suppliers.map((supplier) => <option key={supplier.id} value={supplier.name} />)}</datalist></div>
+        <div className="space-y-2"><Label htmlFor="edit-po-supplier">Proveedor</Label><Input id="edit-po-supplier" list="edit-po-suppliers" onChange={(event) => setSupplierName(event.target.value)} required value={supplierName} /><datalist id="edit-po-suppliers">{suppliers.map((supplier) => <option key={supplier.id} label={`${supplier.number} · ${supplier.name}`} value={supplier.name} />)}</datalist></div>
         <div className="space-y-2"><Label htmlFor="edit-po-number">Número</Label><Input id="edit-po-number" onChange={(event) => setNumber(event.target.value)} required value={number} /></div>
         <div className="space-y-2"><Label htmlFor="edit-po-status">Estado operativo</Label><Select id="edit-po-status" onChange={(event) => setStatus(event.target.value)} required value={status}>{statuses.map((option) => <option key={option} value={option}>{statusLabel(purchaseOrderStatusLabels, option)}</option>)}</Select><p className="text-xs text-muted-foreground">Recepción, facturación y pago actualizan el estado automáticamente.</p></div>
       </section>

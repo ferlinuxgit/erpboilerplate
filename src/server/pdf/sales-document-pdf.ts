@@ -21,6 +21,7 @@ const issuerFields = {
   companyLogoDataUrl: company.logoDataUrl,
   companyInvoiceFooter: company.invoiceFooter,
   currency: company.baseCurrencyCode,
+  customerNumber: partner.number,
   customerName: customer.name,
   customerTaxId: partner.taxId,
   customerAddress: partner.address,
@@ -47,6 +48,7 @@ type PartyRow = {
   companyLogoDataUrl: string | null;
   companyInvoiceFooter: string | null;
   currency: string;
+  customerNumber: string | null;
   customerName: string;
   customerTaxId: string | null;
   customerAddress: string | null;
@@ -90,6 +92,7 @@ function partyInput(row: PartyRow) {
       invoiceFooter: row.companyInvoiceFooter,
     },
     customer: {
+      number: row.customerNumber,
       name: row.customerName,
       taxId: row.customerTaxId,
       address: row.customerAddress,

@@ -18,6 +18,7 @@ export default async function CustomersPage() {
   const customers = await db
     .select({
       id: customer.id,
+      number: partner.number,
       name: customer.name,
       status: customer.status,
       email: customer.email,

@@ -15,6 +15,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
   const rows = await db
     .select({
       id: customer.id,
+      number: partner.number,
       name: customer.name,
       email: customer.email,
       phone: customer.phone,
@@ -36,7 +37,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Clientes" title="Editar cliente" description={data.name} backHref="/customers" backLabel="Volver a clientes" />
+      <PageHeader eyebrow="Clientes" title="Editar cliente" description={[data.number, data.name].filter(Boolean).join(" · ")} backHref="/customers" backLabel="Volver a clientes" />
       <PageSection title="Datos del cliente" description="Actualiza identidad, contacto y estado comercial.">
         <EditCustomerForm
           id={data.id}

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { getExpenseOcrJob, processExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { getExpenseOcrJob, processExpenseOcrJob, retryExpenseOcrJob } from "@/server/ocr/expense-ocr";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
@@ -24,6 +24,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const existing = await getExpenseOcrJob(ctx.company.id, id);
   if (!existing) return NextResponse.json({ message: "Job OCR no encontrado." }, { status: 404 });
+  if (existing.status === "DONE") return NextResponse.json({ id, status: "DONE" });
+  if (existing.status === "FAILED") await retryExpenseOcrJob(ctx.company.id, id);
   void processExpenseOcrJob(id);
-  return NextResponse.json({ id, status: "PROCESSING" }, { status: 202 });
+  return NextResponse.json({ id, status: "PENDING" }, { status: 202 });
 }

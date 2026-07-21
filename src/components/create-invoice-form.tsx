@@ -19,6 +19,7 @@ import { createCustomerSchema, createInvoiceSchema } from "@/server/schemas/form
 
 type CustomerOption = {
   id: string;
+  number?: string | null;
   name: string;
   email?: string | null;
   phone?: string | null;
@@ -106,7 +107,7 @@ export function CreateInvoiceForm({
     const taxQuery = customerTaxSearch.trim().toLocaleLowerCase();
 
     return customerOptions.filter((customer) => {
-      const text = [customer.name, customer.email, customer.phone].filter(Boolean).join(" ").toLocaleLowerCase();
+      const text = [customer.number, customer.name, customer.email, customer.phone].filter(Boolean).join(" ").toLocaleLowerCase();
       const location = [customer.city, customer.province].filter(Boolean).join(" ").toLocaleLowerCase();
       const tax = (customer.taxId ?? "").toLocaleLowerCase();
       return (!textQuery || text.includes(textQuery)) && (!locationQuery || location.includes(locationQuery)) && (!taxQuery || tax.includes(taxQuery));
@@ -286,7 +287,7 @@ export function CreateInvoiceForm({
           </p>
         ) : selectedCustomer ? (
           <div className="rounded-md border bg-muted/30 p-3">
-            <p className="font-medium">{selectedCustomer.name}</p>
+            <p className="font-medium">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
             <p className="text-sm text-muted-foreground">
               {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
             </p>
@@ -467,9 +468,9 @@ export function CreateInvoiceForm({
     >
       <div className="space-y-4" data-testid="invoice-customer-search-dialog">
         <div className="grid gap-3 md:grid-cols-3">
-          <AccessibleField id="invoice-customer-search" label="Nombre, email o teléfono">
+          <AccessibleField id="invoice-customer-search" label="Número, nombre, email o teléfono">
             <Input
-              aria-label="Nombre, email o teléfono"
+              aria-label="Número, nombre, email o teléfono"
               id="invoice-customer-search"
               value={customerSearch}
               onChange={(event) => setCustomerSearch(event.target.value)}
@@ -508,7 +509,7 @@ export function CreateInvoiceForm({
                   requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
                 }}
               >
-                <span className="block font-medium">{customer.name}</span>
+                <span className="block font-medium">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
                 <span className="block text-sm text-muted-foreground">
                   {[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}
                 </span>

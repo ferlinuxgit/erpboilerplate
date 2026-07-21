@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 
 type CustomerRow = {
   id: string;
+  number: string | null;
   name: string;
   status: "ACTIVE" | "INACTIVE";
   email: string | null;
@@ -27,6 +28,12 @@ type CustomersTableProps = {
 };
 
 const columns: ResourceListColumn<CustomerRow>[] = [
+  {
+    header: "N.º cliente",
+    cell: (customer) => <span className="font-mono font-medium">{customer.number ?? "Sin número"}</span>,
+    exportValue: (customer) => customer.number ?? "",
+    sortValue: (customer) => customer.number ?? "",
+  },
   {
     header: "Nombre",
     cell: (customer) => (
@@ -114,6 +121,7 @@ export function CustomersTable({ rows }: CustomersTableProps) {
       getSearchText={(customer) =>
         [
           customer.name,
+          customer.number,
           customer.status,
           customer.taxId,
           customer.city,
@@ -127,7 +135,7 @@ export function CustomersTable({ rows }: CustomersTableProps) {
       emptyTitle="Todavía no hay clientes registrados."
       emptyDescription="Crea el primer cliente para empezar a emitir facturas."
       exportFileName="clientes.csv"
-      searchPlaceholder="Buscar cliente por nombre, email o teléfono"
+      searchPlaceholder="Buscar cliente por número, nombre, CIF/NIF, email o teléfono"
       testId="customers-table"
       filters={[
         {
@@ -159,6 +167,7 @@ export function CustomersTable({ rows }: CustomersTableProps) {
       renderMobileCard={(customer) => (
         <div className="space-y-3">
           <div>
+            <p className="font-mono text-xs text-muted-foreground">{customer.number ?? "Sin número"}</p>
             <p className="font-medium">{customer.name}</p>
             <p className="text-sm text-muted-foreground">
               {customer.status === "ACTIVE" ? "Activo" : "Inactivo"}

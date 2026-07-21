@@ -25,6 +25,8 @@ const payloadSchema = z.object({
   dueDate: z.string().datetime().optional(),
   notes: z.string().trim().optional().or(z.literal("")),
   ocrJobId: z.string().trim().optional().or(z.literal("")),
+  currencyCode: z.string().trim().length(3).optional(),
+  idempotencyKey: z.string().trim().max(160).optional().or(z.literal("")),
   attachments: z
     .array(
       z.object({
@@ -50,6 +52,16 @@ const payloadSchema = z.object({
     )
     .min(1),
 });
+
+function expenseCreationError(error: unknown) {
+  const record = error && typeof error === "object" ? error as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } } : null;
+  const code = record?.code ?? record?.cause?.code;
+  const constraint = record?.constraint ?? record?.cause?.constraint ?? "";
+  if (code === "23505" && constraint.includes("document_sha")) return "Gasto duplicado: este archivo ya fue contabilizado.";
+  if (code === "23505" && constraint.includes("supplier_document_canonical")) return "Gasto duplicado: ya existe ese número de factura para el proveedor.";
+  if (code === "23505" && constraint.includes("idempotency")) return "La solicitud ya fue procesada; actualiza la lista de gastos.";
+  return error instanceof Error ? error.message : "No se pudo crear el gasto.";
+}
 
 export async function GET() {
   const session = await getUserSession();
@@ -97,6 +109,8 @@ export async function POST(request: Request) {
       dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
       notes: parsed.data.notes || undefined,
       ocrJobId: parsed.data.ocrJobId || undefined,
+      currencyCode: parsed.data.currencyCode,
+      idempotencyKey: parsed.data.idempotencyKey || undefined,
       attachments: parsed.data.attachments?.map((attachment) => ({
         fileName: attachment.fileName,
         fileUrl: attachment.fileUrl,
@@ -116,7 +130,8 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo crear el gasto.";
-    return NextResponse.json({ message }, { status: 400 });
+    const message = expenseCreationError(error);
+    const status = message.startsWith("Gasto duplicado") || message.includes("ya fue procesada") ? 409 : 400;
+    return NextResponse.json({ message }, { status });
   }
 }

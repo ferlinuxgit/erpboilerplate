@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 
 import {
   accountChart,
+  company,
   companySettings,
   expenseOcrJob,
   goodsReceipt,
@@ -16,11 +17,13 @@ import {
   supplierPayment,
 } from "@/db/schema";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
+import { buildSupplierIdentityKey, normalizeSupplierDocumentNumber, normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { postSupplierInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
+import { reservePartnerNumber } from "@/server/partners/numbers";
 
 export type SupplierInvoiceOrigin = "PURCHASE" | "EXPENSE";
 
@@ -58,6 +61,8 @@ export type CreatePurchaseSupplierInvoiceInput = {
   notes?: string;
   lines: SupplierInvoiceLineInput[];
   attachments?: SupplierInvoiceAttachmentInput[];
+  currencyCode?: string;
+  idempotencyKey?: string;
 };
 
 export type CreateExpenseInvoiceInput = {
@@ -84,6 +89,8 @@ export type CreateExpenseInvoiceInput = {
   lines: SupplierInvoiceLineInput[];
   attachments?: SupplierInvoiceAttachmentInput[];
   ocrJobId?: string;
+  currencyCode?: string;
+  idempotencyKey?: string;
 };
 
 function roundMoney(value: number) {
@@ -159,49 +166,40 @@ function calculateTotals(lines: ReturnType<typeof buildLineValues>) {
 
 async function assertNoDuplicateExpenseInvoice(input: {
   companyId: string;
-  supplierPartnerId: string;
   supplierDocumentNumber?: string;
-  issueDate: Date;
-  totalAmount: number;
+  documentSha256?: string | null;
+  supplierIdentityKey: string;
   client: DbClient;
 }) {
+  if (input.documentSha256) {
+    const [duplicateByFile] = await input.client
+      .select({ id: supplierInvoice.id, number: supplierInvoice.number })
+      .from(supplierInvoice)
+      .where(and(
+        eq(supplierInvoice.companyId, input.companyId),
+        eq(supplierInvoice.documentSha256, input.documentSha256),
+        ne(supplierInvoice.status, "VOID"),
+      ))
+      .limit(1);
+    if (duplicateByFile) throw new Error(`Gasto duplicado: este archivo ya está asociado a ${duplicateByFile.number}.`);
+  }
+
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim();
-  if (supplierDocumentNumber) {
+  const normalizedNumber = normalizeSupplierDocumentNumber(supplierDocumentNumber);
+  if (normalizedNumber) {
     const [duplicateByNumber] = await input.client
       .select({ id: supplierInvoice.id, number: supplierInvoice.number })
       .from(supplierInvoice)
       .where(and(
         eq(supplierInvoice.companyId, input.companyId),
-        eq(supplierInvoice.origin, "EXPENSE"),
-        eq(supplierInvoice.supplierPartnerId, input.supplierPartnerId),
-        eq(supplierInvoice.supplierDocumentNumber, supplierDocumentNumber),
+        eq(supplierInvoice.supplierIdentityKey, input.supplierIdentityKey),
+        eq(supplierInvoice.supplierDocumentNumberNormalized, normalizedNumber),
         ne(supplierInvoice.status, "VOID"),
       ))
       .limit(1);
     if (duplicateByNumber) {
       throw new Error(`Gasto duplicado: ya existe una factura de este proveedor con número ${supplierDocumentNumber}.`);
     }
-  }
-
-  const dayStart = new Date(input.issueDate);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
-  const [duplicateByDateAndTotal] = await input.client
-    .select({ id: supplierInvoice.id, number: supplierInvoice.number })
-    .from(supplierInvoice)
-    .where(and(
-      eq(supplierInvoice.companyId, input.companyId),
-      eq(supplierInvoice.origin, "EXPENSE"),
-      eq(supplierInvoice.supplierPartnerId, input.supplierPartnerId),
-      gte(supplierInvoice.issueDate, dayStart),
-      lt(supplierInvoice.issueDate, dayEnd),
-      eq(supplierInvoice.totalAmount, input.totalAmount.toFixed(2)),
-      ne(supplierInvoice.status, "VOID"),
-    ))
-    .limit(1);
-  if (duplicateByDateAndTotal) {
-    throw new Error(`Posible gasto duplicado: ya existe una factura de este proveedor en la misma fecha por ${input.totalAmount.toFixed(2)}.`);
   }
 }
 
@@ -266,12 +264,15 @@ async function resolveSupplier(input: {
 }) {
   if (input.supplierPartnerId) {
     const [existing] = await input.client
-      .select({ id: partner.id })
+      .select({ id: partner.id, name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode, type: partner.type })
       .from(partner)
       .where(and(eq(partner.id, input.supplierPartnerId), eq(partner.companyId, input.companyId)))
       .limit(1);
     if (!existing) throw new Error("Proveedor no encontrado.");
-    return existing.id;
+    if (existing.type === "CUSTOMER") {
+      await input.client.update(partner).set({ type: "BOTH", isActive: true, updatedAt: new Date() }).where(eq(partner.id, existing.id));
+    }
+    return { id: existing.id, identityKey: buildSupplierIdentityKey({ partnerId: existing.id, name: existing.name, taxId: existing.taxId, countryCode: existing.countryCode }) };
   }
 
   const supplierName = input.supplierName?.trim();
@@ -289,30 +290,34 @@ async function resolveSupplier(input: {
   };
 
   if (supplierTaxId) {
+    const normalizedCountry = normalizeCountryCode(supplierCountryCode);
+    const normalizedTaxId = normalizeTaxIdentity(supplierTaxId, normalizedCountry);
     const [existingByTaxId] = await input.client
       .select({ id: partner.id, type: partner.type, name: partner.name })
       .from(partner)
-      .where(and(eq(partner.companyId, input.companyId), eq(partner.taxId, supplierTaxId)))
+      .where(and(
+        eq(partner.companyId, input.companyId),
+        eq(partner.countryCode, normalizedCountry),
+        eq(partner.taxIdNormalized, normalizedTaxId),
+      ))
       .limit(1);
     if (existingByTaxId) {
       await input.client
         .update(partner)
         .set({
           type: partnerTypeForSupplier(existingByTaxId.type),
-          name: supplierName || existingByTaxId.name,
-          ...supplierDetails,
           isActive: true,
           updatedAt: new Date(),
         })
         .where(and(eq(partner.id, existingByTaxId.id), eq(partner.companyId, input.companyId)));
-      return existingByTaxId.id;
+      return { id: existingByTaxId.id, identityKey: buildSupplierIdentityKey({ partnerId: existingByTaxId.id, name: existingByTaxId.name, taxId: supplierTaxId, countryCode: normalizedCountry }) };
     }
   }
 
   if (!supplierName && !supplierTaxId) throw new Error("Indica un proveedor o su CIF/NIF.");
   const [existing] = supplierName
     ? await input.client
-      .select({ id: partner.id, type: partner.type })
+      .select({ id: partner.id, name: partner.name, type: partner.type })
       .from(partner)
       .where(and(eq(partner.companyId, input.companyId), eq(partner.name, supplierName)))
       .limit(1)
@@ -322,27 +327,42 @@ async function resolveSupplier(input: {
       .update(partner)
       .set({
         type: partnerTypeForSupplier(existing.type),
-        ...(supplierTaxId ? { taxId: supplierTaxId } : {}),
-        ...supplierDetails,
+        ...(supplierTaxId ? { taxId: supplierTaxId, taxIdNormalized: normalizeTaxIdentity(supplierTaxId, supplierCountryCode) } : {}),
         isActive: true,
         updatedAt: new Date(),
       })
       .where(and(eq(partner.id, existing.id), eq(partner.companyId, input.companyId)));
-    return existing.id;
+    return { id: existing.id, identityKey: buildSupplierIdentityKey({ partnerId: existing.id, name: existing.name, taxId: supplierTaxId, countryCode: supplierCountryCode }) };
   }
 
   const [created] = await input.client
     .insert(partner)
     .values({
       companyId: input.companyId,
+      number: await reservePartnerNumber(input.client, input.companyId),
       type: "SUPPLIER",
       name: supplierName || `Proveedor ${supplierTaxId}`,
       taxId: supplierTaxId || null,
+      taxIdNormalized: supplierTaxId ? normalizeTaxIdentity(supplierTaxId, supplierCountryCode) : null,
       countryCode: supplierCountryCode ? normalizeCountryCode(supplierCountryCode) : "ES",
       ...supplierDetails,
     })
-    .returning({ id: partner.id });
-  return created.id;
+    .onConflictDoNothing()
+    .returning({ id: partner.id, name: partner.name });
+  if (!created && supplierTaxId) {
+    const [concurrent] = await input.client
+      .select({ id: partner.id, name: partner.name })
+      .from(partner)
+      .where(and(
+        eq(partner.companyId, input.companyId),
+        eq(partner.countryCode, normalizeCountryCode(supplierCountryCode)),
+        eq(partner.taxIdNormalized, normalizeTaxIdentity(supplierTaxId, supplierCountryCode)),
+      ))
+      .limit(1);
+    if (concurrent) return { id: concurrent.id, identityKey: buildSupplierIdentityKey({ partnerId: concurrent.id, name: concurrent.name, taxId: supplierTaxId, countryCode: supplierCountryCode }) };
+  }
+  if (!created) throw new Error("No se pudo resolver el proveedor de forma concurrente.");
+  return { id: created.id, identityKey: buildSupplierIdentityKey({ partnerId: created.id, name: created.name, taxId: supplierTaxId, countryCode: supplierCountryCode }) };
 }
 
 function getPaymentStatus(totalAmount: number, paidAmount: number, dueDate: Date | null | undefined) {
@@ -368,6 +388,10 @@ async function createSupplierInvoiceHeader(input: {
   notes?: string;
   lines: SupplierInvoiceLineInput[];
   attachments?: SupplierInvoiceAttachmentInput[];
+  supplierIdentityKey?: string;
+  documentSha256?: string | null;
+  idempotencyKey?: string;
+  currencyCode?: string;
   client: AppDbTransaction;
 }) {
   assertValidLines(input.lines);
@@ -386,6 +410,31 @@ async function createSupplierInvoiceHeader(input: {
       fiscalYearId: input.fiscalYearId,
       type: "SUPPLIER_INVOICE",
     }));
+  const [supplierIdentity] = input.supplierIdentityKey
+    ? []
+    : await input.client
+      .select({ name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode })
+      .from(partner)
+      .where(and(eq(partner.id, input.supplierPartnerId), eq(partner.companyId, input.companyId)))
+      .limit(1);
+  const supplierIdentityKey = input.supplierIdentityKey ?? buildSupplierIdentityKey({
+    partnerId: input.supplierPartnerId,
+    name: supplierIdentity?.name,
+    taxId: supplierIdentity?.taxId,
+    countryCode: supplierIdentity?.countryCode,
+  });
+  const supplierDocumentNumber = input.supplierDocumentNumber?.trim() || null;
+  const supplierDocumentNumberNormalized = normalizeSupplierDocumentNumber(supplierDocumentNumber) || null;
+  const [ownedCompany] = await input.client
+    .select({ baseCurrencyCode: company.baseCurrencyCode })
+    .from(company)
+    .where(eq(company.id, input.companyId))
+    .limit(1);
+  if (!ownedCompany) throw new Error("Empresa activa no encontrada.");
+  const currencyCode = input.currencyCode?.trim().toUpperCase() || ownedCompany.baseCurrencyCode;
+  if (currencyCode !== ownedCompany.baseCurrencyCode) {
+    throw new Error(`La factura está en ${currencyCode}; falta convertirla a ${ownedCompany.baseCurrencyCode} antes de contabilizar.`);
+  }
 
   const [header] = await input.client
     .insert(supplierInvoice)
@@ -396,7 +445,12 @@ async function createSupplierInvoiceHeader(input: {
       goodsReceiptId: input.goodsReceiptId ?? null,
       origin: input.origin,
       number,
-      supplierDocumentNumber: input.supplierDocumentNumber?.trim() || null,
+      supplierDocumentNumber,
+      supplierDocumentNumberNormalized,
+      supplierIdentityKey,
+      documentSha256: input.documentSha256 ?? null,
+      idempotencyKey: input.idempotencyKey?.trim() || null,
+      currencyCode,
       issueDate: input.issueDate,
       dueDate: input.dueDate ?? null,
       status: "POSTED",
@@ -550,6 +604,17 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
 
 export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
   return db.transaction(async (tx) => {
+    const idempotencyKey = input.idempotencyKey?.trim();
+    if (idempotencyKey) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`expense:${input.companyId}:${idempotencyKey}`}))`);
+      const [existingByIdempotency] = await tx
+        .select()
+        .from(supplierInvoice)
+        .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.idempotencyKey, idempotencyKey)))
+        .limit(1);
+      if (existingByIdempotency) return existingByIdempotency;
+    }
+
     const [ocrJob] = input.ocrJobId
       ? await tx
           .select({
@@ -560,6 +625,7 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
             storageKey: expenseOcrJob.storageKey,
             contentType: expenseOcrJob.contentType,
             sizeBytes: expenseOcrJob.sizeBytes,
+            documentSha256: expenseOcrJob.documentSha256,
           })
           .from(expenseOcrJob)
           .where(and(eq(expenseOcrJob.id, input.ocrJobId), eq(expenseOcrJob.companyId, input.companyId)))
@@ -569,7 +635,7 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
     if (input.ocrJobId && !ocrJob) throw new Error("El archivo OCR no pertenece a la empresa activa.");
     if (ocrJob?.supplierInvoiceId) throw new Error("El archivo OCR ya está asociado a otra factura de gasto.");
 
-    const supplierPartnerId = await resolveSupplier({
+    const resolvedSupplier = await resolveSupplier({
       companyId: input.companyId,
       supplierPartnerId: input.supplierPartnerId,
       supplierName: input.supplierName,
@@ -584,13 +650,11 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       supplierCountryCode: input.supplierCountryCode,
       client: tx,
     });
-    const duplicateCheckTotals = calculateTotals(buildLineValues("duplicate-check", input.lines));
     await assertNoDuplicateExpenseInvoice({
       companyId: input.companyId,
-      supplierPartnerId,
       supplierDocumentNumber: input.supplierDocumentNumber,
-      issueDate: input.issueDate,
-      totalAmount: duplicateCheckTotals.totalAmount,
+      supplierIdentityKey: resolvedSupplier.identityKey,
+      documentSha256: ocrJob?.documentSha256,
       client: tx,
     });
     const ocrAttachment: SupplierInvoiceAttachmentInput[] = ocrJob
@@ -607,7 +671,10 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       ...input,
       attachments: [...ocrAttachment, ...clientAttachments],
       origin: "EXPENSE",
-      supplierPartnerId,
+      supplierPartnerId: resolvedSupplier.id,
+      supplierIdentityKey: resolvedSupplier.identityKey,
+      documentSha256: ocrJob?.documentSha256,
+      idempotencyKey,
       purchaseOrderId: null,
       goodsReceiptId: null,
       client: tx,
@@ -631,6 +698,92 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
   });
 }
 
+export type ExpenseDuplicateAssessment = {
+  level: "none" | "possible" | "exact";
+  matches: Array<{ invoiceId: string; number: string; reason: "file" | "supplier-number" | "date-total" }>;
+};
+
+export async function assessExpenseDuplicate(input: {
+  companyId: string;
+  supplierPartnerId?: string;
+  supplierTaxId?: string;
+  supplierName?: string;
+  supplierCountryCode?: string;
+  supplierDocumentNumber?: string;
+  issueDate?: Date;
+  totalAmount?: number;
+  documentSha256?: string;
+}, client: DbClient = db): Promise<ExpenseDuplicateAssessment> {
+  const matches: ExpenseDuplicateAssessment["matches"] = [];
+  if (input.documentSha256) {
+    const [row] = await client
+      .select({ invoiceId: supplierInvoice.id, number: supplierInvoice.number })
+      .from(supplierInvoice)
+      .where(and(
+        eq(supplierInvoice.companyId, input.companyId),
+        eq(supplierInvoice.documentSha256, input.documentSha256),
+        ne(supplierInvoice.status, "VOID"),
+      ))
+      .limit(1);
+    if (row) matches.push({ ...row, reason: "file" });
+  }
+
+  let identityKey: string | null = null;
+  if (input.supplierPartnerId) {
+    const [supplier] = await client
+      .select({ id: partner.id, name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode })
+      .from(partner)
+      .where(and(eq(partner.companyId, input.companyId), eq(partner.id, input.supplierPartnerId)))
+      .limit(1);
+    if (supplier) identityKey = buildSupplierIdentityKey({ partnerId: supplier.id, name: supplier.name, taxId: supplier.taxId, countryCode: supplier.countryCode });
+  } else if (normalizeTaxIdentity(input.supplierTaxId, input.supplierCountryCode) || input.supplierName?.trim()) {
+    identityKey = buildSupplierIdentityKey({
+      partnerId: "unmatched",
+      name: input.supplierName,
+      taxId: input.supplierTaxId,
+      countryCode: input.supplierCountryCode,
+    });
+  }
+
+  const normalizedNumber = normalizeSupplierDocumentNumber(input.supplierDocumentNumber);
+  if (identityKey && normalizedNumber) {
+    const [row] = await client
+      .select({ invoiceId: supplierInvoice.id, number: supplierInvoice.number })
+      .from(supplierInvoice)
+      .where(and(
+        eq(supplierInvoice.companyId, input.companyId),
+        eq(supplierInvoice.supplierIdentityKey, identityKey),
+        eq(supplierInvoice.supplierDocumentNumberNormalized, normalizedNumber),
+        ne(supplierInvoice.status, "VOID"),
+      ))
+      .limit(1);
+    if (row && !matches.some((match) => match.invoiceId === row.invoiceId)) matches.push({ ...row, reason: "supplier-number" });
+  }
+
+  if (identityKey && input.issueDate && Number.isFinite(input.totalAmount)) {
+    const dayStart = new Date(input.issueDate);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    const [row] = await client
+      .select({ invoiceId: supplierInvoice.id, number: supplierInvoice.number })
+      .from(supplierInvoice)
+      .where(and(
+        eq(supplierInvoice.companyId, input.companyId),
+        eq(supplierInvoice.supplierIdentityKey, identityKey),
+        gte(supplierInvoice.issueDate, dayStart),
+        lt(supplierInvoice.issueDate, dayEnd),
+        eq(supplierInvoice.totalAmount, Number(input.totalAmount).toFixed(2)),
+        ne(supplierInvoice.status, "VOID"),
+      ))
+      .limit(1);
+    if (row && !matches.some((match) => match.invoiceId === row.invoiceId)) matches.push({ ...row, reason: "date-total" });
+  }
+
+  const hasExact = matches.some((match) => match.reason === "file" || match.reason === "supplier-number");
+  return { level: hasExact ? "exact" : matches.length > 0 ? "possible" : "none", matches };
+}
+
 export async function listExpenseInvoices(companyId: string) {
   const [invoices, payments] = await Promise.all([
     db
@@ -647,6 +800,7 @@ export async function listExpenseInvoices(companyId: string) {
         taxAmount: supplierInvoice.taxAmount,
         retentionAmount: supplierInvoice.retentionAmount,
         totalAmount: supplierInvoice.totalAmount,
+        currencyCode: supplierInvoice.currencyCode,
         notes: supplierInvoice.notes,
       })
       .from(supplierInvoice)
@@ -679,7 +833,7 @@ export async function listExpenseInvoices(companyId: string) {
 
 export async function listSupplierPartners(companyId: string) {
   return db
-    .select({ id: partner.id, name: partner.name, taxId: partner.taxId })
+    .select({ id: partner.id, number: partner.number, name: partner.name, taxId: partner.taxId })
     .from(partner)
     .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
     .orderBy(partner.name);
@@ -703,6 +857,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       taxAmount: supplierInvoice.taxAmount,
       retentionAmount: supplierInvoice.retentionAmount,
       totalAmount: supplierInvoice.totalAmount,
+      currencyCode: supplierInvoice.currencyCode,
       notes: supplierInvoice.notes,
       createdAt: supplierInvoice.createdAt,
       updatedAt: supplierInvoice.updatedAt,

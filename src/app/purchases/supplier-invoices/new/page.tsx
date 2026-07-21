@@ -69,6 +69,7 @@ export default async function NewSupplierInvoicePage({
           />
         ) : (
           <CreateExpenseInvoiceForm
+            baseCurrencyCode={ctx.company.baseCurrencyCode}
             expenseAccounts={expenseAccounts}
             initialSupplierId={initialSupplierId}
             suppliers={suppliers}

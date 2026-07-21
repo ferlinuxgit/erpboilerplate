@@ -42,6 +42,8 @@ curl "$ERP_BASE_URL/api/customers" \
   -H "Authorization: Bearer $ERP_API_KEY"
 ```
 
+Customer responses include the immutable, company-scoped `number` assigned automatically by the ERP (for example, `TER-000001`). A third party that is both customer and supplier keeps the same number in both roles.
+
 Read one customer:
 
 ```bash

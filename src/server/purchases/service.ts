@@ -18,6 +18,7 @@ import {
 } from "@/lib/document-pipelines";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
+import { reservePartnerNumber } from "@/server/partners/numbers";
 
 export function assertPurchaseOrderCanReceive(input: { status: string; hasReceipt: boolean; hasLines: boolean }) {
   assertSalesTransitionAllowed(getPurchaseOrderReceiptTransition(input));
@@ -134,7 +135,7 @@ export async function createPurchaseOrder(
       (
         await tx
           .insert(partner)
-          .values({ companyId, type: "SUPPLIER", name: payload.supplierName })
+          .values({ companyId, number: await reservePartnerNumber(tx, companyId), type: "SUPPLIER", name: payload.supplierName })
           .returning({ id: partner.id })
       )[0].id;
 
@@ -222,7 +223,7 @@ export async function updatePurchaseOrder(
       .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"]), eq(partner.name, payload.supplierName)))
       .limit(1);
     const supplierId = existingSupplier?.id ?? (
-      await tx.insert(partner).values({ companyId, type: "SUPPLIER", name: payload.supplierName }).returning({ id: partner.id })
+      await tx.insert(partner).values({ companyId, number: await reservePartnerNumber(tx, companyId), type: "SUPPLIER", name: payload.supplierName }).returning({ id: partner.id })
     )[0].id;
 
     const [updated] = await tx

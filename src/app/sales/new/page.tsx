@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CreateSalesQuoteForm } from "@/components/sales/create-sales-quote-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, tax } from "@/db/schema";
+import { customer, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 
@@ -12,7 +12,7 @@ export default async function NewSalesQuotePage({ searchParams }: { searchParams
   const ctx = await requireContext("invoice.create");
   const params = await searchParams;
   const initialCustomerId = Array.isArray(params.customerId) ? params.customerId[0] : params.customerId;
-  const [customers, [defaultTax]] = await Promise.all([db.select({ id: customer.id, name: customer.name }).from(customer).where(eq(customer.companyId, ctx.company.id)).orderBy(asc(customer.name)), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, ctx.company.id)).orderBy(tax.rate).limit(1)]);
+  const [customers, [defaultTax]] = await Promise.all([db.select({ id: customer.id, number: partner.number, name: customer.name }).from(customer).leftJoin(partner, eq(partner.id, customer.partnerId)).where(eq(customer.companyId, ctx.company.id)).orderBy(asc(customer.name)), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, ctx.company.id)).orderBy(tax.rate).limit(1)]);
 
   return (
     <PageShell>

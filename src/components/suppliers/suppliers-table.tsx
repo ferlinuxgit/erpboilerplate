@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 
 type SupplierRow = {
   id: string;
+  number: string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -26,6 +27,12 @@ type SuppliersTableProps = {
 };
 
 const columns: ResourceListColumn<SupplierRow>[] = [
+  {
+    header: "N.º proveedor",
+    cell: (supplier) => <span className="font-mono font-medium">{supplier.number}</span>,
+    exportValue: (supplier) => supplier.number,
+    sortValue: (supplier) => supplier.number,
+  },
   {
     header: "Nombre",
     cell: (supplier) => <span className="font-medium">{supplier.name}</span>,
@@ -112,6 +119,7 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
       getSearchText={(supplier) =>
         [
           supplier.name,
+          supplier.number,
           supplier.isActive ? "Activo" : "Inactivo",
           supplier.taxId,
           supplier.city,
@@ -125,7 +133,7 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
       emptyTitle="Todavía no hay proveedores registrados."
       emptyDescription="Crea el primer proveedor para registrar gastos, compras y facturas recibidas."
       exportFileName="proveedores.csv"
-      searchPlaceholder="Buscar proveedor por nombre, CIF/NIF, email o teléfono"
+      searchPlaceholder="Buscar proveedor por número, nombre, CIF/NIF, email o teléfono"
       testId="suppliers-table"
       filters={[
         {
@@ -152,6 +160,7 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
       renderMobileCard={(supplier) => (
         <div className="space-y-3">
           <div>
+            <p className="font-mono text-xs text-muted-foreground">{supplier.number}</p>
             <p className="font-medium">{supplier.name}</p>
             <p className="text-sm text-muted-foreground">
               {supplier.isActive ? "Activo" : "Inactivo"}

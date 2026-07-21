@@ -2,9 +2,10 @@ import { loadEnvConfig } from "@next/env";
 
 loadEnvConfig(process.cwd());
 
-const { processPendingExpenseOcrJobs } = await import("../src/server/ocr/expense-ocr");
+const { cleanupExpiredExpenseOcrJobs, processPendingExpenseOcrJobs } = await import("../src/server/ocr/expense-ocr");
 
 const intervalMs = Number(process.env.OCR_WORKER_INTERVAL_MS ?? 5000);
+let nextCleanupAt = 0;
 
 async function tick() {
   try {
@@ -12,13 +13,17 @@ async function tick() {
     if (processed > 0) {
       console.log(`OCR worker processed ${processed} job(s).`);
     }
+    if (Date.now() >= nextCleanupAt) {
+      await cleanupExpiredExpenseOcrJobs();
+      nextCleanupAt = Date.now() + 12 * 60 * 60 * 1000;
+    }
   } catch (error) {
     console.error("OCR worker tick failed", error);
   }
 }
 
 console.log(`OCR worker started. intervalMs=${intervalMs}`);
-await tick();
-setInterval(() => {
-  void tick();
-}, intervalMs);
+while (true) {
+  await tick();
+  await new Promise((resolve) => setTimeout(resolve, intervalMs));
+}

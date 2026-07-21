@@ -1,10 +1,11 @@
 "use client";
 
-import { FileText, MagnifyingGlass as Search, Plus, Sparkle as Sparkles, Trash as Trash2, UploadSimple as Upload } from "@phosphor-icons/react";
+import { FileText, MagnifyingGlass as Search, Plus, Trash as Trash2, UploadSimple as Upload } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { ExpenseBatchUpload } from "@/components/expenses/expense-batch-upload";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -13,10 +14,9 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
-import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 
 type ExpenseAccount = { id: string; code: string; name: string };
-type Supplier = { id: string; name: string; taxId: string | null };
+type Supplier = { id: string; number: string; name: string; taxId: string | null };
 
 type ExpenseLineDraft = {
   id: string;
@@ -37,33 +37,8 @@ type AttachmentDraft = {
 type CreationMode = "ocr" | "manual";
 type SupplierDialogMode = "choice" | "search" | "new";
 
-type OcrDraft = {
-  supplierName?: string;
-  supplierTaxId?: string;
-  supplierEmail?: string;
-  supplierPhone?: string;
-  supplierAddress?: string;
-  supplierAddressLine2?: string;
-  supplierPostalCode?: string;
-  supplierCity?: string;
-  supplierProvince?: string;
-  supplierCountryCode?: string;
-  supplierDocumentNumber?: string;
-  issueDate?: string;
-  dueDate?: string;
-  lines: Array<{
-    description: string;
-    quantity: number;
-    unitPrice: number;
-    taxRate: number;
-    taxDeductiblePct: number;
-    retentionRate: number;
-  }>;
-  confidence: "high" | "medium" | "low";
-  warnings: string[];
-};
-
 type CreateExpenseInvoiceFormProps = {
+  baseCurrencyCode: string;
   expenseAccounts: ExpenseAccount[];
   initialSupplierId?: string;
   suppliers: Supplier[];
@@ -101,7 +76,7 @@ function lineTotals(line: ExpenseLineDraft) {
   return { subtotal, tax, retention, total: subtotal + tax - retention };
 }
 
-export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, initialSupplierId, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
   const validInitialSupplierId = suppliers.some((supplier) => supplier.id === initialSupplierId) ? initialSupplierId ?? "" : "";
   const [creationMode, setCreationMode] = useState<CreationMode | null>(null);
@@ -128,12 +103,6 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
   const [lines, setLines] = useState<ExpenseLineDraft[]>([newLine(expenseAccounts[0]?.id ?? "")]);
   const [attachment, setAttachment] = useState<AttachmentDraft>({ fileName: "", fileUrl: "" });
   const [ocrJobId, setOcrJobId] = useState<string | null>(null);
-  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
-  const [ocrDraft, setOcrDraft] = useState<OcrDraft | null>(null);
-  const [ocrError, setOcrError] = useState<string | null>(null);
-  const [draftSource, setDraftSource] = useState<"ocr" | "openai" | null>(null);
-  const [aiStatus, setAiStatus] = useState<string | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = error ? "expense-invoice-error" : undefined;
@@ -159,7 +128,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
     const textQuery = supplierSearch.trim().toLocaleLowerCase();
     const taxQuery = supplierTaxSearch.trim().toLocaleLowerCase();
     return suppliers.filter((supplier) => {
-      const text = supplier.name.toLocaleLowerCase();
+      const text = `${supplier.number} ${supplier.name}`.toLocaleLowerCase();
       const tax = (supplier.taxId ?? "").toLocaleLowerCase();
       return (!textQuery || text.includes(textQuery)) && (!taxQuery || tax.includes(taxQuery));
     });
@@ -175,12 +144,6 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
 
   function removeLine(id: string) {
     setLines((current) => current.length > 1 ? current.filter((line) => line.id !== id) : current);
-  }
-
-  function findSupplierByTaxId(taxId: string | undefined) {
-    const normalized = normalizeSpanishTaxId(taxId);
-    if (!normalized) return undefined;
-    return suppliers.find((supplier) => normalizeSpanishTaxId(supplier.taxId) === normalized);
   }
 
   function selectSupplier(supplierId: string) {
@@ -207,137 +170,6 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
     setSupplierName("");
     setSupplierTaxId("");
     setSupplierDialogMode("new");
-  }
-
-  function applySupplierDraft(draft: OcrDraft) {
-    if (draft.supplierName !== undefined) setSupplierName(draft.supplierName);
-    if (draft.supplierTaxId !== undefined) setSupplierTaxId(draft.supplierTaxId);
-    if (draft.supplierEmail !== undefined) setSupplierEmail(draft.supplierEmail);
-    if (draft.supplierPhone !== undefined) setSupplierPhone(draft.supplierPhone);
-    if (draft.supplierAddress !== undefined) setSupplierAddress(draft.supplierAddress);
-    if (draft.supplierAddressLine2 !== undefined) setSupplierAddressLine2(draft.supplierAddressLine2);
-    if (draft.supplierPostalCode !== undefined) setSupplierPostalCode(draft.supplierPostalCode);
-    if (draft.supplierCity !== undefined) setSupplierCity(draft.supplierCity);
-    if (draft.supplierProvince !== undefined) setSupplierProvince(draft.supplierProvince);
-    if (draft.supplierCountryCode !== undefined) setSupplierCountryCode(draft.supplierCountryCode);
-  }
-
-  async function pollOcrJob(jobId: string) {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, attempt < 3 ? 800 : 1500));
-      const response = await fetch(`/api/expenses/ocr/${jobId}`);
-      if (!response.ok) throw new Error("No se pudo consultar el job OCR.");
-      const payload = (await response.json()) as { status: string; extracted?: OcrDraft | null; errorMessage?: string | null; fileName: string; fileUrl?: string | null };
-      setOcrStatus(payload.status);
-      if (payload.status === "DONE" && payload.extracted) {
-        setOcrDraft(payload.extracted);
-        setDraftSource("ocr");
-        setAttachment({ fileName: payload.fileName, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${jobId}/file` });
-        return;
-      }
-      if (payload.status === "FAILED") throw new Error(payload.errorMessage ?? "OCR fallido.");
-    }
-    throw new Error("El OCR sigue procesando. Revisa el resultado en unos segundos.");
-  }
-
-  async function uploadOcrFile(file: File) {
-    setOcrError(null);
-    setOcrDraft(null);
-    setDraftSource(null);
-    setOcrJobId(null);
-    setAttachment({ fileName: "", fileUrl: "" });
-    setOcrStatus("UPLOADING");
-    try {
-      const formData = new FormData();
-      formData.set("file", file);
-      const response = await fetch("/api/expenses/ocr", {
-        method: "POST",
-        headers: getCsrfHeader(),
-        body: formData,
-      });
-      if (!response.ok) {
-        const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo iniciar OCR.");
-      }
-      const job = (await response.json()) as { id: string; status: string; fileName: string; fileUrl?: string | null };
-      setOcrJobId(job.id);
-      setOcrStatus(job.status);
-      setAttachment({ fileName: job.fileName, fileUrl: job.fileUrl ?? `/api/expenses/ocr/${job.id}/file` });
-      await pollOcrJob(job.id);
-      toast.success("OCR completado. Revisa el borrador antes de guardar.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Error OCR inesperado.";
-      setOcrError(message);
-      setOcrStatus("FAILED");
-      toast.error(message);
-    }
-  }
-
-  async function analyzeWithOpenAI(file: File) {
-    setAiError(null);
-    setOcrDraft(null);
-    setDraftSource(null);
-    setOcrJobId(null);
-    setAttachment({ fileName: "", fileUrl: "" });
-    setAiStatus("PROCESSING");
-    try {
-      const formData = new FormData();
-      formData.set("file", file);
-      const response = await fetch("/api/expenses/ai-analysis", {
-        method: "POST",
-        headers: getCsrfHeader(),
-        body: formData,
-      });
-      const payload = (await response.json()) as { message?: string; draft?: OcrDraft; model?: string; jobId?: string; fileName?: string; fileUrl?: string | null };
-      if (payload.jobId && payload.fileName) {
-        setOcrJobId(payload.jobId);
-        setAttachment({ fileName: payload.fileName, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${payload.jobId}/file` });
-      }
-      if (!response.ok || !payload.draft) throw new Error(payload.message ?? "No se pudo analizar la factura con OpenAI.");
-      if (!payload.jobId || !payload.fileName) throw new Error("El análisis terminó sin conservar el archivo original.");
-      setOcrDraft(payload.draft);
-      setDraftSource("openai");
-      setOcrJobId(payload.jobId);
-      setOcrStatus("DONE");
-      setAttachment({ fileName: payload.fileName, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${payload.jobId}/file` });
-      setAiStatus(payload.model ? `DONE · ${payload.model}` : "DONE");
-      toast.success("Análisis OpenAI completado. Revisa el borrador antes de guardar.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Error analizando con OpenAI.";
-      setAiError(message);
-      setAiStatus("FAILED");
-      toast.error(message);
-    }
-  }
-
-  function applyOcrDraft() {
-    if (!ocrDraft) return;
-    const matchedSupplier = findSupplierByTaxId(ocrDraft.supplierTaxId);
-    if (matchedSupplier) {
-      setSupplierMode("existing");
-      selectSupplier(matchedSupplier.id);
-      setSupplierName("");
-    } else if (ocrDraft.supplierName || ocrDraft.supplierTaxId) {
-      setSupplierMode("new");
-      applySupplierDraft(ocrDraft);
-    }
-    if (ocrDraft.supplierTaxId) setSupplierTaxId(ocrDraft.supplierTaxId);
-    if (ocrDraft.supplierDocumentNumber) setSupplierDocumentNumber(ocrDraft.supplierDocumentNumber);
-    if (ocrDraft.issueDate) setIssueDate(ocrDraft.issueDate.slice(0, 10));
-    if (ocrDraft.dueDate) setDueDate(ocrDraft.dueDate.slice(0, 10));
-    setLines(
-      ocrDraft.lines.map((line) => ({
-        id: crypto.randomUUID(),
-        description: line.description,
-        expenseAccountId: expenseAccounts[0]?.id ?? "",
-        quantity: String(line.quantity),
-        unitPrice: String(line.unitPrice),
-        taxRate: String(line.taxRate),
-        taxDeductiblePct: String(line.taxDeductiblePct),
-        retentionRate: String(line.retentionRate),
-      })),
-    );
-    toast.success("Borrador OCR aplicado al formulario.");
   }
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -420,10 +252,6 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
       setLines([newLine(expenseAccounts[0]?.id ?? "")]);
       setAttachment({ fileName: "", fileUrl: "" });
       setOcrJobId(null);
-      setOcrStatus(null);
-      setOcrDraft(null);
-      setDraftSource(null);
-      setAiStatus(null);
       toast.success("Gasto contabilizado correctamente.");
       if (created.id) {
         router.push(`/expenses/${created.id}`);
@@ -463,73 +291,22 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
     );
   }
 
+  if (creationMode === "ocr") {
+    return <ExpenseBatchUpload baseCurrencyCode={baseCurrencyCode} expenseAccounts={expenseAccounts} onBack={() => setCreationMode(null)} suppliers={suppliers} />;
+  }
+
   return (
     <>
     <form className="space-y-3" onSubmit={onSubmit}>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
         <div>
-          <p className="text-sm font-medium">Modo de registro: {creationMode === "ocr" ? "OCR" : "Manual"}</p>
-          <p className="text-sm text-muted-foreground">
-            {creationMode === "ocr" ? "Analiza el archivo, aplica el borrador y ajusta los datos." : "Completa los datos esenciales del gasto."}
-          </p>
+          <p className="text-sm font-medium">Modo de registro: Manual</p>
+          <p className="text-sm text-muted-foreground">Completa los datos esenciales del gasto.</p>
         </div>
         <Button onClick={() => setCreationMode(null)} type="button" variant="outline">
           Cambiar modo
         </Button>
       </div>
-
-      {creationMode === "ocr" ? (
-        <div className="rounded-md border bg-muted/20 p-3">
-          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-            <div className="space-y-2">
-              <Label htmlFor="expense-ocr-file">OCR local</Label>
-              <Input
-                accept="application/pdf,image/png,image/jpeg,image/webp"
-                id="expense-ocr-file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadOcrFile(file);
-                }}
-                type="file"
-              />
-              <p className="text-xs text-muted-foreground">
-                Se procesa en este servidor. Estado: {ocrStatus ?? "sin archivo"}{ocrJobId ? ` · ${ocrJobId.slice(0, 8)}` : ""}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-ai-file">Analizar con OpenAI</Label>
-              <Input
-                accept="application/pdf,image/png,image/jpeg,image/webp"
-                id="expense-ai-file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void analyzeWithOpenAI(file);
-                }}
-                type="file"
-              />
-              <p className="text-xs text-muted-foreground">
-                Usa la API de OpenAI. Estado: {aiStatus ?? "sin archivo"}
-              </p>
-            </div>
-            <Button disabled={!ocrDraft} onClick={applyOcrDraft} type="button" variant="outline">
-              {draftSource === "openai" ? <Sparkles aria-hidden="true" /> : null}
-              Aplicar análisis
-            </Button>
-          </div>
-          {ocrDraft ? (
-            <div className="mt-3 rounded-md border bg-background p-3 text-sm">
-              <p className="font-medium">Borrador {draftSource === "openai" ? "OpenAI" : "OCR"} · confianza {ocrDraft.confidence}</p>
-              <p className="text-muted-foreground">
-                {ocrDraft.supplierName ?? "Proveedor no detectado"} · {ocrDraft.supplierTaxId ?? "Sin CIF/NIF"} · {ocrDraft.supplierDocumentNumber ?? "Sin número"}
-              </p>
-              {ocrDraft.warnings.length > 0 ? <p className="mt-1 text-amber-700">{ocrDraft.warnings.join(" ")}</p> : null}
-            </div>
-          ) : null}
-          {ocrError ? <p className="mt-2 text-sm text-red-600" role="alert">{ocrError}</p> : null}
-          {aiError ? <p className="mt-2 text-sm text-red-600" role="alert">{aiError}</p> : null}
-        </div>
-      ) : null}
-
       <section className="space-y-3 rounded-md border p-3" aria-labelledby="expense-supplier-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -698,7 +475,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="expense-supplier-search">Nombre proveedor</Label>
+              <Label htmlFor="expense-supplier-search">Número o nombre del proveedor</Label>
               <Input id="expense-supplier-search" onChange={(event) => setSupplierSearch(event.target.value)} value={supplierSearch} />
             </div>
             <div className="space-y-2">
@@ -717,7 +494,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
                   onClick={() => chooseExistingSupplier(supplier.id)}
                   type="button"
                 >
-                  <span className="block font-medium">{supplier.name}</span>
+                  <span className="block font-medium">{supplier.number} · {supplier.name}</span>
                   <span className="block text-sm text-muted-foreground">{supplier.taxId ?? "Proveedor registrado"}</span>
                 </button>
               ))

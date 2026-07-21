@@ -20,6 +20,7 @@ export async function GET(request: Request) {
   const rows = await db
     .select({
       id: customer.id,
+      number: partner.number,
       name: customer.name,
       email: customer.email,
       phone: customer.phone,

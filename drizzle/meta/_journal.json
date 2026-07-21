@@ -141,6 +141,20 @@
       "when": 1784569947822,
       "tag": "0019_slim_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784637000000,
+      "tag": "0020_expense_ingestion_batches",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784638000000,
+      "tag": "0021_partner_numbers",
+      "breakpoints": true
     }
   ]
 }

@@ -32,19 +32,20 @@ export async function GET(request: Request) {
   const searches: Array<Promise<SearchResult[]>> = [];
 
   if (can(ctx.membership.role, "customer.read")) {
-    searches.push(db.select({ id: customer.id, name: customer.name, email: customer.email })
+    searches.push(db.select({ id: customer.id, number: partner.number, name: customer.name, email: customer.email })
       .from(customer)
-      .where(and(eq(customer.companyId, ctx.company.id), or(ilike(customer.name, pattern), ilike(customer.email, pattern))))
+      .leftJoin(partner, eq(partner.id, customer.partnerId))
+      .where(and(eq(customer.companyId, ctx.company.id), or(ilike(partner.number, pattern), ilike(customer.name, pattern), ilike(customer.email, pattern))))
       .limit(5)
-      .then((rows) => rows.map((row) => ({ href: `/customers/${row.id}`, label: row.name, description: row.email ?? "Cliente", type: "Clientes" }))));
+      .then((rows) => rows.map((row) => ({ href: `/customers/${row.id}`, label: row.name, description: [row.number, row.email].filter(Boolean).join(" · ") || "Cliente", type: "Clientes" }))));
   }
 
   if (can(ctx.membership.role, "supplier.read")) {
-    searches.push(db.select({ id: partner.id, name: partner.name, taxId: partner.taxId })
+    searches.push(db.select({ id: partner.id, number: partner.number, name: partner.name, taxId: partner.taxId })
       .from(partner)
-      .where(and(eq(partner.companyId, ctx.company.id), inArray(partner.type, ["SUPPLIER", "BOTH"]), or(ilike(partner.name, pattern), ilike(partner.taxId, pattern))))
+      .where(and(eq(partner.companyId, ctx.company.id), inArray(partner.type, ["SUPPLIER", "BOTH"]), or(ilike(partner.number, pattern), ilike(partner.name, pattern), ilike(partner.taxId, pattern))))
       .limit(5)
-      .then((rows) => rows.map((row) => ({ href: `/suppliers/${row.id}`, label: row.name, description: row.taxId ?? "Proveedor", type: "Proveedores" }))));
+      .then((rows) => rows.map((row) => ({ href: `/suppliers/${row.id}`, label: row.name, description: [row.number, row.taxId].filter(Boolean).join(" · ") || "Proveedor", type: "Proveedores" }))));
   }
 
   if (can(ctx.membership.role, "invoice.read")) {

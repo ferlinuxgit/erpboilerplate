@@ -147,6 +147,9 @@ export function PurchaseOrderPdfTemplate({
         <View style={styles.supplier}>
           <Text style={styles.label}>Proveedor</Text>
           <Text style={styles.supplierName}>{supplier.name}</Text>
+          {supplier.number ? (
+            <Text style={styles.muted}>N.º proveedor {supplier.number}</Text>
+          ) : null}
           {supplier.taxId ? (
             <Text style={styles.muted}>{supplier.taxId}</Text>
           ) : null}

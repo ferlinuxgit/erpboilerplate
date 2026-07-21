@@ -32,7 +32,7 @@ export default async function NewSupplierPage() {
         backLabel="Volver a proveedores"
       />
 
-      <PageSection title="Datos del proveedor" description="Informa identidad fiscal, domicilio y datos de contacto.">
+      <PageSection title="Datos del proveedor" description="Informa identidad fiscal, domicilio y contacto. El número de proveedor se asignará automáticamente.">
         {canCreateSupplier ? (
           <CreateSupplierForm
             defaultAccounts={supplierAccounts.filter((account) => account.code.startsWith("410"))}

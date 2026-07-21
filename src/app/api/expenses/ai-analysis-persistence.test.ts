@@ -36,7 +36,12 @@ describe("OpenAI expense analysis persistence", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.createJob).toHaveBeenCalledWith(expect.objectContaining({ initialStatus: "PROCESSING", fileName: "factura.pdf" }));
-    expect(mocks.completeJob).toHaveBeenCalledWith("ocr-ai-1", expect.objectContaining({ confidence: "high" }), expect.any(String));
+    expect(mocks.completeJob).toHaveBeenCalledWith(
+      "ocr-ai-1",
+      expect.objectContaining({ confidence: "high" }),
+      expect.any(String),
+      { provider: "openai", model: "gpt-5" },
+    );
     expect(payload).toMatchObject({ jobId: "ocr-ai-1", fileUrl: "/api/expenses/ocr/ocr-ai-1/file" });
   });
 

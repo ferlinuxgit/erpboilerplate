@@ -276,11 +276,13 @@ export const companySettings = pgTable("company_settings", {
 export const partner = pgTable("partner", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  number: text("number").notNull(),
   type: partnerTypeEnum("type").notNull().default("CUSTOMER"),
   name: text("name").notNull(),
   email: text("email"),
   phone: text("phone"),
   taxId: text("taxId"),
+  taxIdNormalized: text("taxIdNormalized"),
   address: text("address"),
   addressLine2: text("addressLine2"),
   city: text("city"),
@@ -294,7 +296,20 @@ export const partner = pgTable("partner", {
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [index("partner_company_name_idx").on(table.companyId, table.name), index("partner_company_tax_id_idx").on(table.companyId, table.taxId)]);
+}, (table) => [
+  unique("partner_company_number_unique").on(table.companyId, table.number),
+  index("partner_company_name_idx").on(table.companyId, table.name),
+  index("partner_company_tax_id_idx").on(table.companyId, table.taxId),
+  uniqueIndex("partner_company_country_tax_normalized_unique")
+    .on(table.companyId, table.countryCode, table.taxIdNormalized)
+    .where(sql`${table.taxIdNormalized} IS NOT NULL`),
+]);
+
+export const partnerNumberSequence = pgTable("partner_number_sequence", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  nextNumber: integer("nextNumber").notNull().default(1),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
 
 export const customer = pgTable("customer", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -537,6 +552,11 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   origin: text("origin").notNull().default("PURCHASE"),
   number: text("number").notNull(),
   supplierDocumentNumber: text("supplierDocumentNumber"),
+  supplierDocumentNumberNormalized: text("supplierDocumentNumberNormalized"),
+  supplierIdentityKey: text("supplierIdentityKey"),
+  documentSha256: text("documentSha256"),
+  idempotencyKey: text("idempotencyKey"),
+  currencyCode: text("currencyCode").notNull().default("EUR"),
   issueDate: timestamp("issueDate", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   dueDate: timestamp("dueDate", { withTimezone: true, mode: "date" }),
   status: text("status").notNull().default("POSTED"),
@@ -550,9 +570,15 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("supplier_invoice_company_number_unique").on(table.companyId, table.number),
-  uniqueIndex("supplier_invoice_supplier_document_unique")
-    .on(table.companyId, table.supplierPartnerId, table.supplierDocumentNumber)
-    .where(sql`${table.supplierDocumentNumber} IS NOT NULL AND ${table.status} <> 'VOID'`),
+  uniqueIndex("supplier_invoice_supplier_document_canonical_unique")
+    .on(table.companyId, table.supplierIdentityKey, table.supplierDocumentNumberNormalized)
+    .where(sql`${table.supplierIdentityKey} IS NOT NULL AND ${table.supplierDocumentNumberNormalized} IS NOT NULL AND ${table.status} <> 'VOID'`),
+  uniqueIndex("supplier_invoice_document_sha_unique")
+    .on(table.companyId, table.documentSha256)
+    .where(sql`${table.documentSha256} IS NOT NULL AND ${table.status} <> 'VOID'`),
+  uniqueIndex("supplier_invoice_idempotency_unique")
+    .on(table.companyId, table.idempotencyKey)
+    .where(sql`${table.idempotencyKey} IS NOT NULL`),
   index("supplier_invoice_company_supplier_idx").on(table.companyId, table.supplierPartnerId),
 ]);
 
@@ -585,11 +611,23 @@ export const supplierInvoiceAttachment = pgTable("supplier_invoice_attachment", 
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
+export const expenseIngestionBatch = pgTable("expense_ingestion_batch", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+  actorUserId: text("actorUserId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("OPEN"),
+  expectedFiles: integer("expectedFiles").notNull().default(0),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [index("expense_ingestion_batch_company_created_idx").on(table.companyId, table.createdAt)]);
+
 export const expenseOcrJob = pgTable("expense_ocr_job", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
   actorUserId: text("actorUserId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  batchId: text("batchId").references(() => expenseIngestionBatch.id, { onDelete: "set null" }),
   supplierInvoiceId: text("supplierInvoiceId").references(() => supplierInvoice.id, { onDelete: "set null" }),
   status: text("status").notNull().default("PENDING"),
   fileName: text("fileName").notNull(),
@@ -598,13 +636,24 @@ export const expenseOcrJob = pgTable("expense_ocr_job", {
   storageKey: text("storageKey"),
   contentType: text("contentType").notNull(),
   sizeBytes: integer("sizeBytes"),
+  documentSha256: text("documentSha256"),
+  attempts: integer("attempts").notNull().default(0),
+  leaseExpiresAt: timestamp("leaseExpiresAt", { withTimezone: true, mode: "date" }),
+  extractionProvider: text("extractionProvider"),
+  extractionModel: text("extractionModel"),
+  extractionSchemaVersion: integer("extractionSchemaVersion").notNull().default(1),
   sourceText: text("sourceText"),
   extractedJson: text("extractedJson"),
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   startedAt: timestamp("startedAt", { withTimezone: true, mode: "date" }),
   finishedAt: timestamp("finishedAt", { withTimezone: true, mode: "date" }),
-});
+}, (table) => [
+  index("expense_ocr_job_company_status_idx").on(table.companyId, table.status),
+  index("expense_ocr_job_actor_created_idx").on(table.actorUserId, table.createdAt),
+  index("expense_ocr_job_batch_idx").on(table.batchId, table.createdAt),
+  index("expense_ocr_job_lease_idx").on(table.status, table.leaseExpiresAt),
+]);
 
 export const journal = pgTable("journal", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

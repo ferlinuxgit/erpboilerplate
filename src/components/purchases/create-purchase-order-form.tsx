@@ -31,7 +31,7 @@ type CreatePurchaseOrderFormProps = {
   currencyCode?: string;
   items?: PurchaseItem[];
   redirectHref?: string;
-  suppliers?: Array<{ id: string; name: string }>;
+  suppliers?: Array<{ id: string; number: string; name: string }>;
 };
 
 function newLine(): PurchaseLineDraft {
@@ -159,7 +159,7 @@ export function CreatePurchaseOrderForm({
           />
           <datalist id="purchase-order-suppliers">
             {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.name} />
+              <option key={supplier.id} label={`${supplier.number} · ${supplier.name}`} value={supplier.name} />
             ))}
           </datalist>
         </div>
