@@ -11,6 +11,7 @@ FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS=--max-old-space-size=1024
 
 # Public build-time values. Runtime secrets must be configured in Coolify env vars.
 ARG APP_ORIGIN=http://localhost:3000

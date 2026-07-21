@@ -8,6 +8,32 @@ const scriptSrc = [
 ].join(" ");
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: [
+    "@aws-sdk/s3-request-presigner",
+    "@upstash/ratelimit",
+    "@upstash/redis",
+    "drizzle-orm",
+    "exceljs",
+    "openai",
+    "pdfjs-dist",
+    "resend",
+    "stripe",
+    "tesseract.js",
+    "zod",
+  ],
+  // TypeScript still runs as the first, isolated step of `npm run build`.
+  // Skipping Next's duplicate in-process pass lets the compiler release its
+  // memory before Turbopack starts, which is important on small Docker hosts.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  experimental: {
+    // Keep production builds within the memory available on the deployment host.
+    // Turbopack evicts cached work above this threshold instead of letting the
+    // Docker builder grow until the host OOM killer terminates it.
+    cpus: 1,
+    turbopackMemoryLimit: 256 * 1024 * 1024,
+  },
   async headers() {
     return [
       {
