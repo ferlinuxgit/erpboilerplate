@@ -248,7 +248,7 @@ export function AppShell({ children }: AppShellProps) {
             <List aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1 text-center">
-            <p className="truncate text-sm font-semibold tracking-[-0.01em]">{currentLink?.label ?? "ERP Suite"}</p>
+            <p className="truncate text-sm font-semibold tracking-[-0.01em]">ERP Suite</p>
             <p className="truncate text-[0.7rem] text-muted-foreground">Workspace operativo</p>
           </div>
         </header>

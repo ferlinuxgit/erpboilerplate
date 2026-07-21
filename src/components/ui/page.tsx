@@ -81,7 +81,7 @@ export function PageShell({ children, className }: PageShellProps) {
   return (
     <main
       className={cn(
-        "mx-auto w-full max-w-[1480px] space-y-7 px-4 py-6 sm:px-6 lg:px-8 lg:py-9",
+        "mx-auto w-full max-w-[1480px] space-y-8 px-4 pb-10 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pb-14 lg:pt-8",
         className,
       )}
     >
@@ -101,18 +101,21 @@ export function PageHeader({
   title,
 }: PageHeaderProps) {
   return (
-    <section
+    <header
+      data-slot="page-header"
       className={cn(
-        "flex flex-col gap-5 border-b border-border/80 pb-6 md:flex-row md:items-end md:justify-between",
+        "relative isolate grid min-h-36 gap-6 overflow-hidden rounded-2xl border border-border/80 bg-card px-5 py-5 shadow-[0_1px_2px_rgba(25,55,45,0.03),0_12px_40px_rgba(25,55,45,0.035)] sm:px-6 sm:py-6 lg:min-h-40 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-10 lg:px-8 lg:py-7",
+        "before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary",
+        "after:pointer-events-none after:absolute after:-right-24 after:-top-28 after:-z-10 after:size-80 after:rounded-full after:bg-primary/[0.045] after:blur-3xl",
         className,
       )}
     >
-      <div className="min-w-0 space-y-2.5">
+      <div className="min-w-0 self-stretch space-y-3 lg:flex lg:flex-col lg:justify-end">
         {backHref ? (
           <Link
             className={cn(
               buttonVariants({ variant: "link", size: "sm" }),
-              "-ml-3 w-fit text-muted-foreground hover:text-foreground",
+              "-ml-3 w-fit text-muted-foreground hover:text-foreground lg:mb-auto",
             )}
             href={backHref}
           >
@@ -121,16 +124,16 @@ export function PageHeader({
           </Link>
         ) : null}
         {eyebrow ? (
-          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.11em] text-primary/75">
+          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-primary/75">
             {eyebrow}
           </p>
         ) : null}
         <div className="space-y-1.5">
-          <h1 className="text-2xl font-semibold tracking-[-0.035em] text-foreground text-balance md:text-[2rem] md:leading-none">
+          <h1 className="max-w-4xl text-[1.7rem] font-semibold leading-[1.08] tracking-[-0.04em] text-foreground text-balance sm:text-[2rem] lg:text-[2.25rem]">
             {title}
           </h1>
           {description ? (
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground text-pretty">
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground text-pretty sm:text-[0.95rem]">
               {description}
             </p>
           ) : null}
@@ -142,11 +145,15 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div
+          aria-label="Acciones de la página"
+          className="flex w-full flex-wrap items-center gap-2 border-t border-border/70 pt-4 lg:w-auto lg:max-w-[42rem] lg:justify-end lg:border-l lg:border-t-0 lg:pl-7 lg:pt-0 [&>a]:h-11 [&>a]:grow [&>a]:px-4 [&>button]:h-11 [&>button]:grow sm:[&>a]:grow-0 sm:[&>button]:grow-0 [&>[aria-label]]:size-11 [&>[aria-label]]:grow-0 [&>[aria-label]]:px-0"
+          role="group"
+        >
           {actions}
         </div>
       ) : null}
-    </section>
+    </header>
   );
 }
 

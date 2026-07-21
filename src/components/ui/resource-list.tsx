@@ -403,180 +403,212 @@ export function ResourceList<TItem>({
 
   return (
     <section
-      className="space-y-5"
+      className="min-w-0 space-y-4"
       data-testid={testId}
       aria-labelledby={`${testId ?? "resource-list"}-title`}
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
+      <h3 className="sr-only" id={`${testId ?? "resource-list"}-title`}>
+        {title}
+      </h3>
+      <div className="w-full overflow-visible rounded-xl border border-border/80 bg-card p-3 shadow-[0_1px_2px_rgba(25,55,45,0.025)] sm:p-4">
+        <div className="mb-3 flex min-h-6 flex-wrap items-center justify-between gap-2">
           <p
-            className="text-sm font-semibold"
-            id={`${testId ?? "resource-list"}-title`}
-          >
-            {title}
-          </p>
-          <p
-            className="text-sm text-muted-foreground"
+            className="text-sm font-medium text-foreground"
             aria-live="polite"
             data-testid={`${testId ?? "resource-list"}-summary`}
           >
-            {sortedItems.length} de {items.length} registros visibles
+            <span className="font-semibold tabular-nums">
+              {sortedItems.length}
+            </span>
+            <span className="text-muted-foreground">
+              {" "}de {items.length} registros
+            </span>
           </p>
+          {selectedItems.length > 0 ? (
+            <p
+              aria-live="polite"
+              className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-foreground"
+            >
+              {selectedItems.length} seleccionados
+            </p>
+          ) : null}
         </div>
         {items.length > 0 ? (
-          <div className="flex w-full flex-col gap-2 lg:max-w-4xl">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              {savedViews.length > 0 ? (
-                <div className="flex min-w-0 gap-1">
-                  <Select
-                    aria-label="Aplicar vista guardada"
-                    className="min-w-0 sm:max-w-48"
-                    value={activeViewName}
-                    onChange={(event) => applyView(event.target.value)}
-                  >
-                    <option value="">Vistas guardadas</option>
-                    {savedViews.map((view) => (
-                      <option key={view.name} value={view.name}>
-                        {view.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {activeViewName ? (
+          <div className="flex w-full min-w-0 flex-col gap-3">
+            <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(16rem,1fr)_auto]">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                {savedViews.length > 0 ? (
+                  <div className="flex min-w-0 gap-1 sm:w-48 sm:shrink-0">
+                    <Select
+                      aria-label="Aplicar vista guardada"
+                      className="min-w-0"
+                      value={activeViewName}
+                      onChange={(event) => applyView(event.target.value)}
+                    >
+                      <option value="">Vistas guardadas</option>
+                      {savedViews.map((view) => (
+                        <option key={view.name} value={view.name}>
+                          {view.name}
+                        </option>
+                      ))}
+                    </Select>
+                    {activeViewName ? (
+                      <Button
+                        aria-label={`Eliminar vista ${activeViewName}`}
+                        onClick={deleteActiveView}
+                        size="icon-lg"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                <label
+                  className="sr-only"
+                  htmlFor={`${testId ?? "resource-list"}-search`}
+                >
+                  Buscar en {title}
+                </label>
+                <div className="relative min-w-0 flex-1">
+                  <MagnifyingGlass
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    className="h-11 pl-10 pr-11"
+                    id={`${testId ?? "resource-list"}-search`}
+                    placeholder={
+                      searchPlaceholder ??
+                      `Buscar en ${title.toLocaleLowerCase()}`
+                    }
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      setCurrentPage(1);
+                    }}
+                  />
+                  {hasSearch ? (
                     <Button
-                      aria-label={`Eliminar vista ${activeViewName}`}
-                      onClick={deleteActiveView}
-                      size="icon"
+                      aria-label="Limpiar búsqueda"
+                      className="absolute right-0 top-0"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setCurrentPage(1);
+                      }}
+                      size="icon-lg"
                       type="button"
                       variant="ghost"
                     >
-                      <Trash aria-hidden="true" />
+                      <X aria-hidden="true" />
                     </Button>
                   ) : null}
                 </div>
-              ) : null}
-              <label
-                className="sr-only"
-                htmlFor={`${testId ?? "resource-list"}-search`}
-              >
-                Buscar en {title}
-              </label>
-              <div className="relative min-w-0 flex-1">
-                <MagnifyingGlass
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  className="pl-9 pr-9"
-                  id={`${testId ?? "resource-list"}-search`}
-                  placeholder={
-                    searchPlaceholder ??
-                    `Buscar en ${title.toLocaleLowerCase()}`
-                  }
-                  value={searchQuery}
-                  onChange={(event) => {
-                    setSearchQuery(event.target.value);
-                    setCurrentPage(1);
-                  }}
-                />
-                {hasSearch ? (
+              </div>
+              <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
+                {exportableColumns.length > 0 ? (
                   <Button
-                    aria-label="Limpiar búsqueda"
-                    className="absolute right-0 top-0"
-                    onClick={() => {
-                      setSearchQuery("");
-                      setCurrentPage(1);
-                    }}
-                    size="icon"
+                    aria-label={
+                      selectedItems.length > 0
+                        ? `Exportar ${selectedItems.length} registros seleccionados`
+                        : "Exportar registros visibles"
+                    }
+                    disabled={sortedItems.length === 0}
+                    onClick={() =>
+                      exportRows(
+                        selectedItems.length > 0 ? selectedItems : sortedItems,
+                      )
+                    }
+                    size="icon-lg"
+                    title={
+                      selectedItems.length > 0
+                        ? `Exportar ${selectedItems.length} seleccionados`
+                        : "Exportar registros"
+                    }
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                   >
-                    <X aria-hidden="true" />
+                    <DownloadSimple aria-hidden="true" />
                   </Button>
                 ) : null}
-              </div>
-              {exportableColumns.length > 0 ? (
+                <details className="relative">
+                  <summary
+                    aria-label="Configurar campos visibles"
+                    className="grid size-11 cursor-pointer list-none place-items-center rounded-md border border-border bg-card text-foreground transition-[background-color,border-color,color,transform] duration-200 hover:border-primary/30 hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/20 active:scale-[0.985]"
+                    title="Configurar campos"
+                  >
+                    <SlidersHorizontal aria-hidden="true" />
+                    <span className="sr-only">Configurar campos</span>
+                  </summary>
+                  <div className="absolute right-0 z-20 mt-2 min-w-56 space-y-2 rounded-xl border bg-card p-3 shadow-lg">
+                    {columns.map((column) => (
+                      <label
+                        className="flex items-center gap-2 text-sm"
+                        key={column.header}
+                      >
+                        <input
+                          checked={visibleHeaders.has(column.header)}
+                          disabled={
+                            visibleHeaders.size === 1 &&
+                            visibleHeaders.has(column.header)
+                          }
+                          onChange={() =>
+                            setVisibleHeaders((current) => {
+                              const next = new Set(current);
+                              if (next.has(column.header))
+                                next.delete(column.header);
+                              else next.add(column.header);
+                              return next;
+                            })
+                          }
+                          type="checkbox"
+                        />
+                        {column.header}
+                      </label>
+                    ))}
+                  </div>
+                </details>
                 <Button
-                  disabled={sortedItems.length === 0}
-                  onClick={() =>
-                    exportRows(
-                      selectedItems.length > 0 ? selectedItems : sortedItems,
-                    )
-                  }
+                  aria-label="Guardar vista actual"
+                  onClick={() => setShowSaveView((current) => !current)}
+                  size="icon-lg"
+                  title="Guardar vista"
                   type="button"
                   variant="outline"
                 >
-                  <DownloadSimple aria-hidden="true" />
-                  {selectedItems.length > 0
-                    ? `Exportar ${selectedItems.length}`
-                    : "Exportar"}
+                  <FloppyDisk aria-hidden="true" />
                 </Button>
-              ) : null}
-              <details className="relative">
-                <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-md border bg-card px-3 text-sm font-semibold hover:bg-accent">
-                  <SlidersHorizontal aria-hidden="true" />
-                  Campos
-                </summary>
-                <div className="absolute right-0 z-20 mt-2 min-w-56 space-y-2 rounded-xl border bg-card p-3 shadow-lg">
-                  {columns.map((column) => (
-                    <label
-                      className="flex items-center gap-2 text-sm"
-                      key={column.header}
-                    >
-                      <input
-                        checked={visibleHeaders.has(column.header)}
-                        disabled={
-                          visibleHeaders.size === 1 &&
-                          visibleHeaders.has(column.header)
-                        }
-                        onChange={() =>
-                          setVisibleHeaders((current) => {
-                            const next = new Set(current);
-                            if (next.has(column.header))
-                              next.delete(column.header);
-                            else next.add(column.header);
-                            return next;
-                          })
-                        }
-                        type="checkbox"
-                      />
-                      {column.header}
-                    </label>
-                  ))}
+                <div className="min-w-24 flex-1 sm:flex-none">
+                  <label
+                    className="sr-only"
+                    htmlFor={`${testId ?? "resource-list"}-page-size`}
+                  >
+                    Registros por página
+                  </label>
+                  <Select
+                    className="h-11"
+                    id={`${testId ?? "resource-list"}-page-size`}
+                    onChange={(event) => {
+                      setActivePageSize(Number(event.target.value));
+                      setCurrentPage(1);
+                    }}
+                    value={activePageSize}
+                  >
+                    {pageSizeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}/pág.
+                      </option>
+                    ))}
+                  </Select>
                 </div>
-              </details>
-              <Button
-                onClick={() => setShowSaveView((current) => !current)}
-                type="button"
-                variant="outline"
-              >
-                <FloppyDisk aria-hidden="true" />
-                Guardar vista
-              </Button>
-              <label
-                className="sr-only"
-                htmlFor={`${testId ?? "resource-list"}-page-size`}
-              >
-                Registros por página
-              </label>
-              <Select
-                id={`${testId ?? "resource-list"}-page-size`}
-                onChange={(event) => {
-                  setActivePageSize(Number(event.target.value));
-                  setCurrentPage(1);
-                }}
-                value={activePageSize}
-              >
-                {pageSizeOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}/pág.
-                  </option>
-                ))}
-              </Select>
+              </div>
             </div>
             {showSaveView ? (
-              <div className="flex gap-2 rounded-lg border bg-muted/20 p-2">
+              <div className="flex flex-col gap-2 rounded-lg border border-border/80 bg-muted/25 p-3 sm:flex-row">
                 <Input
                   aria-label="Nombre de la vista"
+                  className="h-11"
                   onChange={(event) => setViewName(event.target.value)}
                   placeholder="Nombre de la vista"
                   value={viewName}
@@ -584,12 +616,14 @@ export function ResourceList<TItem>({
                 <Button
                   disabled={!viewName.trim()}
                   onClick={saveCurrentView}
+                  size="lg"
                   type="button"
                 >
                   Guardar
                 </Button>
                 <Button
                   onClick={() => setShowSaveView(false)}
+                  size="lg"
                   type="button"
                   variant="ghost"
                 >
@@ -598,42 +632,53 @@ export function ResourceList<TItem>({
               </div>
             ) : null}
             {filters.length > 0 ? (
-              <div className="flex flex-col gap-2 rounded-lg border border-border/80 bg-muted/20 p-2 sm:flex-row sm:items-center">
-                <span className="inline-flex shrink-0 items-center gap-1.5 px-1 text-xs font-semibold text-muted-foreground">
-                  <Funnel aria-hidden="true" />
-                  Filtros
-                </span>
-                {filters.map((filter) => (
-                  <Select
-                    aria-label={filter.label}
-                    className="sm:max-w-52"
-                    key={filter.key}
-                    onChange={(event) => {
-                      setActiveFilters((current) => ({
-                        ...current,
-                        [filter.key]: event.target.value,
-                      }));
-                      setCurrentPage(1);
-                      setSelectedIds(new Set());
-                      setActiveViewName("");
-                    }}
-                    value={activeFilters[filter.key] ?? ""}
-                  >
-                    <option value="">
-                      {filter.allLabel ??
-                        `Todos: ${filter.label.toLocaleLowerCase()}`}
-                    </option>
-                    {filter.options.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                ))}
+              <div className="flex w-full flex-col gap-3 rounded-lg bg-muted/45 p-3 lg:flex-row lg:items-end">
+                <div className="flex min-h-11 shrink-0 items-center gap-2 text-sm font-semibold text-foreground lg:pr-2">
+                  <span className="grid size-8 place-items-center rounded-md bg-card text-primary shadow-[0_0_0_1px_var(--border)]">
+                    <Funnel aria-hidden="true" />
+                  </span>
+                  <span>Filtrar</span>
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  {filters.map((filter) => (
+                    <label
+                      className="min-w-0 flex-1 space-y-1 sm:min-w-48 sm:max-w-64"
+                      key={filter.key}
+                    >
+                      <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        {filter.label}
+                      </span>
+                      <Select
+                        className="h-11 bg-card"
+                        onChange={(event) => {
+                          setActiveFilters((current) => ({
+                            ...current,
+                            [filter.key]: event.target.value,
+                          }));
+                          setCurrentPage(1);
+                          setSelectedIds(new Set());
+                          setActiveViewName("");
+                        }}
+                        value={activeFilters[filter.key] ?? ""}
+                      >
+                        <option value="">
+                          {filter.allLabel ??
+                            `Todos: ${filter.label.toLocaleLowerCase()}`}
+                        </option>
+                        {filter.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                  ))}
+                </div>
                 {hasActiveFilters || hasSearch || sort ? (
                   <Button
-                    className="sm:ml-auto"
+                    className="shrink-0 lg:ml-auto"
                     onClick={resetFilters}
+                    size="lg"
                     type="button"
                     variant="ghost"
                   >
