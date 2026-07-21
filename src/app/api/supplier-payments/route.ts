@@ -62,7 +62,6 @@ export async function POST(request: Request) {
           .select({
             id: supplierInvoice.id,
             supplierPartnerId: supplierInvoice.supplierPartnerId,
-            origin: supplierInvoice.origin,
             purchaseOrderId: supplierInvoice.purchaseOrderId,
             totalAmount: supplierInvoice.totalAmount,
             status: supplierInvoice.status,
@@ -89,9 +88,6 @@ export async function POST(request: Request) {
       if (!ownedSupplier) throw new Error("SUPPLIER_NOT_FOUND");
 
       await assertFiscalPeriodOpen(ctx.company.id, postedAt, tx);
-      if (ownedInvoice?.origin === "EXPENSE" && !can(ctx.membership.role, "expense.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
-      if (ownedInvoice && ownedInvoice.origin !== "EXPENSE" && !can(ctx.membership.role, "purchase.write")) throw new Error("SUPPLIER_INVOICE_FORBIDDEN");
-
       const [ownedPaymentMethods, ownedBankAccounts] = await Promise.all([
         parsed.data.paymentMethodId
           ? tx.select({ id: paymentMethod.id }).from(paymentMethod).where(and(eq(paymentMethod.id, parsed.data.paymentMethodId), eq(paymentMethod.companyId, ctx.company.id))).limit(1)

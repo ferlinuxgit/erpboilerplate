@@ -17,6 +17,8 @@ import { formatMoney } from "@/lib/format";
 
 type ExpenseAccount = { id: string; code: string; name: string };
 type Supplier = { id: string; number: string; name: string; taxId: string | null };
+type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
+type GoodsReceiptRelation = { id: string; number: string; purchaseOrderId: string; supplierPartnerId: string };
 
 type ExpenseLineDraft = {
   id: string;
@@ -40,7 +42,9 @@ type SupplierDialogMode = "choice" | "search" | "new";
 type CreateExpenseInvoiceFormProps = {
   baseCurrencyCode: string;
   expenseAccounts: ExpenseAccount[];
+  goodsReceipts: GoodsReceiptRelation[];
   initialSupplierId?: string;
+  purchaseOrders: PurchaseOrderRelation[];
   suppliers: Supplier[];
 };
 
@@ -76,12 +80,14 @@ function lineTotals(line: ExpenseLineDraft) {
   return { subtotal, tax, retention, total: subtotal + tax - retention };
 }
 
-export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, initialSupplierId, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, goodsReceipts, initialSupplierId, purchaseOrders, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
   const validInitialSupplierId = suppliers.some((supplier) => supplier.id === initialSupplierId) ? initialSupplierId ?? "" : "";
   const [creationMode, setCreationMode] = useState<CreationMode | null>(null);
   const [supplierMode, setSupplierMode] = useState<"existing" | "new">(suppliers.length > 0 ? "existing" : "new");
   const [supplierPartnerId, setSupplierPartnerId] = useState(validInitialSupplierId);
+  const [purchaseOrderId, setPurchaseOrderId] = useState("");
+  const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [supplierDialogMode, setSupplierDialogMode] = useState<SupplierDialogMode>(suppliers.length > 0 ? "choice" : "new");
   const [supplierSearch, setSupplierSearch] = useState("");
@@ -107,6 +113,10 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
   const [error, setError] = useState<string | null>(null);
   const errorId = error ? "expense-invoice-error" : undefined;
   const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierPartnerId) ?? null;
+  const availablePurchaseOrders = purchaseOrders.filter((order) => !supplierPartnerId || order.supplierPartnerId === supplierPartnerId);
+  const availableGoodsReceipts = goodsReceipts.filter((receipt) => purchaseOrderId
+    ? receipt.purchaseOrderId === purchaseOrderId
+    : !supplierPartnerId || receipt.supplierPartnerId === supplierPartnerId);
 
   const preview = useMemo(
     () => lines.reduce(
@@ -160,6 +170,10 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
   function chooseExistingSupplier(supplierId: string) {
     setSupplierMode("existing");
     selectSupplier(supplierId);
+    if (purchaseOrderId && purchaseOrders.find((order) => order.id === purchaseOrderId)?.supplierPartnerId !== supplierId) {
+      setPurchaseOrderId("");
+      setGoodsReceiptId("");
+    }
     setSupplierName("");
     setSupplierDialogOpen(false);
   }
@@ -167,9 +181,40 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
   function chooseNewSupplier() {
     setSupplierMode("new");
     setSupplierPartnerId("");
+    setPurchaseOrderId("");
+    setGoodsReceiptId("");
     setSupplierName("");
     setSupplierTaxId("");
     setSupplierDialogMode("new");
+  }
+
+  function selectPurchaseOrder(orderId: string) {
+    setPurchaseOrderId(orderId);
+    if (!orderId) {
+      setGoodsReceiptId("");
+      return;
+    }
+    const order = purchaseOrders.find((candidate) => candidate.id === orderId);
+    if (order) {
+      setSupplierMode("existing");
+      selectSupplier(order.supplierPartnerId);
+      setSupplierName("");
+    }
+    if (goodsReceiptId && goodsReceipts.find((receipt) => receipt.id === goodsReceiptId)?.purchaseOrderId !== orderId) {
+      setGoodsReceiptId("");
+    }
+  }
+
+  function selectGoodsReceipt(receiptId: string) {
+    setGoodsReceiptId(receiptId);
+    if (!receiptId) return;
+    const receipt = goodsReceipts.find((candidate) => candidate.id === receiptId);
+    if (receipt) {
+      setPurchaseOrderId(receipt.purchaseOrderId);
+      setSupplierMode("existing");
+      selectSupplier(receipt.supplierPartnerId);
+      setSupplierName("");
+    }
   }
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -222,6 +267,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
           supplierProvince: supplierMode === "new" ? supplierProvince : undefined,
           supplierCountryCode: supplierMode === "new" ? supplierCountryCode : undefined,
           supplierDocumentNumber,
+          purchaseOrderId: purchaseOrderId || undefined,
+          goodsReceiptId: goodsReceiptId || undefined,
           issueDate: toIsoDate(issueDate),
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
           notes,
@@ -232,7 +279,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
       });
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo crear el gasto.");
+        throw new Error(payload.message ?? "No se pudo crear la factura de proveedor.");
       }
       const created = (await response.json()) as { id?: string };
       setSupplierName("");
@@ -246,13 +293,15 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
       setSupplierProvince("");
       setSupplierCountryCode("ES");
       setSupplierDocumentNumber("");
+      setPurchaseOrderId("");
+      setGoodsReceiptId("");
       setIssueDate(todayInputValue());
       setDueDate("");
       setNotes("");
       setLines([newLine(expenseAccounts[0]?.id ?? "")]);
       setAttachment({ fileName: "", fileUrl: "" });
       setOcrJobId(null);
-      toast.success("Gasto contabilizado correctamente.");
+      toast.success("Factura de proveedor contabilizada correctamente.");
       if (created.id) {
         router.push(`/expenses/${created.id}`);
       }
@@ -292,7 +341,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
   }
 
   if (creationMode === "ocr") {
-    return <ExpenseBatchUpload baseCurrencyCode={baseCurrencyCode} expenseAccounts={expenseAccounts} onBack={() => setCreationMode(null)} suppliers={suppliers} />;
+    return <ExpenseBatchUpload baseCurrencyCode={baseCurrencyCode} expenseAccounts={expenseAccounts} goodsReceipts={goodsReceipts} onBack={() => setCreationMode(null)} purchaseOrders={purchaseOrders} suppliers={suppliers} />;
   }
 
   return (
@@ -301,7 +350,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
         <div>
           <p className="text-sm font-medium">Modo de registro: Manual</p>
-          <p className="text-sm text-muted-foreground">Completa los datos esenciales del gasto.</p>
+          <p className="text-sm text-muted-foreground">Completa los datos esenciales de la factura.</p>
         </div>
         <Button onClick={() => setCreationMode(null)} type="button" variant="outline">
           Cambiar modo
@@ -333,6 +382,29 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
         )}
       </section>
 
+      <section className="space-y-3 rounded-md border p-3" aria-labelledby="supplier-invoice-relation-title">
+        <div>
+          <h3 className="text-sm font-medium" id="supplier-invoice-relation-title">Relación con compras</h3>
+          <p className="text-sm text-muted-foreground">Opcional. Al elegir una recepción se completan automáticamente su pedido y proveedor.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="expense-purchase-order">Pedido de compra</Label>
+            <Select id="expense-purchase-order" onChange={(event) => selectPurchaseOrder(event.target.value)} value={purchaseOrderId}>
+              <option value="">Sin pedido relacionado</option>
+              {availablePurchaseOrders.map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-goods-receipt">Recepción de mercancía</Label>
+            <Select id="expense-goods-receipt" onChange={(event) => selectGoodsReceipt(event.target.value)} value={goodsReceiptId}>
+              <option value="">Sin recepción relacionada</option>
+              {availableGoodsReceipts.map((receipt) => <option key={receipt.id} value={receipt.id}>{receipt.number}</option>)}
+            </Select>
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="space-y-2">
           <Label htmlFor="expense-supplier-number">Factura proveedor</Label>
@@ -350,7 +422,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
           {ocrJobId ? <p className="text-sm font-medium">Adjunto</p> : <Label htmlFor="expense-attachment-url">Adjunto</Label>}
           {ocrJobId ? (
             <div className="flex min-h-10 items-center justify-between gap-3 rounded-md border bg-primary/5 px-3 py-2 text-sm">
-              <span className="min-w-0"><span className="block truncate font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">Original almacenado · se asociará automáticamente al gasto</span></span>
+              <span className="min-w-0"><span className="block truncate font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">Original almacenado · se asociará automáticamente a la factura</span></span>
               {attachment.fileUrl ? <a className="shrink-0 font-medium text-primary hover:underline" href={attachment.fileUrl} rel="noreferrer" target="_blank">Abrir</a> : null}
             </div>
           ) : (
@@ -431,7 +503,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
       </div>
 
       <Button disabled={isLoading || expenseAccounts.length === 0} type="submit">
-        {isLoading ? "Guardando..." : "Registrar gasto"}
+        {isLoading ? "Guardando..." : "Registrar factura"}
       </Button>
       {error ? (
         <p className="text-sm text-red-600" id="expense-invoice-error" role="alert">
@@ -440,7 +512,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
       ) : null}
     </form>
     <Dialog
-      description="Busca un proveedor existente o prepara uno nuevo para este gasto."
+      description="Busca un proveedor existente o prepara uno nuevo para esta factura."
       initialFocusId={supplierDialogMode === "search" ? "expense-supplier-search" : "expense-new-supplier-name"}
       onClose={() => setSupplierDialogOpen(false)}
       open={supplierDialogOpen}
@@ -449,7 +521,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
     >
       {supplierDialogMode === "choice" ? (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Elige si quieres buscar un proveedor existente o crear uno nuevo para este gasto.</p>
+          <p className="text-sm text-muted-foreground">Elige si quieres buscar un proveedor existente o crear uno nuevo para esta factura.</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -558,6 +630,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, in
               onClick={() => {
                 setSupplierMode("new");
                 setSupplierPartnerId("");
+                setPurchaseOrderId("");
+                setGoodsReceiptId("");
                 setSupplierDialogOpen(false);
               }}
               type="button"

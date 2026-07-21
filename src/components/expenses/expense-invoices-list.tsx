@@ -27,6 +27,10 @@ type ExpenseInvoice = {
   number: string;
   supplierDocumentNumber: string | null;
   supplierName: string;
+  purchaseOrderId: string | null;
+  purchaseOrderNumber: string | null;
+  goodsReceiptId: string | null;
+  goodsReceiptNumber: string | null;
   issueDate: Date | string;
   dueDate: Date | string | null;
   status: string;
@@ -59,13 +63,13 @@ export function ExpenseInvoicesList({
       const response = await fetch(`/api/expenses/${invoice.id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ reason: "Anulado desde control de gastos." }),
+        body: JSON.stringify({ reason: "Anulada desde facturas de proveedor." }),
       });
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo anular el gasto.");
+        throw new Error(payload.message ?? "No se pudo anular la factura.");
       }
-      toast.success("Gasto anulado con asiento inverso.");
+      toast.success("Factura anulada con asiento inverso.");
       setVoidingInvoice(null);
       router.refresh();
     } catch (error) {
@@ -87,6 +91,19 @@ export function ExpenseInvoicesList({
   const canDelete = (invoice: ExpenseInvoice) => canManage && invoice.status === "VOID";
 
   const columns: ResourceListColumn<ExpenseInvoice>[] = [
+    {
+      header: "Relación",
+      cell: (invoice) => invoice.purchaseOrderId ? (
+        <div>
+          <Link className="font-medium text-primary hover:underline" href={`/purchases/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link>
+          {invoice.goodsReceiptId ? (
+            <Link className="text-xs text-muted-foreground hover:text-primary hover:underline" href={`/purchases/receipts/${invoice.goodsReceiptId}`}>Recepción {invoice.goodsReceiptNumber}</Link>
+          ) : <p className="text-xs text-muted-foreground">Sin recepción vinculada</p>}
+        </div>
+      ) : "Sin pedido",
+      exportValue: (invoice) => [invoice.purchaseOrderNumber, invoice.goodsReceiptNumber].filter(Boolean).join(" · "),
+      sortValue: (invoice) => invoice.purchaseOrderNumber ?? "",
+    },
     {
       header: "Proveedor",
       cell: (invoice) => (
@@ -167,10 +184,10 @@ export function ExpenseInvoicesList({
           ) : null}
           {canDelete(invoice) ? (
             <DeleteButton
-              description="El gasto anulado, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
+              description="La factura anulada, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
               label="Eliminar"
-              successMessage="Gasto anulado eliminado."
-              title="Eliminar gasto anulado"
+              successMessage="Factura anulada eliminada."
+              title="Eliminar factura anulada"
               url={`/api/expenses/${invoice.id}/hard-delete`}
             />
           ) : null}
@@ -183,13 +200,13 @@ export function ExpenseInvoicesList({
     <>
       <ResourceList
         columns={columns}
-        emptyDescription="Registra gastos directos como gasolina, luz, telefono, alquileres o servicios profesionales."
-        emptyTitle="Sin gastos registrados"
-        exportFileName="gastos.csv"
+        emptyDescription="Sube por OCR o registra manualmente la primera factura recibida."
+        emptyTitle="Sin facturas de proveedor"
+        exportFileName="facturas-proveedor.csv"
         getRowId={(invoice) => invoice.id}
         getRowTestId={(invoice) => `expense-invoice-${invoice.number}`}
         getSearchText={(invoice) =>
-          `${invoice.number} ${invoice.supplierDocumentNumber ?? ""} ${invoice.supplierName} ${invoice.paymentStatus}`
+          `${invoice.number} ${invoice.supplierDocumentNumber ?? ""} ${invoice.supplierName} ${invoice.purchaseOrderNumber ?? ""} ${invoice.goodsReceiptNumber ?? ""} ${invoice.paymentStatus}`
         }
         items={rows}
         renderMobileCard={(invoice) => (
@@ -211,6 +228,7 @@ export function ExpenseInvoicesList({
               <p>Fecha {formatDate(invoice.issueDate)}</p>
               <p>Total {formatMoney(invoice.totalAmount)}</p>
               <p>Pendiente {formatMoney(invoice.outstandingAmount)}</p>
+              <p>{invoice.purchaseOrderNumber ? `Pedido ${invoice.purchaseOrderNumber}` : "Sin pedido"}</p>
               <p>
                 {invoice.dueDate
                   ? `Vence ${formatDate(invoice.dueDate)}`
@@ -240,19 +258,19 @@ export function ExpenseInvoicesList({
               ) : null}
               {canDelete(invoice) ? (
                 <DeleteButton
-                  description="El gasto anulado, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
+                  description="La factura anulada, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
                   label="Eliminar"
-                  successMessage="Gasto anulado eliminado."
-                  title="Eliminar gasto anulado"
+                  successMessage="Factura anulada eliminada."
+                  title="Eliminar factura anulada"
                   url={`/api/expenses/${invoice.id}/hard-delete`}
                 />
               ) : null}
             </div>
           </div>
         )}
-        searchPlaceholder="Buscar por proveedor, factura o estado"
+        searchPlaceholder="Buscar por proveedor, factura, pedido, recepción o estado"
         testId="expenses-list"
-        title="Facturas de gasto"
+        title="Facturas de proveedor"
         filters={[
           {
             key: "status",
@@ -267,7 +285,7 @@ export function ExpenseInvoicesList({
       />
       <DestructiveActionDialog
         confirmLabel="Anular"
-        description="Se registrará un asiento inverso y el gasto quedará marcado como anulado. Solo se permite si no tiene pagos."
+        description="Se registrará un asiento inverso y la factura quedará marcada como anulada. Solo se permite si no tiene pagos."
         errorMessage={voidError}
         isSubmitting={loadingId === voidingInvoice?.id}
         onCancel={() => {
@@ -278,7 +296,7 @@ export function ExpenseInvoicesList({
           if (voidingInvoice) void voidInvoice(voidingInvoice);
         }}
         open={Boolean(voidingInvoice)}
-        title="Anular gasto"
+        title="Anular factura"
       />
     </>
   );

@@ -52,7 +52,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               supplierId={supplier.id}
             />
             <Link className={buttonVariants()} href={`/expenses/new?supplierId=${supplier.id}`}>
-              Registrar gasto
+              Registrar factura
             </Link>
           </div>
         }
@@ -103,13 +103,13 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         </Card>
       </section>
 
-      <PageSection title="Facturas recientes" description="Últimas facturas de gasto o compra recibidas de este proveedor.">
+      <PageSection title="Facturas recientes" description="Últimas facturas recibidas de este proveedor, con o sin pedido asociado.">
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left">
               <tr>
                 <th className="p-3">Número</th>
-                <th className="p-3">Origen</th>
+                <th className="p-3">Pedido</th>
                 <th className="p-3">Fecha</th>
                 <th className="p-3">Estado pago</th>
                 <th className="p-3 text-right">Total</th>
@@ -122,7 +122,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               ) : activity.invoices.map((invoice) => (
                 <tr className="border-t" key={invoice.id}>
                   <td className="p-3"><Link className="font-medium text-primary hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></td>
-                  <td className="p-3">{invoice.origin === "EXPENSE" ? "Gasto" : "Compra"}</td>
+                  <td className="p-3">{invoice.purchaseOrderId ? <Link className="text-primary hover:underline" href={`/purchases/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</td>
                   <td className="p-3">{formatDate(invoice.issueDate)}</td>
                   <td className="p-3"><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></td>
                   <td className="p-3 text-right">{formatMoney(invoice.totalAmount, supplier.currencyCode)}</td>

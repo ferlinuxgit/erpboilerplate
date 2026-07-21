@@ -19,6 +19,8 @@ const payloadSchema = z.object({
   supplierCity: z.string().trim().optional().or(z.literal("")),
   supplierProvince: z.string().trim().optional().or(z.literal("")),
   supplierCountryCode: z.string().trim().length(2).optional().or(z.literal("")),
+  purchaseOrderId: z.string().trim().optional().or(z.literal("")),
+  goodsReceiptId: z.string().trim().optional().or(z.literal("")),
   number: z.string().trim().optional().or(z.literal("")),
   supplierDocumentNumber: z.string().trim().optional().or(z.literal("")),
   issueDate: z.string().datetime(),
@@ -57,17 +59,17 @@ function expenseCreationError(error: unknown) {
   const record = error && typeof error === "object" ? error as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } } : null;
   const code = record?.code ?? record?.cause?.code;
   const constraint = record?.constraint ?? record?.cause?.constraint ?? "";
-  if (code === "23505" && constraint.includes("document_sha")) return "Gasto duplicado: este archivo ya fue contabilizado.";
-  if (code === "23505" && constraint.includes("supplier_document_canonical")) return "Gasto duplicado: ya existe ese número de factura para el proveedor.";
-  if (code === "23505" && constraint.includes("idempotency")) return "La solicitud ya fue procesada; actualiza la lista de gastos.";
-  return error instanceof Error ? error.message : "No se pudo crear el gasto.";
+  if (code === "23505" && constraint.includes("document_sha")) return "Factura duplicada: este archivo ya fue contabilizado.";
+  if (code === "23505" && constraint.includes("supplier_document_canonical")) return "Factura duplicada: ya existe ese número de factura para el proveedor.";
+  if (code === "23505" && constraint.includes("idempotency")) return "La solicitud ya fue procesada; actualiza la lista de facturas.";
+  return error instanceof Error ? error.message : "No se pudo crear la factura de proveedor.";
 }
 
 export async function GET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.read")) return NextResponse.json({ message: "Sin permisos para ver gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver facturas de proveedor." }, { status: 403 });
   return NextResponse.json(await listExpenseInvoices(ctx.company.id));
 }
 
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.write")) return NextResponse.json({ message: "Sin permisos para crear gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para crear facturas de proveedor." }, { status: 403 });
 
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
@@ -103,6 +105,8 @@ export async function POST(request: Request) {
       supplierCity: parsed.data.supplierCity || undefined,
       supplierProvince: parsed.data.supplierProvince || undefined,
       supplierCountryCode: parsed.data.supplierCountryCode || undefined,
+      purchaseOrderId: parsed.data.purchaseOrderId || undefined,
+      goodsReceiptId: parsed.data.goodsReceiptId || undefined,
       number: parsed.data.number || undefined,
       supplierDocumentNumber: parsed.data.supplierDocumentNumber || undefined,
       issueDate: new Date(parsed.data.issueDate),
@@ -131,7 +135,7 @@ export async function POST(request: Request) {
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
     const message = expenseCreationError(error);
-    const status = message.startsWith("Gasto duplicado") || message.includes("ya fue procesada") ? 409 : 400;
+    const status = message.toLocaleLowerCase().includes("duplicad") || message.includes("ya fue procesada") ? 409 : 400;
     return NextResponse.json({ message }, { status });
   }
 }

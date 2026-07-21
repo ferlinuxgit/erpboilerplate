@@ -14,6 +14,8 @@ import { formatMoney } from "@/lib/format";
 
 type ExpenseAccount = { id: string; code: string; name: string };
 type Supplier = { id: string; number: string; name: string; taxId: string | null };
+type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
+type GoodsReceiptRelation = { id: string; number: string; purchaseOrderId: string; supplierPartnerId: string };
 type DuplicateAssessment = {
   level: "none" | "possible" | "exact";
   matches: Array<{ invoiceId: string; number: string; reason: "file" | "supplier-number" | "date-total" }>;
@@ -50,6 +52,8 @@ type BatchItem = {
   draft?: OcrDraft;
   hydrated: boolean;
   supplierPartnerId: string;
+  purchaseOrderId: string;
+  goodsReceiptId: string;
   supplierName: string;
   supplierTaxId: string;
   supplierCountryCode: string;
@@ -67,6 +71,8 @@ type BatchItem = {
 type Props = {
   baseCurrencyCode: string;
   expenseAccounts: ExpenseAccount[];
+  goodsReceipts: GoodsReceiptRelation[];
+  purchaseOrders: PurchaseOrderRelation[];
   suppliers: Supplier[];
   onBack: () => void;
 };
@@ -101,7 +107,7 @@ function statusLabel(status: BatchItem["status"]) {
   }[status];
 }
 
-export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, suppliers, onBack }: Props) {
+export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, goodsReceipts, purchaseOrders, suppliers, onBack }: Props) {
   const [items, setItems] = useState<BatchItem[]>([]);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [engine, setEngine] = useState<"local" | "openai">("local");
@@ -125,6 +131,41 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, supplier
       ...item,
       lines: item.lines.map((line) => line.id === lineId ? { ...line, ...patch } : line),
     }));
+  }
+
+  function selectItemSupplier(item: BatchItem, supplierPartnerId: string) {
+    const linkedOrder = purchaseOrders.find((order) => order.id === item.purchaseOrderId);
+    patchItem(item.localId, {
+      supplierPartnerId,
+      purchaseOrderId: linkedOrder && linkedOrder.supplierPartnerId !== supplierPartnerId ? "" : item.purchaseOrderId,
+      goodsReceiptId: linkedOrder && linkedOrder.supplierPartnerId !== supplierPartnerId ? "" : item.goodsReceiptId,
+      duplicate: emptyDuplicate,
+    });
+  }
+
+  function selectItemPurchaseOrder(item: BatchItem, purchaseOrderId: string) {
+    const order = purchaseOrders.find((candidate) => candidate.id === purchaseOrderId);
+    const receiptBelongsToOrder = goodsReceipts.find((receipt) => receipt.id === item.goodsReceiptId)?.purchaseOrderId === purchaseOrderId;
+    patchItem(item.localId, {
+      purchaseOrderId,
+      goodsReceiptId: receiptBelongsToOrder ? item.goodsReceiptId : "",
+      supplierPartnerId: order?.supplierPartnerId ?? item.supplierPartnerId,
+      supplierName: order ? "" : item.supplierName,
+      supplierTaxId: order ? "" : item.supplierTaxId,
+      duplicate: emptyDuplicate,
+    });
+  }
+
+  function selectItemGoodsReceipt(item: BatchItem, goodsReceiptId: string) {
+    const receipt = goodsReceipts.find((candidate) => candidate.id === goodsReceiptId);
+    patchItem(item.localId, {
+      goodsReceiptId,
+      purchaseOrderId: receipt?.purchaseOrderId ?? item.purchaseOrderId,
+      supplierPartnerId: receipt?.supplierPartnerId ?? item.supplierPartnerId,
+      supplierName: receipt ? "" : item.supplierName,
+      supplierTaxId: receipt ? "" : item.supplierTaxId,
+      duplicate: emptyDuplicate,
+    });
   }
 
   function hydrateItem(item: BatchItem, draft: OcrDraft, duplicate: DuplicateAssessment): BatchItem {
@@ -203,7 +244,7 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, supplier
     const generation = pollingGeneration.current;
     const initialItems: BatchItem[] = files.map((file) => ({
       localId: crypto.randomUUID(), file, status: "WAITING", hydrated: false,
-      supplierPartnerId: "", supplierName: "", supplierTaxId: "", supplierCountryCode: "ES",
+      supplierPartnerId: "", purchaseOrderId: "", goodsReceiptId: "", supplierName: "", supplierTaxId: "", supplierCountryCode: "ES",
       supplierDocumentNumber: "", issueDate: today(), dueDate: "", currencyCode: "EUR", lines: [],
       duplicate: emptyDuplicate, acknowledgePossible: false,
       acknowledgeBlocking: false,
@@ -256,7 +297,7 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, supplier
         ocrJobId: item.jobId,
       }),
     });
-    if (!response.ok) throw new Error("No se pudo comprobar si el gasto está duplicado.");
+    if (!response.ok) throw new Error("No se pudo comprobar si la factura está duplicada.");
     return response.json() as Promise<DuplicateAssessment>;
   }
 
@@ -299,13 +340,15 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, supplier
           supplierTaxId: item.supplierPartnerId ? undefined : item.supplierTaxId,
           supplierCountryCode: item.supplierCountryCode,
           supplierDocumentNumber: item.supplierDocumentNumber,
+          purchaseOrderId: item.purchaseOrderId || undefined,
+          goodsReceiptId: item.goodsReceiptId || undefined,
           issueDate: isoDate(item.issueDate), dueDate: item.dueDate ? isoDate(item.dueDate) : undefined,
           currencyCode: item.currencyCode, ocrJobId: item.jobId,
           idempotencyKey: `expense-ocr-job:${item.jobId}`, lines,
         }),
       });
       const payload = await response.json() as { id?: string; message?: string };
-      if (!response.ok || !payload.id) throw new Error(payload.message ?? "No se pudo contabilizar el gasto.");
+      if (!response.ok || !payload.id) throw new Error(payload.message ?? "No se pudo contabilizar la factura.");
       patchItem(item.localId, { status: "POSTED", createdExpenseId: payload.id, error: undefined });
       toast.success(`${item.file.name} se ha contabilizado.`);
     } catch (error) {
@@ -384,18 +427,35 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, supplier
                     {item.status === "POSTED" ? <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600" weight="fill" /> : item.status === "FAILED" ? <XCircle className="h-5 w-5 shrink-0 text-red-600" weight="fill" /> : ["WAITING", "UPLOADING", "PENDING", "PROCESSING", "POSTING"].includes(item.status) ? <SpinnerGap className="h-5 w-5 shrink-0 animate-spin text-primary" /> : <FileText className="h-5 w-5 shrink-0 text-primary" />}
                     <div className="min-w-0"><p className="truncate text-sm font-medium">{index + 1}. {item.file.name}</p><p className="text-xs text-muted-foreground">{statusLabel(item.status)} · {(item.file.size / 1024 / 1024).toFixed(2)} MB{item.draft ? ` · confianza ${item.draft.confidence}` : ""}</p></div>
                   </div>
-                  {item.createdExpenseId ? <a className="text-sm font-medium text-primary hover:underline" href={`/expenses/${item.createdExpenseId}`}>Abrir gasto</a> : null}
+                  {item.createdExpenseId ? <a className="text-sm font-medium text-primary hover:underline" href={`/expenses/${item.createdExpenseId}`}>Abrir factura</a> : null}
                 </div>
 
                 {item.status === "DONE" || item.status === "POSTING" || item.status === "POSTED" ? (
                   <div className="space-y-4 p-4">
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                      <div className="space-y-2 xl:col-span-2"><Label htmlFor={`supplier-${item.localId}`}>Proveedor</Label><Select disabled={item.status !== "DONE"} id={`supplier-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierPartnerId: event.target.value, duplicate: emptyDuplicate })} value={item.supplierPartnerId}><option value="">Nuevo / no encontrado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.number} · {supplier.name} · {supplier.taxId ?? "sin NIF"}</option>)}</Select></div>
+                      <div className="space-y-2 xl:col-span-2"><Label htmlFor={`supplier-${item.localId}`}>Proveedor</Label><Select disabled={item.status !== "DONE"} id={`supplier-${item.localId}`} onChange={(event) => selectItemSupplier(item, event.target.value)} value={item.supplierPartnerId}><option value="">Nuevo / no encontrado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.number} · {supplier.name} · {supplier.taxId ?? "sin NIF"}</option>)}</Select></div>
                       {!item.supplierPartnerId ? <><div className="space-y-2"><Label htmlFor={`supplier-name-${item.localId}`}>Razón social</Label><Input disabled={item.status !== "DONE"} id={`supplier-name-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierName: event.target.value })} value={item.supplierName} /></div><div className="space-y-2"><Label htmlFor={`supplier-tax-${item.localId}`}>CIF/NIF/VAT</Label><Input disabled={item.status !== "DONE"} id={`supplier-tax-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierTaxId: event.target.value, duplicate: emptyDuplicate })} value={item.supplierTaxId} /></div></> : null}
                       <div className="space-y-2"><Label htmlFor={`number-${item.localId}`}>N.º factura</Label><Input disabled={item.status !== "DONE"} id={`number-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierDocumentNumber: event.target.value, duplicate: emptyDuplicate })} value={item.supplierDocumentNumber} /></div>
                       <div className="space-y-2"><Label htmlFor={`date-${item.localId}`}>Fecha</Label><Input disabled={item.status !== "DONE"} id={`date-${item.localId}`} onChange={(event) => patchItem(item.localId, { issueDate: event.target.value, duplicate: emptyDuplicate })} type="date" value={item.issueDate} /></div>
                       <div className="space-y-2"><Label htmlFor={`due-date-${item.localId}`}>Vencimiento</Label><Input disabled={item.status !== "DONE"} id={`due-date-${item.localId}`} onChange={(event) => patchItem(item.localId, { dueDate: event.target.value })} type="date" value={item.dueDate} /></div>
                       <div className="space-y-2"><Label htmlFor={`currency-${item.localId}`}>Moneda</Label><Input disabled={item.status !== "DONE"} id={`currency-${item.localId}`} maxLength={3} onChange={(event) => patchItem(item.localId, { currencyCode: event.target.value.toUpperCase() })} value={item.currencyCode} />{item.currencyCode !== baseCurrencyCode ? <p className="text-xs text-amber-700">Requiere conversión a {baseCurrencyCode}</p> : null}</div>
+                    </div>
+
+                    <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor={`purchase-order-${item.localId}`}>Pedido de compra (opcional)</Label>
+                        <Select disabled={item.status !== "DONE"} id={`purchase-order-${item.localId}`} onChange={(event) => selectItemPurchaseOrder(item, event.target.value)} value={item.purchaseOrderId}>
+                          <option value="">Sin pedido relacionado</option>
+                          {purchaseOrders.filter((order) => !item.supplierPartnerId || order.supplierPartnerId === item.supplierPartnerId).map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`goods-receipt-${item.localId}`}>Recepción (opcional)</Label>
+                        <Select disabled={item.status !== "DONE"} id={`goods-receipt-${item.localId}`} onChange={(event) => selectItemGoodsReceipt(item, event.target.value)} value={item.goodsReceiptId}>
+                          <option value="">Sin recepción relacionada</option>
+                          {goodsReceipts.filter((receipt) => item.purchaseOrderId ? receipt.purchaseOrderId === item.purchaseOrderId : !item.supplierPartnerId || receipt.supplierPartnerId === item.supplierPartnerId).map((receipt) => <option key={receipt.id} value={receipt.id}>{receipt.number}</option>)}
+                        </Select>
+                      </div>
                     </div>
 
                     <details className="rounded-md border" open={item.lines.length <= 2}>
@@ -411,9 +471,9 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, supplier
 
                     {item.draft?.warnings.length ? <div className="text-sm text-amber-700"><p className="flex items-start gap-2"><WarningCircle className="mt-0.5 shrink-0" />{item.draft.warnings.join(" ")}</p>{item.draft.warnings.some((warning) => warning.toLocaleLowerCase().startsWith("bloqueo:")) ? <label className="mt-2 flex items-center gap-2 pl-6"><input checked={item.acknowledgeBlocking} onChange={(event) => patchItem(item.localId, { acknowledgeBlocking: event.target.checked })} type="checkbox" />He corregido y revisado los datos bloqueantes</label> : null}</div> : null}
                     {totalsMismatch ? <p className="text-sm text-red-600">Las líneas suman {formatMoney(total, item.currencyCode)} y el documento indica {formatMoney(item.draft?.totalAmount ?? 0, item.currencyCode)}.</p> : null}
-                    {item.duplicate.level !== "none" ? <div className={`rounded-md px-3 py-2 text-sm ${item.duplicate.level === "exact" ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-800"}`}><p className="font-medium">{item.duplicate.level === "exact" ? "Duplicado exacto" : "Coincidencia por fecha e importe"}</p>{item.duplicate.matches.map((match) => <a className="mt-1 block underline" href={`/expenses/${match.invoiceId}`} key={match.invoiceId}>Revisar {match.number}</a>)}{item.duplicate.level === "possible" ? <label className="mt-2 flex items-center gap-2"><input checked={item.acknowledgePossible} onChange={(event) => patchItem(item.localId, { acknowledgePossible: event.target.checked })} type="checkbox" />Confirmo que es un gasto distinto</label> : null}</div> : null}
+                    {item.duplicate.level !== "none" ? <div className={`rounded-md px-3 py-2 text-sm ${item.duplicate.level === "exact" ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-800"}`}><p className="font-medium">{item.duplicate.level === "exact" ? "Duplicado exacto" : "Coincidencia por fecha e importe"}</p>{item.duplicate.matches.map((match) => <a className="mt-1 block underline" href={`/expenses/${match.invoiceId}`} key={match.invoiceId}>Revisar {match.number}</a>)}{item.duplicate.level === "possible" ? <label className="mt-2 flex items-center gap-2"><input checked={item.acknowledgePossible} onChange={(event) => patchItem(item.localId, { acknowledgePossible: event.target.checked })} type="checkbox" />Confirmo que es una factura distinta</label> : null}</div> : null}
                     {item.error ? <p className="text-sm text-red-600" role="alert">{item.error}</p> : null}
-                    {item.status === "DONE" ? <div className="flex justify-end"><Button disabled={item.duplicate.level === "exact" || totalsMismatch} onClick={() => void postItem(item)} type="button">Registrar este gasto</Button></div> : null}
+                    {item.status === "DONE" ? <div className="flex justify-end"><Button disabled={item.duplicate.level === "exact" || totalsMismatch} onClick={() => void postItem(item)} type="button">Registrar factura</Button></div> : null}
                   </div>
                 ) : item.error ? <div className="flex items-center justify-between gap-3 p-4"><p className="text-sm text-red-600" role="alert">{item.error}</p>{item.jobId ? <Button onClick={() => void retryItem(item)} type="button" variant="outline">Reintentar</Button> : null}</div> : null}
               </article>

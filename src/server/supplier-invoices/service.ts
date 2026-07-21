@@ -82,6 +82,8 @@ export type CreateExpenseInvoiceInput = {
   supplierCity?: string;
   supplierProvince?: string;
   supplierCountryCode?: string;
+  purchaseOrderId?: string;
+  goodsReceiptId?: string;
   number?: string;
   supplierDocumentNumber?: string;
   issueDate: Date;
@@ -182,7 +184,7 @@ async function assertNoDuplicateExpenseInvoice(input: {
         ne(supplierInvoice.status, "VOID"),
       ))
       .limit(1);
-    if (duplicateByFile) throw new Error(`Gasto duplicado: este archivo ya está asociado a ${duplicateByFile.number}.`);
+    if (duplicateByFile) throw new Error(`Factura duplicada: este archivo ya está asociado a ${duplicateByFile.number}.`);
   }
 
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim();
@@ -199,7 +201,7 @@ async function assertNoDuplicateExpenseInvoice(input: {
       ))
       .limit(1);
     if (duplicateByNumber) {
-      throw new Error(`Gasto duplicado: ya existe una factura de este proveedor con número ${supplierDocumentNumber}.`);
+      throw new Error(`Factura duplicada: ya existe una factura de este proveedor con número ${supplierDocumentNumber}.`);
     }
   }
 }
@@ -634,7 +636,7 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
           .limit(1)
       : [];
     if (input.ocrJobId && !ocrJob) throw new Error("El archivo OCR no pertenece a la empresa activa.");
-    if (ocrJob?.supplierInvoiceId) throw new Error("El archivo OCR ya está asociado a otra factura de gasto.");
+    if (ocrJob?.supplierInvoiceId) throw new Error("El archivo OCR ya está asociado a otra factura de proveedor.");
 
     const resolvedSupplier = await resolveSupplier({
       companyId: input.companyId,
@@ -651,6 +653,25 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       supplierCountryCode: input.supplierCountryCode,
       client: tx,
     });
+    const [linkedReceipt] = input.goodsReceiptId
+      ? await tx
+          .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId })
+          .from(goodsReceipt)
+          .where(and(eq(goodsReceipt.id, input.goodsReceiptId), eq(goodsReceipt.companyId, input.companyId)))
+          .limit(1)
+      : [];
+    if (input.goodsReceiptId && !linkedReceipt) throw new Error("La recepción seleccionada no pertenece a la empresa activa.");
+    const purchaseOrderId = input.purchaseOrderId || linkedReceipt?.purchaseOrderId || null;
+    const [linkedOrder] = purchaseOrderId
+      ? await tx
+          .select({ id: purchaseOrder.id, supplierPartnerId: purchaseOrder.supplierPartnerId })
+          .from(purchaseOrder)
+          .where(and(eq(purchaseOrder.id, purchaseOrderId), eq(purchaseOrder.companyId, input.companyId)))
+          .limit(1)
+      : [];
+    if (purchaseOrderId && !linkedOrder) throw new Error("El pedido seleccionado no pertenece a la empresa activa.");
+    if (linkedReceipt && linkedReceipt.purchaseOrderId !== purchaseOrderId) throw new Error("La recepción no pertenece al pedido seleccionado.");
+    if (linkedOrder && linkedOrder.supplierPartnerId !== resolvedSupplier.id) throw new Error("El proveedor de la factura no coincide con el pedido seleccionado.");
     await assertNoDuplicateExpenseInvoice({
       companyId: input.companyId,
       supplierDocumentNumber: input.supplierDocumentNumber,
@@ -671,15 +692,21 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
     const created = await createSupplierInvoiceHeader({
       ...input,
       attachments: [...ocrAttachment, ...clientAttachments],
-      origin: "EXPENSE",
+      origin: purchaseOrderId || linkedReceipt ? "PURCHASE" : "EXPENSE",
       supplierPartnerId: resolvedSupplier.id,
       supplierIdentityKey: resolvedSupplier.identityKey,
       documentSha256: ocrJob?.documentSha256,
       idempotencyKey,
-      purchaseOrderId: null,
-      goodsReceiptId: null,
+      purchaseOrderId,
+      goodsReceiptId: linkedReceipt?.id ?? null,
       client: tx,
     });
+    if (purchaseOrderId) {
+      await tx
+        .update(purchaseOrder)
+        .set({ status: "INVOICED" })
+        .where(and(eq(purchaseOrder.companyId, input.companyId), eq(purchaseOrder.id, purchaseOrderId)));
+    }
     if (ocrJob) {
       await tx
         .update(expenseOcrJob)
@@ -793,6 +820,11 @@ export async function listExpenseInvoices(companyId: string) {
         number: supplierInvoice.number,
         supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
         supplierName: partner.name,
+        purchaseOrderId: supplierInvoice.purchaseOrderId,
+        purchaseOrderNumber: purchaseOrder.number,
+        goodsReceiptId: supplierInvoice.goodsReceiptId,
+        goodsReceiptNumber: goodsReceipt.number,
+        origin: supplierInvoice.origin,
         issueDate: supplierInvoice.issueDate,
         dueDate: supplierInvoice.dueDate,
         status: supplierInvoice.status,
@@ -806,7 +838,9 @@ export async function listExpenseInvoices(companyId: string) {
       })
       .from(supplierInvoice)
       .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
-      .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.origin, "EXPENSE")))
+      .leftJoin(purchaseOrder, eq(purchaseOrder.id, supplierInvoice.purchaseOrderId))
+      .leftJoin(goodsReceipt, eq(goodsReceipt.id, supplierInvoice.goodsReceiptId))
+      .where(eq(supplierInvoice.companyId, companyId))
       .orderBy(desc(supplierInvoice.issueDate)),
     db
       .select({
@@ -832,6 +866,28 @@ export async function listExpenseInvoices(companyId: string) {
   });
 }
 
+export async function listSupplierInvoiceRelations(companyId: string) {
+  const [orders, receipts] = await Promise.all([
+    db
+      .select({ id: purchaseOrder.id, number: purchaseOrder.number, supplierPartnerId: purchaseOrder.supplierPartnerId })
+      .from(purchaseOrder)
+      .where(eq(purchaseOrder.companyId, companyId))
+      .orderBy(desc(purchaseOrder.createdAt)),
+    db
+      .select({
+        id: goodsReceipt.id,
+        number: goodsReceipt.number,
+        purchaseOrderId: goodsReceipt.purchaseOrderId,
+        supplierPartnerId: purchaseOrder.supplierPartnerId,
+      })
+      .from(goodsReceipt)
+      .innerJoin(purchaseOrder, eq(purchaseOrder.id, goodsReceipt.purchaseOrderId))
+      .where(eq(goodsReceipt.companyId, companyId))
+      .orderBy(desc(goodsReceipt.receivedAt)),
+  ]);
+  return { orders, receipts };
+}
+
 export async function listSupplierPartners(companyId: string) {
   return db
     .select({ id: partner.id, number: partner.number, name: partner.name, taxId: partner.taxId })
@@ -848,6 +904,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
       origin: supplierInvoice.origin,
       purchaseOrderId: supplierInvoice.purchaseOrderId,
+      goodsReceiptId: supplierInvoice.goodsReceiptId,
       supplierPartnerId: supplierInvoice.supplierPartnerId,
       supplierName: partner.name,
       issueDate: supplierInvoice.issueDate,
@@ -912,7 +969,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
   return {
     ...invoiceRow,
     paidAmount: paidAmount.toFixed(2),
-    outstandingAmount: Math.max(Number(invoiceRow.totalAmount) - paidAmount, 0).toFixed(2),
+    outstandingAmount: (invoiceRow.status === "VOID" ? 0 : Math.max(Number(invoiceRow.totalAmount) - paidAmount, 0)).toFixed(2),
     paymentStatus: invoiceRow.status === "VOID" ? "VOID" : getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount, invoiceRow.dueDate),
     lines,
     attachments,
@@ -933,19 +990,20 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
         retentionAmount: supplierInvoice.retentionAmount,
         totalAmount: supplierInvoice.totalAmount,
         issueDate: supplierInvoice.issueDate,
+        purchaseOrderId: supplierInvoice.purchaseOrderId,
       })
       .from(supplierInvoice)
-      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id)))
       .limit(1);
     if (!invoiceRow) return null;
-    if (invoiceRow.status === "VOID") throw new Error("La factura de gasto ya esta anulada.");
+    if (invoiceRow.status === "VOID") throw new Error("La factura de proveedor ya está anulada.");
 
     const paymentRows = await tx
       .select({ amountApplied: supplierInvoicePayment.amountApplied })
       .from(supplierInvoicePayment)
       .where(and(eq(supplierInvoicePayment.companyId, input.companyId), eq(supplierInvoicePayment.supplierInvoiceId, input.id)));
     const paidAmount = paymentRows.reduce((total, payment) => total + Number(payment.amountApplied), 0);
-    if (paidAmount > 0) throw new Error("No se puede anular un gasto con pagos registrados. Anula o corrige el pago primero.");
+    if (paidAmount > 0) throw new Error("No se puede anular una factura con pagos registrados. Anula o corrige el pago primero.");
 
     const reversedAt = new Date();
     await assertFiscalPeriodOpen(input.companyId, reversedAt, tx);
@@ -954,10 +1012,10 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
       companyId: input.companyId,
       actorUserId: input.actorUserId,
       postedAt: reversedAt,
-      reference: `Anulacion factura gasto ${invoiceRow.number}`,
+      reference: `Anulación factura proveedor ${invoiceRow.number}`,
       sourceType: "supplierInvoice",
       sourceId: input.id,
-      reason: input.reason?.trim() || `Anulación de factura de gasto ${invoiceRow.number}`,
+      reason: input.reason?.trim() || `Anulación de factura de proveedor ${invoiceRow.number}`,
       dbClient: tx,
     });
 
@@ -966,6 +1024,30 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
       .set({ status: "VOID", paymentStatus: "VOID", notes: input.reason?.trim() || undefined, updatedAt: new Date() })
       .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id)))
       .returning();
+
+    if (invoiceRow.purchaseOrderId) {
+      const [otherActiveInvoice, receipt] = await Promise.all([
+        tx
+          .select({ id: supplierInvoice.id })
+          .from(supplierInvoice)
+          .where(and(
+            eq(supplierInvoice.companyId, input.companyId),
+            eq(supplierInvoice.purchaseOrderId, invoiceRow.purchaseOrderId),
+            ne(supplierInvoice.id, input.id),
+            ne(supplierInvoice.status, "VOID"),
+          ))
+          .limit(1),
+        tx
+          .select({ id: goodsReceipt.id })
+          .from(goodsReceipt)
+          .where(and(eq(goodsReceipt.companyId, input.companyId), eq(goodsReceipt.purchaseOrderId, invoiceRow.purchaseOrderId)))
+          .limit(1),
+      ]);
+      await tx
+        .update(purchaseOrder)
+        .set({ status: otherActiveInvoice[0] ? "INVOICED" : receipt[0] ? "RECEIVED" : "APPROVED" })
+        .where(and(eq(purchaseOrder.companyId, input.companyId), eq(purchaseOrder.id, invoiceRow.purchaseOrderId)));
+    }
 
     await recordAudit(
       {
@@ -989,11 +1071,11 @@ export async function deleteVoidedExpenseInvoice(input: { tenantId: string; comp
     const [invoiceRow] = await tx
       .select({ id: supplierInvoice.id, number: supplierInvoice.number, status: supplierInvoice.status })
       .from(supplierInvoice)
-      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id)))
       .for("update")
       .limit(1);
     if (!invoiceRow) return null;
-    if (invoiceRow.status !== "VOID") throw new Error("Solo se puede eliminar un gasto previamente anulado.");
+    if (invoiceRow.status !== "VOID") throw new Error("Solo se puede eliminar una factura de proveedor previamente anulada.");
 
     const [applications, linkedPayments] = await Promise.all([
       tx
@@ -1007,7 +1089,7 @@ export async function deleteVoidedExpenseInvoice(input: { tenantId: string; comp
         .where(and(eq(supplierPayment.companyId, input.companyId), eq(supplierPayment.supplierInvoiceId, input.id)))
         .limit(1),
     ]);
-    if (applications[0] || linkedPayments[0]) throw new Error("No se puede eliminar un gasto que conserva pagos vinculados.");
+    if (applications[0] || linkedPayments[0]) throw new Error("No se puede eliminar una factura que conserva pagos vinculados.");
 
     const accountingEntries = await tx
       .select({ id: journalEntry.id })

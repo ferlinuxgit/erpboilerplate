@@ -9,7 +9,7 @@ export async function GET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.read")) return NextResponse.json({ message: "Sin permisos para ver OCR de gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver OCR de facturas de proveedor." }, { status: 403 });
   return NextResponse.json(await listRecentExpenseOcrJobs(ctx.company.id));
 }
 
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.write")) return NextResponse.json({ message: "Sin permisos para procesar OCR de gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para procesar OCR de facturas de proveedor." }, { status: 403 });
 
   const formData = await request.formData();
   const file = formData.get("file");

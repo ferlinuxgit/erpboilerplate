@@ -19,9 +19,8 @@ const destinations = [
   { href: "/invoices", label: "Facturas", group: "Navegación" },
   { href: "/purchases/orders", label: "Pedidos de compra", group: "Navegación" },
   { href: "/purchases/receipts", label: "Recepciones", group: "Navegación" },
-  { href: "/purchases/supplier-invoices", label: "Facturas de proveedor", group: "Navegación" },
+  { href: "/expenses", label: "Facturas de proveedor", group: "Navegación" },
   { href: "/purchases/payments", label: "Pagos a proveedores", group: "Navegación" },
-  { href: "/expenses", label: "Gastos", group: "Navegación" },
   { href: "/inventory", label: "Inventario", group: "Navegación" },
   { href: "/inventory/items", label: "Artículos", group: "Navegación" },
   { href: "/inventory/warehouses", label: "Almacenes", group: "Navegación" },
@@ -34,8 +33,7 @@ const destinations = [
   { href: "/sales/new", label: "Crear presupuesto", group: "Acciones" },
   { href: "/invoices/new", label: "Crear factura", group: "Acciones" },
   { href: "/purchases/new", label: "Crear pedido de compra", group: "Acciones" },
-  { href: "/purchases/supplier-invoices/new", label: "Registrar factura de proveedor", group: "Acciones" },
-  { href: "/expenses/new", label: "Registrar gasto", group: "Acciones" },
+  { href: "/expenses/new", label: "Registrar factura de proveedor", group: "Acciones" },
   { href: "/inventory/movements/new", label: "Registrar movimiento de stock", group: "Acciones" },
   { href: "/inventory/items/new", label: "Crear artículo", group: "Acciones" },
   { href: "/inventory/warehouses/new", label: "Crear almacén", group: "Acciones" },
@@ -175,7 +173,7 @@ export function GlobalCommandPalette() {
             if (event.key === "Enter") items[0]?.click();
             else items[event.key === "ArrowDown" ? 0 : items.length - 1]?.focus();
           }}
-          placeholder="Cliente, factura, nuevo gasto…"
+          placeholder="Cliente, factura de proveedor, nuevo pago…"
           value={query}
         />
       </div>

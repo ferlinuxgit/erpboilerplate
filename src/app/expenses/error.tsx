@@ -7,7 +7,7 @@ export default function ExpensesError({ error, reset }: { error: Error; reset: (
   return (
     <PageShell>
       <div className="rounded-[2px] border border-red-200 bg-red-50 p-6 text-red-900">
-        <p className="font-medium">No se pudo cargar Gastos.</p>
+        <p className="font-medium">No se pudieron cargar las facturas de proveedor.</p>
         <p className="mt-1 text-sm">{error.message}</p>
         <Button className="mt-4" onClick={reset} type="button" variant="outline">
           Reintentar

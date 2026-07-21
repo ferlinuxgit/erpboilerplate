@@ -32,40 +32,23 @@ import { getExpenseInvoice } from "@/server/supplier-invoices/service";
 
 export default async function ExpenseDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ returnTo?: string | string[] }>;
 }) {
   const ctx = await requireContext("expense.read");
   const { id } = await params;
-  const query = await searchParams;
-  const returnTo = Array.isArray(query.returnTo)
-    ? query.returnTo[0]
-    : query.returnTo;
   const expense = await getExpenseInvoice(ctx.company.id, id);
   if (!expense) notFound();
-  const canPay =
-    expense.origin === "PURCHASE"
-      ? can(ctx.membership.role, "purchase.write")
-      : can(ctx.membership.role, "expense.write");
+  const canManage = can(ctx.membership.role, "purchase.write") || can(ctx.membership.role, "expense.write");
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow={expense.origin === "PURCHASE" ? "Factura de proveedor" : "Gastos"}
+        eyebrow="Factura de proveedor"
         title={expense.supplierDocumentNumber || expense.number}
         description={`${expense.supplierName} · ${formatDate(expense.issueDate)}`}
-        backHref={
-          expense.origin === "PURCHASE" || returnTo === "supplier-invoices"
-            ? "/purchases/supplier-invoices"
-            : "/expenses"
-        }
-        backLabel={
-          expense.origin === "PURCHASE" || returnTo === "supplier-invoices"
-            ? "Volver a facturas de proveedor"
-            : "Volver a gastos"
-        }
+        backHref="/expenses"
+        backLabel="Volver a facturas de proveedor"
         meta={
           <StatusBadge tone={invoicePaymentStatusTone(expense.paymentStatus)}>
             {statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}
@@ -87,7 +70,15 @@ export default async function ExpenseDetailPage({
                 Ver pedido
               </Link>
             ) : null}
-            {canPay &&
+            {expense.goodsReceiptId ? (
+              <Link
+                className={buttonVariants({ variant: "outline" })}
+                href={`/purchases/receipts/${expense.goodsReceiptId}`}
+              >
+                Ver recepción
+              </Link>
+            ) : null}
+            {canManage &&
             Number(expense.outstandingAmount) > 0 &&
             expense.paymentStatus !== "VOID" ? (
               <RegisterSupplierPaymentButton
@@ -96,13 +87,13 @@ export default async function ExpenseDetailPage({
                 outstandingAmount={Number(expense.outstandingAmount)}
               />
             ) : null}
-            {expense.origin === "EXPENSE" && canPay && expense.status === "VOID" ? (
+            {canManage && expense.status === "VOID" ? (
               <DeleteButton
-                description="El gasto anulado, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
+                description="La factura anulada, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
                 label="Eliminar"
                 redirectTo="/expenses"
-                successMessage="Gasto anulado eliminado."
-                title="Eliminar gasto anulado"
+                successMessage="Factura anulada eliminada."
+                title="Eliminar factura anulada"
                 url={`/api/expenses/${expense.id}/hard-delete`}
               />
             ) : null}
@@ -126,7 +117,7 @@ export default async function ExpenseDetailPage({
 
       <PageSection
         title="Líneas"
-        description="Desglose contable y fiscal del gasto."
+        description="Desglose contable y fiscal de la factura."
       >
         <div className="overflow-x-auto rounded-[2px] border">
           <Table>
@@ -210,7 +201,7 @@ export default async function ExpenseDetailPage({
 
       <PageSection
         title="Adjuntos"
-        description="Documentos vinculados a la factura de gasto."
+        description="Documentos vinculados a la factura de proveedor."
       >
         {expense.attachments.length === 0 ? (
           <EmptyState

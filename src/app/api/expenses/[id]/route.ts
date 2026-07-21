@@ -15,10 +15,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.read")) return NextResponse.json({ message: "Sin permisos para ver gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver facturas de proveedor." }, { status: 403 });
   const { id } = await params;
   const expense = await getExpenseInvoice(ctx.company.id, id);
-  if (!expense) return NextResponse.json({ message: "Gasto no encontrado." }, { status: 404 });
+  if (!expense) return NextResponse.json({ message: "Factura de proveedor no encontrada." }, { status: 404 });
   return NextResponse.json(expense);
 }
 
@@ -26,7 +26,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.write")) return NextResponse.json({ message: "Sin permisos para anular gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para anular facturas de proveedor." }, { status: 403 });
 
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
@@ -42,10 +42,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       id,
       reason: parsed.data.reason || undefined,
     });
-    if (!updated) return NextResponse.json({ message: "Gasto no encontrado." }, { status: 404 });
+    if (!updated) return NextResponse.json({ message: "Factura de proveedor no encontrada." }, { status: 404 });
     return NextResponse.json(updated);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo anular el gasto.";
+    const message = error instanceof Error ? error.message : "No se pudo anular la factura de proveedor.";
     return NextResponse.json({ message }, { status: 400 });
   }
 }

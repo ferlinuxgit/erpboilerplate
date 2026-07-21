@@ -6,15 +6,16 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { listPostingAccounts } from "@/server/accounting/service";
-import { listSupplierPartners } from "@/server/supplier-invoices/service";
+import { listSupplierInvoiceRelations, listSupplierPartners } from "@/server/supplier-invoices/service";
 
 export default async function NewExpensePage({ searchParams }: { searchParams?: Promise<{ supplierId?: string | string[] }> }) {
   const ctx = await requireContext("expense.write");
   const query = await searchParams;
   const initialSupplierId = Array.isArray(query?.supplierId) ? query.supplierId[0] : query?.supplierId;
-  const [accounts, suppliers] = await Promise.all([
+  const [accounts, suppliers, relations] = await Promise.all([
     listPostingAccounts(ctx.company.id),
     listSupplierPartners(ctx.company.id),
+    listSupplierInvoiceRelations(ctx.company.id),
   ]);
   const expenseAccounts = accounts
     .filter((account) => account.type === "EXPENSE")
@@ -24,20 +25,20 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Gastos"
-        title="Registrar gasto"
-        description={`Registra una factura recibida directa para ${ctx.company.name}.`}
+        eyebrow="Facturas de proveedor"
+        title="Nueva factura de proveedor"
+        description={`Registra una factura recibida para ${ctx.company.name}, con o sin pedido previo.`}
         backHref="/expenses"
-        backLabel="Volver a gastos"
+        backLabel="Volver a facturas de proveedor"
       />
 
-      <PageSection title="Datos del gasto" description="Elige OCR o entrada manual, selecciona el proveedor y completa las líneas del documento.">
+      <PageSection title="Datos de la factura" description="Elige OCR o entrada manual, revisa el proveedor y relaciona el documento con un pedido o recepción si corresponde.">
         {!canWriteExpenses ? (
-          <EmptyState title="Solo lectura" description="Tu rol actual no permite registrar gastos." />
+          <EmptyState title="Solo lectura" description="Tu rol actual no permite registrar facturas de proveedor." />
         ) : expenseAccounts.length === 0 ? (
           <EmptyState
             title="Sin cuentas de gasto"
-            description="Configura el plan contable antes de registrar gastos directos."
+            description="Configura el plan contable antes de registrar facturas de proveedor."
             action={
               <Link className={buttonVariants({ variant: "secondary" })} href="/accounting">
                 Ir a contabilidad
@@ -45,7 +46,14 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
             }
           />
         ) : (
-          <CreateExpenseInvoiceForm baseCurrencyCode={ctx.company.baseCurrencyCode} expenseAccounts={expenseAccounts} initialSupplierId={initialSupplierId} suppliers={suppliers} />
+          <CreateExpenseInvoiceForm
+            baseCurrencyCode={ctx.company.baseCurrencyCode}
+            expenseAccounts={expenseAccounts}
+            goodsReceipts={relations.receipts}
+            initialSupplierId={initialSupplierId}
+            purchaseOrders={relations.orders}
+            suppliers={suppliers}
+          />
         )}
       </PageSection>
     </PageShell>

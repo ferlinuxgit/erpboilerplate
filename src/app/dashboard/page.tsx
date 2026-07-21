@@ -217,7 +217,7 @@ export default async function DashboardPage() {
       </section>
 
       <PageSection title="Todos los módulos" description="Acceso directo al resto de áreas." contentClassName="flex flex-wrap gap-2">
-            {[{ href: "/customers", label: "Clientes" }, { href: "/suppliers", label: "Proveedores" }, { href: "/sales/quotes", label: "Presupuestos" }, { href: "/sales/orders", label: "Pedidos" }, { href: "/sales/delivery-notes", label: "Albaranes" }, { href: "/invoices", label: "Facturas" }, { href: "/purchases/orders", label: "Pedidos de compra" }, { href: "/purchases/receipts", label: "Recepciones" }, { href: "/purchases/supplier-invoices", label: "Facturas de proveedor" }, { href: "/purchases/payments", label: "Pagos a proveedores" }, { href: "/inventory", label: "Inventario" }, ...moduleLinks].map((moduleLink) => (
+            {[{ href: "/customers", label: "Clientes" }, { href: "/suppliers", label: "Proveedores" }, { href: "/sales/quotes", label: "Presupuestos" }, { href: "/sales/orders", label: "Pedidos" }, { href: "/sales/delivery-notes", label: "Albaranes" }, { href: "/invoices", label: "Facturas" }, { href: "/purchases/orders", label: "Pedidos de compra" }, { href: "/purchases/receipts", label: "Recepciones" }, { href: "/expenses", label: "Facturas de proveedor" }, { href: "/purchases/payments", label: "Pagos a proveedores" }, { href: "/inventory", label: "Inventario" }, ...moduleLinks].map((moduleLink) => (
               <Link className={buttonVariants({ variant: "outline" })} href={moduleLink.href} key={moduleLink.href}>{moduleLink.label}</Link>
             ))}
       </PageSection>

@@ -238,14 +238,15 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
         id: supplierInvoice.id,
         number: supplierInvoice.number,
         supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
-        origin: supplierInvoice.origin,
         purchaseOrderId: supplierInvoice.purchaseOrderId,
+        purchaseOrderNumber: purchaseOrder.number,
         issueDate: supplierInvoice.issueDate,
         dueDate: supplierInvoice.dueDate,
         paymentStatus: supplierInvoice.paymentStatus,
         totalAmount: supplierInvoice.totalAmount,
       })
       .from(supplierInvoice)
+      .leftJoin(purchaseOrder, eq(purchaseOrder.id, supplierInvoice.purchaseOrderId))
       .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.supplierPartnerId, supplierId)))
       .orderBy(desc(supplierInvoice.issueDate)),
     dbClient
@@ -275,7 +276,7 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
   const invoiceRows = invoices.map((invoice) => {
     const totalAmount = Number(invoice.totalAmount);
     const paidAmount = paidByInvoice.get(invoice.id) ?? 0;
-    const outstandingAmount = Math.max(totalAmount - paidAmount, 0);
+    const outstandingAmount = invoice.paymentStatus === "VOID" ? 0 : Math.max(totalAmount - paidAmount, 0);
     return { ...invoice, totalAmount, paidAmount, outstandingAmount };
   });
 

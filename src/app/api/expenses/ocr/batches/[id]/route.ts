@@ -10,7 +10,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.read")) return NextResponse.json({ message: "Sin permisos para ver lotes de gastos." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver lotes de facturas de proveedor." }, { status: 403 });
   const { id } = await params;
   const batch = await getExpenseOcrBatch(ctx.company.id, id);
   if (!batch) return NextResponse.json({ message: "Lote OCR no encontrado." }, { status: 404 });

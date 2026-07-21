@@ -20,7 +20,6 @@ import {
   Truck,
   UserCircleGear,
   UsersThree,
-  Wallet,
 } from "@phosphor-icons/react";
 
 export const navGroups = [
@@ -47,9 +46,8 @@ export const navGroups = [
       { href: "/suppliers", label: "Proveedores", code: "20", icon: Factory },
       { href: "/purchases/orders", label: "Pedidos de compra", code: "21", icon: ClipboardText },
       { href: "/purchases/receipts", label: "Recepciones", code: "22", icon: Package },
-      { href: "/purchases/supplier-invoices", label: "Facturas de proveedor", code: "23", icon: FileArrowDown },
+      { href: "/expenses", label: "Facturas de proveedor", code: "23", icon: FileArrowDown },
       { href: "/purchases/payments", label: "Pagos a proveedores", code: "24", icon: Coins },
-      { href: "/expenses", label: "Gastos", code: "25", icon: Wallet },
     ],
   },
   {
@@ -105,9 +103,8 @@ export const contextGroups: ContextGroup[] = [
       { href: "/suppliers", label: "Proveedores" },
       { href: "/purchases/orders", label: "Pedidos" },
       { href: "/purchases/receipts", label: "Recepciones" },
-      { href: "/purchases/supplier-invoices", label: "Facturas proveedor" },
+      { href: "/expenses", label: "Facturas proveedor" },
       { href: "/purchases/payments", label: "Pagos" },
-      { href: "/expenses", label: "Gastos" },
     ],
   },
   {

@@ -20,27 +20,27 @@ export default async function ExpensesPage() {
     <PageShell>
       <PageHeader
         eyebrow="Operación"
-        title="Gastos"
-        description="Facturas recibidas directas sin pedido de compra: suministros, combustible, alquileres, software y servicios profesionales."
+        title="Facturas de proveedor"
+        description="Todas las facturas recibidas, con pedido y recepción opcionales y entrada manual u OCR."
         backHref="/dashboard"
         backLabel="Volver al panel"
         meta={<StatusBadge tone={canWriteExpenses ? "success" : "warning"}>{canWriteExpenses ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
         actions={
           canWriteExpenses ? (
             <Link className={buttonVariants()} href="/expenses/new">
-              Nuevo gasto
+              Nueva factura
             </Link>
           ) : null
         }
       />
 
       <section className="grid gap-3 md:grid-cols-3">
-        <MetricCard label="Gastos activos" value={summary.activeCount} helper={summary.voidCount > 0 ? `${summary.voidCount} anulados excluidos` : "Facturas directas sin pedido"} />
-        <MetricCard label="Total gastos" value={formatMoney(summary.totalAmount)} helper="No incluye gastos anulados" />
+        <MetricCard label="Facturas activas" value={summary.activeCount} helper={summary.voidCount > 0 ? `${summary.voidCount} anuladas excluidas` : "Documentos recibidos"} />
+        <MetricCard label="Total facturado" value={formatMoney(summary.totalAmount)} helper="No incluye facturas anuladas" />
         <MetricCard label="Pendiente de pago" value={formatMoney(summary.pendingAmount)} helper={`IVA soportado ${formatMoney(summary.inputTaxAmount)}`} tone={summary.pendingAmount > 0 ? "warning" : "success"} />
       </section>
 
-      <PageSection title="Control de gastos" description="Seguimiento operativo de facturas directas, vencimientos y pagos.">
+      <PageSection title="Facturas recibidas" description="Relaciona opcionalmente cada factura con su pedido o recepción y controla vencimientos y pagos.">
         <ExpenseInvoicesList canManage={canWriteExpenses} rows={invoices} />
       </PageSection>
     </PageShell>
