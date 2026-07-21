@@ -7,6 +7,7 @@ import {
   expenseOcrJob,
   goodsReceipt,
   goodsReceiptLine,
+  journalEntry,
   partner,
   purchaseOrder,
   purchaseOrderLine,
@@ -825,7 +826,7 @@ export async function listExpenseInvoices(companyId: string) {
     return {
       ...invoice,
       paidAmount: paidAmount.toFixed(2),
-      outstandingAmount: Math.max(totalAmount - paidAmount, 0).toFixed(2),
+      outstandingAmount: (invoice.status === "VOID" ? 0 : Math.max(totalAmount - paidAmount, 0)).toFixed(2),
       paymentStatus,
     };
   });
@@ -980,6 +981,57 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
     );
 
     return updated;
+  });
+}
+
+export async function deleteVoidedExpenseInvoice(input: { tenantId: string; companyId: string; actorUserId: string; id: string }) {
+  return db.transaction(async (tx) => {
+    const [invoiceRow] = await tx
+      .select({ id: supplierInvoice.id, number: supplierInvoice.number, status: supplierInvoice.status })
+      .from(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.origin, "EXPENSE")))
+      .for("update")
+      .limit(1);
+    if (!invoiceRow) return null;
+    if (invoiceRow.status !== "VOID") throw new Error("Solo se puede eliminar un gasto previamente anulado.");
+
+    const [applications, linkedPayments] = await Promise.all([
+      tx
+        .select({ id: supplierInvoicePayment.id })
+        .from(supplierInvoicePayment)
+        .where(and(eq(supplierInvoicePayment.companyId, input.companyId), eq(supplierInvoicePayment.supplierInvoiceId, input.id)))
+        .limit(1),
+      tx
+        .select({ id: supplierPayment.id })
+        .from(supplierPayment)
+        .where(and(eq(supplierPayment.companyId, input.companyId), eq(supplierPayment.supplierInvoiceId, input.id)))
+        .limit(1),
+    ]);
+    if (applications[0] || linkedPayments[0]) throw new Error("No se puede eliminar un gasto que conserva pagos vinculados.");
+
+    const accountingEntries = await tx
+      .select({ id: journalEntry.id })
+      .from(journalEntry)
+      .where(and(eq(journalEntry.companyId, input.companyId), eq(journalEntry.sourceType, "supplierInvoice"), eq(journalEntry.sourceId, input.id)));
+
+    await recordAudit({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      actorUserId: input.actorUserId,
+      action: "expense.delete",
+      entityName: "supplierInvoice",
+      entityId: input.id,
+      payload: { number: invoiceRow.number, deletedJournalEntryIds: accountingEntries.map((entry) => entry.id) },
+    }, tx);
+
+    if (accountingEntries.length > 0) {
+      await tx.delete(journalEntry).where(inArray(journalEntry.id, accountingEntries.map((entry) => entry.id)));
+    }
+    const [deleted] = await tx
+      .delete(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id), eq(supplierInvoice.status, "VOID")))
+      .returning({ id: supplierInvoice.id, number: supplierInvoice.number });
+    return deleted ?? null;
   });
 }
 

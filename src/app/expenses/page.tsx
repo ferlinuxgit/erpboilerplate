@@ -5,6 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
+import { summarizeExpenses } from "@/lib/expense-summary";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { listExpenseInvoices } from "@/server/supplier-invoices/service";
@@ -13,9 +14,7 @@ export default async function ExpensesPage() {
   const ctx = await requireContext("expense.read");
   const invoices = await listExpenseInvoices(ctx.company.id);
   const canWriteExpenses = can(ctx.membership.role, "expense.write");
-  const totalAmount = invoices.reduce((total, invoice) => total + Number(invoice.totalAmount), 0);
-  const pendingAmount = invoices.reduce((total, invoice) => total + Number(invoice.outstandingAmount), 0);
-  const inputTaxAmount = invoices.reduce((total, invoice) => total + Number(invoice.taxAmount), 0);
+  const summary = summarizeExpenses(invoices);
 
   return (
     <PageShell>
@@ -36,9 +35,9 @@ export default async function ExpensesPage() {
       />
 
       <section className="grid gap-3 md:grid-cols-3">
-        <MetricCard label="Gastos registrados" value={invoices.length} helper="Facturas directas sin pedido" />
-        <MetricCard label="Total gastos" value={formatMoney(totalAmount)} helper="Base, IVA y retenciones incluidos" />
-        <MetricCard label="Pendiente de pago" value={formatMoney(pendingAmount)} helper={`IVA soportado ${formatMoney(inputTaxAmount)}`} tone={pendingAmount > 0 ? "warning" : "success"} />
+        <MetricCard label="Gastos activos" value={summary.activeCount} helper={summary.voidCount > 0 ? `${summary.voidCount} anulados excluidos` : "Facturas directas sin pedido"} />
+        <MetricCard label="Total gastos" value={formatMoney(summary.totalAmount)} helper="No incluye gastos anulados" />
+        <MetricCard label="Pendiente de pago" value={formatMoney(summary.pendingAmount)} helper={`IVA soportado ${formatMoney(summary.inputTaxAmount)}`} tone={summary.pendingAmount > 0 ? "warning" : "success"} />
       </section>
 
       <PageSection title="Control de gastos" description="Seguimiento operativo de facturas directas, vencimientos y pagos.">

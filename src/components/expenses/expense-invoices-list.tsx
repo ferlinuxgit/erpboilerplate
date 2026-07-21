@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { DeleteButton } from "@/components/delete-button";
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
 import {
@@ -83,6 +84,7 @@ export function ExpenseInvoicesList({
     canManage &&
     Number(invoice.outstandingAmount) > 0 &&
     invoice.status !== "VOID";
+  const canDelete = (invoice: ExpenseInvoice) => canManage && invoice.status === "VOID";
 
   const columns: ResourceListColumn<ExpenseInvoice>[] = [
     {
@@ -163,6 +165,15 @@ export function ExpenseInvoicesList({
               Anular
             </Button>
           ) : null}
+          {canDelete(invoice) ? (
+            <DeleteButton
+              description="El gasto anulado, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
+              label="Eliminar"
+              successMessage="Gasto anulado eliminado."
+              title="Eliminar gasto anulado"
+              url={`/api/expenses/${invoice.id}/hard-delete`}
+            />
+          ) : null}
         </div>
       ),
     },
@@ -226,6 +237,15 @@ export function ExpenseInvoicesList({
                 >
                   Anular
                 </Button>
+              ) : null}
+              {canDelete(invoice) ? (
+                <DeleteButton
+                  description="El gasto anulado, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
+                  label="Eliminar"
+                  successMessage="Gasto anulado eliminado."
+                  title="Eliminar gasto anulado"
+                  url={`/api/expenses/${invoice.id}/hard-delete`}
+                />
               ) : null}
             </div>
           </div>

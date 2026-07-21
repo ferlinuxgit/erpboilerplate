@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
+import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
 import {
   EmptyState,
@@ -93,6 +94,16 @@ export default async function ExpenseDetailPage({
                 currencyCode={ctx.company.baseCurrencyCode}
                 invoiceId={expense.id}
                 outstandingAmount={Number(expense.outstandingAmount)}
+              />
+            ) : null}
+            {expense.origin === "EXPENSE" && canPay && expense.status === "VOID" ? (
+              <DeleteButton
+                description="El gasto anulado, sus líneas, adjuntos y asientos contables compensados se eliminarán definitivamente."
+                label="Eliminar"
+                redirectTo="/expenses"
+                successMessage="Gasto anulado eliminado."
+                title="Eliminar gasto anulado"
+                url={`/api/expenses/${expense.id}/hard-delete`}
               />
             ) : null}
           </>
