@@ -61,9 +61,9 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
         backHref="/dashboard"
         backLabel="Volver al panel"
       />
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,1fr)]">
-        <PageSection title="KPIs operativos" description="Valida las señales contra sus módulos de origen antes de exportar." contentClassName="space-y-5">
-            <form action="/reporting" className="grid gap-4 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end" data-ignore-dirty-guard="true" method="get">
+      <section className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,1fr)]">
+        <PageSection title="KPIs operativos" description="Valida las señales contra sus módulos de origen antes de exportar." contentClassName="space-y-3">
+            <form action="/reporting" className="grid gap-4 rounded-[2px] border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end" data-ignore-dirty-guard="true" method="get">
               <div className="space-y-2">
                 <Label htmlFor="reporting-period">Periodo del informe</Label>
                 <Select
@@ -110,7 +110,7 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
       <PageSection title="Drill-down recomendado" description="Si un KPI no cuadra, vuelve al módulo fuente antes de compartir el informe." contentClassName="grid gap-3 md:grid-cols-4">
         <div className="contents" data-testid="reporting-source-links">
           {reportingSources.map((source) => (
-            <Link className="rounded-lg border p-4 hover:border-primary hover:bg-muted/50" href={source.href} key={source.href}>
+            <Link className="rounded-[2px] border p-3 hover:border-primary hover:bg-muted/50" href={source.href} key={source.href}>
               <span className="font-semibold">{source.label}</span>
               <span className="mt-1 block text-sm text-muted-foreground">{source.description}</span>
             </Link>

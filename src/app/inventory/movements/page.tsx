@@ -75,7 +75,7 @@ export default async function InventoryMovementsPage() {
       />
       <Suspense
         fallback={
-          <div className="border-y p-4 text-sm text-muted-foreground">
+          <div className="border-y p-3 text-sm text-muted-foreground">
             Cargando movimientos...
           </div>
         }

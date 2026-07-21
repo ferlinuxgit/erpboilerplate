@@ -85,7 +85,7 @@ export function EditPurchaseOrderForm({
   }
 
   return (
-    <form aria-describedby={error ? "edit-purchase-order-error" : undefined} className="space-y-6" onSubmit={onSubmit}>
+    <form aria-describedby={error ? "edit-purchase-order-error" : undefined} className="space-y-3" onSubmit={onSubmit}>
       <section className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2"><Label htmlFor="edit-po-supplier">Proveedor</Label><Input id="edit-po-supplier" list="edit-po-suppliers" onChange={(event) => setSupplierName(event.target.value)} required value={supplierName} /><datalist id="edit-po-suppliers">{suppliers.map((supplier) => <option key={supplier.id} value={supplier.name} />)}</datalist></div>
         <div className="space-y-2"><Label htmlFor="edit-po-number">Número</Label><Input id="edit-po-number" onChange={(event) => setNumber(event.target.value)} required value={number} /></div>
@@ -95,7 +95,7 @@ export function EditPurchaseOrderForm({
       <section className="space-y-3" aria-labelledby="edit-purchase-lines-title">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-3"><div><h2 className="font-semibold" id="edit-purchase-lines-title">Líneas del pedido</h2><p className="mt-1 text-sm text-muted-foreground">Modifica cantidades y precios antes de registrar recepciones.</p></div><Button onClick={() => setLines((current) => [...current, { id: crypto.randomUUID(), itemId: "", description: "", quantity: "1", unitPrice: "0" }])} type="button" variant="outline"><Plus aria-hidden="true" />Añadir línea</Button></div>
         {lines.map((line, index) => (
-          <fieldset className="grid gap-3 rounded-lg border bg-muted/15 p-4 lg:grid-cols-[1fr_1.4fr_0.55fr_0.7fr_auto] lg:items-end" key={line.id}>
+          <fieldset className="grid gap-3 rounded-[2px] border bg-muted/15 p-3 lg:grid-cols-[1fr_1.4fr_0.55fr_0.7fr_auto] lg:items-end" key={line.id}>
             <legend className="sr-only">Línea {index + 1}</legend>
             <div className="space-y-2"><Label htmlFor={`edit-po-item-${line.id}`}>Artículo</Label><Select id={`edit-po-item-${line.id}`} onChange={(event) => selectItem(line.id, event.target.value)} value={line.itemId}><option value="">Concepto libre</option>{items.map((item) => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}</Select></div>
             <div className="space-y-2"><Label htmlFor={`edit-po-description-${line.id}`}>Descripción</Label><Input id={`edit-po-description-${line.id}`} onChange={(event) => updateLine(line.id, { description: event.target.value })} required value={line.description} /></div>

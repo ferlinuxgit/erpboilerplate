@@ -62,26 +62,26 @@ type MetricCardProps = {
 };
 
 const alertToneClasses = {
-  neutral: "border-border bg-muted/40 text-foreground",
-  info: "border-sky-200 bg-sky-50 text-sky-950",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-950",
-  warning: "border-amber-200 bg-amber-50 text-amber-950",
-  danger: "border-red-200 bg-red-50 text-red-950",
+  neutral: "border-window-dark-shadow bg-window-panel text-window-text",
+  info: "border-sky-900 bg-sky-100 text-sky-950",
+  success: "border-emerald-900 bg-emerald-100 text-emerald-950",
+  warning: "border-amber-900 bg-amber-100 text-amber-950",
+  danger: "border-red-900 bg-red-100 text-red-950",
 };
 
 const metricToneClasses = {
-  neutral: "hover:border-primary/50",
-  info: "border-sky-200 bg-sky-50/50",
-  success: "border-emerald-200 bg-emerald-50/50",
-  warning: "border-amber-200 bg-amber-50/50",
-  danger: "border-red-200 bg-red-50/50",
+  neutral: "border-window-dark-shadow",
+  info: "border-l-4 border-l-sky-800",
+  success: "border-l-4 border-l-emerald-800",
+  warning: "border-l-4 border-l-amber-700",
+  danger: "border-l-4 border-l-red-800",
 };
 
 export function PageShell({ children, className }: PageShellProps) {
   return (
     <main
       className={cn(
-        "mx-auto w-full max-w-[1480px] space-y-8 px-4 pb-10 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pb-14 lg:pt-8",
+        "w-full space-y-3 px-2 pb-4 pt-2 sm:px-3 lg:px-3 lg:pb-4 lg:pt-3",
         className,
       )}
     >
@@ -104,50 +104,48 @@ export function PageHeader({
     <header
       data-slot="page-header"
       className={cn(
-        "relative isolate grid min-h-36 gap-6 overflow-hidden rounded-2xl border border-border/80 bg-card px-5 py-5 shadow-[0_1px_2px_rgba(25,55,45,0.03),0_12px_40px_rgba(25,55,45,0.035)] sm:px-6 sm:py-6 lg:min-h-40 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-10 lg:px-8 lg:py-7",
-        "before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary",
-        "after:pointer-events-none after:absolute after:-right-24 after:-top-28 after:-z-10 after:size-80 after:rounded-full after:bg-primary/[0.045] after:blur-3xl",
+        "grid gap-2 rounded-[2px] border border-window-dark-shadow bg-card px-3 py-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4",
         className,
       )}
     >
-      <div className="min-w-0 self-stretch space-y-3 lg:flex lg:flex-col lg:justify-end">
-        {backHref ? (
-          <Link
-            className={cn(
-              buttonVariants({ variant: "link", size: "sm" }),
-              "-ml-3 w-fit text-muted-foreground hover:text-foreground lg:mb-auto",
-            )}
-            href={backHref}
-          >
-            <ArrowLeft aria-hidden="true" />
-            {backLabel}
-          </Link>
+      <div className="min-w-0 space-y-1">
+        {backHref || eyebrow || meta ? (
+          <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            {backHref ? (
+              <Link
+                className={cn(
+                  buttonVariants({ variant: "link", size: "xs" }),
+                  "-ml-1 w-fit border-0 px-1 text-[0.62rem] text-muted-foreground hover:text-foreground",
+                )}
+                href={backHref}
+              >
+                <ArrowLeft aria-hidden="true" />
+                {backLabel}
+              </Link>
+            ) : null}
+            {eyebrow ? (
+              <p className="font-mono text-[0.6rem] font-bold uppercase tracking-[0.07em] text-primary">
+                [ {eyebrow} ]
+              </p>
+            ) : null}
+            {meta ? <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">{meta}</div> : null}
+          </div>
         ) : null}
-        {eyebrow ? (
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-primary/75">
-            {eyebrow}
-          </p>
-        ) : null}
-        <div className="space-y-1.5">
-          <h1 className="max-w-4xl text-[1.7rem] font-semibold leading-[1.08] tracking-[-0.04em] text-foreground text-balance sm:text-[2rem] lg:text-[2.25rem]">
+        <div className="flex min-w-0 flex-col gap-0.5 lg:flex-row lg:items-baseline lg:gap-3">
+          <h1 className="shrink-0 font-mono text-lg font-bold leading-tight text-foreground sm:text-xl">
             {title}
           </h1>
           {description ? (
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground text-pretty sm:text-[0.95rem]">
+            <p className="min-w-0 max-w-5xl text-xs leading-4 text-muted-foreground lg:truncate">
               {description}
             </p>
           ) : null}
         </div>
-        {meta ? (
-          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-            {meta}
-          </div>
-        ) : null}
       </div>
       {actions ? (
         <div
           aria-label="Acciones de la página"
-          className="flex w-full flex-wrap items-center gap-2 border-t border-border/70 pt-4 lg:w-auto lg:max-w-[42rem] lg:justify-end lg:border-l lg:border-t-0 lg:pl-7 lg:pt-0 [&>a]:h-11 [&>a]:grow [&>a]:px-4 [&>button]:h-11 [&>button]:grow sm:[&>a]:grow-0 sm:[&>button]:grow-0 [&>[aria-label]]:size-11 [&>[aria-label]]:grow-0 [&>[aria-label]]:px-0"
+          className="flex w-full flex-wrap items-center gap-1.5 border-t border-window-shadow pt-2 sm:w-auto sm:max-w-[48rem] sm:justify-end sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0 [&>a]:h-8 [&>a]:grow [&>a]:px-2.5 [&>button]:h-8 [&>button]:grow sm:[&>a]:grow-0 sm:[&>button]:grow-0 [&>[aria-label]]:size-8 [&>[aria-label]]:grow-0 [&>[aria-label]]:px-0"
           role="group"
         >
           {actions}
@@ -171,33 +169,36 @@ export function PageSection({
   if (variant === "plain") {
     return (
       <section
-        className={cn("border-t border-border/90 pt-5", className)}
+        className={cn(
+          "overflow-hidden rounded-[2px] border border-window-dark-shadow bg-card shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]",
+          className,
+        )}
         {...props}
       >
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <h2 className="font-heading text-base font-semibold leading-snug tracking-[-0.01em]">
+        <div className="flex flex-col gap-1 border-b border-window-dark-shadow bg-window-panel px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 sm:flex sm:items-baseline sm:gap-2">
+            <h2 className="shrink-0 font-mono text-[0.78rem] font-bold leading-snug">
               {title}
             </h2>
             {description ? (
-              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+              <p className="min-w-0 max-w-5xl text-xs leading-4 text-muted-foreground sm:truncate">
                 {description}
               </p>
             ) : null}
           </div>
           {actions ? (
-            <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+            <div className="flex shrink-0 flex-wrap gap-1">{actions}</div>
           ) : null}
         </div>
-        <div className={contentClassName}>{children}</div>
+        <div className={cn("p-2.5", contentClassName)}>{children}</div>
       </section>
     );
   }
 
   return (
     <Card className={className} size={size} {...props}>
-      <CardHeader className="border-b border-border/70 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <CardHeader className="border-b border-window-dark-shadow bg-window-panel pb-2">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-1">
             <CardTitle>{title}</CardTitle>
             {description ? (
@@ -205,7 +206,7 @@ export function PageSection({
             ) : null}
           </div>
           {actions ? (
-            <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+            <div className="flex shrink-0 flex-wrap gap-1">{actions}</div>
           ) : null}
         </div>
       </CardHeader>
@@ -223,15 +224,15 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "rounded-lg border border-dashed border-border bg-muted/25 px-6 py-10 text-center",
+        "border border-dashed border-window-dark-shadow bg-window-panel px-4 py-5 text-center",
         className,
       )}
     >
-      <p className="font-semibold tracking-[-0.01em]">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">
+      <p className="font-mono text-sm font-bold">{title}</p>
+      <p className="mx-auto mt-1 max-w-xl text-xs leading-4 text-muted-foreground">
         {description}
       </p>
-      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+      {action ? <div className="mt-2 flex justify-center">{action}</div> : null}
     </div>
   );
 }
@@ -246,14 +247,14 @@ export function InlineAlert({
   return (
     <div
       className={cn(
-        "rounded-lg border p-4 text-sm",
+        "rounded-[1px] border p-2 font-mono text-xs shadow-[inset_1px_1px_0_rgba(255,255,255,0.5)]",
         alertToneClasses[tone],
         className,
       )}
       role={tone === "danger" ? "alert" : "status"}
       {...props}
     >
-      {title ? <p className="mb-1 font-medium">{title}</p> : null}
+      {title ? <p className="mb-1 font-bold">{title}</p> : null}
       <div className="text-current/90">{children}</div>
     </div>
   );
@@ -269,18 +270,18 @@ export function MetricCard({
 }: MetricCardProps) {
   const content = (
     <>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
+      <p className="font-mono text-[0.66rem] font-bold uppercase tracking-[0.04em] text-muted-foreground">{label}</p>
+      <p className="mt-1 font-mono text-xl font-bold tabular-nums">{value}</p>
       {helper ? (
-        <p className="mt-2 text-xs text-muted-foreground">{helper}</p>
+        <p className="mt-1 text-[0.7rem] leading-4 text-muted-foreground">{helper}</p>
       ) : null}
     </>
   );
 
   const classes = cn(
-    "border-t-2 border-border bg-card/25 px-4 py-4 transition-[background-color,border-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/15",
+    "rounded-[1px] border bg-card px-2.5 py-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
     metricToneClasses[tone],
-    href && "hover:-translate-y-0.5 hover:border-primary/30 hover:bg-accent/30",
+    href && "hover:bg-window-highlight active:translate-x-px active:translate-y-px",
     className,
   );
 

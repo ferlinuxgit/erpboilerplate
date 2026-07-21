@@ -60,7 +60,7 @@ export function Dialog({ children, className, description, initialFocusId, onClo
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-2"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();
@@ -96,23 +96,23 @@ export function Dialog({ children, className, description, initialFocusId, onClo
         aria-labelledby={titleId}
         aria-modal="true"
         className={cn(
-          "relative flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-xl border bg-background shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-xl",
+          "relative flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-[2px] border border-window-dark-shadow bg-window-surface shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow),8px_8px_0_rgba(0,0,0,0.35)] sm:max-h-[calc(100dvh-1rem)] sm:rounded-[2px]",
           sizeClasses[size],
           className,
         )}
         ref={dialogRef}
         role="dialog"
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b px-5 py-4">
-          <div className="min-w-0 space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight" id={titleId}>{title}</h2>
-            {description ? <p className="text-sm text-muted-foreground" id={descriptionId}>{description}</p> : null}
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-window-dark-shadow bg-chrome-active px-2 py-1 text-chrome-active-foreground">
+          <div className="min-w-0 space-y-0.5">
+            <h2 className="font-mono text-sm font-bold" id={titleId}>{title}</h2>
+            {description ? <p className="text-xs text-chrome-active-foreground/80" id={descriptionId}>{description}</p> : null}
           </div>
           <Button aria-label="Cerrar diálogo" onClick={onClose} ref={closeButtonRef} size="icon" type="button" variant="ghost">
             <X aria-hidden="true" />
           </Button>
         </div>
-        <div className="min-h-0 overflow-y-auto p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto p-3">{children}</div>
       </div>
     </div>,
     document.body,
@@ -120,5 +120,5 @@ export function Dialog({ children, className, description, initialFocusId, onClo
 }
 
 export function DialogFooter({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}>{children}</div>;
+  return <div className={cn("mt-3 flex flex-col-reverse gap-1.5 border-t border-window-shadow pt-2 sm:flex-row sm:justify-end", className)}>{children}</div>;
 }

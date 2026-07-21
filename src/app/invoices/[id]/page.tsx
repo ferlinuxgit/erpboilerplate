@@ -124,7 +124,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-3">
         <PageSection className="lg:col-span-2" title="Datos generales">
           <dl className="grid gap-4 text-sm sm:grid-cols-2">
             <div>
@@ -166,7 +166,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       </div>
 
       <PageSection title="Líneas" description="Detalle de conceptos, cantidades, IVA e importes.">
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-[2px] border">
           <Table>
             <TableHeader>
               <TableRow>

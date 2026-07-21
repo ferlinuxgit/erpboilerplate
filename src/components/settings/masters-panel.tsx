@@ -116,7 +116,7 @@ export function MastersPanel() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="space-y-3 rounded-md border p-3">
         <div>
           <p className="font-medium">Numeración de facturas</p>

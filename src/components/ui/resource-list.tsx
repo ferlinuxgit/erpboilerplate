@@ -403,17 +403,17 @@ export function ResourceList<TItem>({
 
   return (
     <section
-      className="min-w-0 space-y-4"
+      className="min-w-0 space-y-2"
       data-testid={testId}
       aria-labelledby={`${testId ?? "resource-list"}-title`}
     >
       <h3 className="sr-only" id={`${testId ?? "resource-list"}-title`}>
         {title}
       </h3>
-      <div className="w-full overflow-visible rounded-xl border border-border/80 bg-card p-3 shadow-[0_1px_2px_rgba(25,55,45,0.025)] sm:p-4">
-        <div className="mb-3 flex min-h-6 flex-wrap items-center justify-between gap-2">
+      <div className="w-full overflow-visible rounded-[2px] border border-window-dark-shadow bg-card p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">
+        <div className="mb-1.5 flex min-h-5 flex-wrap items-center justify-between gap-1">
           <p
-            className="text-sm font-medium text-foreground"
+            className="font-mono text-[0.7rem] font-medium text-foreground"
             aria-live="polite"
             data-testid={`${testId ?? "resource-list"}-summary`}
           >
@@ -427,18 +427,18 @@ export function ResourceList<TItem>({
           {selectedItems.length > 0 ? (
             <p
               aria-live="polite"
-              className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-foreground"
+              className="border border-window-dark-shadow bg-primary px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-primary-foreground"
             >
               {selectedItems.length} seleccionados
             </p>
           ) : null}
         </div>
         {items.length > 0 ? (
-          <div className="flex w-full min-w-0 flex-col gap-3">
-            <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(16rem,1fr)_auto]">
-              <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+          <div className="flex w-full min-w-0 flex-col gap-1.5">
+            <div className="grid min-w-0 gap-1.5 lg:grid-cols-[minmax(14rem,1fr)_auto]">
+              <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row">
                 {savedViews.length > 0 ? (
-                  <div className="flex min-w-0 gap-1 sm:w-48 sm:shrink-0">
+                  <div className="flex min-w-0 gap-1 sm:w-40 sm:shrink-0">
                     <Select
                       aria-label="Aplicar vista guardada"
                       className="min-w-0"
@@ -477,7 +477,7 @@ export function ResourceList<TItem>({
                     className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                   />
                   <Input
-                    className="h-11 pl-10 pr-11"
+                    className="h-8 pl-8 pr-8"
                     id={`${testId ?? "resource-list"}-search`}
                     placeholder={
                       searchPlaceholder ??
@@ -492,7 +492,7 @@ export function ResourceList<TItem>({
                   {hasSearch ? (
                     <Button
                       aria-label="Limpiar búsqueda"
-                      className="absolute right-0 top-0"
+                      className="absolute right-0 top-0 size-8"
                       onClick={() => {
                         setSearchQuery("");
                         setCurrentPage(1);
@@ -506,7 +506,7 @@ export function ResourceList<TItem>({
                   ) : null}
                 </div>
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
+              <div className="flex min-w-0 flex-wrap items-center gap-1 lg:justify-end">
                 {exportableColumns.length > 0 ? (
                   <Button
                     aria-label={
@@ -535,16 +535,16 @@ export function ResourceList<TItem>({
                 <details className="relative">
                   <summary
                     aria-label="Configurar campos visibles"
-                    className="grid size-11 cursor-pointer list-none place-items-center rounded-md border border-border bg-card text-foreground transition-[background-color,border-color,color,transform] duration-200 hover:border-primary/30 hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/20 active:scale-[0.985]"
+                    className="grid size-9 cursor-pointer list-none place-items-center rounded-[2px] border border-window-dark-shadow bg-window-surface text-window-text shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus active:translate-x-px active:translate-y-px"
                     title="Configurar campos"
                   >
                     <SlidersHorizontal aria-hidden="true" />
                     <span className="sr-only">Configurar campos</span>
                   </summary>
-                  <div className="absolute right-0 z-20 mt-2 min-w-56 space-y-2 rounded-xl border bg-card p-3 shadow-lg">
+                  <div className="absolute right-0 z-20 mt-1 min-w-52 space-y-1 border border-window-dark-shadow bg-window-surface p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow),4px_4px_0_rgba(0,0,0,0.25)]">
                     {columns.map((column) => (
                       <label
-                        className="flex items-center gap-2 text-sm"
+                        className="flex items-center gap-1.5 font-mono text-xs"
                         key={column.header}
                       >
                         <input
@@ -587,7 +587,7 @@ export function ResourceList<TItem>({
                     Registros por página
                   </label>
                   <Select
-                    className="h-11"
+                    className="h-9"
                     id={`${testId ?? "resource-list"}-page-size`}
                     onChange={(event) => {
                       setActivePageSize(Number(event.target.value));
@@ -605,10 +605,10 @@ export function ResourceList<TItem>({
               </div>
             </div>
             {showSaveView ? (
-              <div className="flex flex-col gap-2 rounded-lg border border-border/80 bg-muted/25 p-3 sm:flex-row">
+              <div className="flex flex-col gap-1.5 border border-window-dark-shadow bg-window-panel p-2 sm:flex-row">
                 <Input
                   aria-label="Nombre de la vista"
-                  className="h-11"
+                  className="h-8"
                   onChange={(event) => setViewName(event.target.value)}
                   placeholder="Nombre de la vista"
                   value={viewName}
@@ -632,24 +632,24 @@ export function ResourceList<TItem>({
               </div>
             ) : null}
             {filters.length > 0 ? (
-              <div className="flex w-full flex-col gap-3 rounded-lg bg-muted/45 p-3 lg:flex-row lg:items-end">
-                <div className="flex min-h-11 shrink-0 items-center gap-2 text-sm font-semibold text-foreground lg:pr-2">
-                  <span className="grid size-8 place-items-center rounded-md bg-card text-primary shadow-[0_0_0_1px_var(--border)]">
+              <div className="flex w-full flex-col gap-1.5 border border-window-shadow bg-window-panel p-2 lg:flex-row lg:items-end">
+                <div className="flex min-h-8 shrink-0 items-center gap-1.5 font-mono text-xs font-bold text-foreground lg:pr-1">
+                  <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-primary shadow-[inset_1px_1px_0_var(--window-highlight)]">
                     <Funnel aria-hidden="true" />
                   </span>
                   <span>Filtrar</span>
                 </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:flex-wrap">
                   {filters.map((filter) => (
                     <label
-                      className="min-w-0 flex-1 space-y-1 sm:min-w-48 sm:max-w-64"
+                      className="min-w-0 flex-1 space-y-0.5 sm:min-w-40 sm:max-w-56"
                       key={filter.key}
                     >
-                      <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      <span className="block font-mono text-[0.6rem] font-bold uppercase tracking-[0.05em] text-muted-foreground">
                         {filter.label}
                       </span>
                       <Select
-                        className="h-11 bg-card"
+                        className="h-8 bg-window-highlight"
                         onChange={(event) => {
                           setActiveFilters((current) => ({
                             ...current,
@@ -693,11 +693,11 @@ export function ResourceList<TItem>({
       </div>
 
       {paginatedItems.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-muted/20 px-6 py-12 text-center">
-          <p className="font-medium">
+        <div className="border border-dashed border-window-dark-shadow bg-window-panel px-4 py-5 text-center">
+          <p className="font-mono text-sm font-bold">
             {hasSearch ? "Sin resultados" : emptyTitle}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             {hasSearch
               ? "Prueba con otro término de búsqueda o limpia el filtro."
               : emptyDescription}
@@ -705,7 +705,7 @@ export function ResourceList<TItem>({
         </div>
       ) : (
         <>
-          <div className="hidden overflow-x-auto rounded-lg border border-border/90 bg-card md:block">
+          <div className="hidden overflow-x-auto border border-window-dark-shadow bg-card md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -807,12 +807,12 @@ export function ResourceList<TItem>({
           </div>
 
           <div
-            className="grid gap-3 md:hidden"
+            className="grid gap-2 md:hidden"
             data-testid="resource-list-mobile"
           >
             {paginatedItems.map((item) => (
               <article
-                className="rounded-xl border border-border/90 bg-card p-4"
+                className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]"
                 data-testid={
                   getRowTestId ? `${getRowTestId(item)}-mobile` : undefined
                 }
@@ -821,16 +821,16 @@ export function ResourceList<TItem>({
                 {renderMobileCard ? (
                   renderMobileCard(item)
                 ) : (
-                  <dl className="space-y-2">
+                  <dl className="space-y-1.5">
                     {visibleColumns.map((column) => (
                       <div
                         className="flex justify-between gap-3"
                         key={column.header}
                       >
-                        <dt className="text-sm text-muted-foreground">
+                        <dt className="font-mono text-xs text-muted-foreground">
                           {column.header}
                         </dt>
-                        <dd className="text-right text-sm font-medium">
+                        <dd className="text-right font-mono text-xs font-bold">
                           {column.cell(item)}
                         </dd>
                       </div>
@@ -844,8 +844,8 @@ export function ResourceList<TItem>({
       )}
 
       {sortedItems.length > activePageSize ? (
-        <div className="flex items-center justify-between gap-3 border-t pt-3">
-          <p className="text-sm text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 border-t border-window-shadow pt-2">
+          <p className="font-mono text-xs text-muted-foreground">
             Página {safePage} de {totalPages}
           </p>
           <div className="flex gap-2">

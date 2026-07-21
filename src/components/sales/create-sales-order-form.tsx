@@ -83,7 +83,7 @@ export function CreateSalesOrderForm({
   }
 
   return (
-    <form className="space-y-6" onSubmit={submit}>
+    <form className="space-y-3" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-3">
         <label className="space-y-1.5 text-sm font-medium">
           Cliente

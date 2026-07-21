@@ -1,32 +1,6 @@
 "use client";
 
-import {
-  Bank,
-  BookOpenText,
-  BracketsCurly,
-  Buildings,
-  Calculator,
-  ChartLineUp,
-  ClipboardText,
-  Coins,
-  CreditCard,
-  Factory,
-  FileText,
-  FileArrowDown,
-  List,
-  MagnifyingGlass,
-  Package,
-  Receipt,
-  ShieldCheck,
-  ShoppingCart,
-  SlidersHorizontal,
-  SquaresFour,
-  Truck,
-  UserCircleGear,
-  UsersThree,
-  Wallet,
-  X,
-} from "@phosphor-icons/react";
+import { List, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -35,95 +9,31 @@ import { ActiveContextSwitcher } from "@/components/layout/active-context-switch
 import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
 import { ContextNavigation } from "@/components/layout/context-navigation";
 import { FormNavigationGuard } from "@/components/layout/form-navigation-guard";
+import {
+  getContextGroup,
+  isActiveRoute,
+  navigationLinks,
+  navGroups,
+} from "@/components/layout/navigation-config";
 import { buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-
-const navGroups = [
-  {
-    label: "Inicio",
-    links: [{ href: "/dashboard", label: "Panel", icon: SquaresFour }],
-  },
-  {
-    label: "Comercial",
-    links: [
-      { href: "/customers", label: "Clientes", icon: UsersThree },
-      { href: "/sales/quotes", label: "Presupuestos", icon: FileText },
-      { href: "/sales/orders", label: "Pedidos", icon: ShoppingCart },
-      { href: "/sales/delivery-notes", label: "Albaranes", icon: Truck },
-      { href: "/invoices", label: "Facturas", icon: Receipt },
-    ],
-  },
-  {
-    label: "Aprovisionamiento",
-    links: [
-      { href: "/suppliers", label: "Proveedores", icon: Factory },
-      { href: "/purchases/orders", label: "Pedidos de compra", icon: ClipboardText },
-      { href: "/purchases/receipts", label: "Recepciones", icon: Package },
-      { href: "/purchases/supplier-invoices", label: "Facturas de proveedor", icon: FileArrowDown },
-      { href: "/purchases/payments", label: "Pagos a proveedores", icon: Coins },
-      { href: "/expenses", label: "Gastos", icon: Wallet },
-    ],
-  },
-  {
-    label: "Finanzas y operaciones",
-    links: [
-      { href: "/inventory", label: "Inventario", icon: Package },
-      { href: "/accounting", label: "Contabilidad", icon: BookOpenText },
-      { href: "/treasury", label: "Tesorería", icon: Bank },
-      { href: "/fiscal", label: "Fiscal", icon: Calculator },
-      { href: "/reporting", label: "Informes", icon: ChartLineUp },
-    ],
-  },
-  {
-    label: "Administración",
-    links: [
-      { href: "/billing", label: "Suscripción", icon: CreditCard },
-      { href: "/settings/company", label: "Empresa", icon: Buildings },
-      { href: "/settings/api-keys", label: "API", icon: BracketsCurly },
-      { href: "/settings/security", label: "Seguridad", icon: ShieldCheck },
-      { href: "/settings/team", label: "Equipo", icon: UserCircleGear },
-      { href: "/settings/masters", label: "Maestros", icon: SlidersHorizontal },
-    ],
-  },
-];
-
-const links = navGroups.flatMap((group) => group.links);
 
 type AppShellProps = Readonly<{ children: ReactNode }>;
 
 type NavigationGroupsProps = {
   pathname: string;
   onNavigate?: () => void;
-  query?: string;
 };
 
-function isActiveRoute(pathname: string, href: string) {
-  if (href === "/sales/quotes" && pathname === "/sales/new") return true;
-  if (
-    href === "/purchases/orders" &&
-    (pathname === "/purchases/new" ||
-      /^\/purchases\/[^/]+(?:\/edit)?$/.test(pathname))
-  )
-    return true;
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-function NavigationGroups({ pathname, onNavigate, query = "" }: NavigationGroupsProps) {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleGroups = navGroups
-    .map((group) => ({
-      ...group,
-      links: normalizedQuery ? group.links.filter((link) => link.label.toLocaleLowerCase().includes(normalizedQuery)) : group.links,
-    }))
-    .filter((group) => group.links.length > 0);
-
+function NavigationGroups({ pathname, onNavigate }: NavigationGroupsProps) {
   return (
-    <nav aria-label="Navegación principal" className="space-y-6">
-      {visibleGroups.map((group) => (
-        <section key={group.label} className="space-y-2">
-          <p className="px-2 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{group.label}</p>
-          <div className="flex flex-col gap-0.5">
+    <nav aria-label="Navegación principal" className="space-y-1">
+      {navGroups.map((group) => (
+        <section key={group.label}>
+          <p className="mb-px border-b border-window-shadow px-1.5 pb-px font-mono text-[0.52rem] font-bold uppercase tracking-[0.06em] text-window-muted">
+            {group.code} · {group.label}
+          </p>
+          <div className="flex flex-col gap-px">
             {group.links.map((link) => {
               const active = isActiveRoute(pathname, link.href);
 
@@ -131,9 +41,10 @@ function NavigationGroups({ pathname, onNavigate, query = "" }: NavigationGroups
                 <Link
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    buttonVariants({ variant: "ghost" }),
-                    "h-9 w-full justify-start gap-2.5 px-2.5 text-left font-medium",
-                    active && "bg-primary text-primary-foreground shadow-[0_1px_0_rgba(255,255,255,0.12)_inset] hover:bg-primary/90 hover:text-primary-foreground",
+                    buttonVariants({ variant: "ghost", size: "sm" }),
+                    "h-8 w-full justify-start gap-1.5 border-transparent px-1.5 text-left font-sans text-[0.72rem] font-semibold lg:h-[1.4rem]",
+                    active &&
+                      "border-window-dark-shadow bg-primary text-primary-foreground shadow-[inset_1px_1px_0_rgba(255,255,255,0.4),inset_-1px_-1px_0_rgba(0,0,0,0.55)] hover:bg-primary hover:text-primary-foreground",
                   )}
                   data-active={active ? "true" : undefined}
                   data-testid={`nav-link-${link.href.replace(/\//g, "-").replace(/^-/, "")}`}
@@ -141,15 +52,15 @@ function NavigationGroups({ pathname, onNavigate, query = "" }: NavigationGroups
                   key={link.href}
                   onClick={onNavigate}
                 >
-                  <link.icon aria-hidden="true" className="size-[1.05rem]" weight={active ? "fill" : "regular"} />
-                  <span>{link.label}</span>
+                  <span className={cn("w-5 shrink-0 font-mono text-[0.6rem]", active ? "text-white/75" : "text-window-muted")}>{link.code}</span>
+                  <link.icon aria-hidden="true" className="size-3.5" weight={active ? "fill" : "regular"} />
+                  <span className="truncate">{link.label}</span>
                 </Link>
               );
             })}
           </div>
         </section>
       ))}
-      {visibleGroups.length === 0 ? <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Sin módulos coincidentes.</p> : null}
     </nav>
   );
 }
@@ -157,11 +68,11 @@ function NavigationGroups({ pathname, onNavigate, query = "" }: NavigationGroups
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [navQuery, setNavQuery] = useState("");
   const mobileDrawerRef = useRef<HTMLDivElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const isPublicRoute = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/invitations/");
-  const currentLink = links.find((link) => isActiveRoute(pathname, link.href));
+  const currentLink = navigationLinks.find((link) => isActiveRoute(pathname, link.href));
+  const contextGroup = getContextGroup(pathname);
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -172,114 +83,122 @@ export function AppShell({ children }: AppShellProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setMobileNavOpen(false);
       if (event.key !== "Tab") return;
-      const focusable = Array.from(mobileDrawerRef.current?.querySelectorAll<HTMLElement>("a[href],button:not([disabled]),input,select,[tabindex]:not([tabindex='-1'])") ?? []);
+      const focusable = Array.from(
+        mobileDrawerRef.current?.querySelectorAll<HTMLElement>(
+          "a[href],button:not([disabled]),input,select,[tabindex]:not([tabindex='-1'])",
+        ) ?? [],
+      );
       if (focusable.length === 0) return;
-      const first = focusable[0]; const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", onKeyDown); menuButton?.focus(); };
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+      menuButton?.focus();
+    };
   }, [mobileNavOpen]);
 
-  if (isPublicRoute) {
-    return <div className="flex-1">{children}</div>;
-  }
+  if (isPublicRoute) return <div className="flex-1">{children}</div>;
 
   return (
-    <div className="min-h-screen bg-background lg:flex">
-      <a className="fixed left-4 top-4 z-50 -translate-y-24 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform focus:translate-y-0" href="#main-content">Saltar al contenido</a>
+    <div className="min-h-dvh bg-background lg:flex">
+      <a
+        className="fixed left-2 top-2 z-50 -translate-y-20 border border-window-dark-shadow bg-focus px-3 py-2 font-mono text-xs font-bold text-black focus:translate-y-0"
+        href="#main-content"
+      >
+        Saltar al contenido
+      </a>
       <GlobalCommandPalette />
       <FormNavigationGuard />
+
       <aside
-        className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4 lg:flex"
+        className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-window-dark-shadow bg-sidebar lg:flex xl:w-60"
         data-testid="desktop-sidebar"
       >
-        <div className="mb-5 flex items-center gap-3 px-1">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-xs font-bold tracking-[-0.04em] text-primary-foreground">ER</div>
-            <div>
-              <p className="font-semibold leading-none tracking-[-0.02em]">ERP Suite</p>
-              <p className="mt-1 text-[0.7rem] text-muted-foreground">Workspace operativo</p>
-            </div>
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
+          <div className="grid size-7 place-items-center border border-white/70 bg-white font-mono text-[0.62rem] font-black text-primary shadow-[inset_1px_1px_0_white,inset_-1px_-1px_0_#737373]">ER</div>
+          <div className="min-w-0 leading-none">
+            <p className="truncate font-mono text-xs font-bold">ERP_SUITE.EXE</p>
+            <p className="mt-0.5 truncate font-mono text-[0.55rem] text-white/70">WORKSPACE OPERATIVO</p>
           </div>
         </div>
-        <div className="mb-4 rounded-xl border border-sidebar-border bg-card/75 p-3" data-testid="context-switcher-desktop">
-          <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.11em] text-muted-foreground">Contexto activo</p>
-          <ActiveContextSwitcher />
-        </div>
-        <CommandPaletteButton className="mb-3 w-full" />
-        <div className="relative mb-5">
-          <label className="sr-only" htmlFor="desktop-module-search">
-            Buscar módulo
-          </label>
-          <MagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="border-sidebar-border bg-card/75 pl-9"
-            id="desktop-module-search"
-            onChange={(event) => setNavQuery(event.target.value)}
-            placeholder="Buscar módulo"
-            value={navQuery}
-          />
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
-          <NavigationGroups pathname={pathname} query={navQuery} />
-        </div>
-        <div className="mt-4 border-t border-sidebar-border pt-3 text-[0.68rem] leading-5 text-muted-foreground">
-          <p>Operación, finanzas y cumplimiento</p>
-          <p className="font-mono">{currentLink?.label ?? "Panel"}</p>
+
+        <div className="flex min-h-0 flex-1 flex-col p-2">
+          <CommandPaletteButton className="mb-2 h-8 w-full" />
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-color:var(--window-shadow)_var(--window-panel)] [scrollbar-width:thin]">
+            <NavigationGroups pathname={pathname} />
+          </div>
+          <div className="mt-2 flex h-7 shrink-0 items-center justify-between border border-window-dark-shadow bg-window-panel px-1.5 font-mono text-[0.58rem] text-window-muted shadow-[inset_1px_1px_0_var(--window-highlight)]">
+            <span>OWNER</span>
+            <span className="text-emerald-800">● ONLINE</span>
+            <span>F1 AYUDA</span>
+          </div>
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col lg:min-w-0">
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-40 hidden h-10 shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground lg:flex">
+          <div className="flex min-w-0 items-center gap-2 font-mono">
+            <span className="border border-white/50 bg-black/15 px-1.5 py-0.5 text-[0.58rem] font-bold">{contextGroup?.code ?? currentLink?.code ?? "00"}</span>
+            <span className="truncate text-xs font-bold uppercase">{contextGroup?.label ?? currentLink?.label ?? "Panel"}</span>
+            <span className="hidden truncate text-[0.62rem] text-white/65 xl:inline">\ {currentLink?.label ?? "Vista general"}</span>
+          </div>
+          <ActiveContextSwitcher compact />
+        </header>
+
         <header
-          className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-border/80 bg-background/95 px-4 backdrop-blur lg:hidden"
+          className="sticky top-0 z-40 flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground lg:hidden"
           data-testid="mobile-topbar"
         >
           <button
-            aria-expanded={mobileNavOpen}
             aria-controls="mobile-navigation-drawer"
+            aria-expanded={mobileNavOpen}
             aria-label="Abrir navegación"
-            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "shrink-0")}
+            className={cn(buttonVariants({ variant: "outline", size: "icon-lg" }), "shrink-0")}
             onClick={() => setMobileNavOpen(true)}
             ref={mobileMenuButtonRef}
             type="button"
           >
             <List aria-hidden="true" />
           </button>
-          <div className="min-w-0 flex-1 text-center">
-            <p className="truncate text-sm font-semibold tracking-[-0.01em]">ERP Suite</p>
-            <p className="truncate text-[0.7rem] text-muted-foreground">Workspace operativo</p>
+          <div className="min-w-0 flex-1 font-mono leading-none">
+            <p className="truncate text-center text-xs font-bold uppercase">{currentLink?.label ?? contextGroup?.label ?? "ERP Suite"}</p>
+            <p className="mt-1 truncate text-center text-[0.58rem] text-white/70">ERP_SUITE.EXE</p>
           </div>
+          <span aria-hidden="true" className="size-9 shrink-0" />
         </header>
 
         {mobileNavOpen ? (
           <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              aria-label="Cerrar navegación"
-              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-              onClick={() => setMobileNavOpen(false)}
-              type="button"
-            />
+            <button aria-label="Cerrar navegación" className="absolute inset-0 bg-black/55" onClick={() => setMobileNavOpen(false)} type="button" />
             <div
               aria-label="Navegación principal"
               aria-modal="true"
-              className="relative flex h-full w-[min(22rem,calc(100vw-2rem))] flex-col border-r border-sidebar-border bg-sidebar p-4 shadow-[20px_0_60px_rgba(20,45,38,0.12)]"
+              className="relative flex h-full w-[min(20rem,calc(100vw-1rem))] flex-col border-r border-window-dark-shadow bg-sidebar shadow-[8px_0_0_rgba(0,0,0,0.3)]"
               id="mobile-navigation-drawer"
-              role="dialog"
               ref={mobileDrawerRef}
+              role="dialog"
             >
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid size-9 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">ER</div>
+              <div className="flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
+                <div className="flex items-center gap-2">
+                  <div className="grid size-7 place-items-center border border-white/70 bg-white font-mono text-[0.62rem] font-black text-primary">ER</div>
                   <div>
-                    <p className="font-semibold leading-none">ERP Suite</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Menú principal</p>
+                    <p className="font-mono text-xs font-bold">ERP_SUITE.EXE</p>
+                    <p className="font-mono text-[0.55rem] text-white/70">MENÚ PRINCIPAL</p>
                   </div>
                 </div>
                 <button
                   aria-label="Cerrar navegación"
-                  className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "shrink-0")}
+                  className={buttonVariants({ variant: "outline", size: "icon-lg" })}
                   onClick={() => setMobileNavOpen(false)}
                   type="button"
                 >
@@ -287,31 +206,15 @@ export function AppShell({ children }: AppShellProps) {
                 </button>
               </div>
 
-              <details className="mb-4 rounded-xl border border-sidebar-border bg-card/75 p-3">
-                <summary className="cursor-pointer text-sm font-medium">Contexto activo</summary>
-                <div className="mt-3">
-                  <ActiveContextSwitcher />
+              <div className="flex min-h-0 flex-1 flex-col p-2">
+                <details className="mb-2 border border-window-dark-shadow bg-window-panel p-2 shadow-[inset_1px_1px_0_var(--window-highlight)]">
+                  <summary className="cursor-pointer font-mono text-xs font-bold">Contexto activo</summary>
+                  <div className="mt-2"><ActiveContextSwitcher /></div>
+                </details>
+                <CommandPaletteButton className="mb-2 w-full" onOpen={() => setMobileNavOpen(false)} />
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <NavigationGroups pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
                 </div>
-              </details>
-
-              <CommandPaletteButton className="mb-3 w-full" compact />
-
-              <div className="relative mb-4">
-                <label className="sr-only" htmlFor="mobile-module-search">
-                  Buscar módulo
-                </label>
-                <MagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  className="border-sidebar-border bg-card/75 pl-9"
-                  id="mobile-module-search"
-                  onChange={(event) => setNavQuery(event.target.value)}
-                  placeholder="Buscar módulo"
-                  value={navQuery}
-                />
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                <NavigationGroups pathname={pathname} onNavigate={() => setMobileNavOpen(false)} query={navQuery} />
               </div>
             </div>
           </div>

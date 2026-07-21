@@ -119,7 +119,7 @@ export function CreateSalesQuoteForm({
   };
 
   return (
-    <form className="space-y-6" onSubmit={submit}>
+    <form className="space-y-3" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <label className="space-y-1.5 text-sm font-medium md:col-span-2">
           Cliente
@@ -182,7 +182,7 @@ export function CreateSalesQuoteForm({
         </div>
         {lines.map((line, index) => (
           <div
-            className="grid gap-3 rounded-xl border bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_7rem_9rem_7rem_auto] md:items-end"
+            className="grid gap-3 rounded-[2px] border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_7rem_9rem_7rem_auto] md:items-end"
             key={index}
           >
             <label className="space-y-1.5 text-sm font-medium">

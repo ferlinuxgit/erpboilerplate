@@ -56,7 +56,7 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
   };
 
   return (
-    <div className="rounded-lg border p-4">
+    <div className="rounded-[2px] border p-3">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-sm font-medium">Configuración fiscal automática</h2>
@@ -100,7 +100,7 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
           </Select>
         </label>
 
-        <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+        <label className="flex items-center gap-2 rounded-[2px] border px-3 py-2 text-sm">
           <input checked={values.siiEnabled} onChange={(event) => setValue("siiEnabled", event.target.checked)} type="checkbox" />
           <span>Empresa obligada o adscrita a SII</span>
         </label>

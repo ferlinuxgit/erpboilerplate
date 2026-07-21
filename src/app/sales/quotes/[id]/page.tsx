@@ -80,11 +80,11 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
         <PageSection title="Vigencia" description="Fechas y validez del presupuesto." contentClassName="space-y-2 text-sm">
           <p>Emisión: <strong>{formatDate(record.issueDate)}</strong></p>
           <p>Válido hasta: <strong>{record.validUntil ? formatDate(record.validUntil) : "Sin fecha límite"}</strong></p>
-          {!transition.allowed && transition.reason ? <p className="rounded-lg bg-muted p-3 text-muted-foreground">{transition.reason}</p> : null}
+          {!transition.allowed && transition.reason ? <p className="rounded-[2px] bg-muted p-3 text-muted-foreground">{transition.reason}</p> : null}
         </PageSection>
         <PageSection title="Pedidos relacionados" description="Pedidos creados a partir de este presupuesto." contentClassName="space-y-2">
           {relatedOrders.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no se ha generado ningún pedido.</p> : relatedOrders.map((order) => (
-            <Link className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent" href={`/sales/orders/${order.id}`} key={order.id}>
+            <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/sales/orders/${order.id}`} key={order.id}>
               <span className="font-medium">Pedido {order.number}</span>
               <StatusBadge tone={salesDocumentStatusTone(order.status)}>{statusLabel(salesDocumentStatusLabels, order.status)}</StatusBadge>
             </Link>

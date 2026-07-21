@@ -143,7 +143,7 @@ export function CreatePurchaseOrderForm({
   };
 
   return (
-    <form className="space-y-6" onSubmit={onSubmit}>
+    <form className="space-y-3" onSubmit={onSubmit}>
       <section className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="po-supplier-name">Proveedor</Label>
@@ -201,7 +201,7 @@ export function CreatePurchaseOrderForm({
         <div className="space-y-3">
           {lines.map((line, index) => (
             <fieldset
-              className="grid gap-3 rounded-lg border bg-muted/15 p-4 lg:grid-cols-[1fr_1.4fr_0.55fr_0.7fr_auto] lg:items-end"
+              className="grid gap-3 rounded-[2px] border bg-muted/15 p-3 lg:grid-cols-[1fr_1.4fr_0.55fr_0.7fr_auto] lg:items-end"
               key={line.id}
             >
               <legend className="sr-only">Línea {index + 1}</legend>

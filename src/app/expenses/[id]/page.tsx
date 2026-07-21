@@ -117,7 +117,7 @@ export default async function ExpenseDetailPage({
         title="Líneas"
         description="Desglose contable y fiscal del gasto."
       >
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-[2px] border">
           <Table>
             <TableHeader>
               <TableRow>

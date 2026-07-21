@@ -24,7 +24,7 @@ export function LazyAccountingMasters(props: LazyAccountingMastersProps) {
 
   if (!open) {
     return (
-      <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed bg-muted/25 p-5">
+      <div className="flex flex-col items-start gap-3 rounded-[2px] border border-dashed bg-muted/25 p-3">
         <div>
           <p className="font-medium">Catálogo contable completo</p>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

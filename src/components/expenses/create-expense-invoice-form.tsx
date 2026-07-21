@@ -442,7 +442,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
     return (
       <div className="grid gap-3 md:grid-cols-2">
         <button
-          className="rounded-md border p-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setCreationMode("ocr")}
           type="button"
         >
@@ -451,7 +451,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
           <span className="mt-1 block text-sm text-muted-foreground">Sube una factura y aplica el análisis antes de revisar y guardar.</span>
         </button>
         <button
-          className="rounded-md border p-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setCreationMode("manual")}
           type="button"
         >
@@ -465,7 +465,7 @@ export function CreateExpenseInvoiceForm({ expenseAccounts, initialSupplierId, s
 
   return (
     <>
-    <form className="space-y-5" onSubmit={onSubmit}>
+    <form className="space-y-3" onSubmit={onSubmit}>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
         <div>
           <p className="text-sm font-medium">Modo de registro: {creationMode === "ocr" ? "OCR" : "Manual"}</p>

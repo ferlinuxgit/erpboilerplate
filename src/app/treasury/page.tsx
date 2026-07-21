@@ -134,7 +134,7 @@ export default async function TreasuryPage() {
         <div className="grid gap-px overflow-hidden border bg-border sm:grid-cols-2 xl:grid-cols-4">
           {areas.map((area) => (
             <Link
-              className="bg-background p-5 hover:bg-muted/40"
+              className="bg-background p-3 hover:bg-muted/40"
               href={area.href}
               key={area.href}
             >

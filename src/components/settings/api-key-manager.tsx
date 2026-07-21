@@ -210,7 +210,7 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {canManage ? (
         <div className="flex justify-end"><Button onClick={() => setCreateOpen(true)} type="button"><KeyRound aria-hidden="true" />Crear API key</Button></div>
       ) : (
@@ -218,13 +218,13 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
       )}
 
       <Dialog description="Usa un nombre claro y concede únicamente los permisos que necesita la integración." initialFocusId="api-key-name" onClose={() => setCreateOpen(false)} open={createOpen} size="lg" title="Crear API key">
-        <form className="space-y-5" onSubmit={createKey}>
+        <form className="space-y-3" onSubmit={createKey}>
           <div className="space-y-2"><label className="text-sm font-medium" htmlFor="api-key-name">Nombre</label><Input id="api-key-name" onChange={(event) => setName(event.target.value)} placeholder="Conector de facturación" required value={name} /></div>
           <fieldset className="space-y-3">
             <legend className="text-sm font-medium">Permisos</legend>
             <div className="grid gap-2 sm:grid-cols-2">
               {apiKeyScopeOptions.map((option) => (
-                <label className="flex items-start gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/40" key={option.key}>
+                <label className="flex items-start gap-3 rounded-[2px] border p-3 text-sm transition-colors hover:bg-muted/40" key={option.key}>
                   <input
                     checked={scopes.includes(option.key)}
                     className="mt-0.5 size-4 accent-primary"
@@ -241,7 +241,7 @@ export function ApiKeyManager({ canManage, rows }: ApiKeyManagerProps) {
       </Dialog>
 
       <Dialog description="Guárdala ahora en un gestor de secretos. Por seguridad, no volverá a mostrarse." onClose={() => setVisibleSecret(null)} open={Boolean(visibleSecret)} title={visibleSecret?.action === "rotated" ? "API key rotada" : "API key creada"}>
-        {visibleSecret ? <div className="space-y-4"><div><p className="text-sm font-medium">{visibleSecret.name}</p><p className="mt-1 break-all rounded-lg border bg-muted/40 p-3 font-mono text-sm" data-testid="api-key-visible-secret">{visibleSecret.plainKey}</p></div><DialogFooter><Button onClick={() => setVisibleSecret(null)} type="button" variant="outline">He terminado</Button><Button onClick={copyPlainKey} type="button"><Copy aria-hidden="true" />Copiar clave</Button></DialogFooter></div> : null}
+        {visibleSecret ? <div className="space-y-4"><div><p className="text-sm font-medium">{visibleSecret.name}</p><p className="mt-1 break-all rounded-[2px] border bg-muted/40 p-3 font-mono text-sm" data-testid="api-key-visible-secret">{visibleSecret.plainKey}</p></div><DialogFooter><Button onClick={() => setVisibleSecret(null)} type="button" variant="outline">He terminado</Button><Button onClick={copyPlainKey} type="button"><Copy aria-hidden="true" />Copiar clave</Button></DialogFooter></div> : null}
       </Dialog>
 
       <Dialog description={pendingAction?.action === "revoke" ? "La clave dejará de funcionar inmediatamente. Esta acción no se puede deshacer." : "La clave actual dejará de funcionar y se generará un secreto nuevo que solo se mostrará una vez."} onClose={() => setPendingAction(null)} open={Boolean(pendingAction)} title={pendingAction?.action === "revoke" ? "Revocar API key" : "Rotar API key"}>

@@ -71,7 +71,7 @@ export function CreateSupplierInvoiceFromReceiptButton({
         title="Registrar factura de proveedor"
       >
         <form
-          className="space-y-5"
+          className="space-y-3"
           onSubmit={async (event) => {
             event.preventDefault();
             if (dueDate && dueDate < issueDate) {
@@ -174,7 +174,7 @@ export function CreateSupplierInvoiceFromReceiptButton({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-lg border">
+          <div className="overflow-hidden rounded-[2px] border">
             <div className="grid grid-cols-[1fr_5.5rem_6rem] gap-3 bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">
               <span>Concepto</span>
               <span className="text-right">Cantidad</span>

@@ -91,10 +91,10 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <section className="grid gap-3 md:grid-cols-3">
         {controlRows.map((control) => (
-          <div key={control.key} className="rounded-lg border bg-card p-4">
+          <div key={control.key} className="rounded-[2px] border bg-card p-3">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">{control.label}</h2>
               <StatusBadge status={control.status} />
@@ -110,7 +110,7 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
             void onSubmit(formData);
           });
         }}
-        className="space-y-5 rounded-lg border bg-card p-4"
+        className="space-y-3 rounded-[2px] border bg-card p-3"
       >
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
@@ -145,15 +145,15 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
         <fieldset className="space-y-2" disabled={!canManage || isPending}>
           <legend className="text-sm font-medium">Doble factor obligatorio</legend>
           <div className="flex flex-wrap gap-3 text-sm">
-            <label className="flex items-center gap-2 rounded-lg border px-3 py-2">
+            <label className="flex items-center gap-2 rounded-[2px] border px-3 py-2">
               <input type="radio" name="requireTwoFactor" value="not_configured" defaultChecked={policy.record.requireTwoFactor === null} />
               Sin configurar
             </label>
-            <label className="flex items-center gap-2 rounded-lg border px-3 py-2">
+            <label className="flex items-center gap-2 rounded-[2px] border px-3 py-2">
               <input type="radio" name="requireTwoFactor" value="enabled" defaultChecked={policy.record.requireTwoFactor === true} />
               Activo
             </label>
-            <label className="flex items-center gap-2 rounded-lg border px-3 py-2">
+            <label className="flex items-center gap-2 rounded-[2px] border px-3 py-2">
               <input type="radio" name="requireTwoFactor" value="disabled" defaultChecked={policy.record.requireTwoFactor === false} />
               Inactivo
             </label>
@@ -199,7 +199,7 @@ export function SecurityPolicyForm({ initialPolicy, canManage }: Props) {
       <PageSection title="Estado actual" description="Resumen auditable de los controles aplicados al espacio de trabajo.">
         <dl className="grid gap-3 md:grid-cols-2">
           {controlRows.map((control) => (
-            <div key={control.key} className="rounded-lg border p-3">
+            <div key={control.key} className="rounded-[2px] border p-3">
               <dt className="flex items-center justify-between gap-3 text-sm font-medium">
                 {control.label}
                 <StatusBadge status={control.status} />

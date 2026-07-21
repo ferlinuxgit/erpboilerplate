@@ -75,7 +75,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
       </PageSection>
       <PageSection title="Albaranes relacionados" description="Entregas generadas desde este pedido." contentClassName="space-y-2">
         {deliveries.length === 0 ? <p className="text-sm text-muted-foreground">No hay entregas registradas.</p> : deliveries.map((delivery) => (
-          <Link className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent" href={`/sales/delivery-notes/${delivery.id}`} key={delivery.id}>
+          <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/sales/delivery-notes/${delivery.id}`} key={delivery.id}>
             <span><span className="font-medium">{delivery.number}</span><span className="block text-xs text-muted-foreground">{formatDate(delivery.issuedAt)}</span></span>
             <StatusBadge tone={salesDocumentStatusTone(delivery.status)}>{statusLabel(salesDocumentStatusLabels, delivery.status)}</StatusBadge>
           </Link>

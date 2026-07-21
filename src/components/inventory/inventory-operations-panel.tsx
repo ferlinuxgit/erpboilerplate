@@ -174,17 +174,17 @@ export function InventoryOperationsPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       {showMovementForm ? (
-      <section className="rounded-lg border bg-card p-4 shadow-sm" aria-labelledby="inventory-actions-title">
-        <div className="mb-4 space-y-1">
-          <h2 id="inventory-actions-title" className="text-lg font-semibold">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="inventory-actions-title">
+        <div className="mb-2 space-y-0.5 border-b border-window-shadow pb-1.5">
+          <h2 id="inventory-actions-title" className="font-mono text-sm font-bold">
             Operaciones de stock
           </h2>
-          <p className="text-sm text-muted-foreground">Registra recepciones, ajustes/conteos y transferencias con trazabilidad.</p>
+          <p className="text-xs text-muted-foreground">Registra recepciones, ajustes/conteos y transferencias con trazabilidad.</p>
         </div>
-        <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submitMovement}>
-          <label className="space-y-1 text-sm font-medium">
+        <form className="grid gap-2 md:grid-cols-2 xl:grid-cols-3" onSubmit={submitMovement}>
+          <label className="space-y-1 font-mono text-xs font-bold">
             Tipo de operación
             <Select value={movementType} onChange={(event) => setMovementType(event.target.value as keyof typeof movementLabels)} required>
               <option value="IN">Recepción</option>
@@ -192,7 +192,7 @@ export function InventoryOperationsPanel({
               <option value="TRANSFER">Transferencia</option>
             </Select>
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Producto
             <Select value={itemId} onChange={(event) => setItemId(event.target.value)} required disabled={items.length === 0}>
               {items.map((item) => (
@@ -202,7 +202,7 @@ export function InventoryOperationsPanel({
               ))}
             </Select>
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Almacén / ubicación origen
             <Select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} required disabled={warehouses.length === 0}>
               {warehouses.map((warehouse) => (
@@ -213,7 +213,7 @@ export function InventoryOperationsPanel({
             </Select>
           </label>
           {movementType === "TRANSFER" ? (
-            <label className="space-y-1 text-sm font-medium">
+            <label className="space-y-1 font-mono text-xs font-bold">
               Almacén destino
               <Select value={destinationWarehouseId} onChange={(event) => setDestinationWarehouseId(event.target.value)} required>
                 <option value="">Selecciona destino</option>
@@ -225,27 +225,27 @@ export function InventoryOperationsPanel({
               </Select>
             </label>
           ) : null}
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Cantidad
             <Input type="number" step="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Fecha
             <Input type="datetime-local" value={movedAt} onChange={(event) => setMovedAt(event.target.value)} required />
           </label>
-          <label className="space-y-1 text-sm font-medium md:col-span-2">
+          <label className="space-y-1 font-mono text-xs font-bold md:col-span-2">
             Motivo
             <Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. conteo físico, recepción proveedor, traspaso entre almacenes" required />
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Referencia
             <Input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Albarán, lote, ticket..." required />
           </label>
-          <div className="flex flex-col justify-end gap-2 md:col-span-2 xl:col-span-3">
+          <div className="flex flex-col justify-end gap-1 md:col-span-2 xl:col-span-3">
             <Button type="submit" disabled={isSubmitting || items.length === 0 || warehouses.length === 0}>
               {isSubmitting ? "Registrando..." : "Registrar movimiento"}
             </Button>
-            <div className="min-h-5 text-sm" aria-live="polite">
+            <div className="min-h-4 font-mono text-xs" aria-live="polite">
               {statusMessage ? <p className="text-emerald-600">{statusMessage}</p> : null}
               {errorMessage ? <p className="text-destructive">{errorMessage}</p> : null}
               {items.length === 0 || warehouses.length === 0 ? <p className="text-muted-foreground">Crea al menos un producto y un almacén antes de mover stock.</p> : null}
@@ -256,18 +256,18 @@ export function InventoryOperationsPanel({
       ) : null}
 
       {showOverview ? <>
-      <section className="rounded-lg border bg-card p-4 shadow-sm" aria-labelledby="stock-alerts-title">
-        <h2 id="stock-alerts-title" className="text-lg font-semibold">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="stock-alerts-title">
+        <h2 id="stock-alerts-title" className="font-mono text-sm font-bold">
           Alertas de stock mínimo
         </h2>
         {alerts.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">No hay alertas activas.</p>
+          <p className="mt-1 text-xs text-muted-foreground">No hay alertas activas.</p>
         ) : (
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <div className="mt-2 grid gap-1.5 md:grid-cols-2">
             {alerts.map((row) => (
               <a
                 key={`alert-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
-                className="rounded-md border p-3 text-sm transition hover:bg-muted"
+                className="border border-window-shadow p-2 text-xs hover:bg-window-highlight"
                 href={`#stock-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
                 onClick={() => {
                   setHistoryItemFilter(row.itemId);
@@ -284,13 +284,13 @@ export function InventoryOperationsPanel({
         )}
       </section>
 
-      <section className="rounded-lg border bg-card p-4 shadow-sm" aria-labelledby="stock-snapshot-title">
-        <h2 id="stock-snapshot-title" className="text-lg font-semibold">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="stock-snapshot-title">
+        <h2 id="stock-snapshot-title" className="font-mono text-sm font-bold">
           Stock por producto y almacén
         </h2>
-        <div className="mt-3 grid gap-2 md:hidden">
+        <div className="mt-2 grid gap-1.5 md:hidden">
           {stock.length === 0 ? <p className="text-sm text-muted-foreground">No hay datos de stock.</p> : stock.map((row) => (
-            <article className="rounded-xl border bg-background p-3" id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`} key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}>
+            <article className="border border-window-dark-shadow bg-background p-2" id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`} key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-medium">{row.itemName}</p><p className="text-xs text-muted-foreground">{row.itemSku} · {row.warehouseName ?? "Sin almacén"}</p></div>
                 <p className="font-mono text-lg font-semibold">{formatQuantity(row.quantity)}</p>
@@ -299,7 +299,7 @@ export function InventoryOperationsPanel({
             </article>
           ))}
         </div>
-        <div className="mt-3 hidden overflow-x-auto md:block">
+        <div className="mt-2 hidden overflow-x-auto border border-window-dark-shadow md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -334,15 +334,15 @@ export function InventoryOperationsPanel({
         </div>
       </section>
 
-      <section className="rounded-lg border bg-card p-4 shadow-sm" aria-labelledby="movement-history-title">
-        <div className="space-y-1">
-          <h2 id="movement-history-title" className="text-lg font-semibold">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="movement-history-title">
+        <div className="space-y-0.5">
+          <h2 id="movement-history-title" className="font-mono text-sm font-bold">
             Historial de movimientos
           </h2>
-          <p className="text-sm text-muted-foreground">Filtra por producto, almacén, tipo o referencia/motivo.</p>
+          <p className="text-xs text-muted-foreground">Filtra por producto, almacén, tipo o referencia/motivo.</p>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <label className="space-y-1 text-sm font-medium">
+        <div className="mt-2 grid gap-2 md:grid-cols-4">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Producto
             <Select value={historyItemFilter} onChange={(event) => setHistoryItemFilter(event.target.value)}>
               <option value="all">Todos</option>
@@ -353,7 +353,7 @@ export function InventoryOperationsPanel({
               ))}
             </Select>
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Almacén
             <Select value={historyWarehouseFilter} onChange={(event) => setHistoryWarehouseFilter(event.target.value)}>
               <option value="all">Todos</option>
@@ -364,7 +364,7 @@ export function InventoryOperationsPanel({
               ))}
             </Select>
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Tipo
             <Select value={historyTypeFilter} onChange={(event) => setHistoryTypeFilter(event.target.value)}>
               <option value="all">Todos</option>
@@ -374,14 +374,14 @@ export function InventoryOperationsPanel({
               <option value="TRANSFER">Transferencia</option>
             </Select>
           </label>
-          <label className="space-y-1 text-sm font-medium">
+          <label className="space-y-1 font-mono text-xs font-bold">
             Buscar
             <Input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Motivo o referencia" />
           </label>
         </div>
-        <div className="mt-4 grid gap-2 md:hidden">
+        <div className="mt-2 grid gap-1.5 md:hidden">
           {filteredMovements.length === 0 ? <p className="text-sm text-muted-foreground">No hay movimientos para los filtros seleccionados.</p> : filteredMovements.map((movement) => (
-            <article className="rounded-xl border bg-background p-3" key={movement.id}>
+            <article className="border border-window-dark-shadow bg-background p-2" key={movement.id}>
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-medium">{movement.itemName}</p><p className="text-xs text-muted-foreground">{movement.itemSku} · {movement.warehouseName}</p></div>
                 <p className="font-mono font-semibold">{formatQuantity(movement.quantity)}</p>
@@ -391,7 +391,7 @@ export function InventoryOperationsPanel({
             </article>
           ))}
         </div>
-        <div className="mt-4 hidden overflow-x-auto md:block">
+        <div className="mt-2 hidden overflow-x-auto border border-window-dark-shadow md:block">
           <Table>
             <TableHeader>
               <TableRow>

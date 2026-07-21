@@ -108,7 +108,7 @@ export default async function AccountingPage() {
         <div className="grid gap-px overflow-hidden border bg-border md:grid-cols-3">
           {areas.map((area) => (
             <Link
-              className="bg-background p-5 transition-colors hover:bg-muted/40"
+              className="bg-background p-3 transition-colors hover:bg-muted/40"
               href={area.href}
               key={area.href}
             >

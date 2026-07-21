@@ -68,7 +68,7 @@ export default async function AccountingReportsPage() {
           tone={result >= 0 ? "success" : "warning"}
         />
       </section>
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-3 xl:grid-cols-2">
         <PageSection
           title="Balance de situación"
           description="Saldos por masas patrimoniales."

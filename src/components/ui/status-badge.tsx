@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 type StatusTone = "neutral" | "success" | "warning" | "danger" | "info";
 
 const toneClasses: Record<StatusTone, string> = {
-  neutral: "border-border bg-muted/70 text-muted-foreground",
+  neutral: "border-window-dark-shadow bg-window-panel text-window-muted",
   success:
     "border-emerald-200/80 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
   warning:
@@ -29,7 +29,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex w-fit items-center rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold tracking-[0.02em]",
+        "inline-flex w-fit items-center rounded-[1px] border px-1.5 py-0.5 font-mono text-[0.62rem] font-bold uppercase tracking-[0.04em] shadow-[inset_1px_1px_0_rgba(255,255,255,0.45)]",
         toneClasses[tone],
         className,
       )}

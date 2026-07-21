@@ -118,22 +118,22 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
   });
 
   return (
-    <form className="space-y-5" onSubmit={submit}>
-      <div className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-start md:justify-between">
+    <form className="space-y-2" onSubmit={submit}>
+      <div className="flex flex-col gap-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight)] md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Building2 className="size-5 text-muted-foreground" aria-hidden="true" />
-            <h2 className="text-base font-medium">Perfil legal y operativo</h2>
+            <h2 className="font-mono text-sm font-bold">Perfil legal y operativo</h2>
             <StatusBadge tone={invoiceReadiness.ready ? "success" : "warning"}>
               {invoiceReadiness.ready ? "Listo para factura" : `${invoiceReadiness.missing.length} datos pendientes`}
             </StatusBadge>
           </div>
           {invoiceReadiness.missing.length > 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Pendiente: {invoiceReadiness.missing.join(", ")}.
             </p>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Los datos principales del emisor están completos para documentos comerciales y fiscales.
             </p>
           )}
@@ -144,12 +144,12 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
         </Button>
       </div>
 
-      <section className="rounded-lg border p-4">
-        <div className="mb-4 flex items-center gap-2">
+      <section className="border border-window-dark-shadow p-2.5">
+        <div className="mb-2 flex items-center gap-1.5 border-b border-window-shadow pb-1.5">
           <Landmark className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-medium">Identidad fiscal</h3>
+          <h3 className="font-mono text-xs font-bold">Identidad fiscal</h3>
         </div>
-        <div className="grid gap-4 md:grid-cols-6">
+        <div className="grid gap-2 md:grid-cols-6">
           <AccessibleField id="company-name" label="Nombre comercial" required error={errors.name?.message} className="md:col-span-3">
             <Input id="company-name" required autoComplete="organization" {...register("name")} />
           </AccessibleField>
@@ -176,12 +176,12 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
         </div>
       </section>
 
-      <section className="rounded-lg border p-4">
-        <div className="mb-4 flex items-center gap-2">
+      <section className="border border-window-dark-shadow p-2.5">
+        <div className="mb-2 flex items-center gap-1.5 border-b border-window-shadow pb-1.5">
           <MapPin className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-medium">Domicilio fiscal</h3>
+          <h3 className="font-mono text-xs font-bold">Domicilio fiscal</h3>
         </div>
-        <div className="grid gap-4 md:grid-cols-6">
+        <div className="grid gap-2 md:grid-cols-6">
           <AccessibleField id="company-fiscal-address" label="Dirección fiscal" error={errors.fiscalAddress?.message} className="md:col-span-4">
             <Input id="company-fiscal-address" autoComplete="street-address" placeholder="Calle Mayor 1" {...register("fiscalAddress")} />
           </AccessibleField>
@@ -200,12 +200,12 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
         </div>
       </section>
 
-      <section className="rounded-lg border p-4">
-        <div className="mb-4 flex items-center gap-2">
+      <section className="border border-window-dark-shadow p-2.5">
+        <div className="mb-2 flex items-center gap-1.5 border-b border-window-shadow pb-1.5">
           <Mail className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-medium">Contacto y localización</h3>
+          <h3 className="font-mono text-xs font-bold">Contacto y localización</h3>
         </div>
-        <div className="grid gap-4 md:grid-cols-6">
+        <div className="grid gap-2 md:grid-cols-6">
           <AccessibleField id="company-email" label="Email público" error={errors.email?.message} className="md:col-span-2">
             <Input id="company-email" type="email" autoComplete="email" placeholder="administracion@empresa.com" {...register("email")} />
           </AccessibleField>
@@ -225,15 +225,15 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
         </div>
       </section>
 
-      <section className="rounded-lg border p-4">
-        <div className="mb-4 flex items-center gap-2">
+      <section className="border border-window-dark-shadow p-2.5">
+        <div className="mb-2 flex items-center gap-1.5 border-b border-window-shadow pb-1.5">
           <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-medium">Documentos emitidos</h3>
+          <h3 className="font-mono text-xs font-bold">Documentos emitidos</h3>
         </div>
-        <div className="grid gap-4 md:grid-cols-[180px_1fr]">
+        <div className="grid gap-2 md:grid-cols-[160px_1fr]">
           <AccessibleField id="company-logo" label="Logotipo" error={errors.logoDataUrl?.message} helperText="PNG o JPG hasta 250 KB.">
             <input type="hidden" {...register("logoDataUrl")} />
-            <div className="flex min-h-28 items-center justify-center rounded-lg border bg-muted/20 p-3">
+            <div className="flex min-h-20 items-center justify-center border border-window-dark-shadow bg-window-panel p-2">
               {logoDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={logoDataUrl} alt="Logotipo de empresa" className="max-h-20 max-w-full object-contain" />
@@ -242,7 +242,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-sm font-medium transition-colors hover:bg-muted">
+              <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-window-dark-shadow bg-window-surface px-2 font-mono text-xs font-bold shadow-[inset_1px_1px_0_var(--window-highlight)] hover:bg-window-highlight">
                 <Upload aria-hidden="true" className="size-4" />
                 Subir logo
                 <Input id="company-logo" type="file" accept="image/png,image/jpeg" className="sr-only" onChange={handleLogoChange} />

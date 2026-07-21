@@ -49,7 +49,7 @@ export function OnboardingWizard() {
 
   if (isComplete) {
     return (
-      <section className="space-y-4 rounded-lg border border-green-300 bg-green-50 p-4 text-green-950" role="status">
+      <section className="space-y-4 rounded-[2px] border border-green-300 bg-green-50 p-3 text-green-950" role="status">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide">Configuración inicial lista</p>
           <h2 className="mt-1 text-lg font-semibold">Onboarding completado</h2>

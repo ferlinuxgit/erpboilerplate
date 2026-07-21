@@ -45,8 +45,8 @@ export default async function BankTransactionDetailPage({ params }: { params: Pr
       </section>
 
       <PageSection title="Trazabilidad" description="Relación entre el apunte bancario y la operación registrada." contentClassName="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border p-4"><p className="text-sm text-muted-foreground">Cuenta bancaria</p><Link className="mt-1 block font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${transaction.bankAccountId}`}>{transaction.bankName}</Link><p className="mt-1 break-all text-sm text-muted-foreground">{transaction.iban}</p></div>
-        <div className="rounded-xl border p-4"><p className="text-sm text-muted-foreground">Contrapartida</p><p className="mt-1 font-medium">{matchLabel}</p><p className="mt-1 text-sm text-muted-foreground">{isReconciled ? "Coincidencia validada por el motor de conciliación." : "Aún no existe una coincidencia confirmada."}</p></div>
+        <div className="rounded-[2px] border p-3"><p className="text-sm text-muted-foreground">Cuenta bancaria</p><Link className="mt-1 block font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${transaction.bankAccountId}`}>{transaction.bankName}</Link><p className="mt-1 break-all text-sm text-muted-foreground">{transaction.iban}</p></div>
+        <div className="rounded-[2px] border p-3"><p className="text-sm text-muted-foreground">Contrapartida</p><p className="mt-1 font-medium">{matchLabel}</p><p className="mt-1 text-sm text-muted-foreground">{isReconciled ? "Coincidencia validada por el motor de conciliación." : "Aún no existe una coincidencia confirmada."}</p></div>
       </PageSection>
     </PageShell>
   );

@@ -46,7 +46,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
       {summary ? (
         <section className="grid gap-4 lg:grid-cols-2">
           <PageSection title="Desglose de IVA" description="Bases y cuotas por tipo impositivo.">
-            <div className="overflow-x-auto rounded-xl border">
+            <div className="overflow-x-auto rounded-[2px] border">
               <Table>
                 <TableHeader><TableRow><TableHead>Origen</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Base</TableHead><TableHead className="text-right">Cuota</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -63,7 +63,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
               ["IVA soportado", summary.accountingReconciliation.inputVat],
               ["Retenciones", summary.accountingReconciliation.withholdings],
             ] as const).map(([label, line]) => (
-              <div className="grid grid-cols-[1fr_auto] gap-3 rounded-xl border p-4" key={label}>
+              <div className="grid grid-cols-[1fr_auto] gap-3 rounded-[2px] border p-3" key={label}>
                 <div><p className="font-medium">{label}</p><p className="mt-1 text-sm text-muted-foreground">Fiscal {formatMoney(line.fiscalAmount, ctx.company.baseCurrencyCode)} · Contable {formatMoney(line.accountingAmount, ctx.company.baseCurrencyCode)}</p></div>
                 <StatusBadge tone={Math.abs(line.difference) < 0.01 ? "success" : "warning"}>{Math.abs(line.difference) < 0.01 ? "Conciliado" : formatMoney(line.difference, ctx.company.baseCurrencyCode)}</StatusBadge>
               </div>
@@ -74,9 +74,9 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
 
       {summary ? (
         <PageSection title="Documentos incluidos" description="Facturas que alimentan el cálculo del periodo.">
-          <div className="grid gap-5 lg:grid-cols-2">
-            <div className="space-y-2"><p className="text-sm font-medium">Facturas emitidas</p>{summary.sourceDocuments.salesInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas emitidas en el periodo.</p> : summary.sourceDocuments.salesInvoices.map((document) => <Link className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent" href={`/invoices/${document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
-            <div className="space-y-2"><p className="text-sm font-medium">Facturas recibidas</p>{summary.sourceDocuments.supplierInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas recibidas en el periodo.</p> : summary.sourceDocuments.supplierInvoices.map((document) => <Link className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent" href={`/expenses/${document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-2"><p className="text-sm font-medium">Facturas emitidas</p>{summary.sourceDocuments.salesInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas emitidas en el periodo.</p> : summary.sourceDocuments.salesInvoices.map((document) => <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/invoices/${document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
+            <div className="space-y-2"><p className="text-sm font-medium">Facturas recibidas</p>{summary.sourceDocuments.supplierInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas recibidas en el periodo.</p> : summary.sourceDocuments.supplierInvoices.map((document) => <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/expenses/${document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
           </div>
         </PageSection>
       ) : null}

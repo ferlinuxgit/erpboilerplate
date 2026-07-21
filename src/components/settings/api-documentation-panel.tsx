@@ -191,8 +191,8 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
   }
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
+    <div className="space-y-3">
+      <div className="grid gap-3 rounded-[2px] border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
         <p className="text-xs text-muted-foreground md:col-span-3">
           Base URL para integraciones: <code>https://erp.comodore.es</code>. Configura los endpoints como rutas relativas, por ejemplo <code>/api/customers</code> o <code>/api/invoices</code>.
         </p>
@@ -234,7 +234,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </p>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-[2px] border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -267,7 +267,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </Table>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="rounded-[2px] border bg-muted/30 p-3">
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-sm font-medium">Ejemplo de creación de factura con PDF</p>
           <Button

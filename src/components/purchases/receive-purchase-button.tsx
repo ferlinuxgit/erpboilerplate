@@ -71,7 +71,7 @@ export function ReceivePurchaseButton({
         title="Registrar recepción de mercancía"
       >
         <form
-          className="space-y-5"
+          className="space-y-3"
           onSubmit={async (event) => {
             event.preventDefault();
             const receiptLines = lines.flatMap((line) => {
@@ -152,7 +152,7 @@ export function ReceivePurchaseButton({
             <div className="space-y-2"><Label htmlFor={`receipt-notes-${orderId}`}>Observaciones</Label><Input id={`receipt-notes-${orderId}`} onChange={(event) => setNotes(event.target.value)} placeholder="Incidencias, embalaje o control de calidad" value={notes} /></div>
           </div>
 
-          <div className="overflow-hidden rounded-lg border">
+          <div className="overflow-hidden rounded-[2px] border">
             <div className="grid grid-cols-[1fr_5.5rem_5.5rem_7rem] gap-3 bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">
               <span>Artículo</span>
               <span className="text-right">Pedido</span>

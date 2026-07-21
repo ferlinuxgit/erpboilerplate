@@ -70,7 +70,7 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
       </section>
 
       <PageSection title="Apuntes contables" description="Detalle del debe y el haber por cuenta.">
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="overflow-x-auto rounded-[2px] border">
           <Table>
             <TableHeader>
               <TableRow>

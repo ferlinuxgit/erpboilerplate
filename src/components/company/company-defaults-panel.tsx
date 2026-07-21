@@ -48,7 +48,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
 
   if (status.preset === "UNSUPPORTED") {
     return (
-      <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+      <div className="rounded-[2px] border bg-muted/20 p-3 text-sm text-muted-foreground">
         No hay una plantilla automatica para el pais de esta empresa.
       </div>
     );
@@ -57,7 +57,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
   return (
     <div
       className={cn(
-        "rounded-lg border p-4",
+        "rounded-[2px] border p-3",
         ready ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/70",
       )}
     >

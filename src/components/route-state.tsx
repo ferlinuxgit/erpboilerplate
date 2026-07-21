@@ -13,19 +13,19 @@ type RouteStateProps = {
 
 export function RouteLoadingState({ title, description }: RouteStateProps) {
   return (
-    <main className="container mx-auto space-y-6 px-4 py-10" aria-busy="true" aria-live="polite">
+    <main className="w-full space-y-3 p-3" aria-busy="true" aria-live="polite">
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="h-5 w-2/5 animate-pulse rounded bg-muted" />
-          <div className="h-24 animate-pulse rounded-lg bg-muted" />
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="h-16 animate-pulse rounded-lg bg-muted" />
-            <div className="h-16 animate-pulse rounded-lg bg-muted" />
-            <div className="h-16 animate-pulse rounded-lg bg-muted" />
+          <div className="h-4 w-2/5 animate-pulse bg-muted" />
+          <div className="h-16 animate-pulse border border-window-shadow bg-muted" />
+          <div className="grid gap-2 md:grid-cols-3">
+            <div className="h-12 animate-pulse border border-window-shadow bg-muted" />
+            <div className="h-12 animate-pulse border border-window-shadow bg-muted" />
+            <div className="h-12 animate-pulse border border-window-shadow bg-muted" />
           </div>
         </CardContent>
       </Card>
@@ -43,7 +43,7 @@ export function RouteErrorState({
   reset: () => void;
 }) {
   return (
-    <main className="container mx-auto flex min-h-[70vh] items-center justify-center px-4 py-10">
+    <main className="flex min-h-[70vh] w-full items-center justify-center p-3">
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -51,7 +51,7 @@ export function RouteErrorState({
         </CardHeader>
         <CardContent className="space-y-4">
           {error?.digest ? (
-            <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">Código de error: {error.digest}</p>
+            <p className="border border-window-shadow bg-muted p-2 font-mono text-xs text-muted-foreground">Código de error: {error.digest}</p>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={reset}>
@@ -69,7 +69,7 @@ export function RouteErrorState({
 
 export function RouteNotFoundState({ actionHref = "/dashboard", actionLabel = "Volver al dashboard", description, title }: RouteStateProps) {
   return (
-    <main className="container mx-auto flex min-h-[70vh] items-center justify-center px-4 py-10">
+    <main className="flex min-h-[70vh] w-full items-center justify-center p-3">
       <Card className="max-w-xl text-center">
         <CardHeader>
           <CardTitle>{title}</CardTitle>

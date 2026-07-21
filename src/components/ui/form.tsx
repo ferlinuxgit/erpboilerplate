@@ -28,15 +28,15 @@ type AccessibleFieldProps = {
 
 export function AccessibleField({ children, className, error, helperText, id, label, required }: AccessibleFieldProps) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-1", className)}>
       <Label htmlFor={id}>
         {label}
         {required ? <span className="text-destructive" aria-hidden="true"> *</span> : null}
       </Label>
       {children}
-      {helperText ? <p className="text-sm text-muted-foreground" id={`${id}-helper`}>{helperText}</p> : null}
+      {helperText ? <p className="text-xs leading-4 text-muted-foreground" id={`${id}-helper`}>{helperText}</p> : null}
       {error ? (
-        <p className="text-sm text-red-600" id={`${id}-error`} role="alert">
+        <p className="font-mono text-xs text-destructive" id={`${id}-error`} role="alert">
           {error}
         </p>
       ) : null}

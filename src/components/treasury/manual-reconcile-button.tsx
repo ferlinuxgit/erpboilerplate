@@ -75,9 +75,9 @@ export function ManualReconcileButton({ currencyCode = "EUR", reconciled, transa
         {!reconciled ? (
           <div className="space-y-2">
             {loading && candidates.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Buscando contrapartidas…</p> : null}
-            {!loading && candidates.length === 0 && !error ? <p className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">No hay {kind === "customer" ? "cobros" : "pagos"} libres con el mismo importe. Revisa que el pago esté registrado.</p> : null}
+            {!loading && candidates.length === 0 && !error ? <p className="rounded-[2px] border border-dashed p-3 text-sm text-muted-foreground">No hay {kind === "customer" ? "cobros" : "pagos"} libres con el mismo importe. Revisa que el pago esté registrado.</p> : null}
             {candidates.map((candidate) => (
-              <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5" key={candidate.id}>
+              <label className="flex cursor-pointer items-start gap-3 rounded-[2px] border p-3 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5" key={candidate.id}>
                 <input checked={selectedId === candidate.id} className="mt-1" name={`reconcile-${transactionId}`} onChange={() => setSelectedId(candidate.id)} type="radio" />
                 <span className="min-w-0 flex-1"><span className="block font-medium">{candidate.number} · {candidate.counterparty}</span><span className="mt-1 block text-sm text-muted-foreground">{formatDate(candidate.postedAt)} · {formatMoney(candidate.amount, currencyCode)}</span></span>
               </label>

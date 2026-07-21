@@ -73,8 +73,8 @@ export function TreasuryOperations({ accounts, pendingCount }: TreasuryOperation
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr]">
-      <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+    <div className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]">
+      <div className="space-y-4 rounded-[2px] border bg-muted/20 p-3">
         <div>
           <p className="font-medium">Importar extracto bancario</p>
           <p className="mt-1 text-sm text-muted-foreground">Formato separado por punto y coma: fecha;importe;descripción.</p>
@@ -108,7 +108,7 @@ export function TreasuryOperations({ accounts, pendingCount }: TreasuryOperation
         </Button>
       </div>
 
-      <div className="flex flex-col justify-between gap-5 rounded-xl border bg-muted/20 p-4">
+      <div className="flex flex-col justify-between gap-3 rounded-[2px] border bg-muted/20 p-3">
         <div>
           <p className="font-medium">Conciliación automática</p>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">Cruza importe, fecha y referencia con cobros y pagos registrados.</p>

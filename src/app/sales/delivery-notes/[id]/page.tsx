@@ -58,9 +58,9 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
         <SalesDocumentLines currencyCode={ctx.company.baseCurrencyCode} lines={lines} />
       </PageSection>
       <PageSection title="Datos del albarán" description="Origen y situación del documento." contentClassName="grid gap-3 text-sm sm:grid-cols-3">
-        <div className="rounded-lg bg-muted/35 p-3"><p className="text-muted-foreground">Fecha</p><p className="mt-1 font-medium">{formatDate(record.issuedAt)}</p></div>
-        <div className="rounded-lg bg-muted/35 p-3"><p className="text-muted-foreground">Líneas</p><p className="mt-1 font-medium">{lines.length}</p></div>
-        <div className="rounded-lg bg-muted/35 p-3"><p className="text-muted-foreground">Estado</p><p className="mt-1 font-medium">{statusLabel(salesDocumentStatusLabels, record.status)}</p></div>
+        <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Fecha</p><p className="mt-1 font-medium">{formatDate(record.issuedAt)}</p></div>
+        <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Líneas</p><p className="mt-1 font-medium">{lines.length}</p></div>
+        <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Estado</p><p className="mt-1 font-medium">{statusLabel(salesDocumentStatusLabels, record.status)}</p></div>
       </PageSection>
     </PageShell>
   );

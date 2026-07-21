@@ -6,7 +6,7 @@ export function AuthPageShell({ children }: { children: ReactNode }) {
     <main className="grid min-h-screen bg-background lg:grid-cols-[minmax(22rem,0.8fr)_minmax(32rem,1.2fr)]">
       <section className="surface-grid relative hidden overflow-hidden border-r bg-primary p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between">
         <Link className="flex items-center gap-3" href="/">
-          <span className="grid size-10 place-items-center rounded-lg bg-primary-foreground text-xs font-bold text-primary">ER</span>
+          <span className="grid size-10 place-items-center rounded-[2px] bg-primary-foreground text-xs font-bold text-primary">ER</span>
           <span className="font-semibold">ERP Suite</span>
         </Link>
         <div className="relative max-w-lg">

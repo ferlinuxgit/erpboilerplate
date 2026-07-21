@@ -257,7 +257,7 @@ export default async function PurchaseDetailPage({
         title="Líneas del pedido"
         description="Productos, cantidades y precios acordados."
       >
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="overflow-x-auto rounded-[2px] border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -301,7 +301,7 @@ export default async function PurchaseDetailPage({
           ) : (
             receipts.map((receipt) => (
               <Link
-                className="block rounded-lg border p-3 text-sm hover:bg-accent"
+                className="block rounded-[2px] border p-3 text-sm hover:bg-accent"
                 href={`/purchases/receipts/${receipt.id}`}
                 key={receipt.id}
               >
@@ -327,7 +327,7 @@ export default async function PurchaseDetailPage({
           ) : (
             invoices.map((invoice) => (
               <Link
-                className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-accent"
+                className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent"
                 href={`/expenses/${invoice.id}`}
                 key={invoice.id}
               >

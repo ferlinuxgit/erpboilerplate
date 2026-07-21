@@ -124,66 +124,66 @@ export default async function DashboardPage() {
         actions={<><Link className={buttonVariants({ variant: "outline" })} href="/customers/new">Nuevo cliente</Link><Link className={buttonVariants()} href="/invoices/new">Nueva factura</Link></>}
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-metrics">
+      <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-metrics">
         {cockpit.metricCards.map((metric) => (
-          <Link className="group rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring" href={metric.href} key={metric.label}>
-            <MetricCard label={metric.label} value={metric.value} helper={metric.helper} className="h-full group-hover:-translate-y-0.5 group-hover:border-primary/35" />
+          <Link className="group outline-none focus-visible:ring-2 focus-visible:ring-focus" href={metric.href} key={metric.label}>
+            <MetricCard label={metric.label} value={metric.value} helper={metric.helper} className="h-full group-hover:bg-window-highlight" />
           </Link>
         ))}
       </section>
 
-      <PageSection title="Acciones prioritarias" description="Atajos calculados según el estado actual de la empresa." contentClassName="grid gap-px overflow-hidden rounded-xl border bg-border md:grid-cols-3" data-testid="dashboard-primary-actions">
+      <PageSection title="Acciones prioritarias" description="Atajos calculados según el estado actual de la empresa." contentClassName="grid gap-px overflow-hidden bg-window-dark-shadow p-0 md:grid-cols-3" data-testid="dashboard-primary-actions">
         {cockpit.primaryActions.map((action) => (
-          <Link className="group bg-card p-5 transition-colors hover:bg-accent" href={action.href} key={`${action.href}-${action.title}`}>
-            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{action.eyebrow}</span>
-            <div className="mt-7 flex items-end justify-between gap-3">
-              <div><h2 className="font-semibold">{action.title}</h2><p className="mt-1 text-sm text-muted-foreground">{action.description}</p></div>
-              <ArrowRight aria-hidden="true" className="size-5 shrink-0 transition-transform group-hover:translate-x-1" />
+          <Link className="group bg-card p-3 hover:bg-window-highlight" href={action.href} key={`${action.href}-${action.title}`}>
+            <span className="font-mono text-[0.6rem] font-bold uppercase tracking-[0.06em] text-muted-foreground">{action.eyebrow}</span>
+            <div className="mt-3 flex items-end justify-between gap-2">
+              <div><h2 className="font-mono text-xs font-bold">{action.title}</h2><p className="mt-0.5 text-xs text-muted-foreground">{action.description}</p></div>
+              <ArrowRight aria-hidden="true" className="size-4 shrink-0" />
             </div>
           </Link>
         ))}
       </PageSection>
 
       {dashboardDataError ? (
-        <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">
+        <section className="border border-amber-900 bg-amber-100 p-2 font-mono text-xs text-amber-950" role="status">
           No se pudieron cargar todos los indicadores del cockpit. Mostramos una ruta segura de primeros pasos para mantener el panel operativo.
         </section>
       ) : null}
 
       {cockpit.alerts.length > 0 ? (
-        <section className="grid gap-3 md:grid-cols-2" aria-label="Alertas operativas">
+        <section className="grid gap-2 md:grid-cols-2" aria-label="Alertas operativas">
           {cockpit.alerts.map((alert) => (
             <Link
-              className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 hover:bg-amber-100"
+              className="border border-amber-900 bg-amber-100 p-2.5 text-amber-950 hover:bg-amber-200"
               href={alert.href}
               key={alert.title}
             >
-              <p className="text-sm font-semibold">{alert.title}</p>
-              <p className="mt-1 text-sm">{alert.description}</p>
+              <p className="font-mono text-xs font-bold">{alert.title}</p>
+              <p className="mt-1 text-xs">{alert.description}</p>
             </Link>
           ))}
         </section>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(20rem,0.7fr)]">
+      <section className="grid gap-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.7fr)]">
         <PageSection title="Ruta operativa" description="Primeros pasos conectados a datos reales del espacio activo." contentClassName="space-y-2" data-testid="dashboard-guided-demo">
             {cockpit.guidedDemoSteps.map((step) => (
               <div
-                className={`rounded-xl border p-4 ${step.isNext ? "border-primary/40 bg-primary/5" : step.completed ? "bg-muted/40" : "border-dashed"}`}
+                className={`border p-2.5 ${step.isNext ? "border-primary bg-blue-50" : step.completed ? "border-window-shadow bg-window-panel" : "border-dashed border-window-dark-shadow"}`}
                 key={step.step}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase text-muted-foreground">
+                    <p className="font-mono text-[0.6rem] font-bold uppercase text-muted-foreground">
                       Paso {step.step} · {step.completed ? "Completado" : step.isNext ? "Siguiente" : "Pendiente"}
                     </p>
-                    <h2 className="mt-1 font-semibold">{step.title}</h2>
+                    <h2 className="mt-0.5 font-mono text-xs font-bold">{step.title}</h2>
                   </div>
                   {step.completed ? <CheckCircle aria-hidden="true" className="size-5 text-primary" weight="fill" /> : step.isNext ? <ArrowRight aria-hidden="true" className="size-5 text-primary" /> : <Circle aria-hidden="true" className="size-5 text-muted-foreground" />}
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">{step.description}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{step.description}</p>
                 {!step.completed ? (
-                  <Link className={buttonVariants({ className: "mt-3", variant: step.isNext ? "default" : "secondary" })} href={step.href}>
+                  <Link className={buttonVariants({ className: "mt-2", variant: step.isNext ? "default" : "secondary" })} href={step.href}>
                     {step.actionLabel}
                   </Link>
                 ) : null}
@@ -191,26 +191,26 @@ export default async function DashboardPage() {
             ))}
         </PageSection>
 
-        <div className="space-y-4">
+        <div className="space-y-2">
         <PageSection title="Siguientes pasos" description="Tareas que aún necesitan datos." contentClassName="space-y-3" data-testid="dashboard-empty-states">
             {cockpit.emptyStates.map((state) => (
-              <div className="rounded-lg border border-dashed p-4" key={state.title}>
-                <h2 className="font-semibold">{state.title}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{state.description}</p>
-                <Link className={buttonVariants({ className: "mt-3", variant: "secondary" })} href={state.href}>
+              <div className="border border-dashed border-window-dark-shadow p-2.5" key={state.title}>
+                <h2 className="font-mono text-xs font-bold">{state.title}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">{state.description}</p>
+                <Link className={buttonVariants({ className: "mt-2", variant: "secondary" })} href={state.href}>
                   {state.actionLabel}
                 </Link>
               </div>
             ))}
             {cockpit.emptyStates.length === 0 ? (
-              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              <p className="border border-dashed border-window-dark-shadow p-2.5 text-xs text-muted-foreground">
                 Los módulos principales ya tienen señales operativas. Revisa alertas, cobros y reporting para priorizar.
               </p>
             ) : null}
         </PageSection>
 
-        <PageSection title="Contexto activo" description="Empresa y permisos de esta sesión." contentClassName="space-y-3 text-sm">
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2"><dt className="text-muted-foreground">Usuario</dt><dd className="text-right font-medium">{session.user.name}</dd><dt className="text-muted-foreground">Empresa</dt><dd className="text-right font-medium">{tenantContext.company.name}</dd><dt className="text-muted-foreground">Ejercicio</dt><dd className="text-right font-medium">{tenantContext.fiscalYear.code}</dd><dt className="text-muted-foreground">Rol</dt><dd className="text-right font-medium">{tenantContext.membership.role}</dd></dl>
+        <PageSection title="Contexto activo" description="Empresa y permisos de esta sesión." contentClassName="space-y-2 font-mono text-xs">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1"><dt className="text-muted-foreground">Usuario</dt><dd className="text-right font-bold">{session.user.name}</dd><dt className="text-muted-foreground">Empresa</dt><dd className="text-right font-bold">{tenantContext.company.name}</dd><dt className="text-muted-foreground">Ejercicio</dt><dd className="text-right font-bold">{tenantContext.fiscalYear.code}</dd><dt className="text-muted-foreground">Rol</dt><dd className="text-right font-bold">{tenantContext.membership.role}</dd></dl>
             <SignOutButton />
         </PageSection>
         </div>

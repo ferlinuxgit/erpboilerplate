@@ -36,7 +36,7 @@ export function DropdownMenu({ children, trigger }: DropdownMenuProps) {
         {trigger}
       </button>
       {open ? (
-        <div className={cn("absolute right-0 z-50 mt-2 min-w-40 rounded-md border bg-background p-1 shadow-md")} role="menu">
+        <div className={cn("absolute right-0 z-50 mt-1 min-w-40 rounded-[2px] border border-window-dark-shadow bg-window-surface p-1 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]")} role="menu">
           {children}
         </div>
       ) : null}
@@ -47,7 +47,7 @@ export function DropdownMenu({ children, trigger }: DropdownMenuProps) {
 export function DropdownMenuItem({ className, ...props }: React.ComponentProps<"button">) {
   return (
     <button
-      className={cn("w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted", className)}
+      className={cn("w-full rounded-none px-2 py-1 text-left font-mono text-xs outline-none hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground", className)}
       role="menuitem"
       type="button"
       {...props}

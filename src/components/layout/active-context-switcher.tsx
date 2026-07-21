@@ -28,7 +28,7 @@ type ActiveContextPayload = {
   availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;
 };
 
-export function ActiveContextSwitcher() {
+export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [companyId, setCompanyId] = useState("");
@@ -57,13 +57,14 @@ export function ActiveContextSwitcher() {
   }, []);
 
   if (loading) {
-    return <p className="text-xs text-muted-foreground">Cargando contexto…</p>;
+    return <p className={compact ? "font-mono text-[0.58rem] text-white/70" : "text-xs text-muted-foreground"}>Cargando contexto…</p>;
   }
 
   return (
-    <div className="space-y-1">
+    <div className={compact ? "flex min-w-0 items-center gap-1" : "space-y-1"}>
       <Select
         aria-label="Empresa activa"
+        className={compact ? "h-7 w-32 border-white/50 bg-white px-1.5 text-[0.65rem] xl:w-44" : undefined}
         onChange={(event) => {
           const nextCompanyId = event.target.value;
           const nextYears = fiscalYearsByCompany[nextCompanyId] ?? [];
@@ -82,6 +83,7 @@ export function ActiveContextSwitcher() {
       </Select>
       <Select
         aria-label="Ejercicio fiscal activo"
+        className={compact ? "h-7 w-16 border-white/50 bg-white px-1.5 text-[0.65rem]" : undefined}
         onChange={(event) => setFiscalYearId(event.target.value)}
         value={fiscalYearId}
       >
@@ -92,7 +94,7 @@ export function ActiveContextSwitcher() {
         ))}
       </Select>
       <Button
-        className="w-full"
+        className={compact ? "h-7 border-white/60 bg-white px-2 text-primary hover:bg-white/90" : "w-full"}
         onClick={async () => {
           setError("");
           const response = await fetch("/api/context/active", {
@@ -107,13 +109,13 @@ export function ActiveContextSwitcher() {
             setError(payload?.message ?? "No se pudo cambiar el contexto.");
           }
         }}
-        size="sm"
+        size={compact ? "xs" : "sm"}
         type="button"
-        variant="outline"
+        variant={compact ? "ghost" : "outline"}
       >
         Aplicar
       </Button>
-      {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+      {error ? <p className={compact ? "max-w-40 truncate font-mono text-[0.58rem] text-yellow-200" : "text-xs text-destructive"} role="alert">{error}</p> : null}
     </div>
   );
 }

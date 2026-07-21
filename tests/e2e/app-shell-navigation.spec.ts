@@ -24,17 +24,18 @@ for (const viewport of viewports) {
         await registerAndSignIn(page, `shell-${testInfo.workerIndex}-${safeTitle}@example.com`);
         await page.goto(route.path);
 
-        const activeLink = page.getByRole("link", { name: route.label }).and(page.locator("[aria-current='page']"));
+        const navTestId = `nav-link-${route.path.replace(/\//g, "-").replace(/^-/, "")}`;
 
         if (viewport.name === "desktop") {
           await expect(page.getByTestId("desktop-sidebar")).toBeVisible();
           await expect(page.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("Comercial", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("Aprovisionamiento", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("Finanzas y operaciones", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("Administración", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("context-switcher-desktop")).toBeVisible();
-          await expect(activeLink).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("10 · Comercial", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("20 · Aprovisionamiento", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("30 · Finanzas y operaciones", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("40 · Administración", { exact: true })).toBeVisible();
+          await expect(page.getByLabel("Empresa activa")).toBeVisible();
+          await expect(page.getByLabel("Ejercicio fiscal activo")).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByTestId(navTestId)).toHaveAttribute("aria-current", "page");
         } else {
           await expect(page.getByTestId("mobile-topbar")).toBeVisible();
           await expect(page.getByTestId("desktop-sidebar")).toBeHidden();
@@ -44,7 +45,7 @@ for (const viewport of viewports) {
           await expect(drawer).toBeVisible();
           await expect(drawer.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
           await expect(drawer.getByText("Contexto activo", { exact: true })).toBeVisible();
-          await expect(activeLink).toBeVisible();
+          await expect(drawer.getByTestId(navTestId)).toHaveAttribute("aria-current", "page");
         }
 
         await testInfo.attach(`${viewport.name}-${route.path.replace("/", "")}-app-shell`, {
