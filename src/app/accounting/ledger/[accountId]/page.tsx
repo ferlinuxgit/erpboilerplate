@@ -17,15 +17,13 @@ export default async function LedgerPage({ params }: { params: Promise<{ account
       <PageSection title="Movimientos" description="Debe, haber y referencia del asiento asociado." contentClassName="space-y-2">
           {rows.length === 0 ? <EmptyState title="Sin movimientos" description="No hay movimientos para esta cuenta." /> : null}
           {rows.map((row) => {
-            const reference = row.reference ?? "sin referencia";
-
             return (
               <div key={row.lineId} className="rounded-md border p-3 text-sm">
                 <p>
-                  {row.postedAt.toISOString().slice(0, 10)} - {row.reference ?? "-"} - Debe {row.debit.toString()} / Haber {row.credit.toString()}
+                  {row.postedAt.toISOString().slice(0, 10)} - {row.number} - {row.reference ?? "-"} - Debe {row.debit.toString()} / Haber {row.credit.toString()}
                 </p>
                 <Link className="text-muted-foreground underline-offset-4 hover:underline" href={`/accounting/entries/${row.entryId}/edit`}>
-                  Ver asiento {reference}
+                  Ver asiento {row.number}
                 </Link>
               </div>
             );

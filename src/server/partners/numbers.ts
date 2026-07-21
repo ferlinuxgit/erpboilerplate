@@ -2,9 +2,9 @@ import { sql } from "drizzle-orm";
 
 import { partnerNumberSequence } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
-import { formatPartnerNumber } from "@/lib/partner-number";
+import { formatPartnerNumber, type PartnerNumberType } from "@/lib/partner-number";
 
-export async function reservePartnerNumber(dbClient: DbClient, companyId: string) {
+export async function reservePartnerNumber(dbClient: DbClient, companyId: string, type: PartnerNumberType) {
   const [sequence] = await dbClient
     .insert(partnerNumberSequence)
     .values({ companyId, nextNumber: 2 })
@@ -18,5 +18,5 @@ export async function reservePartnerNumber(dbClient: DbClient, companyId: string
     .returning({ nextNumber: partnerNumberSequence.nextNumber });
 
   if (!sequence) throw new Error("No se pudo reservar el número de tercero.");
-  return formatPartnerNumber(sequence.nextNumber - 1);
+  return formatPartnerNumber(sequence.nextNumber - 1, type);
 }

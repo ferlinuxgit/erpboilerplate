@@ -35,7 +35,7 @@ type OrderLine = {
   unitPrice: string;
 };
 
-type Receipt = { id: string; purchaseOrderId: string; receivedAt: Date };
+type Receipt = { id: string; number: string; purchaseOrderId: string; receivedAt: Date };
 type SupplierInvoice = {
   id: string;
   number: string;
@@ -267,7 +267,7 @@ export function PurchaseFlowActions({
             emptyMessage="No hay recepciones facturables. Primero recepciona un pedido con líneas de compra."
             format={(receipt) => {
               const order = orders.find((candidate) => candidate.id === receipt.purchaseOrderId);
-              return `${order?.number ?? "Pedido"} · recepción ${receipt.id.slice(0, 8)}`;
+              return `${order?.number ?? "Pedido"} · recepción ${receipt.number}`;
             }}
             items={invoiceableReceipts}
             onChange={setSelectedReceiptId}
@@ -329,7 +329,7 @@ export function PurchaseFlowActions({
           return (
             <DocumentRow
               key={receipt.id}
-              label={`Recepción ${receipt.id.slice(0, 8)}${order ? ` · pedido ${order.number}` : ""}`}
+              label={`Recepción ${receipt.number}${order ? ` · pedido ${order.number}` : ""}`}
               loading={loading}
               onAction={() => invoiceReceipt(receipt.id)}
               status={transition.allowed ? "PENDIENTE FACTURA" : "FACTURADA/BLOQUEADA"}

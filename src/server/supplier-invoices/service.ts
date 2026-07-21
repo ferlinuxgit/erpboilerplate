@@ -339,7 +339,7 @@ async function resolveSupplier(input: {
     .insert(partner)
     .values({
       companyId: input.companyId,
-      number: await reservePartnerNumber(input.client, input.companyId),
+      number: await reservePartnerNumber(input.client, input.companyId, "SUPPLIER"),
       type: "SUPPLIER",
       name: supplierName || `Proveedor ${supplierTaxId}`,
       taxId: supplierTaxId || null,
@@ -902,7 +902,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       .from(supplierInvoiceAttachment)
       .where(and(eq(supplierInvoiceAttachment.companyId, companyId), eq(supplierInvoiceAttachment.supplierInvoiceId, id))),
     db
-      .select({ id: supplierPayment.id, amountApplied: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
+      .select({ id: supplierPayment.id, number: supplierPayment.number, amountApplied: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
       .from(supplierInvoicePayment)
       .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
       .where(and(eq(supplierInvoicePayment.companyId, companyId), eq(supplierInvoicePayment.supplierInvoiceId, id))),

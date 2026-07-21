@@ -6,6 +6,7 @@ import {
   type ResourceListColumn,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { formatMoney } from "@/lib/format";
 
 type SupplierRow = {
   id: string;
@@ -18,6 +19,9 @@ type SupplierRow = {
   city: string | null;
   province: string | null;
   countryCode: string | null;
+  currencyCode: string;
+  outstandingBalance: string;
+  creditBalance: string;
   isActive: boolean;
   type: "CUSTOMER" | "SUPPLIER" | "BOTH";
 };
@@ -48,6 +52,20 @@ const columns: ResourceListColumn<SupplierRow>[] = [
     ),
     exportValue: (supplier) => (supplier.isActive ? "Activo" : "Inactivo"),
     sortValue: (supplier) => (supplier.isActive ? "ACTIVE" : "INACTIVE"),
+  },
+  {
+    header: "Saldo pendiente",
+    cell: (supplier) => (
+      <div className="text-right">
+        <p className="font-mono font-semibold">{formatMoney(supplier.outstandingBalance, supplier.currencyCode)}</p>
+        {Number(supplier.creditBalance) > 0 ? (
+          <p className="text-xs text-emerald-700">A favor: {formatMoney(supplier.creditBalance, supplier.currencyCode)}</p>
+        ) : null}
+      </div>
+    ),
+    exportValue: (supplier) => supplier.outstandingBalance,
+    sortValue: (supplier) => Number(supplier.outstandingBalance),
+    className: "text-right",
   },
   {
     header: "Tipo",
@@ -102,7 +120,7 @@ const columns: ResourceListColumn<SupplierRow>[] = [
   {
     header: "Acciones",
     cell: (supplier) => (
-      <SupplierRowActions id={supplier.id} name={supplier.name} />
+      <SupplierRowActions currencyCode={supplier.currencyCode} id={supplier.id} name={supplier.name} outstandingBalance={Number(supplier.outstandingBalance)} />
     ),
     className: "text-right",
   },
@@ -126,6 +144,8 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
           supplier.province,
           supplier.email,
           supplier.phone,
+          supplier.outstandingBalance,
+          supplier.creditBalance,
         ]
           .filter(Boolean)
           .join(" ")
@@ -165,6 +185,12 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
             <p className="text-sm text-muted-foreground">
               {supplier.isActive ? "Activo" : "Inactivo"}
             </p>
+            <p className="font-mono text-sm font-semibold">
+              Pendiente: {formatMoney(supplier.outstandingBalance, supplier.currencyCode)}
+            </p>
+            {Number(supplier.creditBalance) > 0 ? (
+              <p className="text-sm text-emerald-700">A favor: {formatMoney(supplier.creditBalance, supplier.currencyCode)}</p>
+            ) : null}
             <p className="text-sm text-muted-foreground">
               {supplier.taxId ?? "Sin CIF/NIF"}
             </p>
@@ -185,7 +211,7 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
               {supplier.phone ?? "Sin teléfono"}
             </p>
           </div>
-          <SupplierRowActions id={supplier.id} name={supplier.name} />
+          <SupplierRowActions currencyCode={supplier.currencyCode} id={supplier.id} name={supplier.name} outstandingBalance={Number(supplier.outstandingBalance)} />
         </div>
       )}
     />

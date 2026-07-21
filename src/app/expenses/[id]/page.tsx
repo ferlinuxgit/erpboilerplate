@@ -179,7 +179,7 @@ export default async function ExpenseDetailPage({
               >
                 <div>
                   <p className="font-mono font-semibold">
-                    PAG-{payment.id.slice(0, 8).toUpperCase()}
+                    {payment.number}
                   </p>
                   <p className="text-muted-foreground">
                     {formatDate(payment.postedAt)}

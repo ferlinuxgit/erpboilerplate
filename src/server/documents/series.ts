@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { documentSeries } from "@/db/schema";
 import { db } from "@/lib/db";
@@ -19,27 +19,30 @@ export async function reserveSeriesNumber(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   input: { companyId: string; fiscalYearId: string; type: ReservableSeriesType; referenceDate?: Date | string | null },
 ) {
-  const [series] = await tx
+  const seriesRows = await tx
     .select()
     .from(documentSeries)
     .where(
       and(
         eq(documentSeries.companyId, input.companyId),
-        eq(documentSeries.fiscalYearId, input.fiscalYearId),
         eq(documentSeries.type, input.type),
       ),
     )
-    .limit(1);
+    .orderBy(documentSeries.id)
+    .for("update");
+
+  const series = seriesRows.find((candidate) => candidate.fiscalYearId === input.fiscalYearId);
 
   if (!series) {
     throw new Error(`No existe serie para ${input.type}.`);
   }
 
+  const nextNumber = Math.max(...seriesRows.map((candidate) => candidate.nextNumber));
   const [reserved] = await tx
     .update(documentSeries)
-    .set({ nextNumber: sql<number>`${documentSeries.nextNumber} + 1` })
+    .set({ nextNumber: nextNumber + 1 })
     .where(eq(documentSeries.id, series.id))
-    .returning({ format: documentSeries.format, prefix: documentSeries.prefix, nextNumber: documentSeries.nextNumber });
+    .returning({ format: documentSeries.format, prefix: documentSeries.prefix });
 
   if (!reserved) {
     throw new Error(`No se pudo reservar serie para ${input.type}.`);
@@ -47,7 +50,7 @@ export async function reserveSeriesNumber(
 
   return formatSeriesNumber({
     format: reserved.format,
-    nextNumber: reserved.nextNumber - 1,
+    nextNumber,
     prefix: reserved.prefix,
     referenceDate: input.referenceDate,
   });

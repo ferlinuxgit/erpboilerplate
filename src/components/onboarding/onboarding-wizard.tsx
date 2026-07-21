@@ -42,7 +42,7 @@ export function OnboardingWizard() {
     defaultValues: {
       legalName: "",
       vatNumber: "",
-      defaultSeriesPrefix: "FAC-",
+      defaultSeriesPrefix: "FA",
       inviteEmail: "",
     },
   });
@@ -127,7 +127,7 @@ export function OnboardingWizard() {
       {stepIndex === 2 ? (
         <div className="space-y-2">
           <Label htmlFor="defaultSeriesPrefix">Prefijo de serie principal</Label>
-          <Input id="defaultSeriesPrefix" placeholder="FAC-" {...register("defaultSeriesPrefix")} />
+          <Input id="defaultSeriesPrefix" placeholder="FA" {...register("defaultSeriesPrefix")} />
         </div>
       ) : null}
 

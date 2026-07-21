@@ -151,9 +151,7 @@ export default async function AccountingPage() {
               href={`/accounting/entries/${entry.id}`}
               key={entry.id}
             >
-              <span className="font-medium">
-                {entry.reference || "Sin referencia"}
-              </span>
+              <span><span className="block font-mono font-semibold">{entry.number}</span><span className="text-xs text-muted-foreground">{entry.reference || "Sin referencia"}</span></span>
               <span className="text-sm text-muted-foreground sm:text-right">
                 Debe {formatMoney(entry.debit, currency)}
               </span>

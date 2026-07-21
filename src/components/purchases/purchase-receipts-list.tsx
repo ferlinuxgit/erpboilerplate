@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/format";
 
 export type PurchaseReceiptRow = {
   id: string;
+  number: string;
   orderId: string;
   orderNumber: string;
   supplierName: string;
@@ -29,11 +30,11 @@ const columns: ResourceListColumn<PurchaseReceiptRow>[] = [
         className="font-mono font-semibold text-primary hover:underline"
         href={`/purchases/receipts/${row.id}`}
       >
-        REC-{row.id.slice(0, 8).toUpperCase()}
+        {row.number}
       </Link>
     ),
-    exportValue: (row) => `REC-${row.id.slice(0, 8).toUpperCase()}`,
-    sortValue: (row) => row.id,
+    exportValue: (row) => row.number,
+    sortValue: (row) => row.number,
   },
   {
     header: "Pedido",
@@ -117,7 +118,7 @@ export function PurchaseReceiptsList({ rows }: { rows: PurchaseReceiptRow[] }) {
       ]}
       getRowId={(row) => row.id}
       getSearchText={(row) =>
-        `${row.id} ${row.orderNumber} ${row.supplierName} ${row.invoiceId ? "facturada" : "pendiente"}`
+        `${row.number} ${row.orderNumber} ${row.supplierName} ${row.invoiceId ? "facturada" : "pendiente"}`
       }
       items={rows}
       searchPlaceholder="Buscar por pedido, proveedor o recepción"

@@ -6,6 +6,7 @@ import {
   purchaseOrder,
   purchaseOrderLine,
   supplierInvoice,
+  supplierInvoicePayment,
   supplierPayment,
 } from "@/db/schema";
 import { db } from "@/lib/db";
@@ -64,7 +65,7 @@ export async function listPurchasePipeline(companyId: string) {
       .innerJoin(purchaseOrder, eq(purchaseOrderLine.purchaseOrderId, purchaseOrder.id))
       .where(eq(purchaseOrder.companyId, companyId)),
     db
-      .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId, warehouseId: goodsReceipt.warehouseId, supplierDocumentNumber: goodsReceipt.supplierDocumentNumber, notes: goodsReceipt.notes, receivedAt: goodsReceipt.receivedAt })
+      .select({ id: goodsReceipt.id, number: goodsReceipt.number, purchaseOrderId: goodsReceipt.purchaseOrderId, warehouseId: goodsReceipt.warehouseId, supplierDocumentNumber: goodsReceipt.supplierDocumentNumber, notes: goodsReceipt.notes, receivedAt: goodsReceipt.receivedAt })
       .from(goodsReceipt)
       .innerJoin(purchaseOrder, eq(goodsReceipt.purchaseOrderId, purchaseOrder.id))
       .where(eq(purchaseOrder.companyId, companyId))
@@ -84,11 +85,12 @@ export async function listPurchasePipeline(companyId: string) {
     db
       .select({
         id: supplierPayment.id,
-        supplierInvoiceId: supplierPayment.supplierInvoiceId,
+        supplierInvoiceId: supplierInvoicePayment.supplierInvoiceId,
         amount: supplierPayment.amount,
       })
-      .from(supplierPayment)
-      .where(eq(supplierPayment.companyId, companyId)),
+      .from(supplierInvoicePayment)
+      .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
+      .where(eq(supplierInvoicePayment.companyId, companyId)),
   ]);
 
   return { orders, orderLines, receipts, invoices, payments };
@@ -135,7 +137,7 @@ export async function createPurchaseOrder(
       (
         await tx
           .insert(partner)
-          .values({ companyId, number: await reservePartnerNumber(tx, companyId), type: "SUPPLIER", name: payload.supplierName })
+          .values({ companyId, number: await reservePartnerNumber(tx, companyId, "SUPPLIER"), type: "SUPPLIER", name: payload.supplierName })
           .returning({ id: partner.id })
       )[0].id;
 
@@ -223,7 +225,7 @@ export async function updatePurchaseOrder(
       .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"]), eq(partner.name, payload.supplierName)))
       .limit(1);
     const supplierId = existingSupplier?.id ?? (
-      await tx.insert(partner).values({ companyId, number: await reservePartnerNumber(tx, companyId), type: "SUPPLIER", name: payload.supplierName }).returning({ id: partner.id })
+      await tx.insert(partner).values({ companyId, number: await reservePartnerNumber(tx, companyId, "SUPPLIER"), type: "SUPPLIER", name: payload.supplierName }).returning({ id: partner.id })
     )[0].id;
 
     const [updated] = await tx

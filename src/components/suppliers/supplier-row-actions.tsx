@@ -1,14 +1,17 @@
 import Link from "next/link";
 
 import { DeleteButton } from "@/components/delete-button";
+import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { buttonVariants } from "@/components/ui/button";
 
 type SupplierRowActionsProps = {
   id: string;
   name: string;
+  currencyCode: string;
+  outstandingBalance: number;
 };
 
-export function SupplierRowActions({ id, name }: SupplierRowActionsProps) {
+export function SupplierRowActions({ currencyCode, id, name, outstandingBalance }: SupplierRowActionsProps) {
   return (
     <div className="flex gap-2">
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/suppliers/${id}`}>
@@ -17,6 +20,7 @@ export function SupplierRowActions({ id, name }: SupplierRowActionsProps) {
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/suppliers/${id}/edit`}>
         Editar
       </Link>
+      <RegisterSupplierPaymentButton compact currencyCode={currencyCode} outstandingAmount={outstandingBalance} supplierId={id} />
       <DeleteButton
         url={`/api/suppliers/${id}`}
         title={`Eliminar proveedor ${name}`}

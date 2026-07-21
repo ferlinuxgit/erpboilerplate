@@ -13,6 +13,9 @@ export default async function PurchasePaymentsPage() {
   const payments = await db
     .select({
       id: supplierPayment.id,
+      number: supplierPayment.number,
+      supplierId: partner.id,
+      supplierNumber: partner.number,
       invoiceId: supplierInvoice.id,
       invoiceNumber: supplierInvoice.number,
       supplierName: partner.name,
@@ -23,11 +26,11 @@ export default async function PurchasePaymentsPage() {
       bankName: bankAccount.bankName,
     })
     .from(supplierPayment)
-    .innerJoin(
+    .leftJoin(
       supplierInvoice,
       eq(supplierInvoice.id, supplierPayment.supplierInvoiceId),
     )
-    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .innerJoin(partner, eq(partner.id, supplierPayment.supplierPartnerId))
     .leftJoin(paymentMethod, eq(paymentMethod.id, supplierPayment.paymentMethodId))
     .leftJoin(bankAccount, eq(bankAccount.id, supplierPayment.bankAccountId))
     .where(eq(supplierPayment.companyId, ctx.company.id))
@@ -37,19 +40,19 @@ export default async function PurchasePaymentsPage() {
       <PageHeader
         eyebrow="Pagos a proveedores"
         title="Pagos a proveedores"
-        description="Histórico de pagos aplicados a facturas recibidas."
+        description="Histórico de pagos aplicados a facturas y pagos a cuenta de proveedores."
         actions={
           <Link
             className={buttonVariants()}
-            href="/purchases/supplier-invoices"
+            href="/suppliers"
           >
-            Registrar desde una factura
+            Registrar desde un proveedor
           </Link>
         }
       />
       <PageSection
         title="Pagos registrados"
-        description="Cada pago conserva su factura, proveedor, fecha e importe."
+        description="Cada pago conserva proveedor, fecha e importe; la factura es opcional."
       >
         <SupplierPaymentsList
           rows={payments.map((payment) => ({

@@ -105,11 +105,11 @@ export async function GET(request: Request) {
   }
 
   if (can(ctx.membership.role, "accounting.read")) {
-    searches.push(db.select({ id: journalEntry.id, reference: journalEntry.reference, sourceType: journalEntry.sourceType })
+    searches.push(db.select({ id: journalEntry.id, number: journalEntry.number, reference: journalEntry.reference, sourceType: journalEntry.sourceType })
       .from(journalEntry)
-      .where(and(eq(journalEntry.companyId, ctx.company.id), or(ilike(journalEntry.reference, pattern), ilike(journalEntry.sourceType, pattern), ilike(journalEntry.sourceId, pattern))))
+      .where(and(eq(journalEntry.companyId, ctx.company.id), or(ilike(journalEntry.number, pattern), ilike(journalEntry.reference, pattern), ilike(journalEntry.sourceType, pattern), ilike(journalEntry.sourceId, pattern))))
       .limit(5)
-      .then((rows) => rows.map((row) => ({ href: `/accounting/entries/${row.id}`, label: row.reference ?? `Asiento ${row.id.slice(0, 8)}`, description: row.sourceType ?? "Asiento manual", type: "Contabilidad" }))));
+      .then((rows) => rows.map((row) => ({ href: `/accounting/entries/${row.id}`, label: row.number, description: row.reference ?? row.sourceType ?? "Asiento manual", type: "Contabilidad" }))));
   }
 
   const results = (await Promise.all(searches)).flat().slice(0, 20);

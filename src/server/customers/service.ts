@@ -52,7 +52,7 @@ export async function createCustomerWithPartner(dbClient: DbClient, companyId: s
       .insert(partner)
       .values({
         companyId,
-        number: await reservePartnerNumber(dbClient, companyId),
+        number: await reservePartnerNumber(dbClient, companyId, "CUSTOMER"),
         type: "CUSTOMER",
         name: values.name,
         email: values.email,
@@ -155,7 +155,7 @@ export async function updateCustomerWithPartner(
         .insert(partner)
         .values({
           companyId,
-          number: await reservePartnerNumber(dbClient, companyId),
+          number: await reservePartnerNumber(dbClient, companyId, "CUSTOMER"),
           type: "CUSTOMER",
           name: values.name,
           email: values.email,

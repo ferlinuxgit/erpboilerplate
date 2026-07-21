@@ -42,7 +42,7 @@ export function MastersPanel() {
   const [retentions, setRetentions] = useState<RateRow[]>([]);
   const [taxes, setTaxes] = useState<RateRow[]>([]);
   const [catalogVersion, setCatalogVersion] = useState(0);
-  const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FAC-");
+  const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FA");
   const [invoiceSeriesFormat, setInvoiceSeriesFormat] = useState(defaultSeriesFormat);
   const [invoiceSeriesNextNumber, setInvoiceSeriesNextNumber] = useState("1");
 

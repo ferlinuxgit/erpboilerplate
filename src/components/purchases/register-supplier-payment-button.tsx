@@ -16,16 +16,20 @@ export function RegisterSupplierPaymentButton({
   compact = false,
   currencyCode = "EUR",
   invoiceId,
-  outstandingAmount,
+  outstandingAmount = 0,
+  supplierId,
 }: {
   compact?: boolean;
   currencyCode?: string;
-  invoiceId: string;
-  outstandingAmount: number;
+  invoiceId?: string;
+  outstandingAmount?: number;
+  supplierId?: string;
 }) {
+  const contextId = invoiceId ?? supplierId ?? "supplier";
+  const appliesToInvoice = Boolean(invoiceId);
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(outstandingAmount.toFixed(2));
+  const [amount, setAmount] = useState(outstandingAmount > 0 ? outstandingAmount.toFixed(2) : "");
   const [postedAt, setPostedAt] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -55,8 +59,8 @@ export function RegisterSupplierPaymentButton({
         Registrar pago
       </Button>
       <Dialog
-        description={`Saldo pendiente: ${formatMoney(outstandingAmount, currencyCode)}`}
-        initialFocusId={`supplier-payment-amount-${invoiceId}`}
+        description={appliesToInvoice ? `Saldo pendiente de la factura: ${formatMoney(outstandingAmount, currencyCode)}` : `Pago a cuenta del proveedor. Saldo pendiente actual: ${formatMoney(outstandingAmount, currencyCode)}`}
+        initialFocusId={`supplier-payment-amount-${contextId}`}
         onClose={() => setOpen(false)}
         open={open}
         title="Registrar pago a proveedor"
@@ -74,7 +78,8 @@ export function RegisterSupplierPaymentButton({
                   ...getCsrfHeader(),
                 },
                 body: JSON.stringify({
-                  supplierInvoiceId: invoiceId,
+                  supplierInvoiceId: invoiceId ?? "",
+                  supplierPartnerId: supplierId ?? "",
                   amountApplied: Number(amount),
                   postedAt: new Date(`${postedAt}T12:00:00.000Z`).toISOString(),
                   paymentMethodId,
@@ -105,12 +110,12 @@ export function RegisterSupplierPaymentButton({
           }}
         >
           <div className="space-y-2">
-            <Label htmlFor={`supplier-payment-amount-${invoiceId}`}>
+            <Label htmlFor={`supplier-payment-amount-${contextId}`}>
               Importe
             </Label>
             <Input
-              id={`supplier-payment-amount-${invoiceId}`}
-              max={outstandingAmount}
+              id={`supplier-payment-amount-${contextId}`}
+              max={appliesToInvoice ? outstandingAmount : undefined}
               min="0.01"
               onChange={(event) => setAmount(event.target.value)}
               required
@@ -120,15 +125,15 @@ export function RegisterSupplierPaymentButton({
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2"><Label htmlFor={`supplier-payment-method-${invoiceId}`}>Método de pago</Label><Select id={`supplier-payment-method-${invoiceId}`} onChange={(event) => setPaymentMethodId(event.target.value)} value={paymentMethodId}><option value="">Sin especificar</option>{paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}</Select></div>
-            <div className="space-y-2"><Label htmlFor={`supplier-payment-account-${invoiceId}`}>Cuenta bancaria</Label><Select id={`supplier-payment-account-${invoiceId}`} onChange={(event) => setBankAccountId(event.target.value)} value={bankAccountId}><option value="">Sin especificar</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}</option>)}</Select></div>
+            <div className="space-y-2"><Label htmlFor={`supplier-payment-method-${contextId}`}>Método de pago</Label><Select id={`supplier-payment-method-${contextId}`} onChange={(event) => setPaymentMethodId(event.target.value)} value={paymentMethodId}><option value="">Sin especificar</option>{paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}</Select></div>
+            <div className="space-y-2"><Label htmlFor={`supplier-payment-account-${contextId}`}>Cuenta bancaria</Label><Select id={`supplier-payment-account-${contextId}`} onChange={(event) => setBankAccountId(event.target.value)} value={bankAccountId}><option value="">Sin especificar</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}</option>)}</Select></div>
           </div>
-          <div className="space-y-2"><Label htmlFor={`supplier-payment-reference-${invoiceId}`}>Referencia</Label><Input id={`supplier-payment-reference-${invoiceId}`} onChange={(event) => setReference(event.target.value)} placeholder="Referencia bancaria o concepto" value={reference} /></div>
-          <div className="space-y-2"><Label htmlFor={`supplier-payment-notes-${invoiceId}`}>Notas</Label><Input id={`supplier-payment-notes-${invoiceId}`} onChange={(event) => setNotes(event.target.value)} placeholder="Información interna opcional" value={notes} /></div>
+          <div className="space-y-2"><Label htmlFor={`supplier-payment-reference-${contextId}`}>Referencia</Label><Input id={`supplier-payment-reference-${contextId}`} onChange={(event) => setReference(event.target.value)} placeholder="Referencia bancaria o concepto" value={reference} /></div>
+          <div className="space-y-2"><Label htmlFor={`supplier-payment-notes-${contextId}`}>Notas</Label><Input id={`supplier-payment-notes-${contextId}`} onChange={(event) => setNotes(event.target.value)} placeholder="Información interna opcional" value={notes} /></div>
           <div className="space-y-2">
-            <Label htmlFor={`supplier-payment-date-${invoiceId}`}>Fecha</Label>
+            <Label htmlFor={`supplier-payment-date-${contextId}`}>Fecha</Label>
             <Input
-              id={`supplier-payment-date-${invoiceId}`}
+              id={`supplier-payment-date-${contextId}`}
               onChange={(event) => setPostedAt(event.target.value)}
               required
               type="date"
@@ -147,7 +152,7 @@ export function RegisterSupplierPaymentButton({
               disabled={
                 pending ||
                 Number(amount) <= 0 ||
-                Number(amount) > outstandingAmount
+                (appliesToInvoice && Number(amount) > outstandingAmount)
               }
               type="submit"
             >

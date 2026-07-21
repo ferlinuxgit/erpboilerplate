@@ -35,12 +35,14 @@ const mocks = vi.hoisted(() => {
     createDbClientMock,
     db: createDbClientMock(),
     ensureDefaultJournal: vi.fn(async () => ({ id: "journal-1" })),
+    reserveJournalEntryNumber: vi.fn(async () => "AS000001"),
     recordAudit: vi.fn(async () => undefined),
   };
 });
 
 vi.mock("@/lib/db", () => ({ db: mocks.db }));
 vi.mock("@/server/accounting/service", () => ({ ensureDefaultJournal: mocks.ensureDefaultJournal }));
+vi.mock("@/server/accounting/numbers", () => ({ reserveJournalEntryNumber: mocks.reserveJournalEntryNumber }));
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 
 import { postSalesInvoice, postSupplierInvoice } from "@/server/accounting/auto-post";
@@ -112,6 +114,7 @@ describe("accounting auto posting", () => {
     expect(tx.insert).toHaveBeenCalledTimes(2);
     expect(tx.update).toHaveBeenCalled();
     expect(mocks.ensureDefaultJournal).toHaveBeenCalledWith("company-1", tx);
+    expect(mocks.reserveJournalEntryNumber).toHaveBeenCalledWith(tx, "company-1");
     expect(mocks.recordAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",

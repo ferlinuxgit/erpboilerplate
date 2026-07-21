@@ -42,6 +42,7 @@ export default async function PurchaseReceiptsPage() {
     const lines = receiptLines.filter((line) => line.receiptId === receipt.id);
     return {
       id: receipt.id,
+      number: receipt.number,
       orderId: receipt.purchaseOrderId,
       orderNumber: order?.number ?? "Pedido",
       supplierName: order?.supplierName ?? "Proveedor",

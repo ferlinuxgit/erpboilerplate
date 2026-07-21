@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment, partner } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { calculateSupplierBalance } from "@/lib/supplier-balance";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { createSupplierSchema, updateSupplierSchema } from "@/server/schemas/forms";
 
@@ -45,32 +46,61 @@ function partnerTypeForSupplier(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
 }
 
 export async function listSuppliers(dbClient: DbClient, companyId: string) {
-  return dbClient
-    .select({
-      id: partner.id,
-      number: partner.number,
-      name: partner.name,
-      email: partner.email,
-      phone: partner.phone,
-      taxId: partner.taxId,
-      address: partner.address,
-      addressLine2: partner.addressLine2,
-      postalCode: partner.postalCode,
-      city: partner.city,
-      province: partner.province,
-      countryCode: partner.countryCode,
-      type: partner.type,
-      isActive: partner.isActive,
-      paymentTermsDays: partner.paymentTermsDays,
-      paymentMethodId: partner.paymentMethodId,
-      defaultAccountId: partner.defaultAccountId,
-      currencyCode: partner.currencyCode,
-      createdAt: partner.createdAt,
-      updatedAt: partner.updatedAt,
-    })
-    .from(partner)
-    .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
-    .orderBy(desc(partner.createdAt));
+  const [rows, invoiceTotals, paymentTotals] = await Promise.all([
+    dbClient
+      .select({
+        id: partner.id,
+        number: partner.number,
+        name: partner.name,
+        email: partner.email,
+        phone: partner.phone,
+        taxId: partner.taxId,
+        address: partner.address,
+        addressLine2: partner.addressLine2,
+        postalCode: partner.postalCode,
+        city: partner.city,
+        province: partner.province,
+        countryCode: partner.countryCode,
+        type: partner.type,
+        isActive: partner.isActive,
+        paymentTermsDays: partner.paymentTermsDays,
+        paymentMethodId: partner.paymentMethodId,
+        defaultAccountId: partner.defaultAccountId,
+        currencyCode: partner.currencyCode,
+        createdAt: partner.createdAt,
+        updatedAt: partner.updatedAt,
+      })
+      .from(partner)
+      .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
+      .orderBy(desc(partner.createdAt)),
+    dbClient
+      .select({
+        supplierPartnerId: supplierInvoice.supplierPartnerId,
+        total: sql<string>`coalesce(sum(${supplierInvoice.totalAmount}), '0')`,
+      })
+      .from(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, companyId), ne(supplierInvoice.status, "VOID")))
+      .groupBy(supplierInvoice.supplierPartnerId),
+    dbClient
+      .select({
+        supplierPartnerId: supplierPayment.supplierPartnerId,
+        total: sql<string>`coalesce(sum(${supplierPayment.amount}), '0')`,
+      })
+      .from(supplierPayment)
+      .where(eq(supplierPayment.companyId, companyId))
+      .groupBy(supplierPayment.supplierPartnerId),
+  ]);
+
+  const invoicedBySupplier = new Map(invoiceTotals.map((row) => [row.supplierPartnerId, Number(row.total)]));
+  const paidBySupplier = new Map(paymentTotals.map((row) => [row.supplierPartnerId, Number(row.total)]));
+  return rows.map((row) => {
+    const balance = calculateSupplierBalance(invoicedBySupplier.get(row.id) ?? 0, paidBySupplier.get(row.id) ?? 0);
+    return {
+      ...row,
+      outstandingBalance: balance.outstandingBalance.toFixed(2),
+      creditBalance: balance.creditBalance.toFixed(2),
+    };
+  });
 }
 
 export async function getSupplier(dbClient: DbClient, companyId: string, id: string) {
@@ -143,7 +173,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
     .insert(partner)
     .values({
       companyId,
-      number: await reservePartnerNumber(dbClient, companyId),
+      number: await reservePartnerNumber(dbClient, companyId, "SUPPLIER"),
       type: "SUPPLIER",
       name: values.name,
       email: values.email,
@@ -249,31 +279,38 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
     return { ...invoice, totalAmount, paidAmount, outstandingAmount };
   });
 
-  const totalInvoiced = invoiceRows.reduce((total, invoice) => total + invoice.totalAmount, 0);
-  const outstandingAmount = invoiceRows.reduce((total, invoice) => total + invoice.outstandingAmount, 0);
-  const overdueAmount = invoiceRows
+  const balanceInvoices = invoiceRows.filter((invoice) => invoice.paymentStatus !== "VOID");
+  const totalInvoiced = balanceInvoices.reduce((total, invoice) => total + invoice.totalAmount, 0);
+  const allocatedAmount = balanceInvoices.reduce((total, invoice) => total + invoice.paidAmount, 0);
+  const rawOverdueAmount = balanceInvoices
     .filter((invoice) => invoice.dueDate && invoice.dueDate.getTime() < Date.now() && invoice.outstandingAmount > 0)
     .reduce((total, invoice) => total + invoice.outstandingAmount, 0);
 
   const recentPayments = await dbClient
     .select({
       id: supplierPayment.id,
+      number: supplierPayment.number,
       supplierInvoiceId: supplierPayment.supplierInvoiceId,
       amount: supplierPayment.amount,
       postedAt: supplierPayment.postedAt,
     })
     .from(supplierPayment)
-    .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierPayment.supplierInvoiceId))
-    .where(and(eq(supplierPayment.companyId, companyId), eq(supplierInvoice.supplierPartnerId, supplierId)))
+    .where(and(eq(supplierPayment.companyId, companyId), eq(supplierPayment.supplierPartnerId, supplierId)))
     .orderBy(desc(supplierPayment.postedAt));
+
+  const totalPaid = recentPayments.reduce((total, payment) => total + Number(payment.amount), 0);
+  const unappliedAmount = Math.max(totalPaid - allocatedAmount, 0);
+  const balance = calculateSupplierBalance(totalInvoiced, totalPaid);
 
   return {
     metrics: {
       invoiceCount: invoiceRows.length,
       purchaseOrderCount: purchaseOrders.length,
       totalInvoiced,
-      outstandingAmount,
-      overdueAmount,
+      totalPaid,
+      outstandingAmount: balance.outstandingBalance,
+      creditBalance: balance.creditBalance,
+      overdueAmount: Math.max(rawOverdueAmount - unappliedAmount, 0),
     },
     invoices: invoiceRows.slice(0, 8),
     purchaseOrders: purchaseOrders.slice(0, 8),

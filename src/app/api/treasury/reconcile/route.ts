@@ -35,14 +35,14 @@ export async function GET(request: Request) {
     .where(and(eq(bankAccount.companyId, ctx.company.id), eq(bankTransaction.reconciliationStatus, "RECONCILED")));
   if (Number(row.amount) >= 0) {
     const usedIds = new Set(used.map((entry) => entry.invoicePaymentId).filter(Boolean));
-    const candidates = (await db.select({ id: invoicePayment.id, number: invoice.number, counterparty: customer.name, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
+    const candidates = (await db.select({ id: invoicePayment.id, number: payment.number, counterparty: customer.name, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
       .from(invoicePayment).innerJoin(invoice, eq(invoice.id, invoicePayment.invoiceId)).innerJoin(customer, eq(customer.id, invoice.customerId)).innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
       .where(and(eq(invoicePayment.companyId, ctx.company.id), eq(invoicePayment.amountApplied, amount))))
       .filter((candidate) => !usedIds.has(candidate.id));
     return NextResponse.json({ kind: "customer", candidates });
   }
   const usedIds = new Set(used.map((entry) => entry.supplierPaymentId).filter(Boolean));
-  const candidates = (await db.select({ id: supplierInvoicePayment.id, number: supplierInvoice.number, counterparty: partner.name, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
+  const candidates = (await db.select({ id: supplierInvoicePayment.id, number: supplierPayment.number, counterparty: partner.name, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
     .from(supplierInvoicePayment).innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoicePayment.supplierInvoiceId)).innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId)).innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
     .where(and(eq(supplierInvoicePayment.companyId, ctx.company.id), eq(supplierInvoicePayment.amountApplied, amount))))
     .filter((candidate) => !usedIds.has(candidate.id));

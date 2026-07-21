@@ -89,7 +89,7 @@ export async function autoReconcileBankTransactions(companyId: string) {
 
     if (Number(tx.amount) >= 0) {
       const candidates = (await db
-        .select({ id: invoicePayment.id, number: invoice.number, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
+        .select({ id: invoicePayment.id, number: payment.number, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
         .from(invoicePayment)
         .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
         .innerJoin(invoice, eq(invoice.id, invoicePayment.invoiceId))
@@ -123,7 +123,7 @@ export async function autoReconcileBankTransactions(companyId: string) {
       }
     } else {
       const candidates = (await db
-        .select({ id: supplierInvoicePayment.id, number: supplierInvoice.number, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
+        .select({ id: supplierInvoicePayment.id, number: supplierPayment.number, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
         .from(supplierInvoicePayment)
         .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
         .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoicePayment.supplierInvoiceId))

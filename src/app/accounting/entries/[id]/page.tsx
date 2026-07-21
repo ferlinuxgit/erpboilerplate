@@ -36,8 +36,8 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
     <PageShell>
       <PageHeader
         eyebrow="Contabilidad · Asiento"
-        title={entry.reference ?? `Asiento ${entry.id.slice(0, 8)}`}
-        description={`${formatDate(entry.postedAt)} · ${entry.lines.length} líneas contables`}
+        title={entry.number}
+        description={`${entry.reference ?? "Sin referencia"} · ${formatDate(entry.postedAt)} · ${entry.lines.length} líneas contables`}
         backHref="/accounting"
         backLabel="Volver a contabilidad"
         meta={

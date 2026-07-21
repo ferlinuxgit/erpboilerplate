@@ -5,6 +5,7 @@ import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
 import { validateJournalLines, type JournalLineInput } from "@/server/accounting/journal-validation";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
+import { reserveJournalEntryNumber } from "@/server/accounting/numbers";
 
 export async function getTrialBalance(companyId: string) {
   return db
@@ -118,6 +119,7 @@ export async function listJournalEntries(companyId: string) {
   return db
     .select({
       id: journalEntry.id,
+      number: journalEntry.number,
       postedAt: journalEntry.postedAt,
       reference: journalEntry.reference,
       debit: sql<string>`coalesce(sum(${journalLine.debit}), '0')`,
@@ -126,7 +128,7 @@ export async function listJournalEntries(companyId: string) {
     .from(journalEntry)
     .leftJoin(journalLine, eq(journalLine.journalEntryId, journalEntry.id))
     .where(eq(journalEntry.companyId, companyId))
-    .groupBy(journalEntry.id, journalEntry.postedAt, journalEntry.reference)
+    .groupBy(journalEntry.id, journalEntry.number, journalEntry.postedAt, journalEntry.reference)
     .orderBy(desc(journalEntry.postedAt));
 }
 
@@ -158,7 +160,8 @@ export async function createJournalEntry(
   const defaultJournal = await ensureDefaultJournal(companyId);
 
   const entry = await db.transaction(async (tx) => {
-    const [created] = await tx.insert(journalEntry).values({ companyId, journalId: defaultJournal.id, postedAt: payload.postedAt, reference: payload.reference ?? null }).returning();
+    const number = await reserveJournalEntryNumber(tx, companyId);
+    const [created] = await tx.insert(journalEntry).values({ companyId, number, journalId: defaultJournal.id, postedAt: payload.postedAt, reference: payload.reference ?? null }).returning();
     await tx.insert(journalLine).values(lines.map((line) => ({ journalEntryId: created.id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
     await tx
       .update(accountChart)
@@ -217,10 +220,12 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
     await assertFiscalPeriodOpen(companyId, reversedAt, tx);
     const lines = await tx.select().from(journalLine).where(eq(journalLine.journalEntryId, id));
     if (lines.length === 0) throw new Error("No se puede revertir un asiento sin líneas.");
+    const number = await reserveJournalEntryNumber(tx, companyId);
     const [reversal] = await tx
       .insert(journalEntry)
       .values({
         companyId,
+        number,
         journalId: editable.journalId,
         postedAt: reversedAt,
         reference: `Reversión · ${editable.reference ?? id}`,
@@ -246,6 +251,7 @@ export async function getLedgerByAccount(companyId: string, accountId: string) {
     .select({
       lineId: journalLine.id,
       entryId: journalEntry.id,
+      number: journalEntry.number,
       postedAt: journalEntry.postedAt,
       reference: journalEntry.reference,
       debit: journalLine.debit,

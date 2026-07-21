@@ -10,8 +10,11 @@ import { formatDate, formatMoney } from "@/lib/format";
 
 export type SupplierPaymentListRow = {
   id: string;
-  invoiceId: string;
-  invoiceNumber: string;
+  number: string;
+  supplierId: string;
+  supplierNumber: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
   supplierName: string;
   amount: string;
   postedAt: Date | string;
@@ -26,23 +29,18 @@ const columns: ResourceListColumn<SupplierPaymentListRow>[] = [
     header: "Pago",
     cell: (row) => (
       <span className="font-mono font-semibold">
-        PAG-{row.id.slice(0, 8).toUpperCase()}
+        {row.number}
       </span>
     ),
-    exportValue: (row) => row.id,
-    sortValue: (row) => row.id,
+    exportValue: (row) => row.number,
+    sortValue: (row) => row.number,
   },
   {
     header: "Proveedor",
     cell: (row) => (
       <div>
-        <p className="font-medium">{row.supplierName}</p>
-        <Link
-          className="text-xs text-primary hover:underline"
-          href={`/expenses/${row.invoiceId}`}
-        >
-          {row.invoiceNumber}
-        </Link>
+        <Link className="font-medium text-primary hover:underline" href={`/suppliers/${row.supplierId}`}>{row.supplierNumber} · {row.supplierName}</Link>
+        {row.invoiceId ? <Link className="block text-xs text-primary hover:underline" href={`/expenses/${row.invoiceId}`}>{row.invoiceNumber}</Link> : <p className="text-xs text-muted-foreground">Pago a cuenta</p>}
       </div>
     ),
     exportValue: (row) => row.supplierName,
@@ -81,15 +79,15 @@ export function SupplierPaymentsList({
   return (
     <ResourceList
       columns={columns}
-      emptyDescription="Los pagos aparecerán al aplicarlos a una factura de proveedor."
+      emptyDescription="Los pagos aparecerán al registrarlos desde un proveedor o una factura."
       emptyTitle="No hay pagos registrados"
       exportFileName="pagos-proveedores.csv"
       getRowId={(row) => row.id}
       getSearchText={(row) =>
-        `${row.id} ${row.invoiceNumber} ${row.supplierName} ${row.amount}`
+        `${row.number} ${row.supplierNumber} ${row.invoiceNumber ?? "pago a cuenta"} ${row.supplierName} ${row.amount}`
       }
       items={rows}
-      searchPlaceholder="Buscar por proveedor, factura o importe"
+      searchPlaceholder="Buscar por proveedor, factura, pago a cuenta o importe"
       testId="supplier-payments-list"
       title="Pagos a proveedores"
     />

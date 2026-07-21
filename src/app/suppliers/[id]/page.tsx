@@ -2,6 +2,7 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
+import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -45,6 +46,11 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <Link className={buttonVariants({ variant: "outline" })} href={`/suppliers/${supplier.id}/edit`}>
               Editar
             </Link>
+            <RegisterSupplierPaymentButton
+              currencyCode={supplier.currencyCode}
+              outstandingAmount={activity.metrics.outstandingAmount}
+              supplierId={supplier.id}
+            />
             <Link className={buttonVariants()} href={`/expenses/new?supplierId=${supplier.id}`}>
               Registrar gasto
             </Link>
@@ -54,7 +60,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
 
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard label="Facturas recibidas" value={activity.metrics.invoiceCount} helper={`Total ${formatMoney(activity.metrics.totalInvoiced, supplier.currencyCode)}`} />
-        <MetricCard label="Pendiente" value={formatMoney(activity.metrics.outstandingAmount, supplier.currencyCode)} helper="Saldo acreedor abierto" tone={activity.metrics.outstandingAmount > 0 ? "warning" : "success"} />
+        <MetricCard label="Pendiente" value={formatMoney(activity.metrics.outstandingAmount, supplier.currencyCode)} helper={activity.metrics.creditBalance > 0 ? `A favor: ${formatMoney(activity.metrics.creditBalance, supplier.currencyCode)}` : `Pagado: ${formatMoney(activity.metrics.totalPaid, supplier.currencyCode)}`} tone={activity.metrics.outstandingAmount > 0 ? "warning" : "success"} />
         <MetricCard label="Vencido" value={formatMoney(activity.metrics.overdueAmount, supplier.currencyCode)} helper="Importe pendiente vencido" tone={activity.metrics.overdueAmount > 0 ? "warning" : "success"} />
         <MetricCard label="Pedidos" value={activity.metrics.purchaseOrderCount} helper="Pedidos de compra asociados" />
       </section>
@@ -143,7 +149,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           <div className="space-y-2 text-sm">
             {activity.payments.length === 0 ? <p className="text-muted-foreground">Sin pagos registrados.</p> : activity.payments.map((payment) => (
               <div className="flex items-center justify-between rounded-md border p-3" key={payment.id}>
-                <span>{formatDate(payment.postedAt)}</span>
+                <span><span className="block font-mono font-semibold">{payment.number}</span><span className="text-xs text-muted-foreground">{formatDate(payment.postedAt)} · {payment.supplierInvoiceId ? "Aplicado a factura" : "Pago a cuenta"}</span></span>
                 <span className="font-medium">{formatMoney(payment.amount, supplier.currencyCode)}</span>
               </div>
             ))}

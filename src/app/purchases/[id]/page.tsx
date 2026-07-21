@@ -306,7 +306,7 @@ export default async function PurchaseDetailPage({
                 key={receipt.id}
               >
                 <p className="font-medium">
-                  Recepción {receipt.id.slice(0, 8)}
+                  Recepción {receipt.number}
                 </p>
                 <p className="text-muted-foreground">
                   {formatDate(receipt.receivedAt)}

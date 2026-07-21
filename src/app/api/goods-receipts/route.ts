@@ -10,6 +10,7 @@ import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
+import { reserveSeriesNumber } from "@/server/documents/series";
 
 const payloadSchema = z.object({
   purchaseOrderId: z.string().trim().min(1),
@@ -38,6 +39,7 @@ export async function GET() {
     await db
       .select({
         id: goodsReceipt.id,
+        number: goodsReceipt.number,
         purchaseOrderId: goodsReceipt.purchaseOrderId,
         receivedAt: goodsReceipt.receivedAt,
       })
@@ -160,7 +162,13 @@ export async function POST(request: Request) {
 
     if (linesToInsert.length === 0) throw new Error("El pedido ya está completamente recibido.");
 
-    const [createdHeader] = await tx.insert(goodsReceipt).values({ purchaseOrderId: parsed.data.purchaseOrderId, warehouseId: ownedWarehouse.id, supplierDocumentNumber: parsed.data.supplierDocumentNumber || null, notes: parsed.data.notes || null, receivedAt }).returning();
+    const number = await reserveSeriesNumber(tx, {
+      companyId: ctx.company.id,
+      fiscalYearId: ctx.fiscalYear.id,
+      type: "GOODS_RECEIPT",
+      referenceDate: receivedAt,
+    });
+    const [createdHeader] = await tx.insert(goodsReceipt).values({ companyId: ctx.company.id, purchaseOrderId: parsed.data.purchaseOrderId, number, warehouseId: ownedWarehouse.id, supplierDocumentNumber: parsed.data.supplierDocumentNumber || null, notes: parsed.data.notes || null, receivedAt }).returning();
 
     if (linesToInsert.length > 0) {
       const insertedLines = await tx.insert(goodsReceiptLine).values(linesToInsert.map((line) => ({ ...line, goodsReceiptId: createdHeader.id }))).returning();
@@ -209,6 +217,7 @@ export async function POST(request: Request) {
       entityName: "goods_receipt",
       entityId: createdHeader.id,
       payload: {
+        number: createdHeader.number,
         purchaseOrderId: parsed.data.purchaseOrderId,
         warehouseId: ownedWarehouse.id,
         supplierDocumentNumber: parsed.data.supplierDocumentNumber || null,

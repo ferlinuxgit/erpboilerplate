@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { customer, invoice, invoiceLine, partner, paymentMethod } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoicePayment, partner, payment, paymentMethod } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -51,7 +51,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const data = rows[0];
   if (!data) notFound();
 
-  const [lines, paymentMethods] = await Promise.all([
+  const [lines, paymentMethods, payments] = await Promise.all([
     db
       .select({
         id: invoiceLine.id,
@@ -68,6 +68,17 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .from(paymentMethod)
       .where(eq(paymentMethod.companyId, tenantContext.company.id))
       .orderBy(paymentMethod.name),
+    db
+      .select({
+        id: payment.id,
+        number: payment.number,
+        amountApplied: invoicePayment.amountApplied,
+        postedAt: payment.postedAt,
+      })
+      .from(invoicePayment)
+      .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
+      .where(and(eq(invoicePayment.companyId, tenantContext.company.id), eq(invoicePayment.invoiceId, data.id)))
+      .orderBy(payment.postedAt),
   ]);
 
   const numericLines = lines.map((line) => ({
@@ -204,6 +215,21 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             <dd>{formatMoney(data.totalAmount.toString(), tenantContext.company.baseCurrencyCode)}</dd>
           </div>
         </dl>
+      </PageSection>
+
+      <PageSection title="Cobros" description="Cobros registrados y aplicados a esta factura.">
+        {payments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Todavía no hay cobros registrados.</p>
+        ) : (
+          <div className="divide-y border-y">
+            {payments.map((payment) => (
+              <div className="flex items-center justify-between gap-3 py-3 text-sm" key={payment.id}>
+                <span><span className="block font-mono font-semibold">{payment.number}</span><span className="text-xs text-muted-foreground">{formatDate(payment.postedAt)}</span></span>
+                <span className="font-mono font-semibold">{formatMoney(payment.amountApplied, tenantContext.company.baseCurrencyCode)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </PageSection>
     </PageShell>
   );

@@ -11,6 +11,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 
 type JournalEntryRow = {
   id: string;
+  number: string;
   postedAt: Date | string;
   reference: string | null;
   debit: string;
@@ -30,15 +31,15 @@ export function JournalEntriesList({
     {
       header: "Asiento",
       cell: (row) => (
-        <Link
-          className="font-medium text-primary hover:underline"
-          href={`/accounting/entries/${row.id}`}
-        >
-          {row.reference || "Sin referencia"}
-        </Link>
+        <div>
+          <Link className="font-mono font-semibold text-primary hover:underline" href={`/accounting/entries/${row.id}`}>
+            {row.number}
+          </Link>
+          <p className="text-xs text-muted-foreground">{row.reference || "Sin referencia"}</p>
+        </div>
       ),
-      exportValue: (row) => row.reference || "Sin referencia",
-      sortValue: (row) => row.reference || "",
+      exportValue: (row) => row.number,
+      sortValue: (row) => row.number,
     },
     {
       header: "Fecha",
@@ -81,7 +82,7 @@ export function JournalEntriesList({
       exportFileName="asientos.csv"
       getRowId={(row) => row.id}
       getSearchText={(row) =>
-        `${row.reference || "sin referencia"} ${formatDate(row.postedAt)} ${row.debit} ${row.credit}`
+        `${row.number} ${row.reference || "sin referencia"} ${formatDate(row.postedAt)} ${row.debit} ${row.credit}`
       }
       items={rows}
       pageSize={20}
@@ -92,8 +93,9 @@ export function JournalEntriesList({
             className="font-medium text-primary"
             href={`/accounting/entries/${row.id}`}
           >
-            {row.reference || "Sin referencia"}
+            {row.number}
           </Link>
+          <p className="text-sm text-muted-foreground">{row.reference || "Sin referencia"}</p>
           <p className="text-sm text-muted-foreground">
             {formatDate(row.postedAt)}
           </p>
@@ -104,7 +106,7 @@ export function JournalEntriesList({
           {canManage ? <JournalEntryRowActions id={row.id} /> : null}
         </div>
       )}
-      searchPlaceholder="Buscar por referencia, fecha o importe"
+      searchPlaceholder="Buscar por número, referencia, fecha o importe"
       testId="journal-entries-list"
       title="Libro diario"
     />

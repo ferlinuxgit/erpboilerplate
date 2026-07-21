@@ -311,6 +311,12 @@ export const partnerNumberSequence = pgTable("partner_number_sequence", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
+export const journalEntryNumberSequence = pgTable("journal_entry_number_sequence", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  nextNumber: integer("nextNumber").notNull().default(1),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
 export const customer = pgTable("customer", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
@@ -528,12 +534,17 @@ export const purchaseOrderLine = pgTable("purchase_order_line", {
 
 export const goodsReceipt = pgTable("goods_receipt", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   purchaseOrderId: text("purchaseOrderId").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  number: text("number").notNull(),
   warehouseId: text("warehouseId").references(() => warehouse.id, { onDelete: "restrict" }),
   supplierDocumentNumber: text("supplierDocumentNumber"),
   notes: text("notes"),
   receivedAt: timestamp("receivedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [
+  unique("goods_receipt_company_number_unique").on(table.companyId, table.number),
+  index("goods_receipt_company_date_idx").on(table.companyId, table.receivedAt),
+]);
 
 export const goodsReceiptLine = pgTable("goods_receipt_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -687,6 +698,7 @@ export const accountChart = pgTable(
 export const journalEntry = pgTable("journal_entry", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  number: text("number").notNull(),
   journalId: text("journalId").notNull().references(() => journal.id, { onDelete: "restrict" }),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   reference: text("reference"),
@@ -695,7 +707,7 @@ export const journalEntry = pgTable("journal_entry", {
   isAutomatic: boolean("isAutomatic").notNull().default(false),
   reversedAt: timestamp("reversedAt", { withTimezone: true, mode: "date" }),
   reversesEntryId: text("reversesEntryId"),
-}, (table) => [index("journal_entry_company_date_idx").on(table.companyId, table.postedAt), index("journal_entry_source_idx").on(table.companyId, table.sourceType, table.sourceId)]);
+}, (table) => [unique("journal_entry_company_number_unique").on(table.companyId, table.number), index("journal_entry_company_date_idx").on(table.companyId, table.postedAt), index("journal_entry_source_idx").on(table.companyId, table.sourceType, table.sourceId)]);
 
 export const journalLine = pgTable("journal_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -826,17 +838,20 @@ export const plan = pgTable("plan", {
 export const payment = pgTable("payment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  number: text("number").notNull(),
   invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),
   paymentMethodId: text("paymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [index("payment_company_invoice_date_idx").on(table.companyId, table.invoiceId, table.postedAt), check("payment_amount_positive", sql`${table.amount} > 0`)]);
+}, (table) => [unique("payment_company_number_unique").on(table.companyId, table.number), index("payment_company_invoice_date_idx").on(table.companyId, table.invoiceId, table.postedAt), check("payment_amount_positive", sql`${table.amount} > 0`)]);
 
 export const supplierPayment = pgTable("supplier_payment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  supplierInvoiceId: text("supplierInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  number: text("number").notNull(),
+  supplierPartnerId: text("supplierPartnerId").notNull().references(() => partner.id, { onDelete: "restrict" }),
+  supplierInvoiceId: text("supplierInvoiceId").references(() => supplierInvoice.id, { onDelete: "set null" }),
   paymentMethodId: text("paymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
   bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
   reference: text("reference"),
@@ -844,7 +859,12 @@ export const supplierPayment = pgTable("supplier_payment", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [index("supplier_payment_company_invoice_date_idx").on(table.companyId, table.supplierInvoiceId, table.postedAt), check("supplier_payment_amount_positive", sql`${table.amount} > 0`)]);
+}, (table) => [
+  unique("supplier_payment_company_number_unique").on(table.companyId, table.number),
+  index("supplier_payment_company_supplier_date_idx").on(table.companyId, table.supplierPartnerId, table.postedAt),
+  index("supplier_payment_company_invoice_date_idx").on(table.companyId, table.supplierInvoiceId, table.postedAt),
+  check("supplier_payment_amount_positive", sql`${table.amount} > 0`),
+]);
 
 export const supplierInvoicePayment = pgTable("supplier_invoice_payment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

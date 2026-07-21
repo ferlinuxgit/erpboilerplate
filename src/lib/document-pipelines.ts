@@ -148,8 +148,8 @@ function toAmount(value: string | number | null | undefined): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-export function getInvoiceablePurchaseReceipts(input: {
-  receipts: PurchaseReceiptRef[];
+export function getInvoiceablePurchaseReceipts<T extends PurchaseReceiptRef>(input: {
+  receipts: T[];
   orderLines: PurchaseOrderLineRef[];
   invoices: SupplierInvoiceRef[];
 }) {

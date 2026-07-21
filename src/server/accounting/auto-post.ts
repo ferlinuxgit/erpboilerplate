@@ -5,6 +5,7 @@ import { db, type DbClient } from "@/lib/db";
 import { getCompanyTemplate } from "@/lib/company-templates";
 import { ensureDefaultJournal } from "@/server/accounting/service";
 import { recordAudit } from "@/server/audit";
+import { reserveJournalEntryNumber } from "@/server/accounting/numbers";
 
 type PostingInput = {
   tenantId: string;
@@ -90,10 +91,12 @@ async function createEntry(
   const postingLines = input.lines.filter((line) => Number(line.debit) > 0 || Number(line.credit) > 0);
   if (postingLines.length < 2) throw new Error("El asiento automático no contiene suficientes líneas con importe.");
   const defaultJournal = await ensureDefaultJournal(input.companyId, client);
+  const number = await reserveJournalEntryNumber(client, input.companyId);
   const [createdEntry] = await client
     .insert(journalEntry)
     .values({
       companyId: input.companyId,
+      number,
       journalId: defaultJournal.id,
       postedAt: input.postedAt,
       reference: input.reference,
@@ -124,7 +127,7 @@ async function createEntry(
       action: input.action,
       entityName: input.entityName,
       entityId: input.entityId,
-      payload: { journalEntryId: createdEntry.id, reference: input.reference },
+      payload: { journalEntryId: createdEntry.id, number, reference: input.reference },
     },
     client,
   );
@@ -148,8 +151,10 @@ export async function reverseAutomaticEntries(input: PostingInput & { sourceType
 
   for (const entry of entries) {
     const lines = await client.select().from(journalLine).where(eq(journalLine.journalEntryId, entry.id));
+    const number = await reserveJournalEntryNumber(client, input.companyId);
     const [reversal] = await client.insert(journalEntry).values({
       companyId: input.companyId,
+      number,
       journalId: entry.journalId,
       postedAt: input.postedAt,
       reference: input.reason,

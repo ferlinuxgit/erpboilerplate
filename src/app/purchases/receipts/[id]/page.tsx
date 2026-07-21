@@ -45,6 +45,7 @@ export default async function PurchaseReceiptDetailPage({
   const [record] = await db
     .select({
       id: goodsReceipt.id,
+      number: goodsReceipt.number,
       receivedAt: goodsReceipt.receivedAt,
       orderId: purchaseOrder.id,
       orderNumber: purchaseOrder.number,
@@ -117,7 +118,7 @@ export default async function PurchaseReceiptDetailPage({
     <PageShell>
       <PageHeader
         eyebrow="Recepción"
-        title={`REC-${record.id.slice(0, 8).toUpperCase()}`}
+        title={record.number}
         description={`${record.supplierName} · ${formatDate(record.receivedAt)}`}
         backHref="/purchases/receipts"
         backLabel="Volver a recepciones"

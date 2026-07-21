@@ -10,6 +10,7 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postCustomerPayment } from "@/server/accounting/auto-post";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
+import { reserveSeriesNumber } from "@/server/documents/series";
 
 const payloadSchema = z.object({
   invoiceId: z.string().trim().min(1),
@@ -27,7 +28,20 @@ export async function GET() {
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "invoice.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  return NextResponse.json(await db.select().from(invoicePayment).where(eq(invoicePayment.companyId, ctx.company.id)));
+  return NextResponse.json(await db
+    .select({
+      id: invoicePayment.id,
+      companyId: invoicePayment.companyId,
+      invoiceId: invoicePayment.invoiceId,
+      paymentId: invoicePayment.paymentId,
+      number: payment.number,
+      amountApplied: invoicePayment.amountApplied,
+      postedAt: payment.postedAt,
+      createdAt: invoicePayment.createdAt,
+    })
+    .from(invoicePayment)
+    .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
+    .where(eq(invoicePayment.companyId, ctx.company.id)));
 }
 
 export async function POST(request: Request) {
@@ -73,10 +87,17 @@ export async function POST(request: Request) {
       const amountCents = toCents(parsed.data.amountApplied);
       if (amountCents > Math.max(invoiceTotalCents - paidCents, 0)) throw new Error("INVOICE_OVERPAYMENT");
 
+      const number = await reserveSeriesNumber(tx, {
+        companyId: ctx.company.id,
+        fiscalYearId: ctx.fiscalYear.id,
+        type: "RECEIPT",
+        referenceDate: postedAt,
+      });
       const [createdPayment] = await tx
         .insert(payment)
         .values({
           companyId: ctx.company.id,
+          number,
           invoiceId: parsed.data.invoiceId,
           paymentMethodId: parsed.data.paymentMethodId,
           amount: parsed.data.amountApplied.toFixed(2),
@@ -113,7 +134,7 @@ export async function POST(request: Request) {
         dbClient: tx,
       });
 
-      return appliedPayment;
+      return { payment: createdPayment, application: appliedPayment };
     });
 
     return NextResponse.json(applied, { status: 201 });

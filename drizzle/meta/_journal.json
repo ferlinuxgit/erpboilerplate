@@ -155,6 +155,27 @@
       "when": 1784638000000,
       "tag": "0021_partner_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784639000000,
+      "tag": "0022_unapplied_supplier_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784640000000,
+      "tag": "0023_operational_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784641000000,
+      "tag": "0024_compact_number_prefixes",
+      "breakpoints": true
     }
   ]
 }
