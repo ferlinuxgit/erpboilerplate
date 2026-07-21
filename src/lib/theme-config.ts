@@ -8,6 +8,12 @@ export const themes = [
     mode: "light",
   },
   {
+    id: "mono-white",
+    label: "Monocromo blanco",
+    shortLabel: "Blanco",
+    mode: "light",
+  },
+  {
     id: "paper-light",
     label: "DOS papel",
     shortLabel: "Papel",
@@ -23,6 +29,12 @@ export const themes = [
     id: "midnight-dark",
     label: "Windows nocturno",
     shortLabel: "Nocturno",
+    mode: "dark",
+  },
+  {
+    id: "mono-black",
+    label: "Monocromo negro",
+    shortLabel: "Negro",
     mode: "dark",
   },
   {

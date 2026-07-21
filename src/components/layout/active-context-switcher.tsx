@@ -64,7 +64,7 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
     <div className={compact ? "flex min-w-0 items-center gap-1" : "space-y-1"}>
       <Select
         aria-label="Empresa activa"
-        className={compact ? "h-7 w-32 border-white/50 bg-white px-1.5 text-[0.65rem] xl:w-44" : undefined}
+        className={compact ? "h-7 w-32 border-white/50 bg-window-highlight px-1.5 text-[0.65rem] text-window-text xl:w-44" : undefined}
         onChange={(event) => {
           const nextCompanyId = event.target.value;
           const nextYears = fiscalYearsByCompany[nextCompanyId] ?? [];
@@ -83,7 +83,7 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
       </Select>
       <Select
         aria-label="Ejercicio fiscal activo"
-        className={compact ? "h-7 w-16 border-white/50 bg-white px-1.5 text-[0.65rem]" : undefined}
+        className={compact ? "h-7 w-16 border-white/50 bg-window-highlight px-1.5 text-[0.65rem] text-window-text" : undefined}
         onChange={(event) => setFiscalYearId(event.target.value)}
         value={fiscalYearId}
       >
@@ -94,7 +94,7 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
         ))}
       </Select>
       <Button
-        className={compact ? "h-7 border-white/60 bg-white px-2 text-primary hover:bg-white/90" : "w-full"}
+        className={compact ? "h-7 border-white/60 bg-window-highlight px-2 text-window-text hover:bg-window-surface" : "w-full"}
         onClick={async () => {
           setError("");
           const response = await fetch("/api/context/active", {

@@ -69,7 +69,7 @@ test.describe("app shell theme palettes", () => {
     const themeSwitcher = page.getByTestId("theme-switcher");
     await expect(themeSwitcher).toBeVisible();
 
-    const paletteIds = ["classic-light", "paper-light", "os2-light", "midnight-dark", "dos-green", "amber-dark"] as const;
+    const paletteIds = ["classic-light", "mono-white", "paper-light", "os2-light", "midnight-dark", "mono-black", "dos-green", "amber-dark"] as const;
     for (const paletteId of paletteIds) {
       await themeSwitcher.selectOption(paletteId);
       await expect(page.locator("html")).toHaveAttribute("data-theme", paletteId);
@@ -78,6 +78,11 @@ test.describe("app shell theme palettes", () => {
         contentType: "image/png",
       });
     }
+
+    await themeSwitcher.selectOption("mono-black");
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    await themeSwitcher.selectOption("mono-white");
+    await expect(page.locator("html")).not.toHaveClass(/dark/);
 
     await themeSwitcher.selectOption("dos-green");
     await expect(page.locator("html")).toHaveClass(/dark/);

@@ -137,9 +137,11 @@ describe("frontend polish primitives", () => {
     const globals = sourceFor("src/app/globals.css");
 
     expect(themeConfig).toContain('id: "classic-light"');
+    expect(themeConfig).toContain('id: "mono-white"');
     expect(themeConfig).toContain('id: "paper-light"');
     expect(themeConfig).toContain('id: "os2-light"');
     expect(themeConfig).toContain('id: "midnight-dark"');
+    expect(themeConfig).toContain('id: "mono-black"');
     expect(themeConfig).toContain('id: "dos-green"');
     expect(themeConfig).toContain('id: "amber-dark"');
     expect(themeSwitcher).toContain("useSyncExternalStore");
@@ -150,6 +152,8 @@ describe("frontend polish primitives", () => {
     expect(appShell).toContain("<ThemeSwitcher compact />");
     expect(globals).toContain(':root[data-theme="dos-green"]');
     expect(globals).toContain(':root[data-theme="amber-dark"]');
+    expect(globals).toContain(':root[data-theme="mono-white"]');
+    expect(globals).toContain(':root[data-theme="mono-black"]');
   });
 
   it("supports complete keyboard-first operation across the application shell", () => {

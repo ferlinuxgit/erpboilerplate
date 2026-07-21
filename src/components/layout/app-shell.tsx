@@ -149,7 +149,7 @@ export function AppShell({ children }: AppShellProps) {
         data-testid="desktop-sidebar"
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
-          <div className="grid size-7 place-items-center border border-white/70 bg-white font-mono text-[0.62rem] font-black text-primary shadow-[inset_1px_1px_0_white,inset_-1px_-1px_0_#737373]">ER</div>
+          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-[0.62rem] font-black text-primary shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">ER</div>
           <div className="min-w-0 leading-none">
             <p className="truncate font-mono text-xs font-bold">ERP_SUITE.EXE</p>
             <p className="mt-0.5 truncate font-mono text-[0.55rem] text-white/70">WORKSPACE OPERATIVO</p>
@@ -217,7 +217,7 @@ export function AppShell({ children }: AppShellProps) {
             >
               <div className="flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
                 <div className="flex items-center gap-2">
-                  <div className="grid size-7 place-items-center border border-white/70 bg-white font-mono text-[0.62rem] font-black text-primary">ER</div>
+                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-[0.62rem] font-black text-primary">ER</div>
                   <div>
                     <p className="font-mono text-xs font-bold">ERP_SUITE.EXE</p>
                     <p className="font-mono text-[0.55rem] text-white/70">MENÚ PRINCIPAL</p>
