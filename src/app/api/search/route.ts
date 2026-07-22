@@ -84,7 +84,7 @@ export async function GET(request: Request) {
       .innerJoin(partner, eq(partner.id, purchaseOrder.supplierPartnerId))
       .where(and(eq(purchaseOrder.companyId, ctx.company.id), or(ilike(purchaseOrder.number, pattern), ilike(partner.name, pattern))))
       .limit(5)
-      .then((rows) => rows.map((row) => ({ href: `/purchases/${row.id}`, label: row.number, description: row.supplierName, type: "Compras" }))));
+      .then((rows) => rows.map((row) => ({ href: `/purchases/orders/${row.id}`, label: row.number, description: row.supplierName, type: "Compras" }))));
   }
 
   if (can(ctx.membership.role, "stock.read")) {

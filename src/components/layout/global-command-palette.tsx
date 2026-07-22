@@ -32,7 +32,7 @@ const destinations = [
   { href: "/suppliers/new", label: "Crear proveedor", group: "Acciones" },
   { href: "/sales/new", label: "Crear presupuesto", group: "Acciones" },
   { href: "/invoices/new", label: "Crear factura", group: "Acciones" },
-  { href: "/purchases/new", label: "Crear pedido de compra", group: "Acciones" },
+  { href: "/purchases/orders/new", label: "Crear pedido de compra", group: "Acciones" },
   { href: "/expenses/new", label: "Registrar factura de proveedor", group: "Acciones" },
   { href: "/inventory/movements/new", label: "Registrar movimiento de stock", group: "Acciones" },
   { href: "/inventory/items/new", label: "Crear artículo", group: "Acciones" },

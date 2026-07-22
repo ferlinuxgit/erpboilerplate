@@ -19,7 +19,7 @@ export default async function PurchaseOrdersPage() {
         description="Solicitudes a proveedores, importes acordados y estado de recepción."
         actions={
           canWrite ? (
-            <Link className={buttonVariants()} href="/purchases/new">
+            <Link className={buttonVariants()} href="/purchases/orders/new">
               Nuevo pedido de compra
             </Link>
           ) : null

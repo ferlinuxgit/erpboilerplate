@@ -131,7 +131,7 @@ export default async function PurchaseReceiptDetailPage({
           <>
             <Link
               className={buttonVariants({ variant: "outline" })}
-              href={`/purchases/${record.orderId}`}
+              href={`/purchases/orders/${record.orderId}`}
             >
               Ver pedido
             </Link>

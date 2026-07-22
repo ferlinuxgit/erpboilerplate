@@ -73,7 +73,7 @@ export function EditPurchaseOrderForm({
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       if (!response.ok) throw new Error(payload?.message ?? "No se pudo actualizar el pedido.");
       toast.success("Pedido actualizado correctamente.");
-      router.push(`/purchases/${orderId}`);
+      router.push(`/purchases/orders/${orderId}`);
       router.refresh();
     } catch (submissionError) {
       const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";

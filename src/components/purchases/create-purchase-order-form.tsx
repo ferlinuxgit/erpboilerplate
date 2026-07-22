@@ -128,7 +128,7 @@ export function CreatePurchaseOrderForm({
         throw new Error(payload?.message ?? "No se pudo crear el pedido.");
 
       toast.success("Pedido de compra creado.");
-      router.push(redirectHref ?? `/purchases/${payload.id}`);
+      router.push(redirectHref ?? `/purchases/orders/${payload.id}`);
       router.refresh();
     } catch (submissionError) {
       const message =

@@ -95,7 +95,7 @@ export function ExpenseInvoicesList({
       header: "Relación",
       cell: (invoice) => invoice.purchaseOrderId ? (
         <div>
-          <Link className="font-medium text-primary hover:underline" href={`/purchases/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link>
+          <Link className="font-medium text-primary hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link>
           {invoice.goodsReceiptId ? (
             <Link className="text-xs text-muted-foreground hover:text-primary hover:underline" href={`/purchases/receipts/${invoice.goodsReceiptId}`}>Recepción {invoice.goodsReceiptNumber}</Link>
           ) : <p className="text-xs text-muted-foreground">Sin recepción vinculada</p>}

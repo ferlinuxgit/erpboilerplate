@@ -179,11 +179,6 @@ export const navigationLinks: NavigationLink[] = navGroups.reduce<NavigationLink
 
 export function isActiveRoute(pathname: string, href: string) {
   if (href === "/sales/quotes" && pathname === "/sales/new") return true;
-  if (
-    href === "/purchases/orders" &&
-    (pathname === "/purchases/new" || /^\/purchases\/[^/]+(?:\/edit)?$/.test(pathname))
-  )
-    return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

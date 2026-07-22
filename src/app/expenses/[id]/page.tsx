@@ -65,7 +65,7 @@ export default async function ExpenseDetailPage({
             {expense.purchaseOrderId ? (
               <Link
                 className={buttonVariants({ variant: "outline" })}
-                href={`/purchases/${expense.purchaseOrderId}`}
+                href={`/purchases/orders/${expense.purchaseOrderId}`}
               >
                 Ver pedido
               </Link>

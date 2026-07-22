@@ -37,7 +37,7 @@ const columns = (
       <div>
         <Link
           className="font-medium underline-offset-4 hover:underline"
-          href={`/purchases/${order.id}`}
+          href={`/purchases/orders/${order.id}`}
         >
           {order.number}
         </Link>

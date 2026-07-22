@@ -42,7 +42,7 @@ const columns: ResourceListColumn<PurchaseReceiptRow>[] = [
       <div>
         <Link
           className="font-medium hover:underline"
-          href={`/purchases/${row.orderId}`}
+          href={`/purchases/orders/${row.orderId}`}
         >
           {row.orderNumber}
         </Link>

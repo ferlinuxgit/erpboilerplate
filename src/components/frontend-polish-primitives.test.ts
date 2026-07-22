@@ -113,7 +113,7 @@ describe("frontend polish primitives", () => {
     const appShell = sourceFor("src/components/layout/app-shell.tsx");
     const detailRoutes = [
       "src/app/customers/[id]/page.tsx",
-      "src/app/purchases/[id]/page.tsx",
+      "src/app/purchases/orders/[id]/page.tsx",
       "src/app/accounting/entries/[id]/page.tsx",
       "src/app/fiscal/[id]/page.tsx",
       "src/app/treasury/bank-accounts/[id]/page.tsx",

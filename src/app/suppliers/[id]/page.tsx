@@ -122,7 +122,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               ) : activity.invoices.map((invoice) => (
                 <tr className="border-t" key={invoice.id}>
                   <td className="p-3"><Link className="font-medium text-primary hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></td>
-                  <td className="p-3">{invoice.purchaseOrderId ? <Link className="text-primary hover:underline" href={`/purchases/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</td>
+                  <td className="p-3">{invoice.purchaseOrderId ? <Link className="text-primary hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</td>
                   <td className="p-3">{formatDate(invoice.issueDate)}</td>
                   <td className="p-3"><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></td>
                   <td className="p-3 text-right">{formatMoney(invoice.totalAmount, supplier.currencyCode)}</td>
@@ -138,7 +138,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <PageSection title="Pedidos recientes" description="Últimos pedidos de compra asociados.">
           <div className="space-y-2 text-sm">
             {activity.purchaseOrders.length === 0 ? <p className="text-muted-foreground">Sin pedidos registrados.</p> : activity.purchaseOrders.map((order) => (
-              <Link className="flex items-center justify-between rounded-md border p-3 hover:bg-accent" href={`/purchases/${order.id}`} key={order.id}>
+              <Link className="flex items-center justify-between rounded-md border p-3 hover:bg-accent" href={`/purchases/orders/${order.id}`} key={order.id}>
                 <span className="font-medium">{order.number}</span>
                 <span className="text-muted-foreground">{statusLabel(purchaseOrderStatusLabels, order.status)} · {formatDate(order.createdAt)}</span>
               </Link>
