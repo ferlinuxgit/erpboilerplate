@@ -28,6 +28,15 @@ type CustomerOption = {
   province?: string | null;
 };
 
+export type InvoiceTaxOption = {
+  id: string;
+  name: string;
+  rate: number;
+  kind: string;
+  operation: "ADD" | "SUBTRACT";
+  isDefault: boolean;
+};
+
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
 type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
 type CreatedInvoicePayload = {
@@ -42,13 +51,13 @@ export function CreateInvoiceForm({
   customers,
   initialCustomerId,
   nextInvoiceNumberPreview,
-  defaultTaxRate = 0,
+  taxes,
 }: {
   canCreateCustomer: boolean;
   customers: CustomerOption[];
   initialCustomerId?: string;
   nextInvoiceNumberPreview?: string | null;
-  defaultTaxRate?: number;
+  taxes: InvoiceTaxOption[];
 }) {
   const router = useRouter();
   const [customerOptions, setCustomerOptions] = useState(customers);
@@ -58,6 +67,7 @@ export function CreateInvoiceForm({
   const [customerLocationSearch, setCustomerLocationSearch] = useState("");
   const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
+  const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
   const {
     control,
     register,
@@ -73,7 +83,7 @@ export function CreateInvoiceForm({
       dueDate: "",
       totalAmount: 0,
       notes: "",
-      lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }],
+      lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds }],
     },
   });
   const {
@@ -99,7 +109,28 @@ export function CreateInvoiceForm({
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
   const selectedCustomerId = useWatch({ control, name: "customerId" });
-  const totals = calculateInvoiceTotals(watchedLines ?? []);
+  const calculatedLines = (watchedLines ?? []).map((line) => ({
+    ...line,
+    taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
+  }));
+  const totals = calculateInvoiceTotals(calculatedLines);
+  const taxBreakdown = useMemo(() => {
+    const rows = new Map<string, { name: string; rate: number; operation: "ADD" | "SUBTRACT"; amount: number }>();
+    for (const line of totals.lines) {
+      for (const selectedTax of line.taxes) {
+        const key = `${selectedTax.name}-${selectedTax.rate}-${selectedTax.operation}`;
+        const current = rows.get(key) ?? {
+          name: selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto"),
+          rate: selectedTax.rate,
+          operation: selectedTax.operation,
+          amount: 0,
+        };
+        current.amount = Math.round((current.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
+        rows.set(key, current);
+      }
+    }
+    return [...rows.values()];
+  }, [totals.lines]);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
   const filteredCustomers = useMemo(() => {
     const textQuery = customerSearch.trim().toLocaleLowerCase();
@@ -149,12 +180,8 @@ export function CreateInvoiceForm({
   };
 
   const addLineAndFocus = () => {
-    append({ description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate });
+    append({ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds });
     setPendingFocusLineIndex(fields.length);
-  };
-
-  const focusLineDescription = (index: number) => {
-    setPendingFocusLineIndex(index);
   };
 
   const removeLineAndFocus = (index: number) => {
@@ -188,7 +215,10 @@ export function CreateInvoiceForm({
 
   const onSubmit = handleSubmit(async (values) => {
     try {
-      const invoiceTotals = calculateInvoiceTotals(values.lines);
+      const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
+        ...line,
+        taxes: taxes.filter((configuredTax) => line.taxIds?.includes(configuredTax.id)),
+      })));
       const response = await fetch("/api/invoices", {
         method: "POST",
         headers: {
@@ -344,7 +374,7 @@ export function CreateInvoiceForm({
             <h3 id="invoice-lines-title" className="text-sm font-medium">
               Líneas de factura
             </h3>
-            <p className="text-sm text-muted-foreground">Añade al menos una línea para calcular el total automáticamente.</p>
+            <p className="text-sm text-muted-foreground">Selecciona uno o varios impuestos por línea. Las retenciones reducen el importe a cobrar.</p>
           </div>
           <Button aria-keyshortcuts="Alt+L" data-testid="invoice-add-line" type="button" variant="outline" onClick={addLineAndFocus}>
             Añadir línea
@@ -360,9 +390,8 @@ export function CreateInvoiceForm({
               const descriptionId = `invoice-line-${lineNumber}-description`;
               const quantityId = `invoice-line-${lineNumber}-quantity`;
               const unitPriceId = `invoice-line-${lineNumber}-unit-price`;
-              const taxRateId = `invoice-line-${lineNumber}-tax-rate`;
               const lineErrors = errors.lines?.[index];
-              const lineTotals = totals.lines[index] ?? { subtotal: 0, taxAmount: 0, lineTotal: 0 };
+              const lineTotals = totals.lines[index] ?? { subtotal: 0, taxAmount: 0, retentionAmount: 0, lineTotal: 0, taxes: [] };
               return (
                 <fieldset key={field.id} className="grid gap-3 rounded-md border p-3 md:grid-cols-12" data-testid={`invoice-line-${lineNumber}`}>
                   <legend className="px-1 text-sm font-medium">Línea {lineNumber}</legend>
@@ -405,34 +434,38 @@ export function CreateInvoiceForm({
                     />
                     {lineErrors?.unitPrice ? <p className="text-sm text-red-600" role="alert">{lineErrors.unitPrice.message}</p> : null}
                   </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor={taxRateId}>IVA % línea {lineNumber}</Label>
-                    <Input
-                      data-testid={taxRateId}
-                      id={taxRateId}
-                      aria-label={`IVA % línea ${lineNumber}`}
-                      min={0}
-                      max={100}
-                      step="0.001"
-                      type="number"
-                      aria-invalid={Boolean(lineErrors?.taxRate)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" || event.shiftKey) return;
-                        event.preventDefault();
-                        if (index === fields.length - 1) {
-                          addLineAndFocus();
-                        } else {
-                          focusLineDescription(index + 1);
-                        }
-                      }}
-                      {...register(`lines.${index}.taxRate`, { valueAsNumber: true })}
-                    />
-                    {lineErrors?.taxRate ? <p className="text-sm text-red-600" role="alert">{lineErrors.taxRate.message}</p> : null}
+                  <div className="space-y-2 md:col-span-4">
+                    <Label>Impuestos línea {lineNumber}</Label>
+                    {taxes.length === 0 ? (
+                      <p className="rounded-md border border-dashed p-2 text-sm text-muted-foreground">
+                        No hay impuestos activos. Puedes crearlos en Configuración → Maestros.
+                      </p>
+                    ) : (
+                      <div className="flex min-h-10 flex-wrap gap-2 rounded-md border p-2" role="group" aria-label={`Impuestos línea ${lineNumber}`}>
+                        {taxes.map((configuredTax) => {
+                          const sign = configuredTax.operation === "SUBTRACT" ? "−" : "+";
+                          return (
+                            <label className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm" key={configuredTax.id}>
+                              <input
+                                type="checkbox"
+                                value={configuredTax.id}
+                                {...register(`lines.${index}.taxIds`)}
+                              />
+                              <span>{configuredTax.name} <span className="font-mono text-muted-foreground">{sign}{configuredTax.rate.toLocaleString("es-ES")}%</span></span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {lineErrors?.taxIds ? <p className="text-sm text-red-600" role="alert">{lineErrors.taxIds.message}</p> : null}
                   </div>
-                  <div className="flex items-end justify-between gap-3 md:col-span-2">
-                    <p className="text-sm text-muted-foreground" aria-live="polite" data-testid={`invoice-line-${lineNumber}-total`}>
-                      Línea: {formatMoney(lineTotals.lineTotal)}
-                    </p>
+                  <div className="flex items-center justify-between gap-3 border-t pt-3 md:col-span-12">
+                    <div className="text-sm text-muted-foreground" aria-live="polite" data-testid={`invoice-line-${lineNumber}-total`}>
+                      <p>Base: {formatMoney(lineTotals.subtotal)} · Total línea: {formatMoney(lineTotals.lineTotal)}</p>
+                      {lineTotals.taxes.length > 0 ? (
+                        <p>{lineTotals.taxes.map((selectedTax) => `${selectedTax.operation === "SUBTRACT" ? "−" : "+"}${selectedTax.name} ${formatMoney(selectedTax.amount)}`).join(" · ")}</p>
+                      ) : null}
+                    </div>
                     <Button type="button" variant="ghost" onClick={() => removeLineAndFocus(index)} disabled={fields.length === 1}>
                       Quitar
                     </Button>
@@ -447,7 +480,12 @@ export function CreateInvoiceForm({
 
       <div className="rounded-md bg-muted p-3 text-sm md:col-span-3" aria-live="polite" data-testid="invoice-totals">
         <p data-testid="invoice-subtotal">Subtotal: {formatMoney(totals.subtotal)}</p>
-        <p data-testid="invoice-tax-total">IVA: {formatMoney(totals.taxAmount)}</p>
+        {taxBreakdown.map((row) => (
+          <p key={`${row.name}-${row.rate}-${row.operation}`}>
+            {row.operation === "SUBTRACT" ? "−" : "+"} {row.name} ({row.rate.toLocaleString("es-ES")}%): {formatMoney(row.amount)}
+          </p>
+        ))}
+        <p className="sr-only" data-testid="invoice-tax-total">Impuestos añadidos: {formatMoney(totals.taxAmount)}</p>
         <p className="font-medium" data-testid="invoice-grand-total">Total: {formatMoney(totals.totalAmount)}</p>
         {errors.totalAmount ? <p className="text-red-600" role="alert">{errors.totalAmount.message}</p> : null}
       </div>

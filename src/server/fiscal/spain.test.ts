@@ -27,4 +27,20 @@ describe("Spanish fiscal VAT aggregation", () => {
       { rate: 15, base: 90, tax: 13.5 },
     ]);
   });
+
+  it("separates VAT from surcharges and collects withholding taxes", () => {
+    const line = {
+      quantity: 1,
+      unitPrice: 100,
+      taxRate: 0,
+      taxes: [
+        { rate: 21, kind: "VAT", operation: "ADD" as const },
+        { rate: 5.2, kind: "SURCHARGE", operation: "ADD" as const },
+        { rate: 15, kind: "WITHHOLDING", operation: "SUBTRACT" as const },
+      ],
+    };
+
+    expect(aggregateOutputVat([line])).toEqual([{ rate: 21, base: 100, tax: 21 }]);
+    expect(aggregateWithholdings([line])).toEqual([{ rate: 15, base: 100, tax: 15 }]);
+  });
 });

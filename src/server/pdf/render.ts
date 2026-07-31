@@ -58,6 +58,12 @@ export type InvoicePdfInput = {
     retentionAmount: string;
     hasRetention: boolean;
     totalAmount: string;
+    breakdown?: Array<{
+      label: string;
+      base: string;
+      amount: string;
+      operation: "ADD" | "SUBTRACT";
+    }>;
   };
 };
 

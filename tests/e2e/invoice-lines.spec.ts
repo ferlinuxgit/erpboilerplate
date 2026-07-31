@@ -29,16 +29,16 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
-  await page.getByTestId("invoice-line-1-tax-rate").fill("21");
+  await page.getByRole("group", { name: "Impuestos línea 1" }).getByRole("checkbox", { name: /IVA general/ }).check();
 
   await page.keyboard.press("Alt+L");
   await page.getByTestId("invoice-line-2-description").fill("Soporte");
   await page.getByTestId("invoice-line-2-quantity").fill("1.5");
   await page.getByTestId("invoice-line-2-unit-price").fill("80");
-  await page.getByTestId("invoice-line-2-tax-rate").fill("10");
+  await page.getByRole("group", { name: "Impuestos línea 2" }).getByRole("checkbox", { name: /IVA reducido/ }).check();
 
   await expect(page.getByText("Subtotal: 320,00 €")).toBeVisible();
-  await expect(page.getByText("IVA: 54,00 €")).toBeVisible();
+  await expect(page.getByTestId("invoice-tax-total")).toHaveText("Impuestos añadidos: 54,00 €");
   await expect(page.getByText("Total: 374,00 €")).toBeVisible();
 
   const invoiceResponsePromise = page.waitForResponse(
@@ -102,7 +102,7 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
   await page.getByTestId("invoice-line-1-quantity").fill("1");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
-  await page.getByTestId("invoice-line-1-tax-rate").fill("21");
+  await page.getByRole("group", { name: "Impuestos línea 1" }).getByRole("checkbox", { name: /IVA general/ }).check();
 
   const invoiceResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",

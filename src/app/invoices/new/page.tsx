@@ -34,7 +34,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
     .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(customer.companyId, tenantContext.company.id), eq(customer.status, "ACTIVE")))
     .orderBy(asc(customer.name));
-  const [[invoiceSeries], [defaultTax]] = await Promise.all([db
+  const [[invoiceSeries], taxes] = await Promise.all([db
     .select({
       format: documentSeries.format,
       nextNumber: documentSeries.nextNumber,
@@ -48,7 +48,14 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         eq(documentSeries.type, "SALES_INVOICE"),
       ),
     )
-    .limit(1), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, tenantContext.company.id)).orderBy(tax.rate).limit(1)]);
+    .limit(1), db.select({
+      id: tax.id,
+      name: tax.name,
+      rate: tax.rate,
+      kind: tax.kind,
+      operation: tax.operation,
+      isDefault: tax.isDefault,
+    }).from(tax).where(and(eq(tax.companyId, tenantContext.company.id), eq(tax.isActive, true))).orderBy(asc(tax.operation), asc(tax.rate), asc(tax.name))]);
   const nextInvoiceNumberPreview = invoiceSeries
     ? formatSeriesNumber({
         format: invoiceSeries.format,
@@ -82,7 +89,17 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             }
           />
         ) : (
-          <CreateInvoiceForm canCreateCustomer={canCreateCustomer} customers={customers} defaultTaxRate={Number(defaultTax?.rate ?? 0)} initialCustomerId={initialCustomerId} nextInvoiceNumberPreview={nextInvoiceNumberPreview} />
+          <CreateInvoiceForm
+            canCreateCustomer={canCreateCustomer}
+            customers={customers}
+            initialCustomerId={initialCustomerId}
+            nextInvoiceNumberPreview={nextInvoiceNumberPreview}
+            taxes={taxes.map((configuredTax) => ({
+              ...configuredTax,
+              rate: Number(configuredTax.rate),
+              operation: configuredTax.operation === "SUBTRACT" ? "SUBTRACT" : "ADD",
+            }))}
+          />
         )}
       </PageSection>
     </PageShell>

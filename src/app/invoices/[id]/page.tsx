@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { RegisterInvoicePaymentDialog } from "@/components/invoices/register-invoice-payment-dialog";
@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { customer, invoice, invoiceLine, invoicePayment, partner, payment, paymentMethod } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, invoicePayment, partner, payment, paymentMethod } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -58,7 +58,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         description: invoiceLine.description,
         quantity: invoiceLine.quantity,
         unitPrice: invoiceLine.unitPrice,
+        discountPct: invoiceLine.discountPct,
         taxRate: invoiceLine.taxRate,
+        retentionRate: invoiceLine.retentionRate,
         lineTotal: invoiceLine.lineTotal,
       })
       .from(invoiceLine)
@@ -81,13 +83,45 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .orderBy(payment.postedAt),
   ]);
 
+  const selectedTaxes = lines.length > 0
+    ? await db.select({
+        invoiceLineId: invoiceLineTax.invoiceLineId,
+        name: invoiceLineTax.name,
+        rate: invoiceLineTax.rate,
+        kind: invoiceLineTax.kind,
+        operation: invoiceLineTax.operation,
+      }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
+    : [];
+  const taxesByLine = new Map<string, typeof selectedTaxes>();
+  for (const selectedTax of selectedTaxes) {
+    taxesByLine.set(selectedTax.invoiceLineId, [...(taxesByLine.get(selectedTax.invoiceLineId) ?? []), selectedTax]);
+  }
+
   const numericLines = lines.map((line) => ({
     description: line.description,
     quantity: Number(line.quantity),
     unitPrice: Number(line.unitPrice),
+    discountPct: Number(line.discountPct),
     taxRate: Number(line.taxRate),
+    retentionRate: Number(line.retentionRate),
+    taxes: taxesByLine.get(line.id)?.map((selectedTax) => ({
+      name: selectedTax.name,
+      rate: Number(selectedTax.rate),
+      kind: selectedTax.kind,
+      operation: selectedTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const,
+    })),
   }));
   const totals = calculateInvoiceTotals(numericLines);
+  const taxBreakdown = new Map<string, { name: string; rate: number; operation: "ADD" | "SUBTRACT"; amount: number }>();
+  for (const lineTotal of totals.lines) {
+    for (const selectedTax of lineTotal.taxes) {
+      const name = selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto");
+      const key = `${name}-${selectedTax.rate}-${selectedTax.operation}`;
+      const row = taxBreakdown.get(key) ?? { name, rate: selectedTax.rate, operation: selectedTax.operation, amount: 0 };
+      row.amount = Math.round((row.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
+      taxBreakdown.set(key, row);
+    }
+  }
   const canEditInvoice = canManageInvoices(tenantContext.membership.role);
   const customerAddress = [
     data.customerAddress,
@@ -176,7 +210,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         </PageSection>
       </div>
 
-      <PageSection title="Líneas" description="Detalle de conceptos, cantidades, IVA e importes.">
+      <PageSection title="Líneas" description="Detalle de conceptos, cantidades, impuestos e importes.">
         <div className="overflow-x-auto rounded-[2px] border">
           <Table>
             <TableHeader>
@@ -184,7 +218,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 <TableHead>Concepto</TableHead>
                 <TableHead className="text-right">Cantidad</TableHead>
                 <TableHead className="text-right">Precio</TableHead>
-                <TableHead className="text-right">IVA</TableHead>
+                <TableHead className="text-right">Impuestos</TableHead>
                 <TableHead className="text-right">Total</TableHead>
               </TableRow>
             </TableHeader>
@@ -194,7 +228,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   <TableCell className="font-medium">{line.description}</TableCell>
                   <TableCell className="text-right">{Number(line.quantity).toLocaleString("es-ES")}</TableCell>
                   <TableCell className="text-right">{formatMoney(line.unitPrice.toString(), tenantContext.company.baseCurrencyCode)}</TableCell>
-                  <TableCell className="text-right">{Number(line.taxRate).toLocaleString("es-ES")}%</TableCell>
+                  <TableCell className="text-right">
+                    {(taxesByLine.get(line.id) ?? []).map((selectedTax) => (
+                      <span className="block" key={`${selectedTax.name}-${selectedTax.rate}`}>
+                        {selectedTax.operation === "SUBTRACT" ? "−" : "+"}{selectedTax.name} {Number(selectedTax.rate).toLocaleString("es-ES")}%
+                      </span>
+                    ))}
+                    {(taxesByLine.get(line.id) ?? []).length === 0 ? `${Number(line.taxRate).toLocaleString("es-ES")}%` : null}
+                  </TableCell>
                   <TableCell className="text-right">{formatMoney(line.lineTotal.toString(), tenantContext.company.baseCurrencyCode)}</TableCell>
                 </TableRow>
               ))}
@@ -206,10 +247,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             <dt>Subtotal</dt>
             <dd>{formatMoney(totals.subtotal, tenantContext.company.baseCurrencyCode)}</dd>
           </div>
-          <div className="flex justify-between gap-3">
-            <dt>IVA</dt>
-            <dd>{formatMoney(totals.taxAmount, tenantContext.company.baseCurrencyCode)}</dd>
-          </div>
+          {[...taxBreakdown.values()].map((row) => (
+            <div className="flex justify-between gap-3" key={`${row.name}-${row.rate}-${row.operation}`}>
+              <dt>{row.operation === "SUBTRACT" ? "−" : "+"} {row.name} ({row.rate.toLocaleString("es-ES") }%)</dt>
+              <dd>{row.operation === "SUBTRACT" ? "−" : ""}{formatMoney(row.amount, tenantContext.company.baseCurrencyCode)}</dd>
+            </div>
+          ))}
           <div className="flex justify-between gap-3 font-medium">
             <dt>Total</dt>
             <dd>{formatMoney(data.totalAmount.toString(), tenantContext.company.baseCurrencyCode)}</dd>

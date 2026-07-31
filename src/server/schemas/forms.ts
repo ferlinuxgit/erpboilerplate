@@ -96,8 +96,9 @@ export const invoiceLineFormSchema = z.object({
   quantity: z.number().positive("La cantidad debe ser mayor que 0."),
   unitPrice: z.number().nonnegative("El precio no puede ser negativo."),
   discountPct: z.number().min(0).max(100).optional(),
-  taxRate: z.number().min(0, "El IVA no puede ser negativo.").max(100, "El IVA no puede superar el 100%."),
+  taxRate: z.number().min(0, "El IVA no puede ser negativo.").max(100, "El IVA no puede superar el 100%.").optional(),
   retentionRate: z.number().min(0).max(100).optional(),
+  taxIds: z.array(z.uuid("El impuesto seleccionado no es válido.")).max(12, "No puedes aplicar más de 12 impuestos a una línea.").optional(),
 });
 
 export const createInvoiceSchema = z.object({

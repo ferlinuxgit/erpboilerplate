@@ -424,6 +424,24 @@ export const invoiceLine = pgTable("invoice_line", {
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
 });
 
+export const invoiceLineTax = pgTable("invoice_line_tax", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  invoiceLineId: text("invoiceLineId").notNull().references(() => invoiceLine.id, { onDelete: "cascade" }),
+  taxId: text("taxId").references(() => tax.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
+  kind: text("kind").notNull(),
+  operation: text("operation").notNull(),
+  baseAmount: numeric("baseAmount", { precision: 12, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("invoice_line_tax_line_idx").on(table.invoiceLineId),
+  index("invoice_line_tax_tax_idx").on(table.taxId),
+  check("invoice_line_tax_rate_nonnegative", sql`${table.rate} >= 0`),
+  check("invoice_line_tax_operation_valid", sql`${table.operation} IN ('ADD', 'SUBTRACT')`),
+]);
+
 export const salesQuote = pgTable("sales_quote", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
@@ -745,7 +763,19 @@ export const tax = pgTable("tax", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
-}, (table) => [unique("tax_company_name_unique").on(table.companyId, table.name)]);
+  kind: text("kind").notNull().default("VAT"),
+  operation: text("operation").notNull().default("ADD"),
+  isDefault: boolean("isDefault").notNull().default(false),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("tax_company_name_unique").on(table.companyId, table.name),
+  index("tax_company_active_idx").on(table.companyId, table.isActive),
+  check("tax_rate_nonnegative", sql`${table.rate} >= 0`),
+  check("tax_kind_valid", sql`${table.kind} IN ('VAT', 'SURCHARGE', 'WITHHOLDING', 'OTHER')`),
+  check("tax_operation_valid", sql`${table.operation} IN ('ADD', 'SUBTRACT')`),
+]);
 
 export const fiscalReport = pgTable(
   "fiscal_report",

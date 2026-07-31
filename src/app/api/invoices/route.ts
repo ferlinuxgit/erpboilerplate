@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 
-import { customer, invoice, invoiceLine } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
@@ -11,7 +12,7 @@ import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { createCustomerWithPartner } from "@/server/customers/service";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
-import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
+import { buildInvoiceLineInsertValues, buildInvoiceLineTaxInsertValues } from "@/server/invoices/line-values";
 import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
 import { renderInvoicePdf } from "@/server/pdf/render";
 import { createInvoiceSchema } from "@/server/schemas/forms";
@@ -110,7 +111,40 @@ export async function POST(request: Request) {
   const notes = values.notes?.trim() || null;
   const issueDate = values.issueDate ? new Date(values.issueDate) : null;
   const dueDate = values.dueDate ? new Date(values.dueDate) : null;
-  const invoiceTotals = calculateInvoiceTotals(values.lines);
+  const selectedTaxIds = [...new Set(values.lines.flatMap((line) => line.taxIds ?? []))];
+  const configuredTaxes = selectedTaxIds.length > 0
+    ? await db.select({
+        id: tax.id,
+        name: tax.name,
+        rate: tax.rate,
+        kind: tax.kind,
+        operation: tax.operation,
+      }).from(tax).where(and(
+        eq(tax.companyId, actor.context.company.id),
+        eq(tax.isActive, true),
+        inArray(tax.id, selectedTaxIds),
+      ))
+    : [];
+  if (configuredTaxes.length !== selectedTaxIds.length) {
+    return NextResponse.json({ message: "Algún impuesto seleccionado no existe o ya no está activo." }, { status: 400 });
+  }
+  const configuredTaxMap = new Map(configuredTaxes.map((configuredTax) => [configuredTax.id, configuredTax]));
+  const calculatedLines = values.lines.map((line) => ({
+    ...line,
+    ...(line.taxIds !== undefined ? {
+      taxes: [...new Set(line.taxIds)].map((taxId) => {
+        const configuredTax = configuredTaxMap.get(taxId)!;
+        return {
+          id: configuredTax.id,
+          name: configuredTax.name,
+          rate: Number(configuredTax.rate),
+          kind: configuredTax.kind,
+          operation: configuredTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const,
+        };
+      }),
+    } : {}),
+  }));
+  const invoiceTotals = calculateInvoiceTotals(calculatedLines);
   const totalAmount = invoiceTotals.totalAmount;
   const shouldCreateCustomer = !customerId && Boolean(values.newCustomer);
 
@@ -200,7 +234,10 @@ export async function POST(request: Request) {
           status: invoice.status,
         });
 
-      await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(created.id, values.lines));
+      const lineIds = calculatedLines.map(() => randomUUID());
+      await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(created.id, calculatedLines, lineIds));
+      const lineTaxValues = buildInvoiceLineTaxInsertValues(lineIds, calculatedLines);
+      if (lineTaxValues.length > 0) await tx.insert(invoiceLineTax).values(lineTaxValues);
 
       await postSalesInvoice({
         tenantId: actor.context.tenant.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
+import type { InvoiceTaxOption } from "@/components/create-invoice-form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -19,13 +20,6 @@ import { updateInvoiceSchema } from "@/server/schemas/forms";
 
 const statusOptions = ["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"] as const;
 
-const emptyLine = {
-  description: "",
-  quantity: 1,
-  unitPrice: 0,
-  taxRate: 21,
-};
-
 type UpdateInvoicePayload = z.infer<typeof updateInvoiceSchema>;
 
 type EditableInvoiceLine = UpdateInvoicePayload["lines"][number];
@@ -36,14 +30,25 @@ export function EditInvoiceForm({
   defaultStatus,
   defaultTotalAmount,
   id,
+  taxes,
 }: {
   id: string;
   defaultLines: EditableInvoiceLine[];
   defaultNotes: string | null;
   defaultStatus: "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID";
   defaultTotalAmount: number;
+  taxes: Array<InvoiceTaxOption & { isActive: boolean }>;
 }) {
   const router = useRouter();
+  const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive && configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
+  const emptyLine: EditableInvoiceLine = {
+    description: "",
+    quantity: 1,
+    unitPrice: 0,
+    taxRate: 0,
+    retentionRate: 0,
+    taxIds: defaultTaxIds,
+  };
   const {
     control,
     register,
@@ -61,7 +66,11 @@ export function EditInvoiceForm({
   });
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
-  const totals = calculateInvoiceTotals(watchedLines ?? []);
+  const calculatedLines = (watchedLines ?? []).map((line) => ({
+    ...line,
+    taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
+  }));
+  const totals = calculateInvoiceTotals(calculatedLines);
   const statusErrorId = errors.status ? "invoice-status-error" : undefined;
 
   useEffect(() => {
@@ -72,7 +81,10 @@ export function EditInvoiceForm({
     <form
       className="grid gap-4"
       onSubmit={handleSubmit(async (values) => {
-        const invoiceTotals = calculateInvoiceTotals(values.lines);
+        const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
+          ...line,
+          taxes: taxes.filter((configuredTax) => line.taxIds?.includes(configuredTax.id)),
+        })));
         const response = await fetch(`/api/invoices/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -122,7 +134,7 @@ export function EditInvoiceForm({
             <h3 id="invoice-lines-title" className="text-sm font-medium">
               Líneas de factura
             </h3>
-            <p className="text-sm text-muted-foreground">Edita las líneas para recalcular el total antes de guardar.</p>
+            <p className="text-sm text-muted-foreground">Selecciona uno o varios impuestos por línea. Las retenciones reducen el total.</p>
           </div>
           <Button type="button" variant="outline" onClick={() => append(emptyLine)}>
             Añadir línea
@@ -136,7 +148,7 @@ export function EditInvoiceForm({
             {fields.map((field, index) => {
               const lineNumber = index + 1;
               const lineErrors = errors.lines?.[index];
-              const lineTotals = totals.lines[index] ?? { subtotal: 0, taxAmount: 0, lineTotal: 0 };
+              const lineTotals = totals.lines[index] ?? { subtotal: 0, taxAmount: 0, retentionAmount: 0, lineTotal: 0, taxes: [] };
               return (
                 <fieldset key={field.id} className="grid gap-3 rounded-md border p-3 md:grid-cols-12">
                   <legend className="px-1 text-sm font-medium">Línea {lineNumber}</legend>
@@ -176,24 +188,27 @@ export function EditInvoiceForm({
                     />
                     {lineErrors?.unitPrice ? <p className="text-sm text-red-600">{lineErrors.unitPrice.message}</p> : null}
                   </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor={`invoice-line-${field.id}-tax-rate`}>IVA % línea {lineNumber}</Label>
-                    <Input
-                      id={`invoice-line-${field.id}-tax-rate`}
-                      aria-label={`IVA % línea ${lineNumber}`}
-                      min={0}
-                      max={100}
-                      step="0.001"
-                      type="number"
-                      aria-invalid={Boolean(lineErrors?.taxRate)}
-                      {...register(`lines.${index}.taxRate`, { valueAsNumber: true })}
-                    />
-                    {lineErrors?.taxRate ? <p className="text-sm text-red-600">{lineErrors.taxRate.message}</p> : null}
+                  <div className="space-y-2 md:col-span-4">
+                    <Label>Impuestos línea {lineNumber}</Label>
+                    <div className="flex min-h-10 flex-wrap gap-2 rounded-md border p-2" role="group" aria-label={`Impuestos línea ${lineNumber}`}>
+                      {taxes.map((configuredTax) => (
+                        <label className={`flex cursor-pointer items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm ${configuredTax.isActive ? "" : "opacity-60"}`} key={configuredTax.id}>
+                          <input type="checkbox" value={configuredTax.id} {...register(`lines.${index}.taxIds`)} />
+                          <span>
+                            {configuredTax.name} <span className="font-mono text-muted-foreground">{configuredTax.operation === "SUBTRACT" ? "−" : "+"}{configuredTax.rate.toLocaleString("es-ES")}%</span>
+                            {!configuredTax.isActive ? " (archivado)" : ""}
+                          </span>
+                        </label>
+                      ))}
+                      {taxes.length === 0 ? <p className="text-sm text-muted-foreground">No hay impuestos configurados.</p> : null}
+                    </div>
+                    {lineErrors?.taxIds ? <p className="text-sm text-red-600">{lineErrors.taxIds.message}</p> : null}
                   </div>
-                  <div className="flex items-end justify-between gap-3 md:col-span-2">
-                    <p className="text-sm text-muted-foreground" aria-live="polite">
-                      Línea: {formatMoney(lineTotals.lineTotal)}
-                    </p>
+                  <div className="flex items-center justify-between gap-3 border-t pt-3 md:col-span-12">
+                    <div className="text-sm text-muted-foreground" aria-live="polite">
+                      <p>Base: {formatMoney(lineTotals.subtotal)} · Total línea: {formatMoney(lineTotals.lineTotal)}</p>
+                      {lineTotals.taxes.length > 0 ? <p>{lineTotals.taxes.map((selectedTax) => `${selectedTax.operation === "SUBTRACT" ? "−" : "+"}${selectedTax.name} ${formatMoney(selectedTax.amount)}`).join(" · ")}</p> : null}
+                    </div>
                     <Button type="button" variant="ghost" onClick={() => remove(index)} disabled={fields.length === 1}>
                       Quitar
                     </Button>
@@ -208,7 +223,8 @@ export function EditInvoiceForm({
 
       <div className="rounded-md bg-muted p-3 text-sm" aria-live="polite">
         <p>Subtotal: {formatMoney(totals.subtotal)}</p>
-        <p>IVA: {formatMoney(totals.taxAmount)}</p>
+        <p>Impuestos añadidos: {formatMoney(totals.taxAmount)}</p>
+        {totals.retentionAmount > 0 ? <p>Retenciones: −{formatMoney(totals.retentionAmount)}</p> : null}
         <p className="font-medium">Total: {formatMoney(totals.totalAmount)}</p>
         {errors.totalAmount ? <p className="text-red-600">{errors.totalAmount.message}</p> : null}
       </div>

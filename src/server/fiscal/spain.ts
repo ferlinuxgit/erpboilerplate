@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 
-import { accountChart, companySettings, customer, invoice, invoiceLine, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { accountChart, companySettings, customer, invoice, invoiceLine, invoiceLineTax, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import {
   aggregateOutputVat,
@@ -176,6 +176,7 @@ function clampPct(value: number) {
 async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusive: Date) {
   const lines = await db
     .select({
+      lineId: invoiceLine.id,
       quantity: invoiceLine.quantity,
       unitPrice: invoiceLine.unitPrice,
       taxRate: invoiceLine.taxRate,
@@ -189,12 +190,29 @@ async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusiv
     .from(invoiceLine)
     .innerJoin(invoice, eq(invoiceLine.invoiceId, invoice.id))
     .where(and(eq(invoice.companyId, companyId), ne(invoice.status, "VOID"), gte(invoice.issueDate, start), lt(invoice.issueDate, endExclusive)));
+  const selectedTaxes = lines.length > 0
+    ? await db.select({
+        invoiceLineId: invoiceLineTax.invoiceLineId,
+        rate: invoiceLineTax.rate,
+        kind: invoiceLineTax.kind,
+        operation: invoiceLineTax.operation,
+      }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.lineId)))
+    : [];
+  const taxesByLine = new Map<string, Array<{ rate: string; kind: string; operation: "ADD" | "SUBTRACT" }>>();
+  for (const selectedTax of selectedTaxes) {
+    const operation = selectedTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const;
+    taxesByLine.set(selectedTax.invoiceLineId, [
+      ...(taxesByLine.get(selectedTax.invoiceLineId) ?? []),
+      { rate: selectedTax.rate, kind: selectedTax.kind, operation },
+    ]);
+  }
+  const linesWithTaxes = lines.map((line) => ({ ...line, taxes: taxesByLine.get(line.lineId) }));
 
   return {
     invoiceIds: new Set(lines.map((line) => line.invoiceId)),
-    buckets: aggregateOutputVat(lines),
-    withholdingBuckets: aggregateWithholdings(lines),
-    documents: aggregateSourceDocuments(lines),
+    buckets: aggregateOutputVat(linesWithTaxes),
+    withholdingBuckets: aggregateWithholdings(linesWithTaxes),
+    documents: aggregateSourceDocuments(linesWithTaxes),
   };
 }
 
@@ -233,6 +251,11 @@ function aggregateSourceDocuments(
     taxDeductiblePct?: string | number | null;
     discountPct?: string | number | null;
     retentionRate?: string | number | null;
+    taxes?: Array<{
+      rate: string | number;
+      kind?: string | null;
+      operation: "ADD" | "SUBTRACT";
+    }> | null;
   }>,
 ) {
   const documents = new Map<string, FiscalSourceDocument>();
@@ -241,8 +264,16 @@ function aggregateSourceDocuments(
     const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
     const deductiblePct = Math.min(Math.max(toNumber(line.taxDeductiblePct ?? 100), 0), 100);
     const base = roundFiscalMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
-    const taxAmount = roundFiscalMoney(((base * toNumber(line.taxRate)) / 100) * (deductiblePct / 100));
-    const withholdingAmount = roundFiscalMoney((base * toNumber(line.retentionRate)) / 100);
+    const taxAmount = line.taxes?.length
+      ? roundFiscalMoney(line.taxes
+          .filter((selectedTax) => selectedTax.operation === "ADD")
+          .reduce((sum, selectedTax) => sum + (base * toNumber(selectedTax.rate)) / 100, 0) * (deductiblePct / 100))
+      : roundFiscalMoney(((base * toNumber(line.taxRate)) / 100) * (deductiblePct / 100));
+    const withholdingAmount = line.taxes?.length
+      ? roundFiscalMoney(line.taxes
+          .filter((selectedTax) => selectedTax.operation === "SUBTRACT")
+          .reduce((sum, selectedTax) => sum + (base * toNumber(selectedTax.rate)) / 100, 0))
+      : roundFiscalMoney((base * toNumber(line.retentionRate)) / 100);
     const document = documents.get(line.invoiceId) ?? {
       id: line.invoiceId,
       number: line.number,

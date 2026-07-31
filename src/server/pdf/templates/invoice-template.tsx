@@ -118,7 +118,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
             <Text style={styles.descriptionCell}>Concepto</Text>
             <Text style={styles.cell}>Cantidad</Text>
             {showFinancials ? <Text style={styles.cell}>Precio</Text> : null}
-            {showFinancials ? <Text style={styles.cell}>IVA</Text> : null}
+            {showFinancials ? <Text style={styles.cell}>Impuestos</Text> : null}
             {showFinancials ? <Text style={styles.cell}>Importe</Text> : null}
           </View>
           {lines.map((line, index) => (
@@ -137,16 +137,25 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
               <Text>Base imponible</Text>
               <Text>{totals.subtotal}</Text>
             </View>
-            <View style={styles.totalRow}>
-              <Text>IVA</Text>
-              <Text>{totals.taxAmount}</Text>
-            </View>
-            {totals.hasRetention ? (
-              <View style={styles.totalRow}>
-                <Text>Retencion</Text>
-                <Text>{totals.retentionAmount}</Text>
+            {totals.breakdown?.length ? totals.breakdown.map((row) => (
+              <View key={`${row.label}-${row.operation}`} style={styles.totalRow}>
+                <Text>{row.operation === "SUBTRACT" ? "− " : "+ "}{row.label} · base {row.base}</Text>
+                <Text>{row.operation === "SUBTRACT" ? "− " : ""}{row.amount}</Text>
               </View>
-            ) : null}
+            )) : (
+              <>
+                <View style={styles.totalRow}>
+                  <Text>IVA</Text>
+                  <Text>{totals.taxAmount}</Text>
+                </View>
+                {totals.hasRetention ? (
+                  <View style={styles.totalRow}>
+                    <Text>Retencion</Text>
+                    <Text>− {totals.retentionAmount}</Text>
+                  </View>
+                ) : null}
+              </>
+            )}
             <View style={styles.totalBox}>
               <Text style={styles.total}>Importe</Text>
               <Text style={styles.total}>{totals.totalAmount}</Text>

@@ -19,7 +19,23 @@ type DocumentSeriesRow = {
 
 type CodeNameRow = { id: string; code: string; name: string };
 type PaymentMethodRow = CodeNameRow & { type: string; bankAccountNumber: string | null };
-type RateRow = { id: string; name: string; rate: string };
+type TaxKind = "VAT" | "SURCHARGE" | "WITHHOLDING" | "OTHER";
+type TaxRow = {
+  id: string;
+  name: string;
+  rate: string;
+  kind: TaxKind;
+  operation: "ADD" | "SUBTRACT";
+  isDefault: boolean;
+  isActive: boolean;
+};
+
+const taxKindOptions: Array<{ value: TaxKind; label: string }> = [
+  { value: "VAT", label: "IVA" },
+  { value: "SURCHARGE", label: "Recargo de equivalencia" },
+  { value: "WITHHOLDING", label: "Retención / IRPF" },
+  { value: "OTHER", label: "Otro impuesto" },
+];
 
 export function MastersPanel() {
   const [loading, setLoading] = useState(false);
@@ -32,15 +48,14 @@ export function MastersPanel() {
   const [paymentName, setPaymentName] = useState("");
   const [paymentType, setPaymentType] = useState("BANK_TRANSFER");
   const [paymentBankAccountNumber, setPaymentBankAccountNumber] = useState("");
-  const [retentionName, setRetentionName] = useState("");
-  const [retentionRate, setRetentionRate] = useState("");
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("");
+  const [taxKind, setTaxKind] = useState<TaxKind>("VAT");
+  const [taxIsDefault, setTaxIsDefault] = useState(false);
   const [categories, setCategories] = useState<CodeNameRow[]>([]);
   const [units, setUnits] = useState<CodeNameRow[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
-  const [retentions, setRetentions] = useState<RateRow[]>([]);
-  const [taxes, setTaxes] = useState<RateRow[]>([]);
+  const [taxes, setTaxes] = useState<TaxRow[]>([]);
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FA");
   const [invoiceSeriesFormat, setInvoiceSeriesFormat] = useState(defaultSeriesFormat);
@@ -82,7 +97,7 @@ export function MastersPanel() {
   useEffect(() => {
     let ignore = false;
     async function loadCatalogs() {
-      const endpoints = ["/api/item-categories", "/api/unit-of-measure", "/api/payment-methods", "/api/tax-retentions", "/api/taxes"];
+      const endpoints = ["/api/item-categories", "/api/unit-of-measure", "/api/payment-methods", "/api/taxes?includeInactive=true"];
       const responses = await Promise.all(endpoints.map((endpoint) => fetch(endpoint)));
       if (ignore) return;
       const payloads = await Promise.all(responses.map((response) => response.ok ? response.json() : []));
@@ -90,8 +105,7 @@ export function MastersPanel() {
       setCategories(payloads[0] as CodeNameRow[]);
       setUnits(payloads[1] as CodeNameRow[]);
       setPaymentMethods(payloads[2] as PaymentMethodRow[]);
-      setRetentions(payloads[3] as RateRow[]);
-      setTaxes(payloads[4] as RateRow[]);
+      setTaxes(payloads[3] as TaxRow[]);
     }
     void loadCatalogs().catch(() => { if (!ignore) toast.error("No se pudieron cargar todos los catálogos."); });
     return () => { ignore = true; };
@@ -105,9 +119,10 @@ export function MastersPanel() {
         const body = (await response.json()) as { message?: string };
         throw new Error(body.message ?? "No se pudo guardar.");
       }
+      const body = (await response.json().catch(() => null)) as { message?: string } | null;
       reset();
       setCatalogVersion((current) => current + 1);
-      toast.success("Guardado correctamente.");
+      toast.success(body?.message ?? "Guardado correctamente.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error inesperado.");
     } finally {
@@ -257,28 +272,117 @@ export function MastersPanel() {
       </div>
 
       <div className="space-y-2 rounded-md border p-3">
-        <p className="font-medium">Impuestos</p>
-        <div className="grid gap-2 md:grid-cols-3">
-          <Input aria-label="Nombre del impuesto" placeholder="Nombre" value={taxName} onChange={(event) => setTaxName(event.target.value)} />
-          <Input aria-label="Porcentaje del impuesto" placeholder="Porcentaje" type="number" min="0.001" step="0.001" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
-          <Button disabled={loading} onClick={() => submit("/api/taxes", { name: taxName, rate: Number(taxRate) }, () => { setTaxName(""); setTaxRate(""); })} type="button">Crear</Button>
+        <div>
+          <p className="font-medium">Impuestos y retenciones</p>
+          <p className="text-sm text-muted-foreground">
+            Puedes marcar varios valores por defecto. El IVA y los recargos suman; las retenciones e IRPF restan del total a cobrar.
+          </p>
+        </div>
+        <div className="grid gap-2 md:grid-cols-12">
+          <Input className="md:col-span-2" aria-label="Nombre del impuesto" placeholder="Nombre" value={taxName} onChange={(event) => setTaxName(event.target.value)} />
+          <Input className="md:col-span-2" aria-label="Porcentaje del impuesto" placeholder="Porcentaje" type="number" min="0" max="100" step="0.001" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
+          <Select className="md:col-span-3" aria-label="Tipo de impuesto" value={taxKind} onChange={(event) => setTaxKind(event.target.value as TaxKind)}>
+            {taxKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </Select>
+          <label className="flex items-center gap-2 rounded-md border px-3 text-sm md:col-span-3">
+            <input checked={taxIsDefault} type="checkbox" onChange={(event) => setTaxIsDefault(event.target.checked)} />
+            Seleccionar por defecto
+          </label>
+          <Button
+            className="md:col-span-2"
+            disabled={loading}
+            onClick={() => submit(
+              "/api/taxes",
+              { name: taxName, rate: Number(taxRate), kind: taxKind, isDefault: taxIsDefault },
+              () => { setTaxName(""); setTaxRate(""); setTaxKind("VAT"); setTaxIsDefault(false); },
+            )}
+            type="button"
+          >
+            Crear
+          </Button>
         </div>
         <div className="divide-y rounded-md bg-muted/25 px-3">
-          {taxes.map((row) => <p className="flex justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name}</span><span className="font-mono text-muted-foreground">{Number(row.rate).toLocaleString("es-ES")}%</span></p>)}
+          {taxes.map((row) => (
+            <div className={`grid gap-2 py-3 md:grid-cols-12 ${row.isActive ? "" : "opacity-60"}`} key={row.id}>
+              <Input
+                className="md:col-span-3"
+                aria-label={`Nombre ${row.name}`}
+                value={row.name}
+                onChange={(event) => setTaxes((current) => current.map((item) => item.id === row.id ? { ...item, name: event.target.value } : item))}
+              />
+              <Input
+                className="md:col-span-2"
+                aria-label={`Porcentaje ${row.name}`}
+                min="0"
+                max="100"
+                step="0.001"
+                type="number"
+                value={row.rate}
+                onChange={(event) => setTaxes((current) => current.map((item) => item.id === row.id ? { ...item, rate: event.target.value } : item))}
+              />
+              <Select
+                className="md:col-span-3"
+                aria-label={`Tipo ${row.name}`}
+                value={row.kind}
+                onChange={(event) => setTaxes((current) => current.map((item) => item.id === row.id ? { ...item, kind: event.target.value as TaxKind } : item))}
+              >
+                {taxKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </Select>
+              <label className="flex items-center gap-2 text-sm md:col-span-2">
+                <input
+                  checked={row.isDefault}
+                  disabled={!row.isActive}
+                  type="checkbox"
+                  onChange={(event) => setTaxes((current) => current.map((item) => item.id === row.id ? { ...item, isDefault: event.target.checked } : item))}
+                />
+                Por defecto
+              </label>
+              <div className="flex flex-wrap gap-2 md:col-span-2">
+                <Button
+                  disabled={loading}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() => submit(
+                    `/api/taxes/${row.id}`,
+                    { name: row.name, rate: Number(row.rate), kind: row.kind, isDefault: row.isDefault, isActive: row.isActive },
+                    () => undefined,
+                    "PATCH",
+                  )}
+                >
+                  Guardar
+                </Button>
+                {row.isActive ? (
+                  <Button
+                    disabled={loading}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      if (!window.confirm(`¿Eliminar ${row.name}? Si ya se usó en facturas se archivará para conservar el histórico.`)) return;
+                      void submit(`/api/taxes/${row.id}`, {}, () => undefined, "DELETE");
+                    }}
+                  >
+                    Eliminar
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={loading}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => submit(`/api/taxes/${row.id}`, { isActive: true }, () => undefined, "PATCH")}
+                  >
+                    Restaurar
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground md:col-span-12">
+                {row.isActive ? "Activo" : "Archivado"} · {row.operation === "SUBTRACT" || row.kind === "WITHHOLDING" ? "Resta del total" : "Suma al total"}
+              </p>
+            </div>
+          ))}
           {taxes.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin impuestos configurados.</p> : null}
-        </div>
-      </div>
-
-      <div className="space-y-2 rounded-md border p-3">
-        <p className="font-medium">Retenciones</p>
-        <div className="grid gap-2 md:grid-cols-3">
-          <Input aria-label="Nombre de la retención" placeholder="Nombre" value={retentionName} onChange={(event) => setRetentionName(event.target.value)} />
-          <Input aria-label="Porcentaje de retención" placeholder="Porcentaje" type="number" step="0.001" value={retentionRate} onChange={(event) => setRetentionRate(event.target.value)} />
-          <Button disabled={loading} onClick={() => submit("/api/tax-retentions", { name: retentionName, rate: Number(retentionRate) }, () => { setRetentionName(""); setRetentionRate(""); })} type="button">Crear</Button>
-        </div>
-        <div className="divide-y rounded-md bg-muted/25 px-3">
-          {retentions.map((row) => <p className="flex justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name}</span><span className="font-mono text-muted-foreground">{Number(row.rate).toLocaleString("es-ES")}%</span></p>)}
-          {retentions.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin retenciones configuradas.</p> : null}
         </div>
       </div>
     </div>

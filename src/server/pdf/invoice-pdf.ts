@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
-import { company, customer, invoice, invoiceLine, partner } from "@/db/schema";
+import { company, customer, invoice, invoiceLine, invoiceLineTax, partner } from "@/db/schema";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
 import type { InvoicePdfInput } from "@/server/pdf/render";
@@ -67,23 +67,61 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
 
   const lines = await db
     .select({
+      id: invoiceLine.id,
       description: invoiceLine.description,
       quantity: invoiceLine.quantity,
       unitPrice: invoiceLine.unitPrice,
+      discountPct: invoiceLine.discountPct,
       taxRate: invoiceLine.taxRate,
+      retentionRate: invoiceLine.retentionRate,
       lineTotal: invoiceLine.lineTotal,
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, invoiceId));
+
+  const configuredLineTaxes = lines.length > 0
+    ? await db.select({
+        invoiceLineId: invoiceLineTax.invoiceLineId,
+        taxId: invoiceLineTax.taxId,
+        name: invoiceLineTax.name,
+        rate: invoiceLineTax.rate,
+        kind: invoiceLineTax.kind,
+        operation: invoiceLineTax.operation,
+      }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
+    : [];
+  const lineTaxes = new Map<string, typeof configuredLineTaxes>();
+  for (const configuredTax of configuredLineTaxes) {
+    lineTaxes.set(configuredTax.invoiceLineId, [...(lineTaxes.get(configuredTax.invoiceLineId) ?? []), configuredTax]);
+  }
 
   const totals = calculateInvoiceTotals(
     lines.map((line) => ({
       description: line.description,
       quantity: Number(line.quantity),
       unitPrice: Number(line.unitPrice),
+      discountPct: Number(line.discountPct),
       taxRate: Number(line.taxRate),
+      retentionRate: Number(line.retentionRate),
+      taxes: lineTaxes.get(line.id)?.map((selectedTax) => ({
+        id: selectedTax.taxId,
+        name: selectedTax.name,
+        rate: Number(selectedTax.rate),
+        kind: selectedTax.kind,
+        operation: selectedTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const,
+      })),
     })),
   );
+  const breakdownMap = new Map<string, { label: string; base: number; amount: number; operation: "ADD" | "SUBTRACT" }>();
+  for (const lineTotal of totals.lines) {
+    for (const selectedTax of lineTotal.taxes) {
+      const label = `${selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto")} ${formatDecimal(selectedTax.rate, 3)}%`;
+      const key = `${label}-${selectedTax.operation}`;
+      const row = breakdownMap.get(key) ?? { label, base: 0, amount: 0, operation: selectedTax.operation };
+      row.base = Math.round((row.base + selectedTax.baseAmount + Number.EPSILON) * 100) / 100;
+      row.amount = Math.round((row.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
+      breakdownMap.set(key, row);
+    }
+  }
 
   return {
     filename: safeInvoiceFilename(row.number),
@@ -119,11 +157,11 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         province: row.customerProvince,
         countryCode: row.customerCountryCode,
       },
-      lines: lines.map((line) => ({
+      lines: lines.map((line, index) => ({
         description: line.description,
         quantity: formatDecimal(line.quantity, 3),
         unitPrice: formatMoney(line.unitPrice, row.companyBaseCurrencyCode),
-        taxRate: `${formatDecimal(line.taxRate, 3)}%`,
+        taxRate: totals.lines[index]?.taxes.map((selectedTax) => `${selectedTax.operation === "SUBTRACT" ? "−" : "+"}${formatDecimal(selectedTax.rate, 3)}%`).join(" · ") || "—",
         lineTotal: formatMoney(line.lineTotal, row.companyBaseCurrencyCode),
       })),
       totals: {
@@ -132,6 +170,12 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         retentionAmount: formatMoney(totals.retentionAmount, row.companyBaseCurrencyCode),
         hasRetention: totals.retentionAmount > 0,
         totalAmount: formatMoney(totals.totalAmount, row.companyBaseCurrencyCode),
+        breakdown: [...breakdownMap.values()].map((breakdown) => ({
+          label: breakdown.label,
+          base: formatMoney(breakdown.base, row.companyBaseCurrencyCode),
+          amount: formatMoney(breakdown.amount, row.companyBaseCurrencyCode),
+          operation: breakdown.operation,
+        })),
       },
     },
   };

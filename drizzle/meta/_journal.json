@@ -176,6 +176,13 @@
       "when": 1784641000000,
       "tag": "0024_compact_number_prefixes",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785516039967,
+      "tag": "0025_tranquil_smasher",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,13 @@
+export type TaxOperation = "ADD" | "SUBTRACT";
+
+export type InvoiceCalculationTax = {
+  id?: string | null;
+  name?: string | null;
+  rate: number;
+  kind?: string | null;
+  operation: TaxOperation;
+};
+
 export type InvoiceCalculationLine = {
   description?: string | null;
   quantity?: number | null;
@@ -5,6 +15,12 @@ export type InvoiceCalculationLine = {
   discountPct?: number | null;
   taxRate?: number | null;
   retentionRate?: number | null;
+  taxes?: InvoiceCalculationTax[] | null;
+};
+
+export type InvoiceLineTaxTotal = InvoiceCalculationTax & {
+  baseAmount: number;
+  amount: number;
 };
 
 export type InvoiceLineTotal = {
@@ -12,6 +28,7 @@ export type InvoiceLineTotal = {
   taxAmount: number;
   retentionAmount: number;
   lineTotal: number;
+  taxes: InvoiceLineTaxTotal[];
 };
 
 export type InvoiceTotals = {
@@ -40,15 +57,33 @@ export function calculateInvoiceTotals(lines: InvoiceCalculationLine[]): Invoice
     const quantity = hasDescription ? normalizeNumber(line.quantity) : 0;
     const unitPrice = hasDescription ? normalizeNumber(line.unitPrice) : 0;
     const discountPct = hasDescription ? normalizePercentage(line.discountPct) : 0;
-    const taxRate = hasDescription ? normalizeNumber(line.taxRate) : 0;
-    const retentionRate = hasDescription ? normalizePercentage(line.retentionRate) : 0;
     const grossSubtotal = roundMoney(quantity * unitPrice);
     const subtotal = roundMoney(grossSubtotal * (1 - discountPct / 100));
-    const taxAmount = roundMoney(subtotal * (taxRate / 100));
-    const retentionAmount = roundMoney(subtotal * (retentionRate / 100));
+    const selectedTaxes = hasDescription && line.taxes !== undefined && line.taxes !== null
+      ? line.taxes
+      : [
+          ...(normalizeNumber(line.taxRate) > 0
+            ? [{ name: "IVA", rate: normalizeNumber(line.taxRate), kind: "VAT", operation: "ADD" as const }]
+            : []),
+          ...(normalizePercentage(line.retentionRate) > 0
+            ? [{ name: "Retención", rate: normalizePercentage(line.retentionRate), kind: "WITHHOLDING", operation: "SUBTRACT" as const }]
+            : []),
+        ];
+    const taxes = selectedTaxes.map((selectedTax) => ({
+      ...selectedTax,
+      rate: normalizeNumber(selectedTax.rate),
+      baseAmount: subtotal,
+      amount: roundMoney(subtotal * (normalizeNumber(selectedTax.rate) / 100)),
+    }));
+    const taxAmount = roundMoney(
+      taxes.filter((selectedTax) => selectedTax.operation === "ADD").reduce((sum, selectedTax) => sum + selectedTax.amount, 0),
+    );
+    const retentionAmount = roundMoney(
+      taxes.filter((selectedTax) => selectedTax.operation === "SUBTRACT").reduce((sum, selectedTax) => sum + selectedTax.amount, 0),
+    );
     const lineTotal = roundMoney(subtotal + taxAmount - retentionAmount);
 
-    return { subtotal, taxAmount, retentionAmount, lineTotal };
+    return { subtotal, taxAmount, retentionAmount, lineTotal, taxes };
   });
 
   return {

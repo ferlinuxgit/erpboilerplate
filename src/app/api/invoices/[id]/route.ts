@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { invoice, invoiceLine, invoicePayment } from "@/db/schema";
+import { invoice, invoiceLine, invoiceLineTax, invoicePayment, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -9,7 +10,7 @@ import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/
 import { recordAudit } from "@/server/audit";
 import { postSalesInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
-import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
+import { buildInvoiceLineInsertValues, buildInvoiceLineTaxInsertValues } from "@/server/invoices/line-values";
 import { updateInvoiceSchema } from "@/server/schemas/forms";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -60,7 +61,32 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: "Usa la acción Anular para conservar una reversión contable trazable." }, { status: 400 });
   }
   const { id } = await params;
-  const invoiceTotals = calculateInvoiceTotals(values.lines);
+  const selectedTaxIds = [...new Set(values.lines.flatMap((line) => line.taxIds ?? []))];
+  const configuredTaxes = selectedTaxIds.length > 0
+    ? await db.select({ id: tax.id, name: tax.name, rate: tax.rate, kind: tax.kind, operation: tax.operation })
+        .from(tax)
+        .where(and(eq(tax.companyId, ctx.company.id), inArray(tax.id, selectedTaxIds)))
+    : [];
+  if (configuredTaxes.length !== selectedTaxIds.length) {
+    return NextResponse.json({ message: "Algún impuesto seleccionado no pertenece a la empresa." }, { status: 400 });
+  }
+  const configuredTaxMap = new Map(configuredTaxes.map((configuredTax) => [configuredTax.id, configuredTax]));
+  const calculatedLines = values.lines.map((line) => ({
+    ...line,
+    ...(line.taxIds !== undefined ? {
+      taxes: [...new Set(line.taxIds)].map((taxId) => {
+        const configuredTax = configuredTaxMap.get(taxId)!;
+        return {
+          id: configuredTax.id,
+          name: configuredTax.name,
+          rate: Number(configuredTax.rate),
+          kind: configuredTax.kind,
+          operation: configuredTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const,
+        };
+      }),
+    } : {}),
+  }));
+  const invoiceTotals = calculateInvoiceTotals(calculatedLines);
 
   try {
     const updated = await db.transaction(async (tx) => {
@@ -100,7 +126,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!row) return null;
 
       await tx.delete(invoiceLine).where(eq(invoiceLine.invoiceId, id));
-      await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(id, values.lines));
+      const lineIds = calculatedLines.map(() => randomUUID());
+      await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(id, calculatedLines, lineIds));
+      const lineTaxValues = buildInvoiceLineTaxInsertValues(lineIds, calculatedLines);
+      if (lineTaxValues.length > 0) await tx.insert(invoiceLineTax).values(lineTaxValues);
 
       if (values.status !== "VOID") {
         await postSalesInvoice({

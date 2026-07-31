@@ -33,6 +33,11 @@ type VatLine = {
   taxRate: string | number;
   discountPct?: string | number | null;
   taxDeductiblePct?: string | number | null;
+  taxes?: Array<{
+    rate: string | number;
+    kind?: string | null;
+    operation: "ADD" | "SUBTRACT";
+  }> | null;
 };
 
 type WithholdingLine = {
@@ -40,6 +45,11 @@ type WithholdingLine = {
   unitPrice: string | number;
   retentionRate?: string | number | null;
   discountPct?: string | number | null;
+  taxes?: Array<{
+    rate: string | number;
+    kind?: string | null;
+    operation: "ADD" | "SUBTRACT";
+  }> | null;
 };
 
 export const spanishFiscalModels: SpanishFiscalModel[] = [
@@ -212,15 +222,20 @@ export function aggregateOutputVat(lines: VatLine[]): VatBucket[] {
   const buckets = new Map<number, VatBucket>();
 
   for (const line of lines) {
-    const rate = roundMoney(toNumber(line.taxRate));
     const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
     const deductiblePct = Math.min(Math.max(toNumber(line.taxDeductiblePct ?? 100), 0), 100);
     const base = roundMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
-    const tax = roundMoney(((base * rate) / 100) * (deductiblePct / 100));
-    const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
-    bucket.base = roundMoney(bucket.base + base);
-    bucket.tax = roundMoney(bucket.tax + tax);
-    buckets.set(rate, bucket);
+    const vatTaxes = line.taxes?.length
+      ? line.taxes.filter((selectedTax) => selectedTax.operation === "ADD" && selectedTax.kind === "VAT")
+      : [{ rate: line.taxRate }];
+    for (const selectedTax of vatTaxes) {
+      const rate = roundMoney(toNumber(selectedTax.rate));
+      const tax = roundMoney(((base * rate) / 100) * (deductiblePct / 100));
+      const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
+      bucket.base = roundMoney(bucket.base + base);
+      bucket.tax = roundMoney(bucket.tax + tax);
+      buckets.set(rate, bucket);
+    }
   }
 
   return [...buckets.values()].sort((left, right) => right.rate - left.rate);
@@ -234,16 +249,20 @@ export function aggregateWithholdings(lines: WithholdingLine[]): VatBucket[] {
   const buckets = new Map<number, VatBucket>();
 
   for (const line of lines) {
-    const rate = roundMoney(toNumber(line.retentionRate));
-    if (rate <= 0) continue;
-
     const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
     const base = roundMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
-    const tax = roundMoney((base * rate) / 100);
-    const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
-    bucket.base = roundMoney(bucket.base + base);
-    bucket.tax = roundMoney(bucket.tax + tax);
-    buckets.set(rate, bucket);
+    const withholdingTaxes = line.taxes?.length
+      ? line.taxes.filter((selectedTax) => selectedTax.operation === "SUBTRACT")
+      : [{ rate: line.retentionRate ?? 0 }];
+    for (const selectedTax of withholdingTaxes) {
+      const rate = roundMoney(toNumber(selectedTax.rate));
+      if (rate <= 0) continue;
+      const tax = roundMoney((base * rate) / 100);
+      const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
+      bucket.base = roundMoney(bucket.base + base);
+      bucket.tax = roundMoney(bucket.tax + tax);
+      buckets.set(rate, bucket);
+    }
   }
 
   return [...buckets.values()].sort((left, right) => right.rate - left.rate);

@@ -146,10 +146,10 @@ test("customers and invoices create flows work after prerequisite onboarding and
   await page.getByTestId("invoice-line-1-description").fill("Servicio smoke");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
   await page.getByTestId("invoice-line-1-unit-price").fill("50");
-  await page.getByTestId("invoice-line-1-tax-rate").fill("21");
+  await page.getByRole("group", { name: "Impuestos línea 1" }).getByRole("checkbox", { name: /IVA general/ }).check();
 
   await expect(page.getByTestId("invoice-subtotal")).toHaveText("Subtotal: 100,00 €");
-  await expect(page.getByTestId("invoice-tax-total")).toHaveText("IVA: 21,00 €");
+  await expect(page.getByTestId("invoice-tax-total")).toHaveText("Impuestos añadidos: 21,00 €");
   await expect(page.getByTestId("invoice-grand-total")).toHaveText("Total: 121,00 €");
 
   const invoiceResponsePromise = page.waitForResponse(
