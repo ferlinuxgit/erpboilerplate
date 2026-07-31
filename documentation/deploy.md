@@ -5,6 +5,7 @@
 Variables obligatorias para local/CI/build/runtime:
 
 - `DATABASE_URL`: requerida por Drizzle y por rutas/páginas App Router que importan DB. `npm run build` ejecuta `scripts/check-build-env.mjs` como preflight, carga `.env*` y falla antes de la recolección de páginas si falta. Usa una URL de base de datos real del entorno; no commits credenciales.
+  Para conexiones TLS remotas con el comportamiento estricto actual de `pg`, usa `sslmode=verify-full` explícitamente en lugar de `sslmode=require`.
 - `JWT_SECRET`: secreto de firma de sesión, con al menos 32 caracteres.
 - `APP_URL`: URL canónica HTTPS de la app.
 
