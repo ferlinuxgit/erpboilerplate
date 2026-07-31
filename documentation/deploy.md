@@ -27,6 +27,7 @@ Plantillas versionables:
 - Upstash: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 - SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`
   `SMTP_HOST` debe coincidir con un hostname incluido en el certificado TLS del servidor. No uses un alias MX si el certificado identifica otro nombre.
+  En Coolify, configura `SMTP_PASSWORD` desde la vista normal y activa `Literal` si contiene `$` u otros caracteres especiales; de lo contrario Coolify puede interpolar el valor antes de pasarlo al contenedor. Déjala solo como variable de runtime, no de build.
 - S3/R2: `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`
 
 ## Migraciones Drizzle
