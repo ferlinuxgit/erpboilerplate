@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getInvalidIpRules } from "@/lib/ip-policy";
 import { can, type AppRole } from "@/lib/rbac";
 import { recordAudit } from "@/server/audit";
+import { isEmailDeliveryConfigured } from "@/server/email/send";
 
 const nullablePositiveInteger = z.preprocess(
   (value) => {
@@ -234,8 +235,8 @@ export async function updateTenantSecurityPolicy(params: {
       error: `Revisa estas IP o redes IPv4: ${invalidIpRules.join(", ")}. Usa una IP exacta o notación CIDR.`,
     };
   }
-  if (values.requireTwoFactor && process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY) {
-    return { status: 400, error: "Configura RESEND_API_KEY antes de exigir doble factor por email." };
+  if (values.requireTwoFactor && process.env.NODE_ENV === "production" && !isEmailDeliveryConfigured()) {
+    return { status: 400, error: "Configura el servicio SMTP antes de exigir doble factor por email." };
   }
   const store = params.store ?? drizzleSecurityPolicyStore;
   const audit = params.audit ?? recordAudit;

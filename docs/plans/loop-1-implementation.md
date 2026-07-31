@@ -122,7 +122,7 @@ C01 env/db bootstrap
 
 **Acceptance criteria:**
 
-- `.env.example` exists with safe placeholders for every required/optional env var detected in audits: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `NEXT_PUBLIC_BETTER_AUTH_URL`, `SENTRY_DSN`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID`, storage/S3 vars if present in `src/server/storage/s3.ts`.
+- `.env.example` exists with safe placeholders for every required/optional env var detected in audits: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `NEXT_PUBLIC_BETTER_AUTH_URL`, `SENTRY_DSN`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, SMTP email variables, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID`, storage/S3 vars if present in `src/server/storage/s3.ts`.
 - No real secrets are committed.
 - Local Postgres can be started with documented command.
 - README setup path works from clean clone: install, copy env, start DB, migrate, dev.

@@ -103,8 +103,8 @@ Riesgo: si CI no inyecta `DATABASE_URL`, el job fallará en `npm run build` ante
 | `STRIPE_SECRET_KEY` | `src/server/billing/stripe.ts` | checkout/portal Stripe. |
 | `STRIPE_WEBHOOK_SECRET` | `src/app/api/billing/webhook/route.ts` | validación webhook Stripe. |
 | `NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID` | `src/app/billing/page.tsx` | plan/precio público en UI billing. |
-| `RESEND_API_KEY` | `src/server/email/send.ts` | envío real de email; sin clave hace noop. |
-| `RESEND_FROM_EMAIL` | `src/server/email/send.ts` | remitente; default `ERP <noreply@example.com>`. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` | `src/server/email/send.ts` | conexión al servidor SMTP; sin configuración hace noop fuera de producción. |
+| `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL` | `src/server/email/send.ts` | autenticación SMTP opcional y remitente obligatorio. |
 | `S3_REGION` | `src/server/storage/s3.ts` | uploads S3/R2. |
 | `S3_ENDPOINT` | `src/server/storage/s3.ts` | endpoint S3/R2 opcional. |
 | `S3_ACCESS_KEY_ID` | `src/server/storage/s3.ts` | uploads S3/R2. |
@@ -133,8 +133,12 @@ UPSTASH_REDIS_REST_TOKEN=
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID=
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=
 S3_REGION=
 S3_ENDPOINT=
 S3_ACCESS_KEY_ID=
@@ -269,7 +273,7 @@ Gaps:
 - Dice “Incorporar observabilidad” como siguiente paso, aunque ya existen logger/Sentry/proxy security parcialmente; conviene actualizar la sección para distinguir implementado vs pendiente.
 - No menciona `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` ni `npm run test:e2e`.
 - No documenta seeds ni cómo aplicar datos maestros españoles.
-- No documenta integraciones opcionales presentes en código: Stripe, Resend, S3/R2, Upstash, Sentry.
+- No documenta integraciones opcionales presentes en código: Stripe, SMTP, S3/R2, Upstash, Sentry.
 
 ## Recomendaciones priorizadas
 

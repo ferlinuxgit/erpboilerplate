@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
     "exceljs",
     "openai",
     "pdfjs-dist",
-    "resend",
+    "nodemailer",
     "stripe",
     "tesseract.js",
     "zod",
