@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { hasSpanishTaxIdFormat, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 
 export const authSignInSchema = z.object({
   email: z.string().trim().email("Debes indicar un email válido."),
@@ -30,10 +30,10 @@ export const createCustomerSchema = z.object({
     .or(z.literal("")),
   phone: z.string().trim().optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
-  if (value.countryCode.toUpperCase() === "ES" && !isValidSpanishTaxId(value.taxId)) {
+  if (value.countryCode.toUpperCase() === "ES" && !hasSpanishTaxIdFormat(value.taxId)) {
     ctx.addIssue({
       code: "custom",
-      message: "Debes indicar un CIF/NIF español válido.",
+      message: "El CIF/NIF debe tener un formato español reconocible.",
       path: ["taxId"],
     });
   }
@@ -79,10 +79,10 @@ export const companyProfileSchema = z.object({
   invoiceFooter: z.string().trim().max(500, "El pie de factura no puede superar 500 caracteres.").optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
   const vatNumber = normalizeSpanishTaxId(value.vatNumber);
-  if (value.countryCode.toUpperCase() === "ES" && vatNumber && !isValidSpanishTaxId(vatNumber)) {
+  if (value.countryCode.toUpperCase() === "ES" && vatNumber && !hasSpanishTaxIdFormat(vatNumber)) {
     ctx.addIssue({
       code: "custom",
-      message: "Debes indicar un CIF/NIF español válido.",
+      message: "El CIF/NIF debe tener un formato español reconocible.",
       path: ["vatNumber"],
     });
   }

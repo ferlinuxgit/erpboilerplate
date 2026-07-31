@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { hasSpanishTaxIdFormat, isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 
 describe("Spanish tax id validation", () => {
   it("normalizes spacing, separators and casing", () => {
@@ -19,5 +19,11 @@ describe("Spanish tax id validation", () => {
     expect(isValidSpanishTaxId("X2482300A")).toBe(false);
     expect(isValidSpanishTaxId("B99286321")).toBe(false);
     expect(isValidSpanishTaxId("")).toBe(false);
+  });
+
+  it("recognizes structure without treating a local checksum as census verification", () => {
+    expect(hasSpanishTaxIdFormat("B88265391")).toBe(true);
+    expect(hasSpanishTaxIdFormat("ESB88265391")).toBe(true);
+    expect(hasSpanishTaxIdFormat("B8826")).toBe(false);
   });
 });

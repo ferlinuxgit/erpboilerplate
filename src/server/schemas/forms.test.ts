@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { companyProfileSchema } from "@/server/schemas/forms";
+import { companyProfileSchema, createCustomerSchema } from "@/server/schemas/forms";
 
 const validProfile = {
   name: "ERP Demo",
@@ -42,11 +42,29 @@ describe("companyProfileSchema", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("rejects invalid Spanish CIF/NIF values when provided", () => {
-    const parsed = companyProfileSchema.safeParse({ ...validProfile, vatNumber: "B12345678" });
+  it("rejects structurally invalid Spanish CIF/NIF values when provided", () => {
+    const parsed = companyProfileSchema.safeParse({ ...validProfile, vatNumber: "B1234" });
 
     expect(parsed.success).toBe(false);
     expect(parsed.error?.issues[0]?.path).toEqual(["vatNumber"]);
+  });
+
+  it("does not block a structurally valid CIF because of a local checksum mismatch", () => {
+    const customer = createCustomerSchema.safeParse({
+      name: "Cliente CIF",
+      taxId: "B88265391",
+      address: "Calle Mayor 1",
+      addressLine2: "",
+      postalCode: "28013",
+      city: "Madrid",
+      province: "Madrid",
+      countryCode: "ES",
+      email: "",
+      phone: "",
+    });
+
+    expect(customer.success).toBe(true);
+    expect(companyProfileSchema.safeParse({ ...validProfile, vatNumber: "B88265391" }).success).toBe(true);
   });
 
   it("rejects invalid website URLs", () => {

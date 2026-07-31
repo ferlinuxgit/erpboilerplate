@@ -17,6 +17,16 @@ export function isValidSpanishTaxId(value: string | null | undefined) {
   return false;
 }
 
+export function hasSpanishTaxIdFormat(value: string | null | undefined) {
+  const normalized = normalizeSpanishTaxId(value);
+  const taxId = normalized.startsWith("ES") ? normalized.slice(2) : normalized;
+  if (!taxId) return false;
+
+  return /^\d{8}[A-Z]$/.test(taxId)
+    || /^[XYZ]\d{7}[A-Z]$/.test(taxId)
+    || /^[ABCDEFGHJKLMNPQRSUVW]\d{7}[0-9A-J]$/.test(taxId);
+}
+
 function isValidNif(taxId: string) {
   const number = Number(taxId.slice(0, 8));
   return taxId[8] === nifLetters[number % 23];
