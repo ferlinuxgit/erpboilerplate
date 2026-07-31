@@ -4,13 +4,12 @@ import { notFound } from "next/navigation";
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { invoice, invoiceLine, invoiceLineTax, tax } from "@/db/schema";
-import { requireUserSession } from "@/lib/current-user";
+import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
-import { ensureUserTenant } from "@/lib/tenant";
+import { dateInputValue } from "@/lib/date-input";
 
 export default async function EditInvoicePage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("invoice.write");
   const { id } = await params;
   const rows = await db.select().from(invoice).where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id))).limit(1);
   if (!rows[0]) notFound();
@@ -60,6 +59,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
         <EditInvoiceForm
           id={data.id}
           defaultLines={defaultLines}
+          defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
           defaultStatus={data.status}
           defaultNotes={data.notes}
           defaultTotalAmount={Number(data.totalAmount)}

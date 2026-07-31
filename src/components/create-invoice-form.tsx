@@ -49,12 +49,14 @@ type CreatedInvoicePayload = {
 export function CreateInvoiceForm({
   canCreateCustomer,
   customers,
+  defaultIssueDate,
   initialCustomerId,
   nextInvoiceNumberPreview,
   taxes,
 }: {
   canCreateCustomer: boolean;
   customers: CustomerOption[];
+  defaultIssueDate: string;
   initialCustomerId?: string;
   nextInvoiceNumberPreview?: string | null;
   taxes: InvoiceTaxOption[];
@@ -79,7 +81,7 @@ export function CreateInvoiceForm({
     shouldUnregister: true,
     defaultValues: {
       customerId: customers.some((customer) => customer.id === initialCustomerId) ? initialCustomerId : "",
-      issueDate: "",
+      issueDate: defaultIssueDate,
       dueDate: "",
       totalAmount: 0,
       notes: "",

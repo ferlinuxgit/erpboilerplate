@@ -8,6 +8,7 @@ import { customer, documentSeries, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { dateInputValue } from "@/lib/date-input";
 import { formatSeriesNumber } from "@/lib/document-series-format";
 import { canManageCustomers, canManageInvoices } from "@/lib/rbac";
 
@@ -16,6 +17,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
   const tenantContext = await requireContext("invoice.create");
   const canCreateInvoice = canManageInvoices(tenantContext.membership.role);
   const canCreateCustomer = canManageCustomers(tenantContext.membership.role);
+  const defaultIssueDate = dateInputValue(new Date(), tenantContext.company.timezone);
   const query = await searchParams;
   const initialCustomerId = Array.isArray(query.customerId) ? query.customerId[0] : query.customerId;
 
@@ -61,7 +63,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         format: invoiceSeries.format,
         nextNumber: invoiceSeries.nextNumber,
         prefix: invoiceSeries.prefix,
-        referenceDate: new Date(),
+        referenceDate: new Date(`${defaultIssueDate}T12:00:00.000Z`),
       })
     : null;
 
@@ -92,6 +94,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
           <CreateInvoiceForm
             canCreateCustomer={canCreateCustomer}
             customers={customers}
+            defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}
             nextInvoiceNumberPreview={nextInvoiceNumberPreview}
             taxes={taxes.map((configuredTax) => ({

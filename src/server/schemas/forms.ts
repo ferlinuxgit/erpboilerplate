@@ -104,7 +104,7 @@ export const invoiceLineFormSchema = z.object({
 export const createInvoiceSchema = z.object({
   customerId: z.string().trim().optional().or(z.literal("")),
   newCustomer: createCustomerSchema.optional(),
-  issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión."),
+  issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión.").optional(),
   dueDate: z.string().trim().optional().or(z.literal("")),
   totalAmount: z.number().positive("El importe debe ser mayor que 0."),
   notes: z.string().trim().optional().or(z.literal("")),
@@ -121,6 +121,7 @@ export const createInvoiceSchema = z.object({
 });
 
 export const updateInvoiceSchema = z.object({
+  issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión."),
   status: invoiceStatusSchema,
   notes: z.string().trim().optional().or(z.literal("")),
   totalAmount: z.number().positive("El importe debe ser mayor que 0."),

@@ -54,6 +54,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
   const values = parsedPayload.data;
+  const requestedIssueDate = values.issueDate ? new Date(values.issueDate) : null;
+  if (requestedIssueDate && Number.isNaN(requestedIssueDate.getTime())) {
+    return NextResponse.json({ message: "La fecha de emisión no es válida." }, { status: 400 });
+  }
   if (values.status === "PAID" || values.status === "OVERDUE") {
     return NextResponse.json({ message: "El estado de cobro se calcula a partir de los pagos y el vencimiento." }, { status: 400 });
   }
@@ -98,8 +102,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         .limit(1);
       if (!existing) return null;
       if (existing.paymentStatus !== "PENDING") throw new Error("No se puede editar una factura con cobros registrados.");
+      const nextIssueDate = requestedIssueDate ?? existing.issueDate;
+      if (existing.issueDate.getUTCFullYear() !== nextIssueDate.getUTCFullYear()) {
+        throw new Error("No se puede mover una factura a otro año porque su número pertenece a la serie del año original.");
+      }
 
       await assertFiscalPeriodOpen(ctx.company.id, existing.issueDate, tx);
+      await assertFiscalPeriodOpen(ctx.company.id, nextIssueDate, tx);
       await reverseAutomaticEntries({
         tenantId: ctx.tenant.id,
         companyId: ctx.company.id,
@@ -116,6 +125,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         .update(invoice)
         .set({
           status: values.status,
+          issueDate: nextIssueDate,
           notes: values.notes?.trim() || null,
           totalAmount: invoiceTotals.totalAmount.toFixed(2),
           updatedAt: new Date(),
@@ -137,7 +147,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
           companyId: ctx.company.id,
           actorUserId: actor.actorUserId,
           invoiceId: id,
-          postedAt: existing.issueDate,
+          postedAt: nextIssueDate,
           reference: `Factura ${existing.number} corregida`,
           subtotal: invoiceTotals.subtotal,
           taxAmount: invoiceTotals.taxAmount,
@@ -159,7 +169,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       action: "invoice.update",
       entityName: "invoice",
       entityId: id,
-      payload: { status: values.status, totalAmount: invoiceTotals.totalAmount },
+      payload: { status: values.status, issueDate: values.issueDate ?? null, totalAmount: invoiceTotals.totalAmount },
     });
 
     return NextResponse.json(updated);

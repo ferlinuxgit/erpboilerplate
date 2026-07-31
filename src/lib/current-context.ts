@@ -8,8 +8,15 @@ import type { PermissionKey } from "@/lib/rbac";
 import { canFromDb } from "@/lib/rbac-server";
 import { ensureUserTenant } from "@/lib/tenant";
 
-type AuthenticatedContext = Awaited<ReturnType<typeof ensureUserTenant>> & {
-  availableCompanies: Array<{ id: string; name: string; countryCode: string; baseCurrencyCode: string }>;
+type AuthenticatedContext = Omit<Awaited<ReturnType<typeof ensureUserTenant>>, "company"> & {
+  company: {
+    id: string;
+    name: string;
+    countryCode: string;
+    baseCurrencyCode: string;
+    timezone: string;
+  };
+  availableCompanies: Array<{ id: string; name: string; countryCode: string; baseCurrencyCode: string; timezone: string }>;
   availableFiscalYears: Array<{ id: string; code: string }>;
   user: {
     id: string;
@@ -35,6 +42,7 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
       name: company.name,
       countryCode: company.countryCode,
       baseCurrencyCode: company.baseCurrencyCode,
+      timezone: company.timezone,
     })
     .from(company)
     .innerJoin(tenant, eq(tenant.id, company.tenantId))
@@ -66,6 +74,7 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
       name: activeCompany?.name ?? fallbackContext.company.name,
       countryCode: activeCompany?.countryCode ?? fallbackContext.company.countryCode,
       baseCurrencyCode: activeCompany?.baseCurrencyCode ?? fallbackContext.company.baseCurrencyCode,
+      timezone: activeCompany?.timezone ?? "UTC",
     },
     fiscalYear: {
       id: activeFiscalYear?.id ?? fallbackContext.fiscalYear.id,

@@ -26,6 +26,7 @@ type EditableInvoiceLine = UpdateInvoicePayload["lines"][number];
 
 export function EditInvoiceForm({
   defaultLines,
+  defaultIssueDate,
   defaultNotes,
   defaultStatus,
   defaultTotalAmount,
@@ -34,6 +35,7 @@ export function EditInvoiceForm({
 }: {
   id: string;
   defaultLines: EditableInvoiceLine[];
+  defaultIssueDate: string;
   defaultNotes: string | null;
   defaultStatus: "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID";
   defaultTotalAmount: number;
@@ -59,6 +61,7 @@ export function EditInvoiceForm({
     resolver: zodResolver(updateInvoiceSchema),
     defaultValues: {
       status: defaultStatus,
+      issueDate: defaultIssueDate,
       notes: defaultNotes ?? "",
       totalAmount: defaultTotalAmount,
       lines: defaultLines.length > 0 ? defaultLines : [emptyLine],
@@ -103,6 +106,19 @@ export function EditInvoiceForm({
       })}
     >
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
+      <div className="space-y-2">
+        <Label htmlFor="invoice-issue-date">Fecha de emisión</Label>
+        <Input
+          data-testid="invoice-edit-issue-date-input"
+          id="invoice-issue-date"
+          type="date"
+          required
+          aria-invalid={Boolean(errors.issueDate)}
+          aria-describedby={errors.issueDate ? "invoice-issue-date-error" : undefined}
+          {...register("issueDate")}
+        />
+        {errors.issueDate ? <p id="invoice-issue-date-error" className="text-sm text-red-600" role="alert">{errors.issueDate.message}</p> : null}
+      </div>
       <div className="space-y-2">
         <Label htmlFor="invoice-status">Estado</Label>
         <Select

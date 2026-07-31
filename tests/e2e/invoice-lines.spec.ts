@@ -21,6 +21,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await expect(page.locator("tr", { hasText: customerName })).toBeVisible();
 
   await page.goto("/invoices/new");
+  await expect(page.getByTestId("invoice-issue-date-input")).not.toHaveValue("");
   await page.getByRole("button", { name: "Buscar cliente" }).click();
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
@@ -70,6 +71,20 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
     { description: "Consultoría", quantity: "2.000", unitPrice: "100.00", taxRate: "21.000", lineTotal: "242.00" },
     { description: "Soporte", quantity: "1.500", unitPrice: "80.00", taxRate: "10.000", lineTotal: "132.00" },
   ]);
+
+  await page.goto(editHref!);
+  await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
+  await page.getByTestId("invoice-edit-issue-date-input").fill("2026-05-10");
+  const updateResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith(`/api/invoices/${invoiceId}`) && response.request().method() === "PATCH",
+  );
+  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  expect((await updateResponsePromise).ok()).toBe(true);
+  await expect(page).toHaveURL(/\/invoices$/);
+
+  const updatedInvoice = await page.request.get(`/api/invoices/${invoiceId}`);
+  expect(updatedInvoice.ok()).toBeTruthy();
+  expect(((await updatedInvoice.json()) as { issueDate: string }).issueDate).toMatch(/^2026-05-10/);
 });
 
 test("crear factura permite crear cliente fiscal inline si no existe", async ({ page }) => {
