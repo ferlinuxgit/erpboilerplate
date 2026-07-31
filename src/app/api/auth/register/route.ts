@@ -32,7 +32,17 @@ async function deliverVerificationEmail(input: {
 }
 
 function emailDeliveryFailedResponse(error: unknown, userId: string) {
-  logger.error({ error, userId }, "auth.verification_email_delivery_failed");
+  const smtpError = error instanceof Error
+    ? {
+        name: error.name,
+        message: error.message,
+        ...("code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+        ...("command" in error && typeof error.command === "string" ? { command: error.command } : {}),
+        ...("host" in error && typeof error.host === "string" ? { host: error.host } : {}),
+        ...("reason" in error && typeof error.reason === "string" ? { reason: error.reason } : {}),
+      }
+    : { message: String(error) };
+  logger.error({ smtpError, userId }, "auth.verification_email_delivery_failed");
   return NextResponse.json({
     error: "La cuenta existe, pero no se pudo enviar el correo de verificación. Revisa la configuración SMTP e inténtalo de nuevo.",
   }, { status: 502 });

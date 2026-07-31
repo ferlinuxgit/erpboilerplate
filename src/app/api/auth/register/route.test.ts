@@ -126,7 +126,14 @@ describe("POST /api/auth/register recovery", () => {
   });
 
   it("returns a recoverable SMTP error when redelivery fails", async () => {
-    mocks.sendEmail.mockRejectedValue(new Error("SMTP connection failed"));
+    const smtpError = Object.assign(new Error("SMTP connection failed"), {
+      code: "ESOCKET",
+      command: "CONN",
+      host: "mail.example.com",
+      reason: "Certificate hostname mismatch",
+      cert: { raw: "large certificate payload" },
+    });
+    mocks.sendEmail.mockRejectedValue(smtpError);
 
     const response = await POST(registrationRequest());
 
@@ -134,9 +141,16 @@ describe("POST /api/auth/register recovery", () => {
     await expect(response.json()).resolves.toEqual({
       error: "La cuenta existe, pero no se pudo enviar el correo de verificación. Revisa la configuración SMTP e inténtalo de nuevo.",
     });
-    expect(mocks.loggerError).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "user-1" }),
-      "auth.verification_email_delivery_failed",
-    );
+    expect(mocks.loggerError).toHaveBeenCalledWith({
+      userId: "user-1",
+      smtpError: {
+        name: "Error",
+        message: "SMTP connection failed",
+        code: "ESOCKET",
+        command: "CONN",
+        host: "mail.example.com",
+        reason: "Certificate hostname mismatch",
+      },
+    }, "auth.verification_email_delivery_failed");
   });
 });
