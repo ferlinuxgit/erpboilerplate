@@ -1,3 +1,4 @@
+import { Font } from "@react-pdf/renderer";
 import { describe, expect, it } from "vitest";
 
 import { renderInvoicePdf, type InvoicePdfInput } from "@/server/pdf/render";
@@ -70,6 +71,13 @@ describe("renderInvoicePdf", () => {
       ...overrides,
     };
   }
+
+  it("keeps complete words instead of inserting hyphenated line breaks", () => {
+    const hyphenationCallback = Font.getHyphenationCallback();
+
+    expect(hyphenationCallback).not.toBeNull();
+    expect(hyphenationCallback?.("extraordinariamente")).toEqual(["extraordinariamente"]);
+  });
 
   it("renders an invoice PDF buffer with lines and totals", async () => {
     const input = createInput();
