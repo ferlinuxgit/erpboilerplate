@@ -31,8 +31,17 @@ const styles = StyleSheet.create({
   tableRowAlt: { backgroundColor: "#f8fafc" },
   tableHeader: { backgroundColor: "#172033", color: "#ffffff", fontWeight: 700 },
   descriptionCell: { flex: 2.6, padding: 8 },
-  cell: { flex: 1, padding: 8, textAlign: "right" },
-  totalsWrap: { flexDirection: "row", justifyContent: "flex-end", marginTop: 14 },
+  quantityCell: { flex: 0.7, padding: 8, textAlign: "right" },
+  moneyCell: { flex: 1, padding: 8, textAlign: "right" },
+  lineTaxCell: { flex: 1.4, padding: 8 },
+  taxBreakdown: { marginTop: 14 },
+  taxNameCell: { flex: 2.2, padding: 7 },
+  taxCell: { flex: 1, padding: 7, textAlign: "right" },
+  bottomGrid: { flexDirection: "row", justifyContent: "flex-end", alignItems: "flex-start", gap: 14, marginTop: 14 },
+  paymentBlock: { flex: 1, border: "1 solid #d7dee8", padding: 10, minHeight: 70 },
+  paymentName: { fontSize: 11, fontWeight: 700, marginBottom: 4 },
+  paymentMeta: { color: "#5d667a", lineHeight: 1.35 },
+  paymentAccount: { marginTop: 7, color: "#344052", fontSize: 9.5 },
   totals: { width: 238, border: "1 solid #d7dee8" },
   totalRow: { flexDirection: "row", justifyContent: "space-between", padding: 8, borderBottom: "1 solid #e5eaf0" },
   totalBox: { flexDirection: "row", justifyContent: "space-between", padding: 10, backgroundColor: "#0f766e", color: "#ffffff" },
@@ -52,7 +61,7 @@ function formatAddress(party: InvoicePdfInput["customer"] | InvoicePdfInput["com
     .join(", ");
 }
 
-export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
+export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, payment, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
   const companyName = company.legalName?.trim() || company.name;
   const companyAddress = formatAddress(company);
   const companyContact = [company.email, company.phone, company.website].filter(Boolean).join(" | ");
@@ -116,46 +125,66 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
         <View style={styles.table}>
           <View style={[styles.tableRow, styles.tableHeader]}>
             <Text style={styles.descriptionCell}>Concepto</Text>
-            <Text style={styles.cell}>Cantidad</Text>
-            {showFinancials ? <Text style={styles.cell}>Precio</Text> : null}
-            {showFinancials ? <Text style={styles.cell}>Impuestos</Text> : null}
-            {showFinancials ? <Text style={styles.cell}>Importe</Text> : null}
+            <Text style={styles.quantityCell}>Cantidad</Text>
+            {showFinancials ? <Text style={styles.moneyCell}>Precio</Text> : null}
+            {showFinancials ? <Text style={styles.lineTaxCell}>Impuestos</Text> : null}
+            {showFinancials ? <Text style={styles.moneyCell}>Importe</Text> : null}
           </View>
           {lines.map((line, index) => (
             <View key={`${line.description}-${index}`} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]}>
               <Text style={styles.descriptionCell}>{line.description}</Text>
-              <Text style={styles.cell}>{line.quantity}</Text>
-              {showFinancials ? <Text style={styles.cell}>{line.unitPrice}</Text> : null}
-              {showFinancials ? <Text style={styles.cell}>{line.taxRate}</Text> : null}
-              {showFinancials ? <Text style={styles.cell}>{line.lineTotal}</Text> : null}
+              <Text style={styles.quantityCell}>{line.quantity}</Text>
+              {showFinancials ? <Text style={styles.moneyCell}>{line.unitPrice}</Text> : null}
+              {showFinancials ? <Text style={styles.lineTaxCell}>{line.taxRate}</Text> : null}
+              {showFinancials ? <Text style={styles.moneyCell}>{line.lineTotal}</Text> : null}
             </View>
           ))}
         </View>
-        {showFinancials ? <View style={styles.totalsWrap}>
+        {showFinancials && totals.breakdown?.length ? (
+          <View style={styles.taxBreakdown} wrap={false}>
+            <Text style={styles.sectionTitle}>Desglose de impuestos</Text>
+            <View style={styles.table}>
+              <View style={[styles.tableRow, styles.tableHeader]}>
+                <Text style={styles.taxNameCell}>Impuesto</Text>
+                <Text style={styles.taxCell}>Base</Text>
+                <Text style={styles.taxCell}>Tipo</Text>
+                <Text style={styles.taxCell}>Cuota</Text>
+              </View>
+              {totals.breakdown.map((row, index) => (
+                <View key={`${row.name}-${row.rate}-${row.operation}`} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]}>
+                  <Text style={styles.taxNameCell}>{row.name}</Text>
+                  <Text style={styles.taxCell}>{row.base}</Text>
+                  <Text style={styles.taxCell}>{row.operation === "SUBTRACT" ? "-" : "+"}{row.rate}</Text>
+                  <Text style={styles.taxCell}>{row.operation === "SUBTRACT" ? "-" : ""}{row.amount}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+        {showFinancials ? <View style={styles.bottomGrid} wrap={false}>
+          {payment ? (
+            <View style={styles.paymentBlock}>
+              <Text style={styles.partyHeader}>Forma de pago</Text>
+              <Text style={styles.paymentName}>{payment.name}</Text>
+              {payment.typeLabel ? <Text style={styles.paymentMeta}>{payment.typeLabel}</Text> : null}
+              {payment.bankAccountNumber ? <Text style={styles.paymentAccount}>Cuenta: {payment.bankAccountNumber}</Text> : null}
+            </View>
+          ) : null}
           <View style={styles.totals}>
             <View style={styles.totalRow}>
               <Text>Base imponible</Text>
               <Text>{totals.subtotal}</Text>
             </View>
-            {totals.breakdown?.length ? totals.breakdown.map((row) => (
-              <View key={`${row.label}-${row.operation}`} style={styles.totalRow}>
-                <Text>{row.operation === "SUBTRACT" ? "− " : "+ "}{row.label} · base {row.base}</Text>
-                <Text>{row.operation === "SUBTRACT" ? "− " : ""}{row.amount}</Text>
+            <View style={styles.totalRow}>
+              <Text>Impuestos</Text>
+              <Text>{totals.taxAmount}</Text>
+            </View>
+            {totals.hasRetention ? (
+              <View style={styles.totalRow}>
+                <Text>Retenciones</Text>
+                <Text>- {totals.retentionAmount}</Text>
               </View>
-            )) : (
-              <>
-                <View style={styles.totalRow}>
-                  <Text>IVA</Text>
-                  <Text>{totals.taxAmount}</Text>
-                </View>
-                {totals.hasRetention ? (
-                  <View style={styles.totalRow}>
-                    <Text>Retencion</Text>
-                    <Text>− {totals.retentionAmount}</Text>
-                  </View>
-                ) : null}
-              </>
-            )}
+            ) : null}
             <View style={styles.totalBox}>
               <Text style={styles.total}>Importe</Text>
               <Text style={styles.total}>{totals.totalAmount}</Text>

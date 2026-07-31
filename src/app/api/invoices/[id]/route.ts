@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { invoice, invoiceLine, invoiceLineTax, invoicePayment, tax } from "@/db/schema";
+import { invoice, invoiceLine, invoiceLineTax, invoicePayment, paymentMethod, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -65,6 +65,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: "Usa la acción Anular para conservar una reversión contable trazable." }, { status: 400 });
   }
   const { id } = await params;
+  const paymentMethodWasProvided = values.paymentMethodId !== undefined;
+  const selectedPaymentMethodId = values.paymentMethodId?.trim() || null;
+  const [configuredPaymentMethod] = selectedPaymentMethodId
+    ? await db.select({
+        id: paymentMethod.id,
+        name: paymentMethod.name,
+        type: paymentMethod.type,
+        bankAccountNumber: paymentMethod.bankAccountNumber,
+      }).from(paymentMethod).where(and(
+        eq(paymentMethod.id, selectedPaymentMethodId),
+        eq(paymentMethod.companyId, ctx.company.id),
+      )).limit(1)
+    : [];
+  if (selectedPaymentMethodId && !configuredPaymentMethod) {
+    return NextResponse.json({ message: "La forma de pago seleccionada no pertenece a la empresa." }, { status: 400 });
+  }
   const selectedTaxIds = [...new Set(values.lines.flatMap((line) => line.taxIds ?? []))];
   const configuredTaxes = selectedTaxIds.length > 0
     ? await db.select({ id: tax.id, name: tax.name, rate: tax.rate, kind: tax.kind, operation: tax.operation })
@@ -126,6 +142,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         .set({
           status: values.status,
           issueDate: nextIssueDate,
+          ...(paymentMethodWasProvided ? {
+            paymentMethodId: configuredPaymentMethod?.id ?? null,
+            paymentMethodName: configuredPaymentMethod?.name ?? null,
+            paymentMethodType: configuredPaymentMethod?.type ?? null,
+            paymentBankAccountNumber: configuredPaymentMethod?.bankAccountNumber ?? null,
+          } : {}),
           notes: values.notes?.trim() || null,
           totalAmount: invoiceTotals.totalAmount.toFixed(2),
           updatedAt: new Date(),

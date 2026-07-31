@@ -18,6 +18,11 @@ export type InvoicePdfInput = {
   issueDate: string;
   dueDate: string | null;
   amount: string;
+  payment?: {
+    name: string;
+    typeLabel: string | null;
+    bankAccountNumber: string | null;
+  } | null;
   company: {
     name: string;
     legalName: string | null;
@@ -59,7 +64,8 @@ export type InvoicePdfInput = {
     hasRetention: boolean;
     totalAmount: string;
     breakdown?: Array<{
-      label: string;
+      name: string;
+      rate: string;
       base: string;
       amount: string;
       operation: "ADD" | "SUBTRACT";

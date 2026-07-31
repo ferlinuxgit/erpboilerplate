@@ -12,9 +12,11 @@ import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import { createCustomerSchema, createInvoiceSchema } from "@/server/schemas/forms";
 
 type CustomerOption = {
@@ -37,6 +39,13 @@ export type InvoiceTaxOption = {
   isDefault: boolean;
 };
 
+export type InvoicePaymentMethodOption = {
+  id: string;
+  name: string;
+  type: PaymentMethodType;
+  bankAccountNumber: string | null;
+};
+
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
 type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
 type CreatedInvoicePayload = {
@@ -52,6 +61,7 @@ export function CreateInvoiceForm({
   defaultIssueDate,
   initialCustomerId,
   nextInvoiceNumberPreview,
+  paymentMethods,
   taxes,
 }: {
   canCreateCustomer: boolean;
@@ -59,6 +69,7 @@ export function CreateInvoiceForm({
   defaultIssueDate: string;
   initialCustomerId?: string;
   nextInvoiceNumberPreview?: string | null;
+  paymentMethods: InvoicePaymentMethodOption[];
   taxes: InvoiceTaxOption[];
 }) {
   const router = useRouter();
@@ -85,6 +96,7 @@ export function CreateInvoiceForm({
       dueDate: "",
       totalAmount: 0,
       notes: "",
+      paymentMethodId: "",
       lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds }],
     },
   });
@@ -357,6 +369,21 @@ export function CreateInvoiceForm({
           aria-describedby={errors.dueDate ? "invoice-due-date-error" : undefined}
           {...register("dueDate")}
         />
+      </AccessibleField>
+      <AccessibleField id="invoice-payment-method" label="Forma de pago" error={errors.paymentMethodId?.message}>
+        <Select
+          id="invoice-payment-method"
+          aria-label="Forma de pago"
+          aria-invalid={Boolean(errors.paymentMethodId)}
+          {...register("paymentMethodId")}
+        >
+          <option value="">Sin especificar</option>
+          {paymentMethods.map((method) => (
+            <option key={method.id} value={method.id}>
+              {method.name} · {paymentMethodTypeLabels[method.type]}
+            </option>
+          ))}
+        </Select>
       </AccessibleField>
       <AccessibleField id="invoice-notes" label="Notas" className="md:col-span-2" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
         <Input

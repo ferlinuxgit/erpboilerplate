@@ -183,6 +183,13 @@
       "when": 1785516039967,
       "tag": "0025_tranquil_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785517483738,
+      "tag": "0026_great_skin",
+      "breakpoints": true
     }
   ]
 }

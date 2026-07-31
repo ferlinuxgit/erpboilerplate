@@ -8,13 +8,14 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import type { InvoiceTaxOption } from "@/components/create-invoice-form";
+import type { InvoicePaymentMethodOption, InvoiceTaxOption } from "@/components/create-invoice-form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { paymentMethodTypeLabels } from "@/lib/payment-methods";
 import { invoiceStatusLabels, statusLabel } from "@/lib/status-labels";
 import { updateInvoiceSchema } from "@/server/schemas/forms";
 
@@ -28,18 +29,22 @@ export function EditInvoiceForm({
   defaultLines,
   defaultIssueDate,
   defaultNotes,
+  defaultPaymentMethodId,
   defaultStatus,
   defaultTotalAmount,
   id,
+  paymentMethods,
   taxes,
 }: {
   id: string;
   defaultLines: EditableInvoiceLine[];
   defaultIssueDate: string;
   defaultNotes: string | null;
+  defaultPaymentMethodId: string;
   defaultStatus: "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID";
   defaultTotalAmount: number;
   taxes: Array<InvoiceTaxOption & { isActive: boolean }>;
+  paymentMethods: InvoicePaymentMethodOption[];
 }) {
   const router = useRouter();
   const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive && configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
@@ -63,6 +68,7 @@ export function EditInvoiceForm({
       status: defaultStatus,
       issueDate: defaultIssueDate,
       notes: defaultNotes ?? "",
+      paymentMethodId: defaultPaymentMethodId,
       totalAmount: defaultTotalAmount,
       lines: defaultLines.length > 0 ? defaultLines : [emptyLine],
     },
@@ -138,6 +144,16 @@ export function EditInvoiceForm({
             {errors.status.message}
           </p>
         ) : null}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="invoice-payment-method">Forma de pago</Label>
+        <Select id="invoice-payment-method" aria-invalid={Boolean(errors.paymentMethodId)} {...register("paymentMethodId")}>
+          <option value="">Sin especificar</option>
+          {paymentMethods.map((method) => (
+            <option key={method.id} value={method.id}>{method.name} · {paymentMethodTypeLabels[method.type]}</option>
+          ))}
+        </Select>
+        {errors.paymentMethodId ? <p className="text-sm text-red-600" role="alert">{errors.paymentMethodId.message}</p> : null}
       </div>
       <div className="space-y-2">
         <Label htmlFor="invoice-notes">Notas</Label>

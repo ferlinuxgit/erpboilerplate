@@ -11,6 +11,11 @@ describe("renderInvoicePdf", () => {
       issueDate: "02/06/2026",
       dueDate: "17/06/2026",
       amount: "121,00 €",
+      payment: {
+        name: "Transferencia a cuenta bancaria",
+        typeLabel: "Transferencia bancaria",
+        bankAccountNumber: "ES12 3456 7890 1234 5678 9012",
+      },
       company: {
         name: "ERP Test",
         legalName: "ERP Test SL",
@@ -42,7 +47,7 @@ describe("renderInvoicePdf", () => {
           description: "Servicio test",
           quantity: "1",
           unitPrice: "100,00 €",
-          taxRate: "21%",
+          taxRate: "IVA general",
           lineTotal: "121,00 €",
         },
       ],
@@ -52,6 +57,15 @@ describe("renderInvoicePdf", () => {
         retentionAmount: "0,00 €",
         hasRetention: false,
         totalAmount: "121,00 €",
+        breakdown: [
+          {
+            name: "IVA general",
+            rate: "21%",
+            base: "100,00 €",
+            amount: "21,00 €",
+            operation: "ADD",
+          },
+        ],
       },
       ...overrides,
     };

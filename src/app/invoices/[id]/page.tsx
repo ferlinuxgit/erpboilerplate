@@ -13,6 +13,7 @@ import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import { canManageInvoices } from "@/lib/rbac";
 import { invoicePaymentStatusLabels, invoicePaymentStatusTone, invoiceStatusLabels, invoiceStatusTone, statusLabel } from "@/lib/status-labels";
 
@@ -31,6 +32,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       dueDate: invoice.dueDate,
       totalAmount: invoice.totalAmount,
       notes: invoice.notes,
+      paymentMethodName: invoice.paymentMethodName,
+      paymentMethodType: invoice.paymentMethodType,
+      paymentBankAccountNumber: invoice.paymentBankAccountNumber,
       customerName: customer.name,
       customerEmail: customer.email,
       customerPhone: customer.phone,
@@ -130,6 +134,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     data.customerProvince,
     data.customerCountryCode,
   ].filter(Boolean);
+  const paymentMethodType = data.paymentMethodType && data.paymentMethodType in paymentMethodTypeLabels
+    ? paymentMethodTypeLabels[data.paymentMethodType as PaymentMethodType]
+    : null;
 
   return (
     <PageShell>
@@ -209,6 +216,16 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </div>
         </PageSection>
       </div>
+
+      {data.paymentMethodName ? (
+        <PageSection title="Forma de pago" description="Condiciones indicadas para el pago de esta factura.">
+          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            <p className="font-medium">{data.paymentMethodName}</p>
+            {paymentMethodType ? <p className="text-muted-foreground">{paymentMethodType}</p> : null}
+            {data.paymentBankAccountNumber ? <p className="mt-2 font-mono">Cuenta: {data.paymentBankAccountNumber}</p> : null}
+          </div>
+        </PageSection>
+      ) : null}
 
       <PageSection title="Líneas" description="Detalle de conceptos, cantidades, impuestos e importes.">
         <div className="overflow-x-auto rounded-[2px] border">

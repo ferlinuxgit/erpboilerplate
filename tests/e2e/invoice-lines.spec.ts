@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { postJson } from "./helpers/api-client";
 import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-session";
 
 test("crear customer y factura con dos líneas persiste totales y líneas", async ({ page }) => {
@@ -8,6 +9,12 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
 
   await registerAndSignIn(page, "Invoice Lines E2E");
   await completeOnboarding(page, "Empresa líneas E2E S.L.");
+  await postJson(page, "/api/payment-methods", {
+    code: `TRANSFER-${runId}`,
+    name: "Transferencia factura",
+    type: "BANK_TRANSFER",
+    bankAccountNumber: "ES12 3456 7890 1234 5678 9012",
+  });
 
   await page.goto("/customers/new");
   await page.getByLabel("Nombre").fill(customerName);
@@ -26,6 +33,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
+  await page.getByLabel("Forma de pago").selectOption({ label: "Transferencia factura · Transferencia bancaria" });
 
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
@@ -48,9 +56,11 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByRole("button", { name: "Crear factura" }).click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok()).toBe(true);
-  const createdInvoice = (await invoiceResponse.json()) as { number: string };
+  const createdInvoice = (await invoiceResponse.json()) as { id: string; number: string };
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
+  await expect(page.getByText("Transferencia factura", { exact: true })).toBeVisible();
+  await expect(page.getByText("ES12 3456 7890 1234 5678 9012", { exact: false })).toBeVisible();
 
   await page.goto("/invoices");
   const invoiceRow = page.locator("tr", { hasText: createdInvoice.number });
@@ -67,13 +77,22 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await expect(persisted).toBeOK();
   const payload = await persisted.json();
   expect(payload.totalAmount).toBe("374.00");
+  expect(payload.paymentMethodName).toBe("Transferencia factura");
+  expect(payload.paymentMethodType).toBe("BANK_TRANSFER");
+  expect(payload.paymentBankAccountNumber).toBe("ES12 3456 7890 1234 5678 9012");
   expect(payload.lines).toMatchObject([
     { description: "Consultoría", quantity: "2.000", unitPrice: "100.00", taxRate: "21.000", lineTotal: "242.00" },
     { description: "Soporte", quantity: "1.500", unitPrice: "80.00", taxRate: "10.000", lineTotal: "132.00" },
   ]);
 
+  const pdfResponse = await page.request.get(`/api/invoices/${invoiceId}/pdf`);
+  expect(pdfResponse.ok()).toBeTruthy();
+  expect(pdfResponse.headers()["content-type"]).toContain("application/pdf");
+  expect((await pdfResponse.body()).subarray(0, 4).toString()).toBe("%PDF");
+
   await page.goto(editHref!);
   await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
+  await expect(page.getByLabel("Forma de pago")).toHaveValue(payload.paymentMethodId);
   await page.getByTestId("invoice-edit-issue-date-input").fill("2026-05-10");
   const updateResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith(`/api/invoices/${invoiceId}`) && response.request().method() === "PATCH",

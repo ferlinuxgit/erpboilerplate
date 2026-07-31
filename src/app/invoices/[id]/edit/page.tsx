@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { invoice, invoiceLine, invoiceLineTax, tax } from "@/db/schema";
+import { invoice, invoiceLine, invoiceLineTax, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
@@ -24,7 +24,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, data.id));
-  const [lineTaxRows, taxes] = await Promise.all([
+  const [lineTaxRows, taxes, paymentMethods] = await Promise.all([
     lines.length > 0
       ? db.select({ invoiceLineId: invoiceLineTax.invoiceLineId, taxId: invoiceLineTax.taxId }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
       : Promise.resolve([]),
@@ -37,6 +37,12 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       isDefault: tax.isDefault,
       isActive: tax.isActive,
     }).from(tax).where(eq(tax.companyId, ctx.company.id)).orderBy(asc(tax.operation), asc(tax.rate), asc(tax.name)),
+    db.select({
+      id: paymentMethod.id,
+      name: paymentMethod.name,
+      type: paymentMethod.type,
+      bankAccountNumber: paymentMethod.bankAccountNumber,
+    }).from(paymentMethod).where(eq(paymentMethod.companyId, ctx.company.id)).orderBy(asc(paymentMethod.name)),
   ]);
   const lineTaxIds = new Map<string, string[]>();
   for (const row of lineTaxRows) {
@@ -62,12 +68,14 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
           defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
           defaultStatus={data.status}
           defaultNotes={data.notes}
+          defaultPaymentMethodId={data.paymentMethodId ?? ""}
           defaultTotalAmount={Number(data.totalAmount)}
           taxes={taxes.map((configuredTax) => ({
             ...configuredTax,
             rate: Number(configuredTax.rate),
             operation: configuredTax.operation === "SUBTRACT" ? "SUBTRACT" : "ADD",
           }))}
+          paymentMethods={paymentMethods}
         />
       </PageSection>
     </PageShell>

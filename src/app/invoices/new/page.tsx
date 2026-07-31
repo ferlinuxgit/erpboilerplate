@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, documentSeries, partner, tax } from "@/db/schema";
+import { customer, documentSeries, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -36,7 +36,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
     .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(customer.companyId, tenantContext.company.id), eq(customer.status, "ACTIVE")))
     .orderBy(asc(customer.name));
-  const [[invoiceSeries], taxes] = await Promise.all([db
+  const [[invoiceSeries], taxes, paymentMethods] = await Promise.all([db
     .select({
       format: documentSeries.format,
       nextNumber: documentSeries.nextNumber,
@@ -57,7 +57,12 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       kind: tax.kind,
       operation: tax.operation,
       isDefault: tax.isDefault,
-    }).from(tax).where(and(eq(tax.companyId, tenantContext.company.id), eq(tax.isActive, true))).orderBy(asc(tax.operation), asc(tax.rate), asc(tax.name))]);
+    }).from(tax).where(and(eq(tax.companyId, tenantContext.company.id), eq(tax.isActive, true))).orderBy(asc(tax.operation), asc(tax.rate), asc(tax.name)), db.select({
+      id: paymentMethod.id,
+      name: paymentMethod.name,
+      type: paymentMethod.type,
+      bankAccountNumber: paymentMethod.bankAccountNumber,
+    }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(asc(paymentMethod.name))]);
   const nextInvoiceNumberPreview = invoiceSeries
     ? formatSeriesNumber({
         format: invoiceSeries.format,
@@ -97,6 +102,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}
             nextInvoiceNumberPreview={nextInvoiceNumberPreview}
+            paymentMethods={paymentMethods}
             taxes={taxes.map((configuredTax) => ({
               ...configuredTax,
               rate: Number(configuredTax.rate),

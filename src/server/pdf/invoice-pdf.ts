@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { company, customer, invoice, invoiceLine, invoiceLineTax, partner } from "@/db/schema";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
+import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import type { InvoicePdfInput } from "@/server/pdf/render";
 
 function formatDate(value: Date | null) {
@@ -31,6 +32,9 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       issueDate: invoice.issueDate,
       dueDate: invoice.dueDate,
       amount: invoice.totalAmount,
+      paymentMethodName: invoice.paymentMethodName,
+      paymentMethodType: invoice.paymentMethodType,
+      paymentBankAccountNumber: invoice.paymentBankAccountNumber,
       companyName: company.name,
       companyLegalName: company.legalName,
       companyVatNumber: company.vatNumber,
@@ -111,15 +115,15 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       })),
     })),
   );
-  const breakdownMap = new Map<string, { label: string; base: number; amount: number; operation: "ADD" | "SUBTRACT" }>();
+  const breakdownMap = new Map<string, { name: string; rate: number; base: number; amount: number; operation: "ADD" | "SUBTRACT" }>();
   for (const lineTotal of totals.lines) {
     for (const selectedTax of lineTotal.taxes) {
-      const label = `${selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto")} ${formatDecimal(selectedTax.rate, 3)}%`;
-      const key = `${label}-${selectedTax.operation}`;
-      const row = breakdownMap.get(key) ?? { label, base: 0, amount: 0, operation: selectedTax.operation };
-      row.base = Math.round((row.base + selectedTax.baseAmount + Number.EPSILON) * 100) / 100;
-      row.amount = Math.round((row.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
-      breakdownMap.set(key, row);
+      const name = selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto");
+      const key = `${name}-${selectedTax.rate}-${selectedTax.operation}`;
+      const breakdown = breakdownMap.get(key) ?? { name, rate: selectedTax.rate, base: 0, amount: 0, operation: selectedTax.operation };
+      breakdown.base = Math.round((breakdown.base + selectedTax.baseAmount + Number.EPSILON) * 100) / 100;
+      breakdown.amount = Math.round((breakdown.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
+      breakdownMap.set(key, breakdown);
     }
   }
 
@@ -130,6 +134,13 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       issueDate: formatDate(row.issueDate) ?? "",
       dueDate: formatDate(row.dueDate),
       amount: formatMoney(row.amount, row.companyBaseCurrencyCode),
+      payment: row.paymentMethodName ? {
+        name: row.paymentMethodName,
+        typeLabel: row.paymentMethodType && row.paymentMethodType in paymentMethodTypeLabels
+          ? paymentMethodTypeLabels[row.paymentMethodType as PaymentMethodType]
+          : null,
+        bankAccountNumber: row.paymentBankAccountNumber,
+      } : null,
       company: {
         name: row.companyName,
         legalName: row.companyLegalName,
@@ -161,7 +172,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         description: line.description,
         quantity: formatDecimal(line.quantity, 3),
         unitPrice: formatMoney(line.unitPrice, row.companyBaseCurrencyCode),
-        taxRate: totals.lines[index]?.taxes.map((selectedTax) => `${selectedTax.operation === "SUBTRACT" ? "−" : "+"}${formatDecimal(selectedTax.rate, 3)}%`).join(" · ") || "—",
+        taxRate: totals.lines[index]?.taxes.map((selectedTax) => selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto")).join("\n") || "—",
         lineTotal: formatMoney(line.lineTotal, row.companyBaseCurrencyCode),
       })),
       totals: {
@@ -171,7 +182,8 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         hasRetention: totals.retentionAmount > 0,
         totalAmount: formatMoney(totals.totalAmount, row.companyBaseCurrencyCode),
         breakdown: [...breakdownMap.values()].map((breakdown) => ({
-          label: breakdown.label,
+          name: breakdown.name,
+          rate: `${formatDecimal(breakdown.rate, 3)}%`,
           base: formatMoney(breakdown.base, row.companyBaseCurrencyCode),
           amount: formatMoney(breakdown.amount, row.companyBaseCurrencyCode),
           operation: breakdown.operation,
