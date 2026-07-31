@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { defaultSeriesFormat, previewSeriesFormat } from "@/lib/document-series-format";
+import { PaymentMethodsPanel } from "@/components/settings/payment-methods-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -18,7 +19,6 @@ type DocumentSeriesRow = {
 };
 
 type CodeNameRow = { id: string; code: string; name: string };
-type PaymentMethodRow = CodeNameRow & { type: string; bankAccountNumber: string | null };
 type TaxKind = "VAT" | "SURCHARGE" | "WITHHOLDING" | "OTHER";
 type TaxRow = {
   id: string;
@@ -44,17 +44,12 @@ export function MastersPanel() {
   const [categoryName, setCategoryName] = useState("");
   const [unitCode, setUnitCode] = useState("");
   const [unitName, setUnitName] = useState("");
-  const [paymentCode, setPaymentCode] = useState("");
-  const [paymentName, setPaymentName] = useState("");
-  const [paymentType, setPaymentType] = useState("BANK_TRANSFER");
-  const [paymentBankAccountNumber, setPaymentBankAccountNumber] = useState("");
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("");
   const [taxKind, setTaxKind] = useState<TaxKind>("VAT");
   const [taxIsDefault, setTaxIsDefault] = useState(false);
   const [categories, setCategories] = useState<CodeNameRow[]>([]);
   const [units, setUnits] = useState<CodeNameRow[]>([]);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
   const [taxes, setTaxes] = useState<TaxRow[]>([]);
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FA");
@@ -97,15 +92,14 @@ export function MastersPanel() {
   useEffect(() => {
     let ignore = false;
     async function loadCatalogs() {
-      const endpoints = ["/api/item-categories", "/api/unit-of-measure", "/api/payment-methods", "/api/taxes?includeInactive=true"];
+      const endpoints = ["/api/item-categories", "/api/unit-of-measure", "/api/taxes?includeInactive=true"];
       const responses = await Promise.all(endpoints.map((endpoint) => fetch(endpoint)));
       if (ignore) return;
       const payloads = await Promise.all(responses.map((response) => response.ok ? response.json() : []));
       if (ignore) return;
       setCategories(payloads[0] as CodeNameRow[]);
       setUnits(payloads[1] as CodeNameRow[]);
-      setPaymentMethods(payloads[2] as PaymentMethodRow[]);
-      setTaxes(payloads[3] as TaxRow[]);
+      setTaxes(payloads[2] as TaxRow[]);
     }
     void loadCatalogs().catch(() => { if (!ignore) toast.error("No se pudieron cargar todos los catálogos."); });
     return () => { ignore = true; };
@@ -221,54 +215,8 @@ export function MastersPanel() {
         </div>
       </div>
 
-      <div className="space-y-2 rounded-md border p-3">
-        <p className="font-medium">Métodos de pago</p>
-        <div className="grid gap-2 md:grid-cols-5">
-          <Input aria-label="Código del método de pago" placeholder="Código" value={paymentCode} onChange={(event) => setPaymentCode(event.target.value)} />
-          <Input aria-label="Nombre del método de pago" placeholder="Nombre" value={paymentName} onChange={(event) => setPaymentName(event.target.value)} />
-          <Select aria-label="Tipo de método de pago" value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>
-            <option value="BANK_TRANSFER">Transferencia</option>
-            <option value="CARD">Tarjeta</option>
-            <option value="CASH">Efectivo</option>
-            <option value="DIRECT_DEBIT">Domiciliación</option>
-          </Select>
-          {paymentType === "BANK_TRANSFER" ? (
-            <Input
-              aria-label="Número de cuenta"
-              placeholder="Número de cuenta"
-              value={paymentBankAccountNumber}
-              onChange={(event) => setPaymentBankAccountNumber(event.target.value)}
-            />
-          ) : null}
-          <Button
-            className={paymentType === "BANK_TRANSFER" ? undefined : "md:col-start-4"}
-            disabled={loading}
-            onClick={() =>
-              submit(
-                "/api/payment-methods",
-                {
-                  code: paymentCode,
-                  name: paymentName,
-                  type: paymentType,
-                  bankAccountNumber: paymentType === "BANK_TRANSFER" ? paymentBankAccountNumber : null,
-                },
-                () => {
-                  setPaymentCode("");
-                  setPaymentName("");
-                  setPaymentType("BANK_TRANSFER");
-                  setPaymentBankAccountNumber("");
-                },
-              )
-            }
-            type="button"
-          >
-            Crear
-          </Button>
-        </div>
-        <div className="divide-y rounded-md bg-muted/25 px-3">
-          {paymentMethods.map((row) => <p className="flex flex-wrap justify-between gap-3 py-2 text-sm" key={row.id}><span>{row.name} <span className="text-muted-foreground">· {row.type}</span></span><span className="font-mono text-muted-foreground">{row.code}</span></p>)}
-          {paymentMethods.length === 0 ? <p className="py-2 text-sm text-muted-foreground">Sin métodos de pago configurados.</p> : null}
-        </div>
+      <div className="rounded-md border p-3">
+        <PaymentMethodsPanel />
       </div>
 
       <div className="space-y-2 rounded-md border p-3">

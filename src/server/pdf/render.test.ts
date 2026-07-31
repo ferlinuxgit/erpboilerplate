@@ -1,9 +1,25 @@
 import { Font } from "@react-pdf/renderer";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { renderInvoicePdf, type InvoicePdfInput } from "@/server/pdf/render";
 
 const tinyPngLogo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+async function pdfText(pdf: Buffer) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const document = await pdfjs.getDocument({
+    data: new Uint8Array(pdf),
+    standardFontDataUrl: `${resolve("node_modules/pdfjs-dist/standard_fonts")}/`,
+  }).promise;
+  const pages: string[] = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((item) => "str" in item ? item.str : "").join(" "));
+  }
+  return pages.join(" ");
+}
 
 describe("renderInvoicePdf", () => {
   function createInput(overrides: Partial<InvoicePdfInput> = {}): InvoicePdfInput {
@@ -93,5 +109,29 @@ describe("renderInvoicePdf", () => {
 
     expect(pdf.length).toBeGreaterThan(1000);
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  });
+
+  it("respects the configured visibility of contact, payment and fiscal blocks", async () => {
+    const input = createInput({
+      display: {
+        showLogo: false,
+        showEmail: false,
+        showPhone: false,
+        showWebsite: false,
+        showCustomerNumber: false,
+        showPaymentMethod: false,
+        showTaxBreakdown: false,
+      },
+      customer: { ...createInput().customer, number: "CLI-0001" },
+    });
+
+    const text = await pdfText(await renderInvoicePdf(input));
+
+    expect(text).not.toContain("admin@example.com");
+    expect(text).not.toContain("+34910000000");
+    expect(text).not.toContain("https://example.com");
+    expect(text).not.toContain("CLI-0001");
+    expect(text).not.toContain("Transferencia a cuenta bancaria");
+    expect(text).not.toContain("Desglose de impuestos");
   });
 });

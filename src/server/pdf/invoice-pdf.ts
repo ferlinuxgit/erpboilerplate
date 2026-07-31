@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 
-import { company, customer, invoice, invoiceLine, invoiceLineTax, partner } from "@/db/schema";
+import { company, companySettings, customer, invoice, invoiceLine, invoiceLineTax, partner } from "@/db/schema";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
@@ -35,6 +35,13 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       paymentMethodName: invoice.paymentMethodName,
       paymentMethodType: invoice.paymentMethodType,
       paymentBankAccountNumber: invoice.paymentBankAccountNumber,
+      pdfShowLogo: companySettings.pdfShowLogo,
+      pdfShowEmail: companySettings.pdfShowEmail,
+      pdfShowPhone: companySettings.pdfShowPhone,
+      pdfShowWebsite: companySettings.pdfShowWebsite,
+      pdfShowCustomerNumber: companySettings.pdfShowCustomerNumber,
+      pdfShowPaymentMethod: companySettings.pdfShowPaymentMethod,
+      pdfShowTaxBreakdown: companySettings.pdfShowTaxBreakdown,
       companyName: company.name,
       companyLegalName: company.legalName,
       companyVatNumber: company.vatNumber,
@@ -63,6 +70,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
     .from(invoice)
     .innerJoin(customer, eq(customer.id, invoice.customerId))
     .innerJoin(company, eq(company.id, invoice.companyId))
+    .leftJoin(companySettings, eq(companySettings.companyId, company.id))
     .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(invoice.id, invoiceId), eq(invoice.companyId, companyId)))
     .limit(1);
@@ -134,6 +142,15 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       issueDate: formatDate(row.issueDate) ?? "",
       dueDate: formatDate(row.dueDate),
       amount: formatMoney(row.amount, row.companyBaseCurrencyCode),
+      display: {
+        showLogo: row.pdfShowLogo ?? true,
+        showEmail: row.pdfShowEmail ?? true,
+        showPhone: row.pdfShowPhone ?? true,
+        showWebsite: row.pdfShowWebsite ?? true,
+        showCustomerNumber: row.pdfShowCustomerNumber ?? true,
+        showPaymentMethod: row.pdfShowPaymentMethod ?? true,
+        showTaxBreakdown: row.pdfShowTaxBreakdown ?? true,
+      },
       payment: row.paymentMethodName ? {
         name: row.paymentMethodName,
         typeLabel: row.paymentMethodType && row.paymentMethodType in paymentMethodTypeLabels

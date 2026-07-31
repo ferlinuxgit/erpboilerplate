@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
@@ -42,7 +42,8 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       name: paymentMethod.name,
       type: paymentMethod.type,
       bankAccountNumber: paymentMethod.bankAccountNumber,
-    }).from(paymentMethod).where(eq(paymentMethod.companyId, ctx.company.id)).orderBy(asc(paymentMethod.name)),
+      isDefault: paymentMethod.isDefault,
+    }).from(paymentMethod).where(eq(paymentMethod.companyId, ctx.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name)),
   ]);
   const lineTaxIds = new Map<string, string[]>();
   for (const row of lineTaxRows) {

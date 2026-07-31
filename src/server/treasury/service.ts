@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 
-import { bankAccount, bankTransaction } from "@/db/schema";
+import { bankAccount, bankTransaction, paymentMethod } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
 
@@ -33,27 +33,52 @@ export async function getBankAccount(companyId: string, id: string) {
 }
 
 export async function createBankAccount(companyId: string, tenantId: string, actorUserId: string, payload: { iban: string; bankName: string }) {
-  const [created] = await db.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName }).returning();
-  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.create", entityName: "bankAccount", entityId: created.id, payload });
-  return created;
+  return db.transaction(async (tx) => {
+    const [created] = await tx.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName }).returning();
+    await tx.insert(paymentMethod).values({
+      companyId,
+      bankAccountId: created.id,
+      code: `AUTO-BANK-${created.id}`,
+      name: `Transferencia · ${created.bankName}`,
+      type: "BANK_TRANSFER",
+      bankAccountNumber: created.iban,
+    });
+    await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.create", entityName: "bankAccount", entityId: created.id, payload }, tx);
+    return created;
+  });
 }
 
 export async function updateBankAccount(companyId: string, tenantId: string, actorUserId: string, id: string, payload: { iban: string; bankName: string }) {
-  const [updated] = await db
-    .update(bankAccount)
-    .set({ iban: payload.iban, bankName: payload.bankName })
-    .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)))
-    .returning();
-  if (!updated) return null;
-  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.update", entityName: "bankAccount", entityId: id, payload });
-  return updated;
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(bankAccount)
+      .set({ iban: payload.iban, bankName: payload.bankName })
+      .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)))
+      .returning();
+    if (!updated) return null;
+    await tx.update(paymentMethod)
+      .set({ bankAccountNumber: updated.iban, updatedAt: new Date() })
+      .where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id)));
+    await tx.update(paymentMethod)
+      .set({ name: `Transferencia · ${updated.bankName}`, updatedAt: new Date() })
+      .where(and(
+        eq(paymentMethod.companyId, companyId),
+        eq(paymentMethod.bankAccountId, id),
+        eq(paymentMethod.code, `AUTO-BANK-${id}`),
+      ));
+    await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.update", entityName: "bankAccount", entityId: id, payload }, tx);
+    return updated;
+  });
 }
 
 export async function deleteBankAccount(companyId: string, tenantId: string, actorUserId: string, id: string) {
-  const [deleted] = await db.delete(bankAccount).where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id))).returning({ id: bankAccount.id });
-  if (!deleted) return false;
-  await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.delete", entityName: "bankAccount", entityId: id });
-  return true;
+  return db.transaction(async (tx) => {
+    await tx.delete(paymentMethod).where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id)));
+    const [deleted] = await tx.delete(bankAccount).where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id))).returning({ id: bankAccount.id });
+    if (!deleted) return false;
+    await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.delete", entityName: "bankAccount", entityId: id }, tx);
+    return true;
+  });
 }
 
 export async function listBankTransactions(companyId: string, bankAccountId?: string) {

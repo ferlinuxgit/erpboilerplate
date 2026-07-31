@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 
-import { company, customer, deliveryNote, deliveryNoteLine, partner, salesOrder, salesOrderLine, salesQuote, salesQuoteLine } from "@/db/schema";
+import { company, companySettings, customer, deliveryNote, deliveryNoteLine, partner, salesOrder, salesOrderLine, salesQuote, salesQuoteLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { salesDocumentStatusLabels, statusLabel } from "@/lib/status-labels";
 import type { InvoicePdfInput } from "@/server/pdf/render";
@@ -20,6 +20,13 @@ const issuerFields = {
   companyWebsite: company.website,
   companyLogoDataUrl: company.logoDataUrl,
   companyInvoiceFooter: company.invoiceFooter,
+  pdfShowLogo: companySettings.pdfShowLogo,
+  pdfShowEmail: companySettings.pdfShowEmail,
+  pdfShowPhone: companySettings.pdfShowPhone,
+  pdfShowWebsite: companySettings.pdfShowWebsite,
+  pdfShowCustomerNumber: companySettings.pdfShowCustomerNumber,
+  pdfShowPaymentMethod: companySettings.pdfShowPaymentMethod,
+  pdfShowTaxBreakdown: companySettings.pdfShowTaxBreakdown,
   currency: company.baseCurrencyCode,
   customerNumber: partner.number,
   customerName: customer.name,
@@ -47,6 +54,13 @@ type PartyRow = {
   companyWebsite: string | null;
   companyLogoDataUrl: string | null;
   companyInvoiceFooter: string | null;
+  pdfShowLogo: boolean | null;
+  pdfShowEmail: boolean | null;
+  pdfShowPhone: boolean | null;
+  pdfShowWebsite: boolean | null;
+  pdfShowCustomerNumber: boolean | null;
+  pdfShowPaymentMethod: boolean | null;
+  pdfShowTaxBreakdown: boolean | null;
   currency: string;
   customerNumber: string | null;
   customerName: string;
@@ -75,6 +89,15 @@ function decimal(value: number | string) {
 
 function partyInput(row: PartyRow) {
   return {
+    display: {
+      showLogo: row.pdfShowLogo ?? true,
+      showEmail: row.pdfShowEmail ?? true,
+      showPhone: row.pdfShowPhone ?? true,
+      showWebsite: row.pdfShowWebsite ?? true,
+      showCustomerNumber: row.pdfShowCustomerNumber ?? true,
+      showPaymentMethod: row.pdfShowPaymentMethod ?? true,
+      showTaxBreakdown: row.pdfShowTaxBreakdown ?? true,
+    },
     company: {
       name: row.companyName,
       legalName: row.companyLegalName,
@@ -128,7 +151,7 @@ function financialInput(row: PartyRow & { number: string; issueDate: Date; dueDa
 
 export async function getSalesQuotePdfData(companyId: string, id: string) {
   const [row] = await db.select({ ...issuerFields, number: salesQuote.number, issueDate: salesQuote.issueDate, dueDate: salesQuote.validUntil, subtotal: salesQuote.subtotal, taxAmount: salesQuote.taxAmount, retentionAmount: salesQuote.retentionAmount, totalAmount: salesQuote.totalAmount })
-    .from(salesQuote).innerJoin(company, eq(company.id, salesQuote.companyId)).innerJoin(customer, eq(customer.id, salesQuote.customerId)).leftJoin(partner, eq(partner.id, customer.partnerId))
+    .from(salesQuote).innerJoin(company, eq(company.id, salesQuote.companyId)).leftJoin(companySettings, eq(companySettings.companyId, company.id)).innerJoin(customer, eq(customer.id, salesQuote.customerId)).leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(salesQuote.id, id), eq(salesQuote.companyId, companyId))).limit(1);
   if (!row) return null;
   const lines = await db.select({ description: salesQuoteLine.description, quantity: salesQuoteLine.quantity, unitPrice: salesQuoteLine.unitPrice, taxRate: salesQuoteLine.taxRate, lineTotal: salesQuoteLine.lineTotal }).from(salesQuoteLine).where(eq(salesQuoteLine.salesQuoteId, id));
@@ -137,7 +160,7 @@ export async function getSalesQuotePdfData(companyId: string, id: string) {
 
 export async function getSalesOrderPdfData(companyId: string, id: string) {
   const [row] = await db.select({ ...issuerFields, number: salesOrder.number, issueDate: salesOrder.issueDate, status: salesOrder.status, subtotal: salesOrder.subtotal, taxAmount: salesOrder.taxAmount, retentionAmount: salesOrder.retentionAmount, totalAmount: salesOrder.totalAmount })
-    .from(salesOrder).innerJoin(company, eq(company.id, salesOrder.companyId)).innerJoin(customer, eq(customer.id, salesOrder.customerId)).leftJoin(partner, eq(partner.id, customer.partnerId))
+    .from(salesOrder).innerJoin(company, eq(company.id, salesOrder.companyId)).leftJoin(companySettings, eq(companySettings.companyId, company.id)).innerJoin(customer, eq(customer.id, salesOrder.customerId)).leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(salesOrder.id, id), eq(salesOrder.companyId, companyId))).limit(1);
   if (!row) return null;
   const lines = await db.select({ description: salesOrderLine.description, quantity: salesOrderLine.quantity, unitPrice: salesOrderLine.unitPrice, taxRate: salesOrderLine.taxRate, lineTotal: salesOrderLine.lineTotal }).from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, id));
@@ -148,7 +171,7 @@ export async function getSalesOrderPdfData(companyId: string, id: string) {
 
 export async function getDeliveryNotePdfData(companyId: string, id: string) {
   const [row] = await db.select({ ...issuerFields, number: deliveryNote.number, issueDate: deliveryNote.issuedAt, status: deliveryNote.status })
-    .from(deliveryNote).innerJoin(company, eq(company.id, deliveryNote.companyId)).innerJoin(customer, eq(customer.id, deliveryNote.customerId)).leftJoin(partner, eq(partner.id, customer.partnerId))
+    .from(deliveryNote).innerJoin(company, eq(company.id, deliveryNote.companyId)).leftJoin(companySettings, eq(companySettings.companyId, company.id)).innerJoin(customer, eq(customer.id, deliveryNote.customerId)).leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(deliveryNote.id, id), eq(deliveryNote.companyId, companyId))).limit(1);
   if (!row) return null;
   const lines = await db.select({ description: deliveryNoteLine.description, quantity: deliveryNoteLine.quantity }).from(deliveryNoteLine).where(eq(deliveryNoteLine.deliveryNoteId, id));

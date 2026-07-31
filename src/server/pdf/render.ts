@@ -5,6 +5,7 @@ import { FiscalReportPdfTemplate } from "@/server/pdf/templates/fiscal-report-te
 import { InvoicePdfTemplate } from "@/server/pdf/templates/invoice-template";
 import { PurchaseOrderPdfTemplate } from "@/server/pdf/templates/purchase-order-template";
 import type { SpanishFiscalSummary } from "@/server/fiscal/spain";
+import type { PdfDisplaySettings } from "@/lib/pdf-settings";
 
 export type InvoicePdfInput = {
   documentTitle?: string;
@@ -18,6 +19,7 @@ export type InvoicePdfInput = {
   issueDate: string;
   dueDate: string | null;
   amount: string;
+  display?: PdfDisplaySettings;
   payment?: {
     name: string;
     typeLabel: string | null;

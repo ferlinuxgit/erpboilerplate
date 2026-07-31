@@ -44,6 +44,7 @@ export type InvoicePaymentMethodOption = {
   name: string;
   type: PaymentMethodType;
   bankAccountNumber: string | null;
+  isDefault: boolean;
 };
 
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
@@ -81,6 +82,7 @@ export function CreateInvoiceForm({
   const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
+  const defaultPaymentMethodId = useMemo(() => paymentMethods.find((method) => method.isDefault)?.id ?? "", [paymentMethods]);
   const {
     control,
     register,
@@ -96,7 +98,7 @@ export function CreateInvoiceForm({
       dueDate: "",
       totalAmount: 0,
       notes: "",
-      paymentMethodId: "",
+      paymentMethodId: defaultPaymentMethodId,
       lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds }],
     },
   });
@@ -380,7 +382,7 @@ export function CreateInvoiceForm({
           <option value="">Sin especificar</option>
           {paymentMethods.map((method) => (
             <option key={method.id} value={method.id}>
-              {method.name} · {paymentMethodTypeLabels[method.type]}
+              {method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}
             </option>
           ))}
         </Select>

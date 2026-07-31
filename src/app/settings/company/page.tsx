@@ -2,10 +2,12 @@ import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { CompanyProfileForm, type CompanyProfileFormValues } from "@/components/company/company-profile-form";
+import { PdfSettingsForm } from "@/components/company/pdf-settings-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { company } from "@/db/schema";
+import { company, companySettings } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+import { defaultPdfDisplaySettings } from "@/lib/pdf-settings";
 
 function toFormValues(row: typeof company.$inferSelect): CompanyProfileFormValues {
   return {
@@ -30,11 +32,18 @@ function toFormValues(row: typeof company.$inferSelect): CompanyProfileFormValue
 
 export default async function CompanySettingsPage() {
   const ctx = await requireContext("settings.manage");
-  const [row] = await db
-    .select()
-    .from(company)
-    .where(and(eq(company.id, ctx.company.id), eq(company.tenantId, ctx.tenant.id)))
-    .limit(1);
+  const [[row], [pdfSettings]] = await Promise.all([
+    db.select().from(company).where(and(eq(company.id, ctx.company.id), eq(company.tenantId, ctx.tenant.id))).limit(1),
+    db.select({
+      showLogo: companySettings.pdfShowLogo,
+      showEmail: companySettings.pdfShowEmail,
+      showPhone: companySettings.pdfShowPhone,
+      showWebsite: companySettings.pdfShowWebsite,
+      showCustomerNumber: companySettings.pdfShowCustomerNumber,
+      showPaymentMethod: companySettings.pdfShowPaymentMethod,
+      showTaxBreakdown: companySettings.pdfShowTaxBreakdown,
+    }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
+  ]);
 
   if (!row) notFound();
 
@@ -49,6 +58,9 @@ export default async function CompanySettingsPage() {
       />
       <PageSection title="Perfil de empresa" description="Mantén sincronizado el emisor de facturas, la localización fiscal y los datos públicos de contacto.">
         <CompanyProfileForm initialValues={toFormValues(row)} />
+      </PageSection>
+      <PageSection title="Diseño y contenido de PDFs" description="Decide qué información pública aparece al generar facturas y documentos comerciales, incluidos los ya creados.">
+        <PdfSettingsForm initialValues={pdfSettings ?? defaultPdfDisplaySettings} />
       </PageSection>
     </PageShell>
   );

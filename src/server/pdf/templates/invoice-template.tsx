@@ -1,5 +1,6 @@
 import { Document, Font, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
+import { defaultPdfDisplaySettings } from "@/lib/pdf-settings";
 import type { InvoicePdfInput } from "@/server/pdf/render";
 
 Font.registerHyphenationCallback((word) => [word]);
@@ -87,10 +88,11 @@ function SectionHeading({ label }: { label: string }) {
   );
 }
 
-export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, payment, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
+export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisplaySettings, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, payment, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
   const companyName = company.legalName?.trim() || company.name;
   const companyAddress = formatAddress(company);
-  const companyContact = [company.email, company.phone].filter(Boolean).join("  |  ");
+  const companyContact = [display.showEmail ? company.email : null, display.showPhone ? company.phone : null].filter(Boolean).join("  |  ");
+  const companyWebsite = display.showWebsite ? company.website : null;
   const customerAddress = formatAddress(customer);
 
   return (
@@ -98,7 +100,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <View style={styles.brandBlock}>
-            {company.logoDataUrl ? (
+            {display.showLogo && company.logoDataUrl ? (
               // eslint-disable-next-line jsx-a11y/alt-text
               <Image src={company.logoDataUrl} style={styles.logo} />
             ) : (
@@ -108,7 +110,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
               </>
             )}
             {companyContact ? <Text style={styles.brandMeta}>{companyContact}</Text> : null}
-            {company.website ? <Text style={styles.brandWebsite}>{company.website}</Text> : null}
+            {companyWebsite ? <Text style={styles.brandWebsite}>{companyWebsite}</Text> : null}
           </View>
           <View style={styles.invoiceBlock}>
             <Text style={styles.eyebrow}>{documentEyebrow}</Text>
@@ -143,7 +145,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
           <View style={[styles.party, styles.partyCustomer]}>
             <Text style={styles.partyHeader}>Cliente</Text>
             <Text style={styles.partyName}>{customer.name}</Text>
-            {customer.number ? <Text style={styles.line}>N.º cliente {customer.number}</Text> : null}
+            {display.showCustomerNumber && customer.number ? <Text style={styles.line}>N.º cliente {customer.number}</Text> : null}
             {customer.taxId ? <Text style={styles.line}>{customer.taxId}</Text> : null}
             {customerAddress ? <Text style={styles.mutedLine}>{customerAddress}</Text> : null}
           </View>
@@ -167,7 +169,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
             </View>
           ))}
         </View>
-        {showFinancials && totals.breakdown?.length ? (
+        {showFinancials && display.showTaxBreakdown && totals.breakdown?.length ? (
           <View style={styles.taxBreakdown} wrap={false}>
             <SectionHeading label="Desglose de impuestos" />
             <View style={styles.compactTable}>
@@ -189,7 +191,7 @@ export function InvoicePdfTemplate({ company, customer, documentEyebrow = "Docum
           </View>
         ) : null}
         {showFinancials ? <View style={styles.bottomGrid} wrap={false}>
-          {payment ? (
+          {display.showPaymentMethod && payment ? (
             <View style={styles.paymentBlock}>
               <Text style={styles.partyHeader}>Forma de pago</Text>
               <Text style={styles.paymentName}>{payment.name}</Text>

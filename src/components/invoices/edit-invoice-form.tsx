@@ -150,7 +150,9 @@ export function EditInvoiceForm({
         <Select id="invoice-payment-method" aria-invalid={Boolean(errors.paymentMethodId)} {...register("paymentMethodId")}>
           <option value="">Sin especificar</option>
           {paymentMethods.map((method) => (
-            <option key={method.id} value={method.id}>{method.name} · {paymentMethodTypeLabels[method.type]}</option>
+            <option key={method.id} value={method.id}>
+              {method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}
+            </option>
           ))}
         </Select>
         {errors.paymentMethodId ? <p className="text-sm text-red-600" role="alert">{errors.paymentMethodId.message}</p> : null}

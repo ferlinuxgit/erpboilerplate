@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
@@ -62,7 +62,8 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       name: paymentMethod.name,
       type: paymentMethod.type,
       bankAccountNumber: paymentMethod.bankAccountNumber,
-    }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(asc(paymentMethod.name))]);
+      isDefault: paymentMethod.isDefault,
+    }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name))]);
   const nextInvoiceNumberPreview = invoiceSeries
     ? formatSeriesNumber({
         format: invoiceSeries.format,

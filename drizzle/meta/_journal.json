@@ -190,6 +190,13 @@
       "when": 1785517483738,
       "tag": "0026_great_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785518731312,
+      "tag": "0027_parallel_loa",
+      "breakpoints": true
     }
   ]
 }

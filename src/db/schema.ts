@@ -234,16 +234,29 @@ export const unitOfMeasure = pgTable("unit_of_measure", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [unique("unit_of_measure_company_code_unique").on(table.companyId, table.code)]);
 
+export const bankAccount = pgTable("bank_account", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  iban: text("iban").notNull(),
+  bankName: text("bankName").notNull(),
+}, (table) => [unique("bank_account_company_iban_unique").on(table.companyId, table.iban)]);
+
 export const paymentMethod = pgTable("payment_method", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
   code: text("code").notNull(),
   name: text("name").notNull(),
   type: paymentMethodTypeEnum("type").notNull().default("BANK_TRANSFER"),
   bankAccountNumber: text("bankAccountNumber"),
+  isDefault: boolean("isDefault").notNull().default(false),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [unique("payment_method_company_code_unique").on(table.companyId, table.code)]);
+}, (table) => [
+  unique("payment_method_company_code_unique").on(table.companyId, table.code),
+  uniqueIndex("payment_method_company_default_unique").on(table.companyId).where(sql`${table.isDefault} = true`),
+  index("payment_method_bank_account_idx").on(table.bankAccountId),
+]);
 
 export const taxRetention = pgTable("tax_retention", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -269,6 +282,13 @@ export const companySettings = pgTable("company_settings", {
   defaultSalesAccountCode: text("defaultSalesAccountCode").notNull().default("700"),
   defaultPurchaseAccountCode: text("defaultPurchaseAccountCode").notNull().default("600"),
   defaultBankAccountCode: text("defaultBankAccountCode").notNull().default("572"),
+  pdfShowLogo: boolean("pdfShowLogo").notNull().default(true),
+  pdfShowEmail: boolean("pdfShowEmail").notNull().default(true),
+  pdfShowPhone: boolean("pdfShowPhone").notNull().default(true),
+  pdfShowWebsite: boolean("pdfShowWebsite").notNull().default(true),
+  pdfShowCustomerNumber: boolean("pdfShowCustomerNumber").notNull().default(true),
+  pdfShowPaymentMethod: boolean("pdfShowPaymentMethod").notNull().default(true),
+  pdfShowTaxBreakdown: boolean("pdfShowTaxBreakdown").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -742,13 +762,6 @@ export const journalLine = pgTable("journal_line", {
   index("journal_line_account_idx").on(table.accountId),
   check("journal_line_valid_amounts", sql`${table.debit} >= 0 AND ${table.credit} >= 0 AND ((${table.debit} > 0 AND ${table.credit} = 0) OR (${table.credit} > 0 AND ${table.debit} = 0))`),
 ]);
-
-export const bankAccount = pgTable("bank_account", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  iban: text("iban").notNull(),
-  bankName: text("bankName").notNull(),
-}, (table) => [unique("bank_account_company_iban_unique").on(table.companyId, table.iban)]);
 
 export const bankTransaction = pgTable("bank_transaction", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
