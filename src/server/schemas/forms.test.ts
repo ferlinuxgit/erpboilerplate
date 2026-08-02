@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { companyProfileSchema, createCustomerSchema } from "@/server/schemas/forms";
+import { companyProfileSchema, createCustomerSchema, createInvoiceSchema, updateInvoiceSchema } from "@/server/schemas/forms";
 
 const validProfile = {
   name: "ERP Demo",
@@ -87,5 +87,30 @@ describe("companyProfileSchema", () => {
 
     expect(parsed.success).toBe(false);
     expect(parsed.error?.issues[0]?.path).toEqual(["logoDataUrl"]);
+  });
+});
+
+describe("invoice payment method references", () => {
+  const invoiceValues = {
+    customerId: "64708b01-b675-4777-bdd8-e601ba62363e",
+    issueDate: "2026-07-31",
+    dueDate: "",
+    totalAmount: 954,
+    notes: "",
+    paymentMethodIds: ["bank-payment-8b4276e9-39c0-4066-9431-90f5a8eca7c8"],
+    lines: [{
+      description: "Servicios informáticos",
+      quantity: 1,
+      unitPrice: 900,
+      taxIds: ["bf29429e-939f-4a2a-b1e2-fe928ed1f497"],
+    }],
+  };
+
+  it("accepts bank-account payment methods created by the migration when creating an invoice", () => {
+    expect(createInvoiceSchema.safeParse(invoiceValues).success).toBe(true);
+  });
+
+  it("accepts bank-account payment methods created by the migration when editing an invoice", () => {
+    expect(updateInvoiceSchema.safeParse({ ...invoiceValues, status: "DRAFT" }).success).toBe(true);
   });
 });

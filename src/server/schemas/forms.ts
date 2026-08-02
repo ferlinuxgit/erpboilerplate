@@ -90,6 +90,12 @@ export const companyProfileSchema = z.object({
 
 export const invoiceStatusSchema = z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"]);
 
+const paymentMethodReferenceSchema = z
+  .string()
+  .trim()
+  .min(1, "La forma de pago seleccionada no es válida.")
+  .max(160, "La forma de pago seleccionada no es válida.");
+
 export const invoiceLineFormSchema = z.object({
   itemId: z.string().trim().optional().nullable(),
   description: z.string().trim().min(1, "La línea debe tener descripción."),
@@ -104,7 +110,7 @@ export const invoiceLineFormSchema = z.object({
 export const createInvoiceSchema = z.object({
   customerId: z.string().trim().optional().or(z.literal("")),
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
-  paymentMethodIds: z.array(z.uuid("La forma de pago seleccionada no es válida.")).max(12, "No puedes seleccionar más de 12 formas de pago.").optional(),
+  paymentMethodIds: z.array(paymentMethodReferenceSchema).max(12, "No puedes seleccionar más de 12 formas de pago.").optional(),
   newCustomer: createCustomerSchema.optional(),
   issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión."),
   dueDate: z.string().trim().optional().or(z.literal("")),
@@ -127,7 +133,7 @@ export const updateInvoiceSchema = z.object({
   issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión.").optional(),
   dueDate: z.string().trim().optional().or(z.literal("")),
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
-  paymentMethodIds: z.array(z.uuid("La forma de pago seleccionada no es válida.")).max(12, "No puedes seleccionar más de 12 formas de pago.").optional(),
+  paymentMethodIds: z.array(paymentMethodReferenceSchema).max(12, "No puedes seleccionar más de 12 formas de pago.").optional(),
   status: invoiceStatusSchema,
   notes: z.string().trim().optional().or(z.literal("")),
   totalAmount: z.number().positive("El importe debe ser mayor que 0."),

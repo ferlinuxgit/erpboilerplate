@@ -34,6 +34,16 @@ type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
 
 type EditableInvoiceLine = UpdateInvoicePayload["lines"][number];
 
+function firstFormErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  if ("message" in error && typeof error.message === "string") return error.message;
+  for (const value of Object.values(error)) {
+    const message = firstFormErrorMessage(value);
+    if (message) return message;
+  }
+  return null;
+}
+
 export function EditInvoiceForm({
   canCreateCustomer,
   customers,
@@ -112,6 +122,7 @@ export function EditInvoiceForm({
   }));
   const totals = calculateInvoiceTotals(calculatedLines);
   const statusErrorId = errors.status ? "invoice-status-error" : undefined;
+  const paymentMethodError = firstFormErrorMessage(errors.paymentMethodIds);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
   const filteredCustomers = useMemo(() => {
     const textQuery = customerSearch.trim().toLocaleLowerCase();
@@ -246,9 +257,11 @@ export function EditInvoiceForm({
       }
     },
     (validationErrors) => {
-      const message = validationErrors.lines
+      const detail = firstFormErrorMessage(validationErrors);
+      const summary = validationErrors.lines
         ? "Revisa las líneas de la factura: hay datos incompletos o no válidos."
         : "Revisa los campos indicados antes de guardar la factura.";
+      const message = detail ? `${summary} ${detail}` : summary;
       setSubmissionError(message);
       toast.error(message);
       requestAnimationFrame(() => {
@@ -381,7 +394,7 @@ export function EditInvoiceForm({
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
         <div className="grid content-start gap-3 rounded-[2px] border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
           <InvoicePaymentMethodsField
-            error={errors.paymentMethodIds?.message}
+            error={paymentMethodError ?? undefined}
             getBinding={() => register("paymentMethodIds")}
             methods={paymentMethods}
             selectedIds={selectedPaymentMethodIds}
