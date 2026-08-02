@@ -19,7 +19,7 @@ import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import { createCustomerSchema, createInvoiceSchema } from "@/server/schemas/forms";
 
-type CustomerOption = {
+export type CustomerOption = {
   id: string;
   number?: string | null;
   name: string;

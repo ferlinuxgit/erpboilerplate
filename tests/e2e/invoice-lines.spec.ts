@@ -110,20 +110,39 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   expect(pdfResponse.headers()["content-type"]).toContain("application/pdf");
   expect((await pdfResponse.body()).subarray(0, 4).toString()).toBe("%PDF");
 
+  const replacementCustomer = await postJson<{ id: string }>(page, "/api/customers", {
+    name: `Cliente corregido ${runId}`,
+    taxId: "B87654321",
+    address: "Calle Corrección 2",
+    postalCode: "28014",
+    city: "Madrid",
+    province: "Madrid",
+    countryCode: "ES",
+    email: `corregido-${runId}@example.test`,
+    phone: "910000002",
+  });
   await page.goto(editHref!);
   await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
+  await expect(page.getByTestId("invoice-edit-due-date-input")).toHaveValue("");
   await expect(page.getByLabel("Forma de pago")).toHaveValue(payload.paymentMethodId);
+  await page.getByRole("button", { name: "Buscar cliente" }).click();
+  await page.getByLabel("CIF/NIF/VAT").fill("B87654321");
+  await page.getByRole("button", { name: /Cliente corregido/ }).click();
   await page.getByTestId("invoice-edit-issue-date-input").fill("2026-05-10");
+  await page.getByTestId("invoice-edit-due-date-input").fill("2026-06-10");
   const updateResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith(`/api/invoices/${invoiceId}`) && response.request().method() === "PATCH",
   );
   await page.getByRole("button", { name: "Guardar cambios" }).click();
   expect((await updateResponsePromise).ok()).toBe(true);
-  await expect(page).toHaveURL(/\/invoices$/);
+  await expect(page).toHaveURL(new RegExp(`/invoices/${invoiceId}$`));
 
   const updatedInvoice = await page.request.get(`/api/invoices/${invoiceId}`);
   expect(updatedInvoice.ok()).toBeTruthy();
-  expect(((await updatedInvoice.json()) as { issueDate: string }).issueDate).toMatch(/^2026-05-10/);
+  const updatedPayload = (await updatedInvoice.json()) as { customerId: string; issueDate: string; dueDate: string };
+  expect(updatedPayload.customerId).toBe(replacementCustomer.id);
+  expect(updatedPayload.issueDate).toMatch(/^2026-05-10/);
+  expect(updatedPayload.dueDate).toMatch(/^2026-06-10/);
 });
 
 test("crear factura permite crear cliente fiscal inline si no existe", async ({ page }) => {

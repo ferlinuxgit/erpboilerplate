@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { invoice, invoiceLine, invoiceLineTax, invoicePayment, paymentMethod, tax } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, invoicePayment, paymentMethod, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -55,8 +55,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   const values = parsedPayload.data;
   const requestedIssueDate = values.issueDate ? new Date(values.issueDate) : null;
+  const dueDateWasProvided = values.dueDate !== undefined;
+  const requestedDueDate = values.dueDate ? new Date(values.dueDate) : null;
   if (requestedIssueDate && Number.isNaN(requestedIssueDate.getTime())) {
     return NextResponse.json({ message: "La fecha de emisión no es válida." }, { status: 400 });
+  }
+  if (requestedDueDate && Number.isNaN(requestedDueDate.getTime())) {
+    return NextResponse.json({ message: "La fecha de vencimiento no es válida." }, { status: 400 });
   }
   if (values.status === "PAID" || values.status === "OVERDUE") {
     return NextResponse.json({ message: "El estado de cobro se calcula a partir de los pagos y el vencimiento." }, { status: 400 });
@@ -65,6 +70,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: "Usa la acción Anular para conservar una reversión contable trazable." }, { status: 400 });
   }
   const { id } = await params;
+  const customerWasProvided = values.customerId !== undefined;
+  const selectedCustomerId = values.customerId?.trim() || null;
+  const [configuredCustomer] = selectedCustomerId
+    ? await db.select({ id: customer.id }).from(customer).where(and(
+        eq(customer.id, selectedCustomerId),
+        eq(customer.companyId, ctx.company.id),
+        eq(customer.status, "ACTIVE"),
+      )).limit(1)
+    : [];
+  if (customerWasProvided && !configuredCustomer) {
+    return NextResponse.json({ message: "Debes seleccionar un cliente activo de la empresa." }, { status: 400 });
+  }
   const paymentMethodWasProvided = values.paymentMethodId !== undefined;
   const selectedPaymentMethodId = values.paymentMethodId?.trim() || null;
   const [configuredPaymentMethod] = selectedPaymentMethodId
@@ -141,7 +158,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         .update(invoice)
         .set({
           status: values.status,
+          ...(customerWasProvided ? { customerId: configuredCustomer!.id } : {}),
           issueDate: nextIssueDate,
+          ...(dueDateWasProvided ? { dueDate: requestedDueDate } : {}),
           ...(paymentMethodWasProvided ? {
             paymentMethodId: configuredPaymentMethod?.id ?? null,
             paymentMethodName: configuredPaymentMethod?.name ?? null,
@@ -191,7 +210,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       action: "invoice.update",
       entityName: "invoice",
       entityId: id,
-      payload: { status: values.status, issueDate: values.issueDate ?? null, totalAmount: invoiceTotals.totalAmount },
+      payload: {
+        status: values.status,
+        customerId: values.customerId ?? null,
+        issueDate: values.issueDate ?? null,
+        dueDate: values.dueDate ?? null,
+        totalAmount: invoiceTotals.totalAmount,
+      },
     });
 
     return NextResponse.json(updated);

@@ -3,10 +3,11 @@ import { notFound } from "next/navigation";
 
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { invoice, invoiceLine, invoiceLineTax, paymentMethod, tax } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
+import { canManageCustomers } from "@/lib/rbac";
 
 export default async function EditInvoicePage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("invoice.write");
@@ -17,14 +18,17 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
   const lines = await db
     .select({
       id: invoiceLine.id,
+      itemId: invoiceLine.itemId,
       description: invoiceLine.description,
       quantity: invoiceLine.quantity,
       unitPrice: invoiceLine.unitPrice,
+      discountPct: invoiceLine.discountPct,
       taxRate: invoiceLine.taxRate,
+      retentionRate: invoiceLine.retentionRate,
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, data.id));
-  const [lineTaxRows, taxes, paymentMethods] = await Promise.all([
+  const [lineTaxRows, taxes, paymentMethods, customers] = await Promise.all([
     lines.length > 0
       ? db.select({ invoiceLineId: invoiceLineTax.invoiceLineId, taxId: invoiceLineTax.taxId }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
       : Promise.resolve([]),
@@ -44,6 +48,19 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       bankAccountNumber: paymentMethod.bankAccountNumber,
       isDefault: paymentMethod.isDefault,
     }).from(paymentMethod).where(eq(paymentMethod.companyId, ctx.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name)),
+    db.select({
+      id: customer.id,
+      number: partner.number,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      taxId: partner.taxId,
+      city: partner.city,
+      province: partner.province,
+    }).from(customer)
+      .leftJoin(partner, eq(partner.id, customer.partnerId))
+      .where(and(eq(customer.companyId, ctx.company.id), eq(customer.status, "ACTIVE")))
+      .orderBy(asc(customer.name)),
   ]);
   const lineTaxIds = new Map<string, string[]>();
   for (const row of lineTaxRows) {
@@ -51,22 +68,29 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     lineTaxIds.set(row.invoiceLineId, [...(lineTaxIds.get(row.invoiceLineId) ?? []), row.taxId]);
   }
   const defaultLines = lines.map((line) => ({
+    itemId: line.itemId,
     description: line.description,
     quantity: Number(line.quantity),
     unitPrice: Number(line.unitPrice),
+    discountPct: Number(line.discountPct ?? 0),
     taxRate: Number(line.taxRate ?? 0),
-    retentionRate: 0,
+    retentionRate: Number(line.retentionRate ?? 0),
     taxIds: lineTaxIds.get(line.id) ?? [],
   }));
 
   return (
     <PageShell>
       <PageHeader eyebrow="Facturas" title="Editar factura" description={data.number} backHref="/invoices" backLabel="Volver a facturas" />
-      <PageSection title="Datos de factura" description="Actualiza líneas, estado, importe y notas del documento.">
+      <PageSection title="Datos de factura" description="Actualiza cliente, fechas, forma de pago, líneas, impuestos, estado y notas del documento.">
         <EditInvoiceForm
           id={data.id}
+          canCreateCustomer={canManageCustomers(ctx.membership.role)}
+          customers={customers}
+          defaultCustomerId={data.customerId}
+          invoiceNumber={data.number}
           defaultLines={defaultLines}
           defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
+          defaultDueDate={data.dueDate ? dateInputValue(data.dueDate, ctx.company.timezone) : ""}
           defaultStatus={data.status}
           defaultNotes={data.notes}
           defaultPaymentMethodId={data.paymentMethodId ?? ""}

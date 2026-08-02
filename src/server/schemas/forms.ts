@@ -122,7 +122,9 @@ export const createInvoiceSchema = z.object({
 });
 
 export const updateInvoiceSchema = z.object({
+  customerId: z.string().trim().optional().or(z.literal("")),
   issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión.").optional(),
+  dueDate: z.string().trim().optional().or(z.literal("")),
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
   status: invoiceStatusSchema,
   notes: z.string().trim().optional().or(z.literal("")),
