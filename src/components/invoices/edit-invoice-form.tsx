@@ -20,13 +20,14 @@ import { Input } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Label } from "@/components/ui/label";
+import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invoiceStatusLabels, statusLabel } from "@/lib/status-labels";
 import { createCustomerSchema, updateInvoiceSchema } from "@/server/schemas/forms";
 
-const statusOptions = ["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"] as const;
+const statusOptions = ["DRAFT", "SENT"] as const;
 
 type UpdateInvoicePayload = z.infer<typeof updateInvoiceSchema>;
 type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
@@ -72,6 +73,7 @@ export function EditInvoiceForm({
   const [customerLocationSearch, setCustomerLocationSearch] = useState("");
   const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive && configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
   const emptyLine: EditableInvoiceLine = {
     description: "",
@@ -86,7 +88,7 @@ export function EditInvoiceForm({
     register,
     handleSubmit,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors, isDirty, isSubmitting },
   } = useForm<UpdateInvoicePayload>({
     resolver: zodResolver(updateInvoiceSchema),
     defaultValues: {
@@ -215,13 +217,10 @@ export function EditInvoiceForm({
     }
   });
 
-  return (
-    <>
-    <form
-      className="grid gap-4 md:grid-cols-3"
-      data-testid="invoice-edit-form"
-      onKeyDown={handleInvoiceKeyDown}
-      onSubmit={handleSubmit(async (values) => {
+  const onSubmit = handleSubmit(
+    async (values) => {
+      setSubmissionError(null);
+      try {
         const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
           ...line,
           taxes: taxes.filter((configuredTax) => line.taxIds?.includes(configuredTax.id)),
@@ -232,17 +231,48 @@ export function EditInvoiceForm({
           body: JSON.stringify({ ...values, totalAmount: invoiceTotals.totalAmount }),
         });
 
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         if (!response.ok) {
-          const payload = (await response.json()) as { message?: string };
-          toast.error(payload.message ?? "No se pudo actualizar la factura.");
-          return;
+          throw new Error(payload?.message ?? `No se pudo actualizar la factura (error ${response.status}).`);
         }
 
         toast.success("Factura actualizada correctamente.");
         router.push(`/invoices/${id}`);
         router.refresh();
-      })}
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo actualizar la factura.";
+        setSubmissionError(message);
+        toast.error(message);
+      }
+    },
+    (validationErrors) => {
+      const message = validationErrors.lines
+        ? "Revisa las líneas de la factura: hay datos incompletos o no válidos."
+        : "Revisa los campos indicados antes de guardar la factura.";
+      setSubmissionError(message);
+      toast.error(message);
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>('[data-testid="invoice-edit-form"] [aria-invalid="true"]:not([type="hidden"])')
+          ?.focus();
+      });
+    },
+  );
+
+  return (
+    <>
+    <form
+      className="grid gap-4 md:grid-cols-3"
+      data-testid="invoice-edit-form"
+      noValidate
+      onKeyDown={handleInvoiceKeyDown}
+      onSubmit={onSubmit}
     >
+      {submissionError ? (
+        <InlineAlert className="md:col-span-3" data-testid="invoice-edit-error" title="No se han guardado los cambios" tone="danger">
+          {submissionError}
+        </InlineAlert>
+      ) : null}
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
       <section className="space-y-3 rounded-md border p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
@@ -364,8 +394,10 @@ export function EditInvoiceForm({
       </div>
 
       <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)] md:col-span-3">
-        <p className="hidden text-xs text-muted-foreground sm:block">Ctrl/Cmd + Enter para guardar</p>
-        <Button className="ml-auto min-w-36" aria-keyshortcuts="Control+Enter Meta+Enter" disabled={isSubmitting} type="submit">
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          {submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
+        </p>
+        <Button className="ml-auto min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" disabled={isSubmitting} type="submit">
           {isSubmitting ? "Guardando..." : "Guardar cambios"}
         </Button>
       </div>

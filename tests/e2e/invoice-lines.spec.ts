@@ -164,6 +164,11 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByRole("button", { name: /Cliente corregido/ }).click();
   await page.getByTestId("invoice-edit-issue-date-input").fill("2026-05-10");
   await page.getByTestId("invoice-edit-due-date-input").fill("2026-06-10");
+  await page.getByTestId("invoice-line-1-description").fill("");
+  await page.getByTestId("invoice-edit-submit").click();
+  await expect(page.getByTestId("invoice-edit-error")).toContainText("Revisa las líneas de la factura");
+  await expect(page.getByTestId("invoice-line-1-description")).toBeFocused();
+  await page.getByTestId("invoice-line-1-description").fill("Consultoría corregida");
   const updateResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith(`/api/invoices/${invoiceId}`) && response.request().method() === "PATCH",
   );
@@ -173,12 +178,29 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
 
   const updatedInvoice = await page.request.get(`/api/invoices/${invoiceId}`);
   expect(updatedInvoice.ok()).toBeTruthy();
-  const updatedPayload = (await updatedInvoice.json()) as { customerId: string; issueDate: string; dueDate: string; paymentMethods: Array<{ id: string | null }> };
+  const updatedPayload = (await updatedInvoice.json()) as {
+    customerId: string;
+    issueDate: string;
+    dueDate: string;
+    lines: Array<{ description: string }>;
+    paymentMethods: Array<{ id: string | null }>;
+  };
   expect(updatedPayload.customerId).toBe(replacementCustomer.id);
   expect(updatedPayload.issueDate).toMatch(/^2026-05-10/);
   expect(updatedPayload.dueDate).toMatch(/^2026-06-10/);
+  expect(updatedPayload.lines[0]?.description).toBe("Consultoría corregida");
   expect(updatedPayload.paymentMethods).toEqual(expect.arrayContaining([{ id: linkedPaymentMethod!.id, name: "Transferencia factura", type: "BANK_TRANSFER", bankAccountNumber: "ES12 3456 7890 1234 5678 9012", position: 0 }]));
   expect(updatedPayload.paymentMethods).toHaveLength(1);
+
+  await postJson(page, "/api/invoice-payments", {
+    invoiceId,
+    amountApplied: 374,
+    postedAt: "2026-05-10T00:00:00.000Z",
+    paymentMethodId: linkedPaymentMethod!.id,
+  });
+  await page.goto(editHref!);
+  await expect(page.getByTestId("invoice-edit-locked")).toContainText("Esta factura tiene cobros registrados");
+  await expect(page.getByTestId("invoice-edit-form")).toHaveCount(0);
 });
 
 test("crear factura permite crear cliente fiscal inline si no existe", async ({ page }) => {

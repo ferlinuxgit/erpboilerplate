@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
-import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, invoice, invoiceLine, invoiceLineTax, invoicePaymentMethod, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -90,26 +90,32 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     <PageShell>
       <PageHeader eyebrow="Facturas" title="Editar factura" description={data.number} backHref="/invoices" backLabel="Volver a facturas" />
       <PageSection title="Datos de factura" description="Actualiza cliente, fechas, forma de pago, líneas, impuestos, estado y notas del documento.">
-        <EditInvoiceForm
-          id={data.id}
-          canCreateCustomer={canManageCustomers(ctx.membership.role)}
-          customers={customers}
-          defaultCustomerId={data.customerId}
-          invoiceNumber={data.number}
-          defaultLines={defaultLines}
-          defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
-          defaultDueDate={data.dueDate ? dateInputValue(data.dueDate, ctx.company.timezone) : ""}
-          defaultStatus={data.status}
-          defaultNotes={data.notes}
-          defaultPaymentMethodIds={defaultPaymentMethodIds}
-          defaultTotalAmount={Number(data.totalAmount)}
-          taxes={taxes.map((configuredTax) => ({
-            ...configuredTax,
-            rate: Number(configuredTax.rate),
-            operation: configuredTax.operation === "SUBTRACT" ? "SUBTRACT" : "ADD",
-          }))}
-          paymentMethods={paymentMethods}
-        />
+        {data.paymentStatus !== "PENDING" ? (
+          <InlineAlert data-testid="invoice-edit-locked" title="Esta factura tiene cobros registrados" tone="danger">
+            Para conservar la trazabilidad contable, no se puede modificar directamente una factura cobrada. Anula o corrige primero el cobro asociado antes de editarla.
+          </InlineAlert>
+        ) : (
+          <EditInvoiceForm
+            id={data.id}
+            canCreateCustomer={canManageCustomers(ctx.membership.role)}
+            customers={customers}
+            defaultCustomerId={data.customerId}
+            invoiceNumber={data.number}
+            defaultLines={defaultLines}
+            defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
+            defaultDueDate={data.dueDate ? dateInputValue(data.dueDate, ctx.company.timezone) : ""}
+            defaultStatus={data.status}
+            defaultNotes={data.notes}
+            defaultPaymentMethodIds={defaultPaymentMethodIds}
+            defaultTotalAmount={Number(data.totalAmount)}
+            taxes={taxes.map((configuredTax) => ({
+              ...configuredTax,
+              rate: Number(configuredTax.rate),
+              operation: configuredTax.operation === "SUBTRACT" ? "SUBTRACT" : "ADD",
+            }))}
+            paymentMethods={paymentMethods}
+          />
+        )}
       </PageSection>
     </PageShell>
   );
