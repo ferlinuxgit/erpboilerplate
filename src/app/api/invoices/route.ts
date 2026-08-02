@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
-import { customer, invoice, invoiceLine, invoiceLineTax, paymentMethod, tax } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
@@ -13,6 +13,7 @@ import { createCustomerWithPartner } from "@/server/customers/service";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { buildInvoiceLineInsertValues, buildInvoiceLineTaxInsertValues } from "@/server/invoices/line-values";
+import { getRequestedPaymentMethodIds, replaceInvoicePaymentMethods, resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods";
 import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
 import { renderInvoicePdf } from "@/server/pdf/render";
 import { createInvoiceSchema } from "@/server/schemas/forms";
@@ -109,23 +110,12 @@ export async function POST(request: Request) {
   const values = parsedPayload.data;
   let customerId = values.customerId?.trim() ?? "";
   const notes = values.notes?.trim() || null;
-  const selectedPaymentMethodId = values.paymentMethodId?.trim() || null;
+  const selectedPaymentMethodIds = getRequestedPaymentMethodIds(values) ?? [];
   const issueDate = values.issueDate ? new Date(values.issueDate) : null;
   const dueDate = values.dueDate ? new Date(values.dueDate) : null;
-  const [configuredPaymentMethod] = selectedPaymentMethodId
-    ? await db.select({
-        id: paymentMethod.id,
-        name: paymentMethod.name,
-        type: paymentMethod.type,
-        bankAccountNumber: paymentMethod.bankAccountNumber,
-      }).from(paymentMethod).where(and(
-        eq(paymentMethod.id, selectedPaymentMethodId),
-        eq(paymentMethod.companyId, actor.context.company.id),
-      )).limit(1)
-    : [];
-  if (selectedPaymentMethodId && !configuredPaymentMethod) {
-    return NextResponse.json({ message: "La forma de pago seleccionada no pertenece a la empresa." }, { status: 400 });
-  }
+  const configuredPaymentMethods = await resolveInvoicePaymentMethods(actor.context.company.id, selectedPaymentMethodIds);
+  if (!configuredPaymentMethods) return NextResponse.json({ message: "Alguna forma de pago seleccionada no pertenece a la empresa." }, { status: 400 });
+  const primaryPaymentMethod = configuredPaymentMethods[0] ?? null;
   const selectedTaxIds = [...new Set(values.lines.flatMap((line) => line.taxIds ?? []))];
   const configuredTaxes = selectedTaxIds.length > 0
     ? await db.select({
@@ -237,10 +227,10 @@ export async function POST(request: Request) {
         .values({
           companyId: actor.context.company.id,
           customerId,
-          paymentMethodId: configuredPaymentMethod?.id ?? null,
-          paymentMethodName: configuredPaymentMethod?.name ?? null,
-          paymentMethodType: configuredPaymentMethod?.type ?? null,
-          paymentBankAccountNumber: configuredPaymentMethod?.bankAccountNumber ?? null,
+          paymentMethodId: primaryPaymentMethod?.id ?? null,
+          paymentMethodName: primaryPaymentMethod?.name ?? null,
+          paymentMethodType: primaryPaymentMethod?.type ?? null,
+          paymentBankAccountNumber: primaryPaymentMethod?.bankAccountNumber ?? null,
           number,
           issueDate,
           dueDate,
@@ -254,6 +244,7 @@ export async function POST(request: Request) {
         });
 
       const lineIds = calculatedLines.map(() => randomUUID());
+      await replaceInvoicePaymentMethods(tx, created.id, configuredPaymentMethods);
       await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(created.id, calculatedLines, lineIds));
       const lineTaxValues = buildInvoiceLineTaxInsertValues(lineIds, calculatedLines);
       if (lineTaxValues.length > 0) await tx.insert(invoiceLineTax).values(lineTaxValues);

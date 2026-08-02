@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { customer, invoice, invoiceLine, invoiceLineTax, invoicePayment, partner, payment, paymentMethod } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, invoicePayment, invoicePaymentMethod, partner, payment, paymentMethod } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -55,7 +55,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const data = rows[0];
   if (!data) notFound();
 
-  const [lines, paymentMethods, payments] = await Promise.all([
+  const [lines, paymentMethods, payments, selectedPaymentMethods] = await Promise.all([
     db
       .select({
         id: invoiceLine.id,
@@ -85,6 +85,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
       .where(and(eq(invoicePayment.companyId, tenantContext.company.id), eq(invoicePayment.invoiceId, data.id)))
       .orderBy(payment.postedAt),
+    db.select({
+      name: invoicePaymentMethod.name,
+      type: invoicePaymentMethod.type,
+      bankAccountNumber: invoicePaymentMethod.bankAccountNumber,
+      position: invoicePaymentMethod.position,
+    }).from(invoicePaymentMethod)
+      .where(eq(invoicePaymentMethod.invoiceId, data.id))
+      .orderBy(invoicePaymentMethod.position),
   ]);
 
   const selectedTaxes = lines.length > 0
@@ -134,9 +142,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     data.customerProvince,
     data.customerCountryCode,
   ].filter(Boolean);
-  const paymentMethodType = data.paymentMethodType && data.paymentMethodType in paymentMethodTypeLabels
-    ? paymentMethodTypeLabels[data.paymentMethodType as PaymentMethodType]
-    : null;
+  const displayedPaymentMethods = selectedPaymentMethods.length > 0
+    ? selectedPaymentMethods
+    : data.paymentMethodName
+      ? [{ name: data.paymentMethodName, type: data.paymentMethodType, bankAccountNumber: data.paymentBankAccountNumber, position: 0 }]
+      : [];
 
   return (
     <PageShell>
@@ -217,12 +227,21 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         </PageSection>
       </div>
 
-      {data.paymentMethodName ? (
-        <PageSection title="Forma de pago" description="Condiciones indicadas para el pago de esta factura.">
-          <div className="rounded-md border bg-muted/30 p-3 text-sm">
-            <p className="font-medium">{data.paymentMethodName}</p>
-            {paymentMethodType ? <p className="text-muted-foreground">{paymentMethodType}</p> : null}
-            {data.paymentBankAccountNumber ? <p className="mt-2 font-mono">Cuenta: {data.paymentBankAccountNumber}</p> : null}
+      {displayedPaymentMethods.length > 0 ? (
+        <PageSection title="Formas de pago" description="Alternativas indicadas para el pago de esta factura.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {displayedPaymentMethods.map((method, index) => {
+              const typeLabel = method.type && method.type in paymentMethodTypeLabels
+                ? paymentMethodTypeLabels[method.type as PaymentMethodType]
+                : null;
+              return (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm" key={`${method.name}-${method.position}-${index}`}>
+                  <p className="font-medium">{method.name}</p>
+                  {typeLabel ? <p className="text-muted-foreground">{typeLabel}</p> : null}
+                  {method.bankAccountNumber ? <p className="mt-2 font-mono">Cuenta: {method.bankAccountNumber}</p> : null}
+                </div>
+              );
+            })}
           </div>
         </PageSection>
       ) : null}

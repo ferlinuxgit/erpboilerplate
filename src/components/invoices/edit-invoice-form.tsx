@@ -36,7 +36,7 @@ export function EditInvoiceForm({
   defaultLines,
   defaultIssueDate,
   defaultNotes,
-  defaultPaymentMethodId,
+  defaultPaymentMethodIds,
   defaultStatus,
   defaultTotalAmount,
   id,
@@ -53,7 +53,7 @@ export function EditInvoiceForm({
   defaultLines: EditableInvoiceLine[];
   defaultIssueDate: string;
   defaultNotes: string | null;
-  defaultPaymentMethodId: string;
+  defaultPaymentMethodIds: string[];
   defaultStatus: "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID";
   defaultTotalAmount: number;
   taxes: Array<InvoiceTaxOption & { isActive: boolean }>;
@@ -90,7 +90,7 @@ export function EditInvoiceForm({
       issueDate: defaultIssueDate,
       dueDate: defaultDueDate,
       notes: defaultNotes ?? "",
-      paymentMethodId: defaultPaymentMethodId,
+      paymentMethodIds: defaultPaymentMethodIds,
       totalAmount: defaultTotalAmount,
       lines: defaultLines.length > 0 ? defaultLines : [emptyLine],
     },
@@ -324,16 +324,17 @@ export function EditInvoiceForm({
         ) : null}
       </div>
       <div className="space-y-2">
-        <Label htmlFor="invoice-payment-method">Forma de pago</Label>
-        <Select id="invoice-payment-method" aria-invalid={Boolean(errors.paymentMethodId)} {...register("paymentMethodId")}>
-          <option value="">Sin especificar</option>
+        <Label id="invoice-payment-methods-label">Formas de pago</Label>
+        <div className="flex min-h-10 flex-wrap gap-2 rounded-md border p-2" role="group" aria-labelledby="invoice-payment-methods-label">
           {paymentMethods.map((method) => (
-            <option key={method.id} value={method.id}>
-              {method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}
-            </option>
+            <label className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm" key={method.id}>
+              <input type="checkbox" value={method.id} {...register("paymentMethodIds")} />
+              <span>{method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}</span>
+            </label>
           ))}
-        </Select>
-        {errors.paymentMethodId ? <p className="text-sm text-red-600" role="alert">{errors.paymentMethodId.message}</p> : null}
+          {paymentMethods.length === 0 ? <p className="text-sm text-muted-foreground">No hay formas de pago configuradas.</p> : null}
+        </div>
+        {errors.paymentMethodIds ? <p className="text-sm text-red-600" role="alert">{errors.paymentMethodIds.message}</p> : null}
       </div>
       <div className="space-y-2">
         <Label htmlFor="invoice-notes">Notas</Label>

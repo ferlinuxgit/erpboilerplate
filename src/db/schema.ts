@@ -435,6 +435,22 @@ export const invoice = pgTable(
   (table) => [unique("invoice_company_number_unique").on(table.companyId, table.number), index("invoice_company_customer_idx").on(table.companyId, table.customerId)],
 );
 
+export const invoicePaymentMethod = pgTable("invoice_payment_method", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  paymentMethodId: text("paymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  type: paymentMethodTypeEnum("type").notNull(),
+  bankAccountNumber: text("bankAccountNumber"),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("invoice_payment_method_invoice_position_unique").on(table.invoiceId, table.position),
+  unique("invoice_payment_method_invoice_method_unique").on(table.invoiceId, table.paymentMethodId),
+  index("invoice_payment_method_invoice_idx").on(table.invoiceId),
+  index("invoice_payment_method_method_idx").on(table.paymentMethodId),
+]);
+
 export const invoiceLine = pgTable("invoice_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),

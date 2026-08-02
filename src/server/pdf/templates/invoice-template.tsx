@@ -52,6 +52,8 @@ const styles = StyleSheet.create({
   taxCell: { flex: 1, paddingVertical: 7, paddingHorizontal: 9, textAlign: "right" },
   bottomGrid: { flexDirection: "row", justifyContent: "flex-end", alignItems: "stretch", gap: 14, marginTop: 16 },
   paymentBlock: { flex: 1, backgroundColor: "#f0f7f6", borderLeft: "3 solid #087f78", paddingVertical: 10, paddingHorizontal: 13, minHeight: 86 },
+  paymentOption: { paddingBottom: 7, marginBottom: 7, borderBottom: "1 solid #cfe1df" },
+  paymentOptionLast: { paddingBottom: 0, marginBottom: 0, borderBottom: "0 solid transparent" },
   paymentName: { fontSize: 11, lineHeight: 1.25, fontWeight: 700, marginBottom: 4, color: "#172234" },
   paymentMeta: { color: "#657184" },
   paymentAccountLabel: { marginTop: 8, marginBottom: 2, fontSize: 6.8, color: "#758193", textTransform: "uppercase", letterSpacing: 1 },
@@ -88,12 +90,13 @@ function SectionHeading({ label }: { label: string }) {
   );
 }
 
-export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisplaySettings, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, payment, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
+export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisplaySettings, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, payment, payments, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
   const companyName = company.legalName?.trim() || company.name;
   const companyAddress = formatAddress(company);
   const companyContact = [display.showEmail ? company.email : null, display.showPhone ? company.phone : null].filter(Boolean).join("  |  ");
   const companyWebsite = display.showWebsite ? company.website : null;
   const customerAddress = formatAddress(customer);
+  const displayedPayments = payments?.length ? payments : payment ? [payment] : [];
 
   return (
     <Document>
@@ -191,17 +194,21 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
           </View>
         ) : null}
         {showFinancials ? <View style={styles.bottomGrid} wrap={false}>
-          {display.showPaymentMethod && payment ? (
+          {display.showPaymentMethod && displayedPayments.length > 0 ? (
             <View style={styles.paymentBlock}>
-              <Text style={styles.partyHeader}>Forma de pago</Text>
-              <Text style={styles.paymentName}>{payment.name}</Text>
-              {payment.typeLabel ? <Text style={styles.paymentMeta}>{payment.typeLabel}</Text> : null}
-              {payment.bankAccountNumber ? (
-                <>
-                  <Text style={styles.paymentAccountLabel}>Cuenta de abono</Text>
-                  <Text style={styles.paymentAccount}>{payment.bankAccountNumber}</Text>
-                </>
-              ) : null}
+              <Text style={styles.partyHeader}>{displayedPayments.length > 1 ? "Formas de pago" : "Forma de pago"}</Text>
+              {displayedPayments.map((method, index) => (
+                <View key={`${method.name}-${index}`} style={[styles.paymentOption, index === displayedPayments.length - 1 ? styles.paymentOptionLast : {}]}>
+                  <Text style={styles.paymentName}>{method.name}</Text>
+                  {method.typeLabel ? <Text style={styles.paymentMeta}>{method.typeLabel}</Text> : null}
+                  {method.bankAccountNumber ? (
+                    <>
+                      <Text style={styles.paymentAccountLabel}>Cuenta de abono</Text>
+                      <Text style={styles.paymentAccount}>{method.bankAccountNumber}</Text>
+                    </>
+                  ) : null}
+                </View>
+              ))}
             </View>
           ) : null}
           <View style={styles.totals}>

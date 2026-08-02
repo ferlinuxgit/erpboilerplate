@@ -111,6 +111,21 @@ describe("renderInvoicePdf", () => {
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
   });
 
+  it("renders every payment method configured on the invoice", async () => {
+    const input = createInput({
+      payment: null,
+      payments: [
+        { name: "Transferencia principal", typeLabel: "Transferencia bancaria", bankAccountNumber: "ES12 3456 7890 1234 5678 9012" },
+        { name: "Pago con tarjeta", typeLabel: "Tarjeta", bankAccountNumber: null },
+      ],
+    });
+
+    const text = await pdfText(await renderInvoicePdf(input));
+
+    expect(text).toContain("Transferencia principal");
+    expect(text).toContain("Pago con tarjeta");
+  });
+
   it("respects the configured visibility of contact, payment and fiscal blocks", async () => {
     const input = createInput({
       display: {

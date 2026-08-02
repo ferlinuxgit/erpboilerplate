@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 
-import { company, companySettings, customer, invoice, invoiceLine, invoiceLineTax, partner } from "@/db/schema";
+import { company, companySettings, customer, invoice, invoiceLine, invoiceLineTax, invoicePaymentMethod, partner } from "@/db/schema";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
@@ -77,8 +77,8 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
 
   if (!row) return null;
 
-  const lines = await db
-    .select({
+  const [lines, selectedPaymentMethods] = await Promise.all([
+    db.select({
       id: invoiceLine.id,
       description: invoiceLine.description,
       quantity: invoiceLine.quantity,
@@ -87,9 +87,16 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       taxRate: invoiceLine.taxRate,
       retentionRate: invoiceLine.retentionRate,
       lineTotal: invoiceLine.lineTotal,
-    })
-    .from(invoiceLine)
-    .where(eq(invoiceLine.invoiceId, invoiceId));
+    }).from(invoiceLine).where(eq(invoiceLine.invoiceId, invoiceId)),
+    db.select({
+      name: invoicePaymentMethod.name,
+      type: invoicePaymentMethod.type,
+      bankAccountNumber: invoicePaymentMethod.bankAccountNumber,
+      position: invoicePaymentMethod.position,
+    }).from(invoicePaymentMethod)
+      .where(eq(invoicePaymentMethod.invoiceId, invoiceId))
+      .orderBy(invoicePaymentMethod.position),
+  ]);
 
   const configuredLineTaxes = lines.length > 0
     ? await db.select({
@@ -151,13 +158,17 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         showPaymentMethod: row.pdfShowPaymentMethod ?? true,
         showTaxBreakdown: row.pdfShowTaxBreakdown ?? true,
       },
-      payment: row.paymentMethodName ? {
-        name: row.paymentMethodName,
-        typeLabel: row.paymentMethodType && row.paymentMethodType in paymentMethodTypeLabels
-          ? paymentMethodTypeLabels[row.paymentMethodType as PaymentMethodType]
-          : null,
-        bankAccountNumber: row.paymentBankAccountNumber,
-      } : null,
+      payments: (selectedPaymentMethods.length > 0
+        ? selectedPaymentMethods
+        : row.paymentMethodName
+          ? [{ name: row.paymentMethodName, type: row.paymentMethodType, bankAccountNumber: row.paymentBankAccountNumber, position: 0 }]
+          : []).map((method) => ({
+            name: method.name,
+            typeLabel: method.type && method.type in paymentMethodTypeLabels
+              ? paymentMethodTypeLabels[method.type as PaymentMethodType]
+              : null,
+            bankAccountNumber: method.bankAccountNumber,
+          })),
       company: {
         name: row.companyName,
         legalName: row.companyLegalName,

@@ -13,17 +13,30 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
     bankName: "Banco factura",
     iban: "ES12 3456 7890 1234 5678 9012",
   });
+  const secondaryPaymentMethod = await postJson<{
+    id: string;
+    name: string;
+    type: "CARD";
+  }>(page, "/api/payment-methods", {
+    code: `CARD-${runId}`,
+    name: "Pago con tarjeta",
+    type: "CARD",
+    bankAccountId: "",
+    bankAccountNumber: "",
+    isDefault: false,
+  });
   const paymentMethodsResponse = await page.request.get("/api/payment-methods");
   expect(paymentMethodsResponse.ok()).toBeTruthy();
-  const linkedPaymentMethod = ((await paymentMethodsResponse.json()) as Array<{
+  const configuredPaymentMethods = (await paymentMethodsResponse.json()) as Array<{
     id: string;
     bankAccountId: string | null;
     code: string;
     name: string;
-    type: "BANK_TRANSFER";
+    type: "BANK_TRANSFER" | "CARD" | "CASH" | "DIRECT_DEBIT";
     bankAccountNumber: string | null;
     isDefault: boolean;
-  }>).find((method) => method.bankAccountId === bankAccount.id);
+  }>;
+  const linkedPaymentMethod = configuredPaymentMethods.find((method) => method.bankAccountId === bankAccount.id);
   expect(linkedPaymentMethod).toBeTruthy();
   await patchJson(page, `/api/payment-methods/${linkedPaymentMethod!.id}`, {
     ...linkedPaymentMethod,
@@ -52,8 +65,9 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
-  await expect(page.getByLabel("Forma de pago")).toHaveValue(linkedPaymentMethod!.id);
-  await expect(page.getByLabel("Forma de pago").locator("option:checked")).toContainText("ES12 3456 7890 1234 5678 9012");
+  const createPaymentMethods = page.getByRole("group", { name: "Formas de pago" });
+  await expect(createPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
+  await createPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).check();
 
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
@@ -100,6 +114,10 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   expect(payload.paymentMethodName).toBe("Transferencia factura");
   expect(payload.paymentMethodType).toBe("BANK_TRANSFER");
   expect(payload.paymentBankAccountNumber).toBe("ES12 3456 7890 1234 5678 9012");
+  expect(payload.paymentMethods).toMatchObject([
+    { id: linkedPaymentMethod!.id, name: "Transferencia factura", position: 0 },
+    { id: secondaryPaymentMethod.id, name: secondaryPaymentMethod.name, position: 1 },
+  ]);
   expect(payload.lines).toMatchObject([
     { description: "Consultoría", quantity: "2.000", unitPrice: "100.00", taxRate: "21.000", lineTotal: "242.00" },
     { description: "Soporte", quantity: "1.500", unitPrice: "80.00", taxRate: "10.000", lineTotal: "132.00" },
@@ -124,7 +142,10 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.goto(editHref!);
   await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
   await expect(page.getByTestId("invoice-edit-due-date-input")).toHaveValue("");
-  await expect(page.getByLabel("Forma de pago")).toHaveValue(payload.paymentMethodId);
+  const editPaymentMethods = page.getByRole("group", { name: "Formas de pago" });
+  await expect(editPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
+  await expect(editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`)).toBeChecked();
+  await editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).uncheck();
   await page.getByRole("button", { name: "Buscar cliente" }).click();
   await page.getByLabel("CIF/NIF/VAT").fill("B87654321");
   await page.getByRole("button", { name: /Cliente corregido/ }).click();
@@ -139,10 +160,12 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
 
   const updatedInvoice = await page.request.get(`/api/invoices/${invoiceId}`);
   expect(updatedInvoice.ok()).toBeTruthy();
-  const updatedPayload = (await updatedInvoice.json()) as { customerId: string; issueDate: string; dueDate: string };
+  const updatedPayload = (await updatedInvoice.json()) as { customerId: string; issueDate: string; dueDate: string; paymentMethods: Array<{ id: string | null }> };
   expect(updatedPayload.customerId).toBe(replacementCustomer.id);
   expect(updatedPayload.issueDate).toMatch(/^2026-05-10/);
   expect(updatedPayload.dueDate).toMatch(/^2026-06-10/);
+  expect(updatedPayload.paymentMethods).toEqual(expect.arrayContaining([{ id: linkedPaymentMethod!.id, name: "Transferencia factura", type: "BANK_TRANSFER", bankAccountNumber: "ES12 3456 7890 1234 5678 9012", position: 0 }]));
+  expect(updatedPayload.paymentMethods).toHaveLength(1);
 });
 
 test("crear factura permite crear cliente fiscal inline si no existe", async ({ page }) => {

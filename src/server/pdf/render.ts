@@ -25,6 +25,11 @@ export type InvoicePdfInput = {
     typeLabel: string | null;
     bankAccountNumber: string | null;
   } | null;
+  payments?: Array<{
+    name: string;
+    typeLabel: string | null;
+    bankAccountNumber: string | null;
+  }>;
   company: {
     name: string;
     legalName: string | null;

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, invoice, invoiceLine, invoiceLineTax, partner, paymentMethod, tax } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, invoicePaymentMethod, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
@@ -28,7 +28,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, data.id));
-  const [lineTaxRows, taxes, paymentMethods, customers] = await Promise.all([
+  const [lineTaxRows, taxes, paymentMethods, customers, selectedPaymentMethods] = await Promise.all([
     lines.length > 0
       ? db.select({ invoiceLineId: invoiceLineTax.invoiceLineId, taxId: invoiceLineTax.taxId }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
       : Promise.resolve([]),
@@ -61,6 +61,10 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       .leftJoin(partner, eq(partner.id, customer.partnerId))
       .where(and(eq(customer.companyId, ctx.company.id), eq(customer.status, "ACTIVE")))
       .orderBy(asc(customer.name)),
+    db.select({ paymentMethodId: invoicePaymentMethod.paymentMethodId })
+      .from(invoicePaymentMethod)
+      .where(eq(invoicePaymentMethod.invoiceId, data.id))
+      .orderBy(asc(invoicePaymentMethod.position)),
   ]);
   const lineTaxIds = new Map<string, string[]>();
   for (const row of lineTaxRows) {
@@ -77,6 +81,10 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     retentionRate: Number(line.retentionRate ?? 0),
     taxIds: lineTaxIds.get(line.id) ?? [],
   }));
+  const defaultPaymentMethodIds = selectedPaymentMethods
+    .map((method) => method.paymentMethodId)
+    .filter((methodId): methodId is string => Boolean(methodId));
+  if (defaultPaymentMethodIds.length === 0 && data.paymentMethodId) defaultPaymentMethodIds.push(data.paymentMethodId);
 
   return (
     <PageShell>
@@ -93,7 +101,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
           defaultDueDate={data.dueDate ? dateInputValue(data.dueDate, ctx.company.timezone) : ""}
           defaultStatus={data.status}
           defaultNotes={data.notes}
-          defaultPaymentMethodId={data.paymentMethodId ?? ""}
+          defaultPaymentMethodIds={defaultPaymentMethodIds}
           defaultTotalAmount={Number(data.totalAmount)}
           taxes={taxes.map((configuredTax) => ({
             ...configuredTax,

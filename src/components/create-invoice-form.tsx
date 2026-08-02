@@ -12,7 +12,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
@@ -82,7 +81,7 @@ export function CreateInvoiceForm({
   const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
-  const defaultPaymentMethodId = useMemo(() => paymentMethods.find((method) => method.isDefault)?.id ?? "", [paymentMethods]);
+  const defaultPaymentMethodIds = useMemo(() => paymentMethods.filter((method) => method.isDefault).map((method) => method.id), [paymentMethods]);
   const {
     control,
     register,
@@ -98,7 +97,7 @@ export function CreateInvoiceForm({
       dueDate: "",
       totalAmount: 0,
       notes: "",
-      paymentMethodId: defaultPaymentMethodId,
+      paymentMethodIds: defaultPaymentMethodIds,
       lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds }],
     },
   });
@@ -372,20 +371,16 @@ export function CreateInvoiceForm({
           {...register("dueDate")}
         />
       </AccessibleField>
-      <AccessibleField id="invoice-payment-method" label="Forma de pago" error={errors.paymentMethodId?.message}>
-        <Select
-          id="invoice-payment-method"
-          aria-label="Forma de pago"
-          aria-invalid={Boolean(errors.paymentMethodId)}
-          {...register("paymentMethodId")}
-        >
-          <option value="">Sin especificar</option>
+      <AccessibleField id="invoice-payment-methods" label="Formas de pago" error={errors.paymentMethodIds?.message}>
+        <div className="flex min-h-10 flex-wrap gap-2 rounded-md border p-2" id="invoice-payment-methods" role="group" aria-label="Formas de pago">
           {paymentMethods.map((method) => (
-            <option key={method.id} value={method.id}>
-              {method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}
-            </option>
+            <label className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm" key={method.id}>
+              <input type="checkbox" value={method.id} {...register("paymentMethodIds")} />
+              <span>{method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}</span>
+            </label>
           ))}
-        </Select>
+          {paymentMethods.length === 0 ? <p className="text-sm text-muted-foreground">No hay formas de pago configuradas.</p> : null}
+        </div>
       </AccessibleField>
       <AccessibleField id="invoice-notes" label="Notas" className="md:col-span-2" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
         <Input

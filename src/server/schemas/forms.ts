@@ -104,6 +104,7 @@ export const invoiceLineFormSchema = z.object({
 export const createInvoiceSchema = z.object({
   customerId: z.string().trim().optional().or(z.literal("")),
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
+  paymentMethodIds: z.array(z.uuid("La forma de pago seleccionada no es válida.")).max(12, "No puedes seleccionar más de 12 formas de pago.").optional(),
   newCustomer: createCustomerSchema.optional(),
   issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión."),
   dueDate: z.string().trim().optional().or(z.literal("")),
@@ -126,6 +127,7 @@ export const updateInvoiceSchema = z.object({
   issueDate: z.string().trim().min(1, "Debes indicar una fecha de emisión.").optional(),
   dueDate: z.string().trim().optional().or(z.literal("")),
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
+  paymentMethodIds: z.array(z.uuid("La forma de pago seleccionada no es válida.")).max(12, "No puedes seleccionar más de 12 formas de pago.").optional(),
   status: invoiceStatusSchema,
   notes: z.string().trim().optional().or(z.literal("")),
   totalAmount: z.number().positive("El importe debe ser mayor que 0."),

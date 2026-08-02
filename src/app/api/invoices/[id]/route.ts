@@ -1,8 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { customer, invoice, invoiceLine, invoiceLineTax, invoicePayment, paymentMethod, tax } from "@/db/schema";
+import { customer, invoice, invoiceLine, invoiceLineTax, invoicePayment, invoicePaymentMethod, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -11,6 +11,7 @@ import { recordAudit } from "@/server/audit";
 import { postSalesInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { buildInvoiceLineInsertValues, buildInvoiceLineTaxInsertValues } from "@/server/invoices/line-values";
+import { getRequestedPaymentMethodIds, replaceInvoicePaymentMethods, resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods";
 import { updateInvoiceSchema } from "@/server/schemas/forms";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,8 +24,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const [row] = await db.select().from(invoice).where(and(eq(invoice.id, id), eq(invoice.companyId, ctx.company.id))).limit(1);
   if (!row) return NextResponse.json({ message: "Factura no encontrada." }, { status: 404 });
 
-  const lines = await db
-    .select({
+  const [lines, paymentMethods] = await Promise.all([
+    db.select({
       id: invoiceLine.id,
       description: invoiceLine.description,
       quantity: invoiceLine.quantity,
@@ -33,11 +34,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       taxRate: invoiceLine.taxRate,
       retentionRate: invoiceLine.retentionRate,
       lineTotal: invoiceLine.lineTotal,
-    })
-    .from(invoiceLine)
-    .where(eq(invoiceLine.invoiceId, row.id));
+    }).from(invoiceLine).where(eq(invoiceLine.invoiceId, row.id)),
+    db.select({
+      id: invoicePaymentMethod.paymentMethodId,
+      name: invoicePaymentMethod.name,
+      type: invoicePaymentMethod.type,
+      bankAccountNumber: invoicePaymentMethod.bankAccountNumber,
+      position: invoicePaymentMethod.position,
+    }).from(invoicePaymentMethod)
+      .where(eq(invoicePaymentMethod.invoiceId, row.id))
+      .orderBy(asc(invoicePaymentMethod.position)),
+  ]);
 
-  return NextResponse.json({ ...row, lines });
+  return NextResponse.json({ ...row, lines, paymentMethods });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -82,22 +91,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (customerWasProvided && !configuredCustomer) {
     return NextResponse.json({ message: "Debes seleccionar un cliente activo de la empresa." }, { status: 400 });
   }
-  const paymentMethodWasProvided = values.paymentMethodId !== undefined;
-  const selectedPaymentMethodId = values.paymentMethodId?.trim() || null;
-  const [configuredPaymentMethod] = selectedPaymentMethodId
-    ? await db.select({
-        id: paymentMethod.id,
-        name: paymentMethod.name,
-        type: paymentMethod.type,
-        bankAccountNumber: paymentMethod.bankAccountNumber,
-      }).from(paymentMethod).where(and(
-        eq(paymentMethod.id, selectedPaymentMethodId),
-        eq(paymentMethod.companyId, ctx.company.id),
-      )).limit(1)
+  const selectedPaymentMethodIds = getRequestedPaymentMethodIds(values);
+  const paymentMethodsWereProvided = selectedPaymentMethodIds !== undefined;
+  const configuredPaymentMethods = selectedPaymentMethodIds
+    ? await resolveInvoicePaymentMethods(ctx.company.id, selectedPaymentMethodIds)
     : [];
-  if (selectedPaymentMethodId && !configuredPaymentMethod) {
-    return NextResponse.json({ message: "La forma de pago seleccionada no pertenece a la empresa." }, { status: 400 });
-  }
+  if (!configuredPaymentMethods) return NextResponse.json({ message: "Alguna forma de pago seleccionada no pertenece a la empresa." }, { status: 400 });
+  const primaryPaymentMethod = configuredPaymentMethods[0] ?? null;
   const selectedTaxIds = [...new Set(values.lines.flatMap((line) => line.taxIds ?? []))];
   const configuredTaxes = selectedTaxIds.length > 0
     ? await db.select({ id: tax.id, name: tax.name, rate: tax.rate, kind: tax.kind, operation: tax.operation })
@@ -161,11 +161,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
           ...(customerWasProvided ? { customerId: configuredCustomer!.id } : {}),
           issueDate: nextIssueDate,
           ...(dueDateWasProvided ? { dueDate: requestedDueDate } : {}),
-          ...(paymentMethodWasProvided ? {
-            paymentMethodId: configuredPaymentMethod?.id ?? null,
-            paymentMethodName: configuredPaymentMethod?.name ?? null,
-            paymentMethodType: configuredPaymentMethod?.type ?? null,
-            paymentBankAccountNumber: configuredPaymentMethod?.bankAccountNumber ?? null,
+          ...(paymentMethodsWereProvided ? {
+            paymentMethodId: primaryPaymentMethod?.id ?? null,
+            paymentMethodName: primaryPaymentMethod?.name ?? null,
+            paymentMethodType: primaryPaymentMethod?.type ?? null,
+            paymentBankAccountNumber: primaryPaymentMethod?.bankAccountNumber ?? null,
           } : {}),
           notes: values.notes?.trim() || null,
           totalAmount: invoiceTotals.totalAmount.toFixed(2),
@@ -177,6 +177,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!row) return null;
 
       await tx.delete(invoiceLine).where(eq(invoiceLine.invoiceId, id));
+      if (paymentMethodsWereProvided) await replaceInvoicePaymentMethods(tx, id, configuredPaymentMethods);
       const lineIds = calculatedLines.map(() => randomUUID());
       await tx.insert(invoiceLine).values(buildInvoiceLineInsertValues(id, calculatedLines, lineIds));
       const lineTaxValues = buildInvoiceLineTaxInsertValues(lineIds, calculatedLines);
