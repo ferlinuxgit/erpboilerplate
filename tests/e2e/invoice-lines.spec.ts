@@ -65,20 +65,32 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
-  const createPaymentMethods = page.getByRole("group", { name: "Formas de pago" });
+  const createPaymentMethods = page.getByTestId("invoice-payment-methods-picker");
+  await createPaymentMethods.locator("summary").click();
   await expect(createPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
   await createPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).check();
 
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
-  await page.getByRole("group", { name: "Impuestos línea 1" }).getByRole("checkbox", { name: /IVA general/ }).check();
+  await page.getByTestId("invoice-line-1-taxes").locator("summary").click();
+  await page.getByTestId("invoice-line-1-taxes").getByRole("checkbox", { name: /IVA general/ }).check();
 
-  await page.keyboard.press("Alt+L");
+  await page.getByTestId("invoice-line-1-unit-price").press("Enter");
+  await expect(page.getByTestId("invoice-line-2-description")).toBeFocused();
   await page.getByTestId("invoice-line-2-description").fill("Soporte");
   await page.getByTestId("invoice-line-2-quantity").fill("1.5");
   await page.getByTestId("invoice-line-2-unit-price").fill("80");
-  await page.getByRole("group", { name: "Impuestos línea 2" }).getByRole("checkbox", { name: /IVA reducido/ }).check();
+  await page.getByTestId("invoice-line-2-taxes").locator("summary").click();
+  await page.getByTestId("invoice-line-2-taxes").getByRole("checkbox", { name: /IVA reducido/ }).check();
+
+  await page.getByRole("button", { name: "Duplicar línea 2" }).click();
+  await expect(page.getByTestId("invoice-line-3-description")).toHaveValue("Soporte");
+  await page.getByRole("button", { name: "Eliminar línea 3" }).click();
+  await page.getByRole("button", { name: "Subir línea 2" }).click();
+  await expect(page.getByTestId("invoice-line-1-description")).toHaveValue("Soporte");
+  await page.getByRole("button", { name: "Bajar línea 1" }).click();
+  await expect(page.getByTestId("invoice-line-1-description")).toHaveValue("Consultoría");
 
   await expect(page.getByText("Subtotal: 320,00 €")).toBeVisible();
   await expect(page.getByTestId("invoice-tax-total")).toHaveText("Impuestos añadidos: 54,00 €");
@@ -142,7 +154,8 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.goto(editHref!);
   await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
   await expect(page.getByTestId("invoice-edit-due-date-input")).toHaveValue("");
-  const editPaymentMethods = page.getByRole("group", { name: "Formas de pago" });
+  const editPaymentMethods = page.getByTestId("invoice-payment-methods-picker");
+  await editPaymentMethods.locator("summary").click();
   await expect(editPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
   await expect(editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`)).toBeChecked();
   await editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).uncheck();
@@ -198,7 +211,8 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
   await page.getByTestId("invoice-line-1-quantity").fill("1");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
-  await page.getByRole("group", { name: "Impuestos línea 1" }).getByRole("checkbox", { name: /IVA general/ }).check();
+  await page.getByTestId("invoice-line-1-taxes").locator("summary").click();
+  await page.getByTestId("invoice-line-1-taxes").getByRole("checkbox", { name: /IVA general/ }).check();
 
   const invoiceResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",

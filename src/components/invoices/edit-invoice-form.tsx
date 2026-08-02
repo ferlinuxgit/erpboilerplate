@@ -8,16 +8,21 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import type { CustomerOption, InvoicePaymentMethodOption, InvoiceTaxOption } from "@/components/create-invoice-form";
+import type { CustomerOption } from "@/components/create-invoice-form";
+import {
+  InvoiceLinesEditor,
+  InvoicePaymentMethodsField,
+  InvoiceTotalsSummary,
+  type InvoicePaymentMethodOption,
+  type InvoiceTaxOption,
+} from "@/components/invoices/invoice-form-controls";
 import { Input } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { paymentMethodTypeLabels } from "@/lib/payment-methods";
 import { invoiceStatusLabels, statusLabel } from "@/lib/status-labels";
 import { createCustomerSchema, updateInvoiceSchema } from "@/server/schemas/forms";
 
@@ -95,31 +100,15 @@ export function EditInvoiceForm({
       lines: defaultLines.length > 0 ? defaultLines : [emptyLine],
     },
   });
-  const { fields, append, remove } = useFieldArray({ control, name: "lines" });
+  const { fields, append, insert, move, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
+  const selectedPaymentMethodIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
   const selectedCustomerId = useWatch({ control, name: "customerId" });
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
   }));
   const totals = calculateInvoiceTotals(calculatedLines);
-  const taxBreakdown = useMemo(() => {
-    const rows = new Map<string, { name: string; rate: number; operation: "ADD" | "SUBTRACT"; amount: number }>();
-    for (const line of totals.lines) {
-      for (const selectedTax of line.taxes) {
-        const key = `${selectedTax.name}-${selectedTax.rate}-${selectedTax.operation}`;
-        const current = rows.get(key) ?? {
-          name: selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto"),
-          rate: selectedTax.rate,
-          operation: selectedTax.operation,
-          amount: 0,
-        };
-        current.amount = Math.round((current.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
-        rows.set(key, current);
-      }
-    }
-    return [...rows.values()];
-  }, [totals.lines]);
   const statusErrorId = errors.status ? "invoice-status-error" : undefined;
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
   const filteredCustomers = useMemo(() => {
@@ -174,6 +163,13 @@ export function EditInvoiceForm({
   const removeLineAndFocus = (index: number) => {
     remove(index);
     setPendingFocusLineIndex(Math.max(0, index - 1));
+  };
+
+  const duplicateLineAndFocus = (index: number) => {
+    const source = watchedLines?.[index];
+    if (!source) return;
+    insert(index + 1, { ...source, taxIds: [...(source.taxIds ?? [])] });
+    setPendingFocusLineIndex(index + 1);
   };
 
   const handleInvoiceKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
@@ -323,136 +319,53 @@ export function EditInvoiceForm({
           </p>
         ) : null}
       </div>
-      <div className="space-y-2">
-        <Label id="invoice-payment-methods-label">Formas de pago</Label>
-        <div className="flex min-h-10 flex-wrap gap-2 rounded-md border p-2" role="group" aria-labelledby="invoice-payment-methods-label">
-          {paymentMethods.map((method) => (
-            <label className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm" key={method.id}>
-              <input type="checkbox" value={method.id} {...register("paymentMethodIds")} />
-              <span>{method.name} · {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}{method.isDefault ? " · Predeterminada" : ""}</span>
-            </label>
-          ))}
-          {paymentMethods.length === 0 ? <p className="text-sm text-muted-foreground">No hay formas de pago configuradas.</p> : null}
-        </div>
-        {errors.paymentMethodIds ? <p className="text-sm text-red-600" role="alert">{errors.paymentMethodIds.message}</p> : null}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="invoice-notes">Notas</Label>
-        <Input id="invoice-notes" {...register("notes")} />
-      </div>
-
-      <section className="space-y-3 md:col-span-3" aria-labelledby="invoice-lines-title">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 id="invoice-lines-title" className="text-sm font-medium">
-              Líneas de factura
-            </h3>
-            <p className="text-sm text-muted-foreground">Selecciona uno o varios impuestos por línea. Las retenciones reducen el total.</p>
-          </div>
-          <Button aria-keyshortcuts="Alt+L" data-testid="invoice-add-line" type="button" variant="outline" onClick={addLineAndFocus}>
-            Añadir línea
-          </Button>
-        </div>
-
-        {fields.length === 0 ? (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No hay líneas en esta factura.</p>
-        ) : (
-          <div className="space-y-3">
-            {fields.map((field, index) => {
-              const lineNumber = index + 1;
-              const descriptionId = `invoice-line-${lineNumber}-description`;
-              const quantityId = `invoice-line-${lineNumber}-quantity`;
-              const unitPriceId = `invoice-line-${lineNumber}-unit-price`;
-              const lineErrors = errors.lines?.[index];
-              const lineTotals = totals.lines[index] ?? { subtotal: 0, taxAmount: 0, retentionAmount: 0, lineTotal: 0, taxes: [] };
-              return (
-                <fieldset key={field.id} className="grid gap-3 rounded-md border p-3 md:grid-cols-12" data-testid={`invoice-line-${lineNumber}`}>
-                  <legend className="px-1 text-sm font-medium">Línea {lineNumber}</legend>
-                  <div className="space-y-2 md:col-span-4">
-                    <Label htmlFor={descriptionId}>Descripción línea {lineNumber}</Label>
-                    <Input
-                      data-testid={descriptionId}
-                      id={descriptionId}
-                      aria-label={`Descripción línea ${lineNumber}`}
-                      aria-invalid={Boolean(lineErrors?.description)}
-                      {...register(`lines.${index}.description`)}
-                    />
-                    {lineErrors?.description ? <p className="text-sm text-red-600">{lineErrors.description.message}</p> : null}
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor={quantityId}>Cantidad línea {lineNumber}</Label>
-                    <Input
-                      data-testid={quantityId}
-                      id={quantityId}
-                      aria-label={`Cantidad línea ${lineNumber}`}
-                      min={0.001}
-                      step="0.001"
-                      type="number"
-                      aria-invalid={Boolean(lineErrors?.quantity)}
-                      {...register(`lines.${index}.quantity`, { valueAsNumber: true })}
-                    />
-                    {lineErrors?.quantity ? <p className="text-sm text-red-600">{lineErrors.quantity.message}</p> : null}
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor={unitPriceId}>Precio unitario línea {lineNumber}</Label>
-                    <Input
-                      data-testid={unitPriceId}
-                      id={unitPriceId}
-                      aria-label={`Precio unitario línea ${lineNumber}`}
-                      min={0}
-                      step="0.01"
-                      type="number"
-                      aria-invalid={Boolean(lineErrors?.unitPrice)}
-                      {...register(`lines.${index}.unitPrice`, { valueAsNumber: true })}
-                    />
-                    {lineErrors?.unitPrice ? <p className="text-sm text-red-600">{lineErrors.unitPrice.message}</p> : null}
-                  </div>
-                  <div className="space-y-2 md:col-span-4">
-                    <Label>Impuestos línea {lineNumber}</Label>
-                    <div className="flex min-h-10 flex-wrap gap-2 rounded-md border p-2" role="group" aria-label={`Impuestos línea ${lineNumber}`}>
-                      {taxes.map((configuredTax) => (
-                        <label className={`flex cursor-pointer items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm ${configuredTax.isActive ? "" : "opacity-60"}`} key={configuredTax.id}>
-                          <input type="checkbox" value={configuredTax.id} {...register(`lines.${index}.taxIds`)} />
-                          <span>
-                            {configuredTax.name} <span className="font-mono text-muted-foreground">{configuredTax.operation === "SUBTRACT" ? "−" : "+"}{configuredTax.rate.toLocaleString("es-ES")}%</span>
-                            {!configuredTax.isActive ? " (archivado)" : ""}
-                          </span>
-                        </label>
-                      ))}
-                      {taxes.length === 0 ? <p className="text-sm text-muted-foreground">No hay impuestos configurados.</p> : null}
-                    </div>
-                    {lineErrors?.taxIds ? <p className="text-sm text-red-600">{lineErrors.taxIds.message}</p> : null}
-                  </div>
-                  <div className="flex items-center justify-between gap-3 border-t pt-3 md:col-span-12">
-                    <div className="text-sm text-muted-foreground" aria-live="polite">
-                      <p>Base: {formatMoney(lineTotals.subtotal)} · Total línea: {formatMoney(lineTotals.lineTotal)}</p>
-                      {lineTotals.taxes.length > 0 ? <p>{lineTotals.taxes.map((selectedTax) => `${selectedTax.operation === "SUBTRACT" ? "−" : "+"}${selectedTax.name} ${formatMoney(selectedTax.amount)}`).join(" · ")}</p> : null}
-                    </div>
-                    <Button type="button" variant="ghost" onClick={() => removeLineAndFocus(index)} disabled={fields.length === 1}>
-                      Quitar
-                    </Button>
-                  </div>
-                </fieldset>
-              );
-            })}
-          </div>
-        )}
-        {errors.lines?.root ? <p className="text-sm text-red-600">{errors.lines.root.message}</p> : null}
-      </section>
-
-      <div className="rounded-md bg-muted p-3 text-sm md:col-span-3" aria-live="polite" data-testid="invoice-totals">
-        <p>Subtotal: {formatMoney(totals.subtotal)}</p>
-        {taxBreakdown.map((row) => (
-          <p key={`${row.name}-${row.rate}-${row.operation}`}>
-            {row.operation === "SUBTRACT" ? "−" : "+"} {row.name} ({row.rate.toLocaleString("es-ES")}%): {formatMoney(row.amount)}
-          </p>
-        ))}
-        <p className="font-medium">Total: {formatMoney(totals.totalAmount)}</p>
-        {errors.totalAmount ? <p className="text-red-600">{errors.totalAmount.message}</p> : null}
-      </div>
-
       <div className="md:col-span-3">
-        <Button aria-keyshortcuts="Control+Enter Meta+Enter" disabled={isSubmitting} type="submit">
+        <InvoiceLinesEditor
+          errors={fields.map((_, index) => {
+            const lineError = errors.lines?.[index];
+            return {
+              description: lineError?.description?.message,
+              quantity: lineError?.quantity?.message,
+              unitPrice: lineError?.unitPrice?.message,
+              taxIds: lineError?.taxIds?.message,
+            };
+          })}
+          fields={fields}
+          getBindings={(index) => ({
+            description: register(`lines.${index}.description`),
+            quantity: register(`lines.${index}.quantity`, { valueAsNumber: true }),
+            unitPrice: register(`lines.${index}.unitPrice`, { valueAsNumber: true }),
+            taxIds: () => register(`lines.${index}.taxIds`),
+          })}
+          lines={watchedLines ?? []}
+          onAdd={addLineAndFocus}
+          onDuplicate={duplicateLineAndFocus}
+          onMove={move}
+          onRemove={removeLineAndFocus}
+          taxes={taxes}
+          totals={totals}
+        />
+        {errors.lines?.root ? <p className="mt-2 text-sm text-red-600" role="alert">{errors.lines.root.message}</p> : null}
+      </div>
+
+      <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
+        <div className="grid content-start gap-3 rounded-[2px] border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
+          <InvoicePaymentMethodsField
+            error={errors.paymentMethodIds?.message}
+            getBinding={() => register("paymentMethodIds")}
+            methods={paymentMethods}
+            selectedIds={selectedPaymentMethodIds}
+          />
+          <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
+            <Input id="invoice-notes" placeholder="Observaciones" aria-label="Notas de factura" {...register("notes")} />
+          </AccessibleField>
+        </div>
+        <InvoiceTotalsSummary error={errors.totalAmount?.message} totals={totals} />
+      </div>
+
+      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)] md:col-span-3">
+        <p className="hidden text-xs text-muted-foreground sm:block">Ctrl/Cmd + Enter para guardar</p>
+        <Button className="ml-auto min-w-36" aria-keyshortcuts="Control+Enter Meta+Enter" disabled={isSubmitting} type="submit">
           {isSubmitting ? "Guardando..." : "Guardar cambios"}
         </Button>
       </div>
