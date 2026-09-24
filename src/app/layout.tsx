@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "sonner";
-
 import { AppShell } from "@/components/layout/app-shell";
+import { ThemedToaster } from "@/components/layout/themed-toaster";
 import { DEFAULT_THEME, themeInitializationScript } from "@/lib/theme-config";
 import "./globals.css";
 
@@ -42,7 +41,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <AppShell>{children}</AppShell>
-        <Toaster richColors position="top-right" />
+        <ThemedToaster />
       </body>
     </html>
   );

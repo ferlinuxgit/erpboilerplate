@@ -149,7 +149,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
                 required
                 {...register("name")}
               />
-              {errors.name ? <p className="text-sm text-red-600">{errors.name.message}</p> : null}
+              {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
             </div>
           ) : null}
           <div className="space-y-2">
@@ -161,7 +161,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
               type="email"
               {...register("email")}
             />
-            {errors.email ? <p className="text-sm text-red-600">{errors.email.message}</p> : null}
+            {errors.email ? <p className="text-sm text-destructive">{errors.email.message}</p> : null}
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Contraseña</Label>
@@ -173,7 +173,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
               type="password"
               {...register("password")}
             />
-            {errors.password ? <p className="text-sm text-red-600">{errors.password.message}</p> : null}
+            {errors.password ? <p className="text-sm text-destructive">{errors.password.message}</p> : null}
           </div>
           <Button className="w-full" disabled={isSubmitting} type="submit">
             {isSubmitting ? "Procesando..." : content.cta}

@@ -94,7 +94,7 @@ export function SalesDocumentsList({
                 {formatMoney(row.totalAmount ?? 0, currencyCode)}
               </span>
             ),
-            exportValue: (row: SalesDocumentListRow) => row.totalAmount ?? "0",
+            exportValue: (row: SalesDocumentListRow) => Number(row.totalAmount ?? 0),
             sortValue: (row: SalesDocumentListRow) =>
               Number(row.totalAmount ?? 0),
             className: "text-right",

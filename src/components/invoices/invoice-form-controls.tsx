@@ -92,7 +92,7 @@ export function InvoicePaymentMethodsField({
           {methods.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No hay formas de pago configuradas.</p> : null}
         </div>
       </details>
-      {error ? <p className="text-sm text-red-600" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
     </div>
   );
 }
@@ -180,7 +180,7 @@ export function InvoiceLinesEditor({
                       {...bindings.description}
                     />
                   </div>
-                  {lineError.description ? <p className="pl-6 text-xs text-red-600" role="alert">{lineError.description}</p> : null}
+                  {lineError.description ? <p className="pl-6 text-xs text-destructive" role="alert">{lineError.description}</p> : null}
                 </div>
                 <div className="space-y-1">
                   <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={quantityId}>Cantidad</label>
@@ -196,7 +196,7 @@ export function InvoiceLinesEditor({
                     onKeyDown={(event) => handleFieldEnter(event, unitPriceId)}
                     {...bindings.quantity}
                   />
-                  {lineError.quantity ? <p className="text-xs text-red-600" role="alert">{lineError.quantity}</p> : null}
+                  {lineError.quantity ? <p className="text-xs text-destructive" role="alert">{lineError.quantity}</p> : null}
                 </div>
                 <div className="space-y-1">
                   <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={unitPriceId}>Precio unitario</label>
@@ -212,7 +212,7 @@ export function InvoiceLinesEditor({
                     onKeyDown={(event) => handlePriceEnter(event, index)}
                     {...bindings.unitPrice}
                   />
-                  {lineError.unitPrice ? <p className="text-xs text-red-600" role="alert">{lineError.unitPrice}</p> : null}
+                  {lineError.unitPrice ? <p className="text-xs text-destructive" role="alert">{lineError.unitPrice}</p> : null}
                 </div>
                 <div className="space-y-1">
                   <span className="font-mono text-[0.67rem] font-bold lg:sr-only">Impuestos</span>
@@ -234,7 +234,7 @@ export function InvoiceLinesEditor({
                       {taxes.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No hay impuestos configurados.</p> : null}
                     </div>
                   </details>
-                  {lineError.taxIds ? <p className="text-xs text-red-600" role="alert">{lineError.taxIds}</p> : null}
+                  {lineError.taxIds ? <p className="text-xs text-destructive" role="alert">{lineError.taxIds}</p> : null}
                 </div>
                 <div className="flex min-h-9 items-center justify-between gap-2 lg:justify-end">
                   <span className="font-mono text-[0.67rem] font-bold lg:hidden">Total</span>
@@ -288,7 +288,7 @@ export function InvoiceTotalsSummary({ error, totals }: { error?: ReactNode; tot
         ))}
         <div className="sr-only" data-testid="invoice-tax-total">Impuestos añadidos: {formatMoney(totals.taxAmount)}</div>
       </dl>
-      {error ? <div className="mt-2 text-sm text-red-600">{error}</div> : null}
+      {error ? <div className="mt-2 text-sm text-destructive">{error}</div> : null}
     </aside>
   );
 }

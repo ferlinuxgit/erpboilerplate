@@ -188,7 +188,7 @@ export function AccountingMastersForm({
                     <span className="font-medium">{account.code} - {account.name}</span>
                     <span className="ml-2 text-xs text-muted-foreground">{accountTypeLabels[account.type]}</span>
                     <span className="ml-2 text-xs text-muted-foreground">{account.isPostable === false ? "No postable" : "Postable"}</span>
-                    {!isMissing ? <span className="ml-2 text-xs text-emerald-700">Creada</span> : null}
+                    {!isMissing ? <span className="ml-2 text-xs text-success">Creada</span> : null}
                     <span className="mt-1 block text-muted-foreground">{account.role}</span>
                   </span>
                 </label>
@@ -236,7 +236,7 @@ export function AccountingMastersForm({
                   />
                   <span>
                     <span className="font-medium">{journal.code} - {journal.name}</span>
-                    {!isMissing ? <span className="ml-2 text-xs text-emerald-700">Creado</span> : null}
+                    {!isMissing ? <span className="ml-2 text-xs text-success">Creado</span> : null}
                     <span className="mt-1 block text-muted-foreground">{journal.role}</span>
                   </span>
                 </label>

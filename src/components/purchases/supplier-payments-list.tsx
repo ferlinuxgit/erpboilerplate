@@ -65,7 +65,7 @@ const columns: ResourceListColumn<SupplierPaymentListRow>[] = [
         {formatMoney(row.amount, row.currencyCode)}
       </span>
     ),
-    exportValue: (row) => row.amount,
+    exportValue: (row) => Number(row.amount),
     sortValue: (row) => Number(row.amount),
     className: "text-right",
   },

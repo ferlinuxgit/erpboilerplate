@@ -1,5 +1,5 @@
 import { RouteLoadingState } from "@/components/route-state";
 
 export default function Loading() {
-  return <RouteLoadingState title="Cargando dashboard" description="Estamos preparando tus indicadores y accesos principales." />;
+  return <RouteLoadingState title="Cargando panel" description="Estamos preparando tus indicadores y accesos principales." />;
 }

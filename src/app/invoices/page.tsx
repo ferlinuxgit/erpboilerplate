@@ -6,6 +6,7 @@ import { InvoicesList } from "@/components/invoices/invoices-list";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { roleLabels, statusLabel } from "@/lib/status-labels";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -46,7 +47,7 @@ export default async function InvoicesPage() {
         eyebrow="Facturas"
         title="Facturas"
         description={`Emisión y seguimiento de facturas de ${tenantContext.company.name}.`}
-        meta={<StatusBadge tone="neutral">Rol: {tenantContext.membership.role}</StatusBadge>}
+        meta={<StatusBadge tone="neutral">Rol: {statusLabel(roleLabels, tenantContext.membership.role)}</StatusBadge>}
         actions={
           canCreateInvoice ? (
             <Link className={buttonVariants()} href="/invoices/new">

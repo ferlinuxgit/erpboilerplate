@@ -116,7 +116,7 @@ export function CustomerCashActions({ invoice, paymentMethods }: CustomerCashAct
           </p>
         ) : null}
         {error ? (
-          <p className="text-sm text-red-600 md:col-span-4" role="alert">
+          <p className="text-sm text-destructive md:col-span-4" role="alert">
             {error}
           </p>
         ) : null}

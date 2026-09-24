@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { formatMoney } from "@/lib/format";
 import {
   buildPurchasePipelineStages,
   getGoodsReceiptInvoiceTransition,
@@ -55,7 +56,7 @@ function StageCards({ stages }: { stages: ReturnType<typeof buildPurchasePipelin
           <p className="text-xs uppercase text-muted-foreground">{stage.label}</p>
           <p className="text-2xl font-semibold">{stage.count}</p>
           {stage.nextActionLabel ? <p className="text-xs text-muted-foreground">Siguiente: {stage.nextActionLabel}</p> : null}
-          {stage.count === 0 ? <p className="mt-2 text-xs text-amber-700">{stage.emptyState}</p> : null}
+          {stage.count === 0 ? <p className="mt-2 text-xs text-warning">{stage.emptyState}</p> : null}
         </div>
       ))}
     </div>
@@ -75,7 +76,7 @@ function PipelineSelect<T extends { id: string }>({
   onChange: (value: string) => void;
   value: string;
 }) {
-  if (items.length === 0) return <p className="rounded-md border border-dashed p-2 text-sm text-amber-700">{emptyMessage}</p>;
+  if (items.length === 0) return <p className="rounded-md border border-dashed p-2 text-sm text-warning">{emptyMessage}</p>;
   return (
     <Select onChange={(event) => onChange(event.target.value)} value={value}>
       {items.map((item) => (
@@ -107,7 +108,7 @@ function DocumentRow({
       <div>
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">Estado: {status}</p>
-        {!transition.allowed ? <p className="mt-1 text-xs text-amber-700">Bloqueado: {transition.reason}</p> : null}
+        {!transition.allowed ? <p className="mt-1 text-xs text-warning">Bloqueado: {transition.reason}</p> : null}
       </div>
       {transition.allowed ? (
         <Button disabled={loading} onClick={onAction} size="sm" type="button">
@@ -284,7 +285,7 @@ export function PurchaseFlowActions({
         <div className="grid gap-2 md:grid-cols-2">
           <PipelineSelect
             emptyMessage="No hay facturas proveedor pendientes de pago. Genera primero la factura desde una recepción."
-            format={(invoice) => `${invoice.number} · ${Number(invoice.totalAmount).toFixed(2)} €`}
+            format={(invoice) => `${invoice.number} · ${formatMoney(invoice.totalAmount ?? 0)}`}
             items={payableInvoices}
             onChange={setSelectedInvoiceId}
             value={activeInvoiceId}

@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { getContextGroup } from "@/components/layout/navigation-config";
+import { getContextGroup, isActiveRoute } from "@/components/layout/navigation-config";
 import { cn } from "@/lib/utils";
 
 function isLinkActive(pathname: string, href: string, exact?: boolean) {
   if (exact) return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
+  return isActiveRoute(pathname, href);
 }
 
 export function ContextNavigation() {

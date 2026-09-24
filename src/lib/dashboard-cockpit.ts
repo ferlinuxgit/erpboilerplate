@@ -35,6 +35,7 @@ export type DashboardCockpitInput = {
   invoicePayments?: InvoicePaymentInput[];
   lowStockAlerts: LowStockAlertInput[];
   inventoryItemsCount?: number;
+  currencyCode?: string;
 };
 
 export type DashboardAction = {
@@ -73,6 +74,7 @@ export type DashboardMetric = {
   value: string;
   helper: string;
   href: string;
+  tone: "neutral" | "warning" | "danger";
 };
 
 export type DashboardCockpit = {
@@ -114,31 +116,37 @@ function formatCount(value: number, singular: string, plural: string) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
 
-function buildMetricCards(cockpit: DashboardCockpit["metrics"]): DashboardMetric[] {
+function buildMetricCards(cockpit: DashboardCockpit["metrics"], currencyCode: string): DashboardMetric[] {
+  const receivables = cockpit.receivablesAmount.toLocaleString("es-ES", { style: "currency", currency: currencyCode });
+  const overdue = cockpit.overdueInvoices > 0 ? ` · ${formatCount(cockpit.overdueInvoices, "vencida", "vencidas")}` : "";
   return [
     {
       label: "Clientes activos",
       value: String(cockpit.activeCustomers),
       helper: "Base comercial disponible para presupuestos, pedidos y facturas.",
       href: "/customers",
+      tone: "neutral",
     },
     {
       label: "Ventas en curso",
       value: String(cockpit.salesInProgress),
       helper: "Presupuestos, pedidos o albaranes pendientes de completar.",
-      href: "/sales",
+      href: "/sales/quotes",
+      tone: "neutral",
     },
     {
       label: "Facturas por cobrar",
       value: String(cockpit.unpaidInvoices),
-      helper: `${cockpit.receivablesAmount.toLocaleString("es-ES", { style: "currency", currency: "EUR" })} pendiente de cobro.`,
+      helper: `${receivables} pendiente de cobro${overdue}.`,
       href: "/invoices",
+      tone: cockpit.overdueInvoices > 0 ? "warning" : "neutral",
     },
     {
       label: "Alertas de stock",
       value: String(cockpit.lowStockAlerts),
       helper: "Artículos por debajo del mínimo configurado.",
       href: "/inventory",
+      tone: cockpit.lowStockAlerts > 0 ? "danger" : "neutral",
     },
   ];
 }
@@ -320,7 +328,7 @@ export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCo
   return {
     stateLabel,
     metrics,
-    metricCards: buildMetricCards(metrics),
+    metricCards: buildMetricCards(metrics, input.currencyCode ?? "EUR"),
     primaryActions: primaryActions.slice(0, 4),
     guidedDemoSteps,
     emptyStates,

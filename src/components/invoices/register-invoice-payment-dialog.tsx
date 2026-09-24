@@ -121,7 +121,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
           </AccessibleField>
 
           {error ? (
-            <p className="text-sm text-red-600" role="alert">
+            <p className="text-sm text-destructive" role="alert">
               {error}
             </p>
           ) : null}

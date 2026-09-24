@@ -1,18 +1,27 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { PageShell } from "@/components/ui/page";
+import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
-export default function ExpensesError({ error, reset }: { error: Error; reset: () => void }) {
+import { RouteErrorState } from "@/components/route-state";
+
+export default function ExpensesError({
+  error,
+  reset,
+}: Readonly<{
+  error: Error & { digest?: string };
+  reset: () => void;
+}>) {
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
+
   return (
-    <PageShell>
-      <div className="rounded-[2px] border border-red-200 bg-red-50 p-6 text-red-900">
-        <p className="font-medium">No se pudieron cargar las facturas de proveedor.</p>
-        <p className="mt-1 text-sm">{error.message}</p>
-        <Button className="mt-4" onClick={reset} type="button" variant="outline">
-          Reintentar
-        </Button>
-      </div>
-    </PageShell>
+    <RouteErrorState
+      title="No se pudieron cargar las facturas de proveedor"
+      description="Puedes reintentar la operación o volver al panel sin perder la navegación principal."
+      error={error}
+      reset={reset}
+    />
   );
 }

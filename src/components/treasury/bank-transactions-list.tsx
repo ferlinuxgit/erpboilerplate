@@ -51,8 +51,9 @@ const columns = (
   },
   {
     header: "Importe",
+    className: "text-right tabular-nums",
     cell: (row) => formatMoney(row.amount, currencyCode),
-    exportValue: (row) => formatMoney(row.amount, currencyCode),
+    exportValue: (row) => Number(row.amount),
     sortValue: (row) => Number(row.amount),
   },
   {

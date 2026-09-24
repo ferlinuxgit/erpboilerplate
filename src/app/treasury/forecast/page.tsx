@@ -157,8 +157,8 @@ export default async function TreasuryForecastPage() {
                     <TableCell
                       className={
                         row.amount >= 0
-                          ? "text-right font-mono text-emerald-700"
-                          : "text-right font-mono text-amber-700"
+                          ? "text-right font-mono text-success"
+                          : "text-right font-mono text-warning"
                       }
                     >
                       {formatMoney(row.amount, currency)}

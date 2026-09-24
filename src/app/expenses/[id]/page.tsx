@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, formatPercent } from "@/lib/format";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import {
@@ -29,6 +29,16 @@ import {
   statusLabel,
 } from "@/lib/status-labels";
 import { getExpenseInvoice } from "@/server/supplier-invoices/service";
+
+// Attachment URLs are user-provided: only render same-origin paths or http(s).
+function isSafeAttachmentUrl(url: string) {
+  if (url.startsWith("/") && !url.startsWith("//")) return true;
+  try {
+    return ["http:", "https:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
 
 export default async function ExpenseDetailPage({
   params,
@@ -145,13 +155,13 @@ export default async function ExpenseDetailPage({
                     {formatMoney(line.subtotalAmount)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {Number(line.taxRate).toFixed(2)}%
+                    {formatPercent(line.taxRate)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {Number(line.taxDeductiblePct).toFixed(2)}%
+                    {formatPercent(line.taxDeductiblePct)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {Number(line.retentionRate).toFixed(2)}%
+                    {formatPercent(line.retentionRate)}
                   </TableCell>
                   <TableCell className="text-right">
                     {formatMoney(line.lineTotal)}
@@ -212,7 +222,7 @@ export default async function ExpenseDetailPage({
           <div className="space-y-2">
             {expense.attachments.map((attachment) => (
               <div
-                className="flex items-center justify-between gap-3 rounded-md border p-3"
+                className="flex items-center justify-between gap-3 rounded-[2px] border border-window-shadow p-3"
                 key={attachment.id}
               >
                 <div className="min-w-0">
@@ -221,13 +231,18 @@ export default async function ExpenseDetailPage({
                     {attachment.contentType ?? "Documento"}
                   </p>
                 </div>
-                <Link
-                  className={buttonVariants({ variant: "outline", size: "sm" })}
-                  href={attachment.fileUrl}
-                  target="_blank"
-                >
-                  Abrir
-                </Link>
+                {isSafeAttachmentUrl(attachment.fileUrl) ? (
+                  <Link
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                    href={attachment.fileUrl}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    Abrir
+                  </Link>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Enlace no disponible</span>
+                )}
               </div>
             ))}
           </div>

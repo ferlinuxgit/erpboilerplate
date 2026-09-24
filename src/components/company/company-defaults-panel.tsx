@@ -58,13 +58,13 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
     <div
       className={cn(
         "rounded-[2px] border p-3",
-        ready ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/70",
+        ready ? "border-success bg-success/10" : "border-warning bg-warning/10",
       )}
     >
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 space-y-2">
           <div className="flex items-center gap-2">
-            {ready ? <CheckCircle2 className="size-5 text-emerald-700" /> : <TriangleAlert className="size-5 text-amber-700" />}
+            {ready ? <CheckCircle2 aria-hidden="true" className="size-5 text-success" /> : <TriangleAlert aria-hidden="true" className="size-5 text-warning" />}
             <p className="font-medium">{ready ? "Plantilla completa" : "Plantilla incompleta"}</p>
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -90,13 +90,13 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
       </div>
 
       {!compact || !ready ? (
-        <details className="mt-4 rounded-md border bg-background/70">
+        <details className="mt-4 rounded-[2px] border border-window-dark-shadow bg-background/70">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
             {ready ? "Ver detalle de configuración" : "Ver elementos pendientes"}
           </summary>
           <div className="grid gap-2 border-t p-3 md:grid-cols-2">
             {status.groups.map((group) => (
-              <div className="rounded-md border bg-card p-3" key={group.key}>
+              <div className="rounded-[2px] border border-window-shadow bg-card p-3" key={group.key}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium">{group.label}</p>
@@ -104,8 +104,8 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
                   </div>
                   <span
                     className={cn(
-                      "rounded-full px-2 py-0.5 text-xs font-medium",
-                      group.missingCount === 0 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
+                      "rounded-[1px] border px-2 py-0.5 font-mono text-xs font-bold tabular-nums",
+                      group.missingCount === 0 ? "border-success bg-success/15 text-success" : "border-warning bg-warning/15 text-warning",
                     )}
                   >
                     {group.totalCount - group.missingCount}/{group.totalCount}

@@ -246,7 +246,7 @@ export function InventoryOperationsPanel({
               {isSubmitting ? "Registrando..." : "Registrar movimiento"}
             </Button>
             <div className="min-h-4 font-mono text-xs" aria-live="polite">
-              {statusMessage ? <p className="text-emerald-600">{statusMessage}</p> : null}
+              {statusMessage ? <p className="text-success">{statusMessage}</p> : null}
               {errorMessage ? <p className="text-destructive">{errorMessage}</p> : null}
               {items.length === 0 || warehouses.length === 0 ? <p className="text-muted-foreground">Crea al menos un producto y un almacén antes de mover stock.</p> : null}
             </div>

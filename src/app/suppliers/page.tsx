@@ -4,6 +4,7 @@ import { SuppliersTable } from "@/components/suppliers/suppliers-table";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { roleLabels, statusLabel } from "@/lib/status-labels";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -22,7 +23,7 @@ export default async function SuppliersPage() {
         eyebrow="Operación"
         title="Proveedores"
         description={`Terceros proveedores de ${tenantContext.company.name} para compras, gastos y facturas recibidas.`}
-        meta={<StatusBadge tone="neutral">Rol: {tenantContext.membership.role}</StatusBadge>}
+        meta={<StatusBadge tone="neutral">Rol: {statusLabel(roleLabels, tenantContext.membership.role)}</StatusBadge>}
         backHref="/dashboard"
         backLabel="Volver al panel"
         actions={

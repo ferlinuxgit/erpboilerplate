@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { formatAmount } from "@/lib/format";
 import { calculateJournalTotals, canSubmitJournalEntry, updateJournalLineAmount, type JournalFormLine } from "@/components/accounting/journal-entry-utils";
 
 type AccountOption = { id: string; code: string; name: string };
@@ -124,10 +125,10 @@ export function CreateJournalEntryForm({ accounts, redirectHref }: CreateJournal
         ))}
       </div>
       <Button type="button" variant="outline" onClick={() => setLines((prev) => [...prev, emptyLine(accounts)])}>Añadir línea</Button>
-      <p className={`text-sm ${totals.isBalanced ? "text-emerald-700" : "text-amber-700"}`} aria-live="polite">
-        Debe: {totals.totalDebit.toFixed(2)} | Haber: {totals.totalCredit.toFixed(2)} | Diferencia: {totals.difference.toFixed(2)} | {totals.isBalanced ? "Balanceado" : "Desbalanceado"}
+      <p className={`text-sm ${totals.isBalanced ? "text-success" : "text-warning"}`} aria-live="polite">
+        Debe: {formatAmount(totals.totalDebit)} | Haber: {formatAmount(totals.totalCredit)} | Diferencia: {formatAmount(totals.difference)} | {totals.isBalanced ? "Balanceado" : "Desbalanceado"}
       </p>
-      {error ? <p id="create-journal-entry-error" className="text-sm text-red-600" role="alert">{error}</p> : null}
+      {error ? <p id="create-journal-entry-error" className="text-sm text-destructive" role="alert">{error}</p> : null}
       <Button type="submit" disabled={loading || !canSubmit}>{loading ? "Guardando…" : "Crear asiento"}</Button>
     </form>
   );

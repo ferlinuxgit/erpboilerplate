@@ -28,9 +28,41 @@ export function FormNavigationGuard() {
       if (form && isEditableForm(form)) dirtyForms.add(form);
     };
 
+    // A submit is optimistic: the form stops guarding navigation, but if the
+    // save fails (inline alert or error toast) the form becomes dirty again so
+    // the user's input is still protected.
+    const failureWatchers = new Map<HTMLFormElement, { observer: MutationObserver; timer: number }>();
+    const stopWatching = (form: HTMLFormElement) => {
+      const watcher = failureWatchers.get(form);
+      if (!watcher) return;
+      watcher.observer.disconnect();
+      window.clearTimeout(watcher.timer);
+      failureWatchers.delete(form);
+    };
+    const isFailureSignal = (node: Node, form: HTMLFormElement) => {
+      if (!(node instanceof Element)) return false;
+      const errorToast = node.matches("[data-sonner-toast][data-type='error']") || node.querySelector("[data-sonner-toast][data-type='error']");
+      const inlineAlert = form.contains(node) && (node.matches("[role='alert']") || node.querySelector("[role='alert']"));
+      return Boolean(errorToast || inlineAlert);
+    };
+
     const markClean = (event: Event) => {
-      const target = event.target;
-      if (target instanceof HTMLFormElement) dirtyForms.delete(target);
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const wasDirty = dirtyForms.delete(form);
+      if (!wasDirty) return;
+      stopWatching(form);
+      const observer = new MutationObserver((mutations) => {
+        const failed = mutations.some((mutation) =>
+          Array.from(mutation.addedNodes).some((node) => isFailureSignal(node, form)),
+        );
+        if (!failed) return;
+        if (form.isConnected) dirtyForms.add(form);
+        stopWatching(form);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      const timer = window.setTimeout(() => stopWatching(form), 15_000);
+      failureWatchers.set(form, { observer, timer });
     };
 
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -84,6 +116,7 @@ export function FormNavigationGuard() {
       document.removeEventListener("submit", markClean, true);
       document.removeEventListener("click", beforeNavigate, true);
       window.removeEventListener("beforeunload", beforeUnload);
+      for (const form of Array.from(failureWatchers.keys())) stopWatching(form);
     };
   }, []);
 

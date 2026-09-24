@@ -49,7 +49,7 @@ export function OnboardingWizard() {
 
   if (isComplete) {
     return (
-      <section className="space-y-4 rounded-[2px] border border-green-300 bg-green-50 p-3 text-green-950" role="status">
+      <section className="space-y-4 rounded-[2px] border border-success bg-success/10 p-3 text-foreground" role="status">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide">Configuración inicial lista</p>
           <h2 className="mt-1 text-lg font-semibold">Onboarding completado</h2>
@@ -112,7 +112,7 @@ export function OnboardingWizard() {
         <div className="space-y-2">
           <Label htmlFor="legalName">Razón social</Label>
           <Input id="legalName" placeholder="Empresa Demo S.L." {...register("legalName")} />
-          {errors.legalName ? <p className="text-sm text-red-600">{errors.legalName.message}</p> : null}
+          {errors.legalName ? <p className="text-sm text-destructive">{errors.legalName.message}</p> : null}
         </div>
       ) : null}
 
@@ -120,7 +120,7 @@ export function OnboardingWizard() {
         <div className="space-y-2">
           <Label htmlFor="vatNumber">NIF/CIF</Label>
           <Input id="vatNumber" placeholder="B12345678" {...register("vatNumber")} />
-          {errors.vatNumber ? <p className="text-sm text-red-600">{errors.vatNumber.message}</p> : null}
+          {errors.vatNumber ? <p className="text-sm text-destructive">{errors.vatNumber.message}</p> : null}
         </div>
       ) : null}
 
@@ -141,7 +141,7 @@ export function OnboardingWizard() {
         <div className="space-y-2">
           <Label htmlFor="inviteEmail">Email del primer miembro a invitar (opcional)</Label>
           <Input id="inviteEmail" placeholder="persona@empresa.com" {...register("inviteEmail")} />
-          {errors.inviteEmail ? <p className="text-sm text-red-600">{errors.inviteEmail.message}</p> : null}
+          {errors.inviteEmail ? <p className="text-sm text-destructive">{errors.inviteEmail.message}</p> : null}
         </div>
       ) : null}
 

@@ -79,9 +79,24 @@ function normalizeSortValue(value: string | number | Date | null | undefined) {
   return String(value ?? "").toLocaleLowerCase();
 }
 
-function escapeCsvValue(value: string | number | null | undefined) {
-  const text = String(value ?? "");
-  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+// Spanish Excel expects ";" as separator and "," as decimal mark.
+const CSV_DELIMITER = ";";
+
+export function escapeCsvValue(value: string | number | null | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value)
+      ? value.toLocaleString("es-ES", { useGrouping: false, maximumFractionDigits: 10 })
+      : "";
+  }
+  let text = String(value ?? "");
+  // Neutralise spreadsheet formula injection from user-provided text.
+  if (/^[=+\-@\t\r]/.test(text) && !/^[+-]?\d[\d.,]*(\s?[%€])?$/.test(text)) text = `'${text}`;
+  return /[";,\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+export function buildCsv(rows: Array<Array<string | number | null | undefined>>) {
+  // BOM so Excel detects UTF-8 (accents, €) instead of the ANSI code page.
+  return `﻿${rows.map((row) => row.map(escapeCsvValue).join(CSV_DELIMITER)).join("\r\n")}`;
 }
 
 export function ResourceList<TItem>({
@@ -325,17 +340,13 @@ export function ResourceList<TItem>({
   }
 
   function exportRows(rows: TItem[]) {
-    const csvRows = [
-      exportableColumns
-        .map((column) => escapeCsvValue(column.header))
-        .join(","),
+    const csv = buildCsv([
+      exportableColumns.map((column) => column.header),
       ...rows.map((item) =>
-        exportableColumns
-          .map((column) => escapeCsvValue(column.exportValue?.(item)))
-          .join(","),
+        exportableColumns.map((column) => column.exportValue?.(item)),
       ),
-    ];
-    const blob = new Blob([csvRows.join("\n")], {
+    ]);
+    const blob = new Blob([csv], {
       type: "text/csv;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -763,15 +774,30 @@ export function ResourceList<TItem>({
       </div>
 
       {paginatedItems.length === 0 ? (
-        <div className="border border-dashed border-window-dark-shadow bg-window-panel px-4 py-5 text-center">
+        <div
+          className="border border-dashed border-window-dark-shadow bg-window-panel px-4 py-5 text-center"
+          role="status"
+        >
           <p className="font-mono text-sm font-bold">
-            {hasSearch ? "Sin resultados" : emptyTitle}
+            {hasSearch || hasActiveFilters ? "Sin resultados" : emptyTitle}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {hasSearch
-              ? "Prueba con otro término de búsqueda o limpia el filtro."
+            {hasSearch || hasActiveFilters
+              ? `Ningún registro coincide con ${hasSearch && hasActiveFilters ? "la búsqueda y los filtros" : hasSearch ? "la búsqueda" : "los filtros"} aplicados.`
               : emptyDescription}
           </p>
+          {hasSearch || hasActiveFilters ? (
+            <Button
+              className="mt-2"
+              onClick={resetFilters}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X aria-hidden="true" />
+              Limpiar búsqueda y filtros
+            </Button>
+          ) : null}
         </div>
       ) : (
         <>

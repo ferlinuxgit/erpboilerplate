@@ -60,7 +60,7 @@ const columns: ResourceListColumn<SupplierRow>[] = [
       <div className="text-right">
         <p className="font-mono font-semibold">{formatMoney(supplier.outstandingBalance, supplier.currencyCode)}</p>
         {Number(supplier.creditBalance) > 0 ? (
-          <p className="text-xs text-emerald-700">A favor: {formatMoney(supplier.creditBalance, supplier.currencyCode)}</p>
+          <p className="text-xs text-success">A favor: {formatMoney(supplier.creditBalance, supplier.currencyCode)}</p>
         ) : null}
       </div>
     ),
@@ -190,7 +190,7 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
               Pendiente: {formatMoney(supplier.outstandingBalance, supplier.currencyCode)}
             </p>
             {Number(supplier.creditBalance) > 0 ? (
-              <p className="text-sm text-emerald-700">A favor: {formatMoney(supplier.creditBalance, supplier.currencyCode)}</p>
+              <p className="text-sm text-success">A favor: {formatMoney(supplier.creditBalance, supplier.currencyCode)}</p>
             ) : null}
             <p className="text-sm text-muted-foreground">
               {supplier.taxId ?? "Sin CIF/NIF"}

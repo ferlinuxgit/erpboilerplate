@@ -52,6 +52,19 @@ export const accountTypeLabels: Record<string, string> = {
   MIXED: "Mixta",
 };
 
+export const roleLabels: Record<string, string> = {
+  OWNER: "Propietario",
+  ADMIN: "Administrador",
+  MEMBER: "Miembro",
+};
+
+export const stockMovementTypeLabels: Record<string, string> = {
+  IN: "Entrada",
+  OUT: "Salida",
+  ADJUSTMENT: "Ajuste",
+  TRANSFER: "Traspaso",
+};
+
 export function statusLabel(labels: Record<string, string>, status: string) {
   return labels[status] ?? status;
 }

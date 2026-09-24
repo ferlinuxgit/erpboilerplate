@@ -29,6 +29,11 @@ export async function GET() {
     availableCompanies: ctx.availableCompanies,
     availableFiscalYears: ctx.availableFiscalYears,
     availableFiscalYearsByCompany: Object.fromEntries(ctx.availableCompanies.map((entry) => [entry.id, allFiscalYears.filter((year) => year.companyId === entry.id).map(({ id, code }) => ({ id, code }))])),
+    user: {
+      name: ctx.user.name,
+      email: ctx.user.email,
+      role: ctx.membership.role,
+    },
   });
 }
 

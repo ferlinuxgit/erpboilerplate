@@ -19,7 +19,7 @@ export default function Error({
   return (
     <RouteErrorState
       title="No se pudo cargar onboarding"
-      description="Puedes reintentar la configuración inicial o volver al dashboard."
+      description="Puedes reintentar la configuración inicial o volver al panel."
       error={error}
       reset={reset}
     />

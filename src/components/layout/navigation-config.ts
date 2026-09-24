@@ -6,6 +6,7 @@ import {
   Calculator,
   ChartLineUp,
   ClipboardText,
+  ClockCounterClockwise,
   Coins,
   CreditCard,
   Factory,
@@ -17,6 +18,7 @@ import {
   ShoppingCart,
   SlidersHorizontal,
   SquaresFour,
+  Tray,
   Truck,
   UserCircleGear,
   UsersThree,
@@ -45,7 +47,7 @@ export const navGroups = [
     links: [
       { href: "/suppliers", label: "Proveedores", code: "20", icon: Factory },
       { href: "/purchases/orders", label: "Pedidos de compra", code: "21", icon: ClipboardText },
-      { href: "/purchases/receipts", label: "Recepciones", code: "22", icon: Package },
+      { href: "/purchases/receipts", label: "Recepciones", code: "22", icon: Tray },
       { href: "/expenses", label: "Facturas de proveedor", code: "23", icon: FileArrowDown },
       { href: "/purchases/payments", label: "Pagos a proveedores", code: "24", icon: Coins },
     ],
@@ -71,6 +73,7 @@ export const navGroups = [
       { href: "/settings/security", label: "Seguridad", code: "43", icon: ShieldCheck },
       { href: "/settings/team", label: "Equipo", code: "44", icon: UserCircleGear },
       { href: "/settings/masters", label: "Maestros", code: "45", icon: SlidersHorizontal },
+      { href: "/settings/audit", label: "Auditoría", code: "46", icon: ClockCounterClockwise },
     ],
   },
 ] as const;
@@ -178,7 +181,7 @@ export const navigationLinks: NavigationLink[] = navGroups.reduce<NavigationLink
 );
 
 export function isActiveRoute(pathname: string, href: string) {
-  if (href === "/sales/quotes" && pathname === "/sales/new") return true;
+  if (href === "/sales/quotes" && (pathname === "/sales/new" || pathname.startsWith("/sales/new/"))) return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

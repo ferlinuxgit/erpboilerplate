@@ -13,7 +13,7 @@ const coreModules: ModuleSmokeCase[] = [
   {
     path: "/dashboard",
     navLabel: "Panel",
-    heading: /Buenos días,/,
+    heading: /(Buenos días|Buenas tardes|Buenas noches),/,
     evidence: /Actividad de/,
   },
   {

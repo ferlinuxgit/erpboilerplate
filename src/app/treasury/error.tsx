@@ -19,7 +19,7 @@ export default function Error({
   return (
     <RouteErrorState
       title="No se pudo cargar tesorería"
-      description="Puedes reintentar la operación o volver al dashboard sin perder la navegación principal."
+      description="Puedes reintentar la operación o volver al panel sin perder la navegación principal."
       error={error}
       reset={reset}
     />

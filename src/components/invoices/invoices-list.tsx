@@ -63,8 +63,9 @@ export function InvoicesList({ paymentMethods, rows }: InvoicesListProps) {
     },
     {
       header: "Importe",
+      className: "text-right tabular-nums",
       cell: (invoice) => invoice.totalAmountLabel,
-      exportValue: (invoice) => invoice.totalAmountLabel,
+      exportValue: (invoice) => Number(invoice.totalAmount),
       sortValue: (invoice) => Number(invoice.totalAmount),
     },
     {

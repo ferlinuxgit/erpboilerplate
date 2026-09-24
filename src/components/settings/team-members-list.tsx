@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { TeamMemberActions } from "@/components/settings/team-member-actions";
+import { roleLabels, statusLabel } from "@/lib/status-labels";
 
 type TeamMemberRow = {
   membershipId: string;
@@ -48,10 +49,10 @@ const columns = (
               : "neutral"
         }
       >
-        {member.role}
+        {statusLabel(roleLabels, member.role)}
       </StatusBadge>
     ),
-    exportValue: (member) => member.role,
+    exportValue: (member) => statusLabel(roleLabels, member.role),
     sortValue: (member) => member.role,
   },
   ...(canManage
@@ -84,7 +85,7 @@ export function TeamMembersList({
       exportFileName="equipo.csv"
       getRowId={(member) => member.membershipId}
       getSearchText={(member) =>
-        [member.name, member.email, member.role].join(" ")
+        [member.name, member.email, member.role, statusLabel(roleLabels, member.role)].join(" ")
       }
       items={rows}
       searchPlaceholder="Buscar miembro por nombre, email o rol"

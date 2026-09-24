@@ -299,7 +299,7 @@ export function CreatePurchaseOrderForm({
       </div>
       {error ? (
         <p
-          className="text-sm text-red-600"
+          className="text-sm text-destructive"
           id="purchase-order-error"
           role="alert"
         >

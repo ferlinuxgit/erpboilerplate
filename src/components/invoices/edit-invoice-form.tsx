@@ -313,7 +313,7 @@ export function EditInvoiceForm({
         ) : (
           <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Selecciona un cliente activo.</p>
         )}
-        {errors.customerId ? <p className="text-sm text-red-600" role="alert">{errors.customerId.message}</p> : null}
+        {errors.customerId ? <p className="text-sm text-destructive" role="alert">{errors.customerId.message}</p> : null}
       </section>
       <div className="space-y-2 rounded-md border bg-muted/30 p-3">
         <p className="text-sm font-medium">Número de factura</p>
@@ -357,7 +357,7 @@ export function EditInvoiceForm({
           ))}
         </Select>
         {errors.status ? (
-          <p id="invoice-status-error" className="text-sm text-red-600" role="alert">
+          <p id="invoice-status-error" className="text-sm text-destructive" role="alert">
             {errors.status.message}
           </p>
         ) : null}
@@ -388,7 +388,7 @@ export function EditInvoiceForm({
           taxes={taxes}
           totals={totals}
         />
-        {errors.lines?.root ? <p className="mt-2 text-sm text-red-600" role="alert">{errors.lines.root.message}</p> : null}
+        {errors.lines?.root ? <p className="mt-2 text-sm text-destructive" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">

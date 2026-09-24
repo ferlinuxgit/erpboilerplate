@@ -506,7 +506,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
         {isLoading ? "Guardando..." : "Registrar factura"}
       </Button>
       {error ? (
-        <p className="text-sm text-red-600" id="expense-invoice-error" role="alert">
+        <p className="text-sm text-destructive" id="expense-invoice-error" role="alert">
           {error}
         </p>
       ) : null}

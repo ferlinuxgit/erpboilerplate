@@ -19,7 +19,7 @@ export default function Error({
   return (
     <RouteErrorState
       title="No se pudo cargar reporting"
-      description="Puedes reintentar la carga o volver al dashboard sin perder la navegación principal."
+      description="Puedes reintentar la carga o volver al panel sin perder la navegación principal."
       error={error}
       reset={reset}
     />

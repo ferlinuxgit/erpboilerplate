@@ -78,21 +78,21 @@ const columns: ResourceListColumn<InventoryItemRow>[] = [
       row.isService
         ? "No aplica"
         : Number(row.minimumStock).toLocaleString("es-ES"),
-    exportValue: (row) => row.minimumStock,
+    exportValue: (row) => Number(row.minimumStock),
     sortValue: (row) => Number(row.minimumStock),
     className: "text-right",
   },
   {
     header: "Venta",
     cell: (row) => formatMoney(row.salePrice, row.currencyCode),
-    exportValue: (row) => row.salePrice,
+    exportValue: (row) => Number(row.salePrice),
     sortValue: (row) => Number(row.salePrice),
     className: "text-right",
   },
   {
     header: "Coste medio",
     cell: (row) => formatMoney(row.averageCost, row.currencyCode),
-    exportValue: (row) => row.averageCost,
+    exportValue: (row) => Number(row.averageCost),
     sortValue: (row) => Number(row.averageCost),
     className: "text-right",
   },

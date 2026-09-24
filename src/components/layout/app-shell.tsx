@@ -9,7 +9,8 @@ import { ActiveContextSwitcher } from "@/components/layout/active-context-switch
 import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
 import { ContextNavigation } from "@/components/layout/context-navigation";
 import { FormNavigationGuard } from "@/components/layout/form-navigation-guard";
-import { KeyboardHelpButton, KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { SessionPanel } from "@/components/layout/session-panel";
 import { ThemeSwitcher } from "@/components/layout/theme-switcher";
 import {
   getContextGroup,
@@ -53,7 +54,7 @@ function NavigationGroups({ id, pathname, onNavigate }: NavigationGroupsProps) {
     >
       {navGroups.map((group) => (
         <section key={group.label}>
-          <p className="mb-px border-b border-window-shadow px-1.5 pb-px font-mono text-[0.52rem] font-bold uppercase tracking-[0.06em] text-window-muted">
+          <p className="mb-px border-b border-window-shadow px-1.5 pb-px font-mono text-[0.62rem] font-bold uppercase tracking-[0.06em] text-window-muted">
             {group.code} · {group.label}
           </p>
           <div className="flex flex-col gap-px">
@@ -65,7 +66,7 @@ function NavigationGroups({ id, pathname, onNavigate }: NavigationGroupsProps) {
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     buttonVariants({ variant: "ghost", size: "sm" }),
-                    "h-8 w-full justify-start gap-1.5 border-transparent px-1.5 text-left font-sans text-[0.72rem] font-semibold lg:h-[1.4rem]",
+                    "h-8 w-full justify-start gap-1.5 border-transparent px-1.5 text-left font-sans text-[0.75rem] font-semibold lg:h-6",
                     active &&
                       "border-window-dark-shadow bg-primary text-primary-foreground shadow-[inset_1px_1px_0_rgba(255,255,255,0.4),inset_-1px_-1px_0_rgba(0,0,0,0.55)] hover:bg-primary hover:text-primary-foreground",
                   )}
@@ -75,7 +76,7 @@ function NavigationGroups({ id, pathname, onNavigate }: NavigationGroupsProps) {
                   key={link.href}
                   onClick={onNavigate}
                 >
-                  <span className={cn("w-5 shrink-0 font-mono text-[0.6rem]", active ? "text-white/75" : "text-window-muted")}>{link.code}</span>
+                  <span className={cn("w-5 shrink-0 font-mono text-[0.6rem]", active ? "text-primary-foreground/80" : "text-window-muted")}>{link.code}</span>
                   <link.icon aria-hidden="true" className="size-3.5" weight={active ? "fill" : "regular"} />
                   <span className="truncate">{link.label}</span>
                 </Link>
@@ -152,7 +153,7 @@ export function AppShell({ children }: AppShellProps) {
           <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-[0.62rem] font-black text-primary shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">ER</div>
           <div className="min-w-0 leading-none">
             <p className="truncate font-mono text-xs font-bold">ERP_SUITE.EXE</p>
-            <p className="mt-0.5 truncate font-mono text-[0.55rem] text-white/70">WORKSPACE OPERATIVO</p>
+            <p className="mt-0.5 truncate font-mono text-[0.62rem] text-chrome-active-foreground/75">Espacio de trabajo</p>
           </div>
         </div>
 
@@ -161,20 +162,16 @@ export function AppShell({ children }: AppShellProps) {
           <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-color:var(--window-shadow)_var(--window-panel)] [scrollbar-width:thin]">
             <NavigationGroups id="primary-navigation" pathname={pathname} />
           </div>
-          <div className="mt-2 flex h-7 shrink-0 items-center justify-between border border-window-dark-shadow bg-window-panel px-1.5 font-mono text-[0.58rem] text-window-muted shadow-[inset_1px_1px_0_var(--window-highlight)]">
-            <span>OWNER</span>
-            <span className="text-success">● ONLINE</span>
-            <KeyboardHelpButton compact />
-          </div>
+          <SessionPanel className="mt-2" />
         </div>
       </aside>
 
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-40 hidden h-10 shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground lg:flex">
           <div className="flex min-w-0 items-center gap-2 font-mono">
-            <span className="border border-white/50 bg-black/15 px-1.5 py-0.5 text-[0.58rem] font-bold">{contextGroup?.code ?? currentLink?.code ?? "00"}</span>
+            <span className="border border-white/50 bg-black/15 px-1.5 py-0.5 text-[0.65rem] font-bold">{contextGroup?.code ?? currentLink?.code ?? "00"}</span>
             <span className="truncate text-xs font-bold uppercase">{contextGroup?.label ?? currentLink?.label ?? "Panel"}</span>
-            <span className="hidden truncate text-[0.62rem] text-white/65 xl:inline">\ {currentLink?.label ?? "Vista general"}</span>
+            <span className="hidden truncate text-[0.68rem] text-chrome-active-foreground/75 xl:inline">\ {currentLink?.label ?? "Vista general"}</span>
           </div>
           <div className="flex min-w-0 items-center gap-1">
             <ThemeSwitcher compact />
@@ -199,7 +196,7 @@ export function AppShell({ children }: AppShellProps) {
           </button>
           <div className="min-w-0 flex-1 font-mono leading-none">
             <p className="truncate text-center text-xs font-bold uppercase">{currentLink?.label ?? contextGroup?.label ?? "ERP Suite"}</p>
-            <p className="mt-1 truncate text-center text-[0.58rem] text-white/70">ERP_SUITE.EXE</p>
+            <p className="mt-1 truncate text-center text-[0.62rem] text-chrome-active-foreground/75">ERP_SUITE.EXE</p>
           </div>
           <span aria-hidden="true" className="size-9 shrink-0" />
         </header>
@@ -220,7 +217,7 @@ export function AppShell({ children }: AppShellProps) {
                   <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-[0.62rem] font-black text-primary">ER</div>
                   <div>
                     <p className="font-mono text-xs font-bold">ERP_SUITE.EXE</p>
-                    <p className="font-mono text-[0.55rem] text-white/70">MENÚ PRINCIPAL</p>
+                    <p className="font-mono text-[0.62rem] text-chrome-active-foreground/75">MENÚ PRINCIPAL</p>
                   </div>
                 </div>
                 <button
@@ -243,10 +240,10 @@ export function AppShell({ children }: AppShellProps) {
                   <div className="mt-2"><ActiveContextSwitcher /></div>
                 </details>
                 <CommandPaletteButton className="mb-2 w-full" onOpen={() => setMobileNavOpen(false)} />
-                <KeyboardHelpButton className="mb-2" onOpen={() => setMobileNavOpen(false)} />
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                   <NavigationGroups id="mobile-primary-navigation" pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
                 </div>
+                <SessionPanel className="mt-2" onNavigate={() => setMobileNavOpen(false)} />
               </div>
             </div>
           </div>

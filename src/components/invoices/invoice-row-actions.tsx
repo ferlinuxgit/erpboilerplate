@@ -16,7 +16,7 @@ type InvoiceRowActionsProps = {
 export function InvoiceRowActions({ id, number, paymentMethods, paymentStatus, totalAmount, totalAmountLabel }: InvoiceRowActionsProps) {
   const isVoided = paymentStatus === "VOID";
   return (
-    <div className="flex gap-2" data-testid={`invoice-row-actions-${id}`}>
+    <div className="flex flex-wrap justify-end gap-1.5" data-testid={`invoice-row-actions-${id}`}>
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid={`invoice-view-${id}`} href={`/invoices/${id}`}>
         Ver
       </Link>
@@ -26,7 +26,7 @@ export function InvoiceRowActions({ id, number, paymentMethods, paymentStatus, t
           paymentMethods={paymentMethods}
           triggerSize="sm"
         /> : null}
-      <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/api/invoices/${id}/pdf`} target="_blank">
+      <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/api/invoices/${id}/pdf`} rel="noopener" target="_blank" title={`Abrir PDF de ${number} en una pestaña nueva`}>
         PDF
       </Link>
       {!isVoided ? <DeleteButton

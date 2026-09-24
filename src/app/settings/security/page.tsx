@@ -1,6 +1,7 @@
 import { SecurityPolicyForm } from "@/app/settings/security/security-policy-form";
 import { PageHeader, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { roleLabels, statusLabel } from "@/lib/status-labels";
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -20,7 +21,7 @@ export default async function SecuritySettingsPage() {
         description={`Controles de sesión, doble factor, claves API, dominios e IPs permitidas para ${ctx.tenant.name}.`}
         meta={
           <>
-            <StatusBadge tone="neutral">Rol: {ctx.membership.role}</StatusBadge>
+            <StatusBadge tone="neutral">Rol: {statusLabel(roleLabels, ctx.membership.role)}</StatusBadge>
             <StatusBadge tone={canManage ? "success" : "warning"}>{canManage ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>
           </>
         }

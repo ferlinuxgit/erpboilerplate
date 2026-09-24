@@ -182,7 +182,11 @@ export function KeyboardShortcuts() {
         const form = event.target instanceof Element ? event.target.closest("form") : null;
         if (form instanceof HTMLFormElement) {
           event.preventDefault();
-          form.requestSubmit();
+          // requestSubmit() ignores a disabled submit button, so honour the
+          // pending state forms expose to avoid double submissions.
+          const submitter = form.querySelector<HTMLButtonElement | HTMLInputElement>("button[type='submit'], input[type='submit'], button:not([type])");
+          const busy = form.getAttribute("aria-busy") === "true" || submitter?.disabled || submitter?.getAttribute("aria-busy") === "true";
+          if (!busy) form.requestSubmit();
         }
         return;
       }
@@ -305,7 +309,7 @@ export function KeyboardShortcuts() {
           ))}
         </div>
         <p className="mt-2 border border-info bg-info/15 p-2 font-mono text-xs text-info">
-          Consejo: pulsa Tab para avanzar por controles y Mayús+Tab para retroceder. El foco amarillo indica siempre dónde se ejecutará la siguiente acción.
+          Consejo: pulsa Tab para avanzar por controles y Mayús+Tab para retroceder. El contorno de foco resaltado indica siempre dónde se ejecutará la siguiente acción.
         </p>
       </Dialog>
     </>

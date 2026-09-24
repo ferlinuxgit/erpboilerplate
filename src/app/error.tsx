@@ -3,9 +3,9 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 
-import { Button } from "@/components/ui/button";
+import { RouteErrorState } from "@/components/route-state";
 
-export default function GlobalError({
+export default function RootError({
   error,
   reset,
 }: Readonly<{
@@ -17,12 +17,11 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <main className="container mx-auto flex min-h-[70vh] items-center justify-center px-4 py-10">
-      <div className="space-y-4 text-center">
-        <h2 className="text-2xl font-semibold">Ha ocurrido un error inesperado</h2>
-        <p className="text-muted-foreground">Puedes reintentar la operación o volver al panel.</p>
-        <Button onClick={reset}>Reintentar</Button>
-      </div>
-    </main>
+    <RouteErrorState
+      description="Puedes reintentar la operación o volver al panel. Si el problema persiste, comparte el código de error con soporte."
+      error={error}
+      reset={reset}
+      title="Ha ocurrido un error inesperado"
+    />
   );
 }
