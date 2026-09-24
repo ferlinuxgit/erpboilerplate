@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { account, session, user, verification } from "@/db/schema";
 import { createAuthToken, getAuthCookieOptions, AUTH_TOKEN_COOKIE, hashAuthToken } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getClientIp } from "@/lib/ip-policy";
 import { readJsonBody } from "@/lib/http";
 import { logger } from "@/lib/logger";
 import { authSignUpSchema } from "@/server/schemas/forms";
@@ -161,7 +162,7 @@ export async function POST(request: Request) {
     }
 
     const token = createAuthToken(createdUser);
-    await db.insert(session).values({ id: crypto.randomUUID(), token: hashAuthToken(token), userId: createdUser.id, expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null, userAgent: request.headers.get("user-agent") });
+    await db.insert(session).values({ id: crypto.randomUUID(), token: hashAuthToken(token), userId: createdUser.id, expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), ipAddress: getClientIp(request.headers), userAgent: request.headers.get("user-agent") });
     const response = NextResponse.json({ user: createdUser });
     response.cookies.set(AUTH_TOKEN_COOKIE, token, getAuthCookieOptions());
     return response;

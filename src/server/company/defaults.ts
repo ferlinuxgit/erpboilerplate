@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { accountChart, companySettings, documentSeries, journal, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
+import { HttpError } from "@/lib/http";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
 
 type SetupItem = {
@@ -182,7 +183,7 @@ export async function applyCompanyDefaults(input: {
   actorUserId: string;
 }) {
   if (!getCompanyTemplate(input.countryCode)) {
-    throw new Error("No hay una plantilla automatica disponible para este pais.");
+    throw new HttpError(400, "No hay una plantilla automatica disponible para este pais.");
   }
 
   await applyCompanyTemplate({

@@ -67,6 +67,18 @@ const styles = StyleSheet.create({
   pageFooter: { position: "absolute", bottom: 18, left: 42, right: 42, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingTop: 6, borderTop: "1 solid #dfe5e9", color: "#7b8797", fontSize: 6.8, lineHeight: 1.25, letterSpacing: 0.2 },
   pageFooterCopy: { width: "82%" },
   pageFooterNumber: { width: "18%", minHeight: 9, textAlign: "right" },
+  notice: { marginBottom: 16, paddingVertical: 9, paddingHorizontal: 12, borderLeft: "3 solid #b45309", backgroundColor: "#fff7ed" },
+  noticeTitle: { fontSize: 8, fontWeight: 700, color: "#7c2d12", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
+  noticeLine: { color: "#431407", marginBottom: 2 },
+  draftBanner: { marginBottom: 14, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: "#fef2f2", borderLeft: "3 solid #b91c1c", color: "#7f1d1d", fontSize: 8.5, fontWeight: 700 },
+  verifactu: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  // 90 pt ≈ 31,75 mm: dentro del rango 30–40 mm exigido para el QR.
+  verifactuQr: { width: 90, height: 90 },
+  verifactuLegendBlock: { flex: 1 },
+  verifactuLegend: { fontSize: 10, fontWeight: 700, color: "#101b2c", marginBottom: 3, letterSpacing: 0.4 },
+  verifactuText: { fontSize: 8.2, color: "#354255" },
+  legalNotes: { marginTop: 14, paddingTop: 8, borderTop: "1 solid #dfe5e9" },
+  legalNote: { fontSize: 8.2, color: "#354255", marginBottom: 2 },
 });
 
 function formatAddress(party: InvoicePdfInput["customer"] | InvoicePdfInput["company"]) {
@@ -90,7 +102,7 @@ function SectionHeading({ label }: { label: string }) {
   );
 }
 
-export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisplaySettings, documentEyebrow = "Documento comercial", documentTitle = "Factura", dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", lines, number, payment, payments, showFinancials = true, summaryLabel = "Total", summaryValue, totals }: InvoicePdfInput) {
+export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisplaySettings, documentEyebrow = "Documento comercial", documentTitle = "Factura", draft = false, dueDate, dueDateLabel = "Vencimiento", issueDate, issueDateLabel = "Emisión", legalNotes = [], lines, number, payment, payments, rectification = null, showFinancials = true, summaryLabel = "Total", summaryValue, totals, verifactu = null }: InvoicePdfInput) {
   const companyName = company.legalName?.trim() || company.name;
   const companyAddress = formatAddress(company);
   const companyContact = [display.showEmail ? company.email : null, display.showPhone ? company.phone : null].filter(Boolean).join("  |  ");
@@ -121,6 +133,30 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
             <Text style={styles.number}>{number}</Text>
           </View>
         </View>
+
+        {verifactu ? (
+          <View style={styles.verifactu} wrap={false}>
+            {/* eslint-disable-next-line jsx-a11y/alt-text */}
+            <Image src={verifactu.qrDataUrl} style={styles.verifactuQr} />
+            <View style={styles.verifactuLegendBlock}>
+              {verifactu.legends.map((legend) => <Text key={legend} style={styles.verifactuLegend}>{legend}</Text>)}
+              <Text style={styles.verifactuText}>Código QR de cotejo de la factura en la Agencia Tributaria.</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {draft ? (
+          <Text style={styles.draftBanner}>BORRADOR · Documento sin validez fiscal. El número definitivo se asigna al emitir la factura.</Text>
+        ) : null}
+
+        {rectification ? (
+          <View style={styles.notice} wrap={false}>
+            <Text style={styles.noticeTitle}>Factura rectificativa</Text>
+            <Text style={styles.noticeLine}>Rectifica la factura {rectification.originalNumber} de fecha {rectification.originalIssueDate}.</Text>
+            <Text style={styles.noticeLine}>Causa: {rectification.reason} · Tipo: {rectification.type}.</Text>
+            {rectification.description ? <Text style={styles.noticeLine}>Motivo: {rectification.description}</Text> : null}
+          </View>
+        ) : null}
 
         <View style={styles.summary} wrap={false}>
           <View style={styles.summaryItem}>
@@ -232,6 +268,11 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
             </View>
           </View>
         </View> : null}
+        {legalNotes.length > 0 ? (
+          <View style={styles.legalNotes} wrap={false}>
+            {legalNotes.map((note) => <Text key={note} style={styles.legalNote}>{note}</Text>)}
+          </View>
+        ) : null}
         <View style={styles.pageFooter} fixed>
           <Text style={styles.pageFooterCopy}>{company.invoiceFooter || companyName}</Text>
           <Text fixed style={styles.pageFooterNumber} render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />

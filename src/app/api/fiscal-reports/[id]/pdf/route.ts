@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireContext } from "@/lib/current-context";
+import { handleRouteError } from "@/lib/http";
 import { isSpanishFiscalModelCode } from "@/lib/fiscal-spain";
 import { getFiscalReport } from "@/server/fiscal/service";
 import { calculateSpanishFiscalSummary } from "@/server/fiscal/spain";
@@ -30,7 +31,6 @@ async function requireApiContext(permission: "fiscal.read") {
   try {
     return await requireContext(permission);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No autorizado.";
-    return NextResponse.json({ message }, { status: message.includes("permisos") ? 403 : 401 });
+    return handleRouteError(error, "fiscal-reports.context");
   }
 }

@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CompanyProfileForm, type CompanyProfileFormValues } from "@/components/company/company-profile-form";
@@ -29,6 +30,8 @@ function toFormValues(row: typeof company.$inferSelect): CompanyProfileFormValue
     invoiceFooter: row.invoiceFooter ?? "",
   };
 }
+
+export const metadata: Metadata = { title: "Empresa" };
 
 export default async function CompanySettingsPage() {
   const ctx = await requireContext("settings.manage");

@@ -80,6 +80,10 @@ vi.mock("@/server/accounting/auto-post", () => ({ postSalesInvoice: mocks.postSa
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: vi.fn(async () => undefined) }));
 vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: mocks.reserveSeriesNumber }));
+vi.mock("@/server/invoices/snapshot", () => ({
+  loadIssuerSnapshot: vi.fn(async () => ({ name: "Empresa", taxId: "B00000000", address: null, addressLine2: null, postalCode: null, city: null, province: null, countryCode: "ES" })),
+  loadCustomerSnapshot: vi.fn(async () => ({ name: "Cliente", taxId: "B12345674", address: null, addressLine2: null, postalCode: null, city: null, province: null, countryCode: "ES" })),
+}));
 
 import { convertDeliveryToInvoice } from "@/server/sales/service";
 

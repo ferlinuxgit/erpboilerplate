@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CreateSalesOrderForm } from "@/components/sales/create-sales-order-form";
@@ -13,6 +14,8 @@ import { customer, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 
+export const metadata: Metadata = { title: "Nuevo pedido de venta" };
+
 export default async function NewSalesOrderPage() {
   const ctx = await requireContext("invoice.create");
   const [customers, [defaultTax]] = await Promise.all([db
@@ -24,11 +27,13 @@ export default async function NewSalesOrderPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Pedidos"
         title="Nuevo pedido"
         description="Registra directamente un compromiso de venta confirmado."
-        backHref="/sales/orders"
-        backLabel="Volver a pedidos"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Pedidos", href: "/sales/orders" },
+          { label: "Nuevo pedido" },
+        ]}
       />
       <PageSection
         title="Datos del pedido"

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CreateExpenseInvoiceForm } from "@/components/expenses/create-expense-invoice-form";
@@ -7,6 +8,8 @@ import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { listPostingAccounts } from "@/server/accounting/service";
 import { listSupplierInvoiceRelations, listSupplierPartners } from "@/server/supplier-invoices/service";
+
+export const metadata: Metadata = { title: "Nueva factura de proveedor" };
 
 export default async function NewExpensePage({ searchParams }: { searchParams?: Promise<{ supplierId?: string | string[] }> }) {
   const ctx = await requireContext("expense.write");
@@ -25,11 +28,13 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Facturas de proveedor"
         title="Nueva factura de proveedor"
         description={`Registra una factura recibida para ${ctx.company.name}, con o sin pedido previo.`}
-        backHref="/expenses"
-        backLabel="Volver a facturas de proveedor"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Facturas de proveedor", href: "/expenses" },
+          { label: "Nueva factura de proveedor" },
+        ]}
       />
 
       <PageSection title="Datos de la factura" description="Elige OCR o entrada manual, revisa el proveedor y relaciona el documento con un pedido o recepción si corresponde.">

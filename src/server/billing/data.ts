@@ -23,7 +23,9 @@ export async function getBillingViewModelForTenant(tenantId: string) {
     .where(eq(subscription.tenantId, tenantId))
     .limit(1);
 
-  const planCode = currentSubscription?.plan ?? currentTenant?.plan ?? "free";
+  // Una suscripción cancelada no otorga plan: manda el plan del tenant (free tras la baja).
+  const subscriptionIsCurrent = currentSubscription && currentSubscription.status !== "CANCELED";
+  const planCode = (subscriptionIsCurrent ? currentSubscription.plan : null) ?? currentTenant?.plan ?? "free";
   const [currentPlan] = await db
     .select({
       code: plan.code,
@@ -37,7 +39,7 @@ export async function getBillingViewModelForTenant(tenantId: string) {
 
   return buildBillingViewModel({
     tenant: { plan: currentTenant?.plan ?? "free" },
-    subscription: currentSubscription ?? null,
+    subscription: currentSubscription ? { ...currentSubscription, plan: planCode } : null,
     plan: currentPlan ?? null,
     defaultStripePriceId: process.env.NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID,
   });

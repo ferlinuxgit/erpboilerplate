@@ -1,18 +1,32 @@
 .git
+.github
 .next
 node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.tsbuildinfo
 
-.env
-.env.local
-.env.*.local
+# Secrets: never send real env files to the build context. Sanitized
+# templates stay available.
+.env*
+!.env.example
+!.env.test.example
+!.env.coolify.example
+*.pem
 
+# Not needed to build or run the app
+backups
+tests
+docs
+documentation
 coverage
 playwright-report
 test-results
+blob-report
+.agents
+.cursor
+.claude
 
 .DS_Store
-*.pem

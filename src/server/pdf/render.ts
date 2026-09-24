@@ -15,10 +15,28 @@ export type InvoicePdfInput = {
   summaryLabel?: string;
   summaryValue?: string;
   showFinancials?: boolean;
+  /** Borrador: se marca "sin validez fiscal". */
+  draft?: boolean;
+  /** Menciones legales obligatorias (exenciones, inversión del sujeto pasivo…). */
+  legalNotes?: string[];
+  /** Factura rectificativa: referencia a la factura original y causa. */
+  rectification?: {
+    originalNumber: string;
+    originalIssueDate: string;
+    reason: string;
+    type: string;
+    description: string | null;
+  } | null;
   number: string;
   issueDate: string;
   dueDate: string | null;
   amount: string;
+  /** Código QR de cotejo VeriFactu y leyendas (art. 20–21 Orden HAC/1177/2024). */
+  verifactu?: {
+    qrDataUrl: string;
+    legends: string[];
+    url: string;
+  } | null;
   display?: PdfDisplaySettings;
   payment?: {
     name: string;

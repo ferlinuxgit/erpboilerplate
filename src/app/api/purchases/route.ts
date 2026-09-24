@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createPurchaseOrder, listPurchaseOrders } from "@/server/purchases/service";
@@ -47,12 +47,16 @@ export async function POST(request: Request) {
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
-  const createdOrder = await createPurchaseOrder(tenantContext.company.id, tenantContext.tenant.id, session.user.id, {
-    supplierName: parsed.data.supplierName,
-    number: parsed.data.number || undefined,
-    fiscalYearId: tenantContext.fiscalYear.id,
-    lines: parsed.data.lines,
-  });
+  try {
+    const createdOrder = await createPurchaseOrder(tenantContext.company.id, tenantContext.tenant.id, session.user.id, {
+      supplierName: parsed.data.supplierName,
+      number: parsed.data.number || undefined,
+      fiscalYearId: tenantContext.fiscalYear.id,
+      lines: parsed.data.lines,
+    });
 
-  return NextResponse.json(createdOrder, { status: 201 });
+    return NextResponse.json(createdOrder, { status: 201 });
+  } catch (error) {
+    return handleRouteError(error, "purchases.create", "No se pudo crear el pedido de compra.");
+  }
 }

@@ -5,11 +5,14 @@ import { z } from "zod";
 import { customer, salesQuote, salesQuoteLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
+import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
+import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { computeDocumentTotals } from "@/server/taxation/engine";
+import { rejectForeignItems } from "@/server/inventory/ownership";
 
 const lineSchema = z.object({
   quantity: z.number().positive(),
@@ -59,21 +62,26 @@ export async function POST(request: Request) {
     .limit(1);
   if (!ownedCustomer) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
 
+  const foreignItems = await rejectForeignItems(db, ctx.company.id, parsed.data.lines);
+  if (foreignItems) return foreignItems;
   const totals = computeDocumentTotals(parsed.data.lines);
-  const created = await db.transaction(async (tx) => {
+  const issueDate = new Date(parsed.data.issueDate);
+  if (Number.isNaN(issueDate.getTime())) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+  const result = await settle(db.transaction(async (tx) => {
     const number =
       parsed.data.number?.trim() ||
       (await reserveSeriesNumber(tx, {
         companyId: ctx.company.id,
-        fiscalYearId: ctx.fiscalYear.id,
         type: "SALES_QUOTE",
+        referenceDate: issueDate,
+        fiscalYearId: ctx.fiscalYear.id,
       }));
 
     const [header] = await tx.insert(salesQuote).values({
       companyId: ctx.company.id,
       customerId: parsed.data.customerId,
       number,
-      issueDate: new Date(parsed.data.issueDate),
+      issueDate,
       validUntil: parsed.data.validUntil ? new Date(parsed.data.validUntil) : null,
       subtotal: totals.subtotal.toFixed(2),
       taxAmount: totals.taxAmount.toFixed(2),
@@ -95,8 +103,29 @@ export async function POST(request: Request) {
       })),
     );
 
-    return header;
-  });
+    await recordAudit(
+      {
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: session.user.id,
+        action: "salesQuote.create",
+        entityName: "salesQuote",
+        entityId: header.id,
+        payload: {
+          number: header.number,
+          customerId: header.customerId,
+          issueDate: parsed.data.issueDate,
+          validUntil: parsed.data.validUntil || null,
+          totalAmount: header.totalAmount,
+          lineCount: parsed.data.lines.length,
+        },
+      },
+      tx,
+    );
 
-  return NextResponse.json(created, { status: 201 });
+    return header;
+  }));
+
+  if (!result.ok) return handleRouteError(result.error, "salesQuote.create", "No se pudo crear el presupuesto.");
+  return NextResponse.json(result.value, { status: 201 });
 }

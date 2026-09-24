@@ -99,22 +99,30 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   const invoiceResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Crear factura" }).click();
+  // 1) Guardar como borrador: número provisional, editable, sin asiento.
+  await page.getByRole("button", { name: "Guardar borrador" }).click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok()).toBe(true);
-  const createdInvoice = (await invoiceResponse.json()) as { id: string; number: string };
+  const createdInvoice = (await invoiceResponse.json()) as { id: string; number: string; lifecycle: string };
+  expect(createdInvoice.lifecycle).toBe("DRAFT");
+  expect(createdInvoice.number).toMatch(/^BORRADOR-/);
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
+  await expect(page.getByTestId("invoice-draft-notice")).toBeVisible();
   await expect(page.getByText("Transferencia factura", { exact: true })).toBeVisible();
   await expect(page.getByText("ES12 3456 7890 1234 5678 9012", { exact: false })).toBeVisible();
 
   await page.goto("/invoices");
-  const invoiceRow = page.locator("tr", { hasText: createdInvoice.number });
+  // Los borradores se listan como "Borrador" (sin el código provisional BORRADOR-…) y sin pendiente de cobro.
+  const invoiceRow = page.getByTestId(`invoice-row-${createdInvoice.id}`);
   await expect(invoiceRow).toBeVisible();
+  await expect(invoiceRow).not.toContainText(createdInvoice.number);
+  await expect(invoiceRow.getByRole("link", { name: "Borrador", exact: true })).toBeVisible();
   await expect(invoiceRow.getByText(customerName)).toBeVisible();
-  await expect(invoiceRow.getByText("374,00 €")).toBeVisible();
+  await expect(invoiceRow.getByText("374,00 €").first()).toBeVisible();
 
-  const editHref = await invoiceRow.getByRole("link", { name: "Editar" }).getAttribute("href");
+  await invoiceRow.getByRole("button", { name: /Más acciones de/ }).click();
+  const editHref = await invoiceRow.getByRole("menuitem", { name: "Editar" }).getAttribute("href");
   const invoiceId = editHref?.match(/\/invoices\/(.+)\/edit/)?.[1];
   expect(invoiceId).toBeTruthy();
 
@@ -122,6 +130,8 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   expect(persisted.ok()).toBeTruthy();
   await expect(persisted).toBeOK();
   const payload = await persisted.json();
+  expect(payload.lifecycle).toBe("DRAFT");
+  expect(payload.vatTreatment).toBe("DOMESTIC");
   expect(payload.totalAmount).toBe("374.00");
   expect(payload.paymentMethodName).toBe("Transferencia factura");
   expect(payload.paymentMethodType).toBe("BANK_TRANSFER");
@@ -140,6 +150,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   expect(pdfResponse.headers()["content-type"]).toContain("application/pdf");
   expect((await pdfResponse.body()).subarray(0, 4).toString()).toBe("%PDF");
 
+  // 2) Mientras es borrador se puede editar todo (cliente, fechas, líneas, formas de pago).
   const replacementCustomer = await postJson<{ id: string }>(page, "/api/customers", {
     name: `Cliente corregido ${runId}`,
     taxId: "B87654321",
@@ -172,7 +183,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   const updateResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith(`/api/invoices/${invoiceId}`) && response.request().method() === "PATCH",
   );
-  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  await page.getByRole("button", { name: "Guardar borrador" }).click();
   expect((await updateResponsePromise).ok()).toBe(true);
   await expect(page).toHaveURL(new RegExp(`/invoices/${invoiceId}$`));
 
@@ -192,12 +203,68 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   expect(updatedPayload.paymentMethods).toEqual(expect.arrayContaining([{ id: linkedPaymentMethod!.id, name: "Transferencia factura", type: "BANK_TRANSFER", bankAccountNumber: "ES12 3456 7890 1234 5678 9012", position: 0 }]));
   expect(updatedPayload.paymentMethods).toHaveLength(1);
 
+  // 3) Emitir: número definitivo de la serie y snapshot fiscal del cliente.
+  const issueResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith(`/api/invoices/${invoiceId}/issue`) && response.request().method() === "POST",
+  );
+  await page.getByTestId("invoice-issue-button").click();
+  await page.getByTestId("invoice-issue-confirm").click();
+  const issueResponse = await issueResponsePromise;
+  expect(issueResponse.ok()).toBe(true);
+  const issuedInvoice = (await issueResponse.json()) as { number: string };
+  expect(issuedInvoice.number).not.toMatch(/^BORRADOR-/);
+  await expect(page.getByRole("heading", { name: issuedInvoice.number })).toBeVisible();
+
+  const issuedPayload = await (await page.request.get(`/api/invoices/${invoiceId}`)).json();
+  expect(issuedPayload.lifecycle).toBe("ISSUED");
+  expect(issuedPayload.status).toBe("SENT");
+  expect(issuedPayload.customerSnapshot).toMatchObject({ name: `Cliente corregido ${runId}`, taxId: "B87654321" });
+
+  // 4) Una factura emitida es inmutable: la API rechaza cambiar sus líneas.
+  const lockedPatch = await page.evaluate(async ({ id }) => {
+    const csrfToken = document.cookie.split("; ").find((cookie) => cookie.startsWith("csrf-token="))?.split("=")[1];
+    const response = await fetch(`/api/invoices/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": decodeURIComponent(csrfToken) } : {}) },
+      body: JSON.stringify({ lines: [{ description: "Cambio", quantity: 1, unitPrice: 1 }] }),
+    });
+    return { status: response.status, payload: (await response.json()) as { message?: string } };
+  }, { id: invoiceId });
+  expect(lockedPatch.status).toBe(409);
+  expect(lockedPatch.payload.message).toContain("rectificativa");
+
+  // 5) Rectificativa parcial (devolución de 1 hora de consultoría): −(100 € + 21 %) = −121 €.
+  await page.goto(editHref!);
+  await expect(page.getByTestId("invoice-edit-locked")).toContainText("ya está emitida");
+  await expect(page.getByTestId("invoice-edit-form")).toHaveCount(0);
+  await page.getByTestId("invoice-edit-create-credit-note").click();
+  await expect(page).toHaveURL(new RegExp(`/invoices/${invoiceId}/rectify$`));
+  await page.getByText("Abonar solo una parte", { exact: true }).click();
+  await page.getByRole("button", { name: "Quitar línea 2" }).click();
+  await page.locator("#credit-note-line-1-quantity").fill("1");
+  await page.locator("#credit-note-issue-date").fill("2026-05-20");
+  await page.getByTestId("credit-note-description").fill("Devolución de 1 hora de consultoría");
+  await expect(page.getByTestId("credit-note-total")).toContainText("121,00");
+  const creditNoteResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith(`/api/invoices/${invoiceId}/credit-notes`) && response.request().method() === "POST",
+  );
+  await page.getByTestId("credit-note-submit").click();
+  const creditNoteResponse = await creditNoteResponsePromise;
+  expect(creditNoteResponse.status()).toBe(201);
+  const creditNote = (await creditNoteResponse.json()) as { id: string; number: string; totalAmount: number };
+  expect(creditNote.totalAmount).toBe(-121);
+  await expect(page).toHaveURL(new RegExp(`/invoices/${creditNote.id}$`));
+  await expect(page.getByTestId("credit-note-reference")).toContainText(issuedInvoice.number);
+
+  // 6) El saldo pendiente de la original baja a 253 € (374 − 121) y se cobra entero.
   await postJson(page, "/api/invoice-payments", {
     invoiceId,
-    amountApplied: 374,
+    amountApplied: 253,
     postedAt: "2026-05-10T00:00:00.000Z",
     paymentMethodId: linkedPaymentMethod!.id,
   });
+  const settled = await (await page.request.get(`/api/invoices/${invoiceId}`)).json();
+  expect(settled.paymentStatus).toBe("PAID");
   await page.goto(editHref!);
   await expect(page.getByTestId("invoice-edit-locked")).toContainText("Esta factura tiene cobros registrados");
   await expect(page.getByTestId("invoice-edit-form")).toHaveCount(0);
@@ -239,10 +306,11 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   const invoiceResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Crear factura" }).click();
+  await page.getByRole("button", { name: "Emitir factura" }).click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok()).toBe(true);
-  const createdInvoice = (await invoiceResponse.json()) as { number: string };
+  const createdInvoice = (await invoiceResponse.json()) as { number: string; lifecycle: string };
+  expect(createdInvoice.lifecycle).toBe("ISSUED");
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
 

@@ -23,7 +23,7 @@ Las reglas viven en este directorio como archivos `.mdc` con frontmatter YAML. C
 | `25-forms-rhf-zod.mdc` | global | Patrón de formularios con RHF + Zod. |
 | `26-fiscal-provider.mdc` | global | Convenciones para providers fiscales por país. |
 | `27-billing-stripe.mdc` | global | Reglas de Stripe y webhooks. |
-| `28-i18n.mdc` | global | Convenciones de internacionalización. |
+| `28-i18n.mdc` | global | Interfaz solo en español y formato regional es-ES. |
 | `29-testing.mdc` | global | Estrategia mínima de tests y CI. |
 
 ## Cómo añadir una regla nueva

@@ -204,6 +204,20 @@
       "when": 1785664963222,
       "tag": "0028_famous_azazel",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790242808401,
+      "tag": "0029_phase1_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790246444584,
+      "tag": "0030_invoices_verifactu_performance",
+      "breakpoints": true
     }
   ]
 }

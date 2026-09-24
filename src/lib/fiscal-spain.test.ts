@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { getDaysUntilDue, getFiscalDueStatus, getSpanishFiscalDueDate, normalizeSpanishFiscalPeriod, parseSpanishFiscalPeriod } from "@/lib/fiscal-spain";
+import {
+  aggregateOutputVat,
+  aggregateSurcharges,
+  aggregateWithholdings,
+  getDaysUntilDue,
+  getFiscalDueStatus,
+  getSpanishFiscalDueDate,
+  normalizeSpanishFiscalPeriod,
+  parseSpanishFiscalPeriod,
+} from "@/lib/fiscal-spain";
 
 describe("Spanish fiscal periods", () => {
   it("parses quarterly IVA periods", () => {
@@ -37,5 +46,40 @@ describe("Spanish fiscal periods", () => {
     expect(getDaysUntilDue(new Date(Date.UTC(2026, 0, 20)), now)).toBe(5);
     expect(getFiscalDueStatus(new Date(Date.UTC(2026, 0, 20)), now)).toBe("due-soon");
     expect(getFiscalDueStatus(new Date(Date.UTC(2026, 0, 14)), now)).toBe("overdue");
+  });
+});
+
+describe("Spanish fiscal aggregation (bucket rounding)", () => {
+  const smallLines = [0, 1, 2].map(() => ({ quantity: "1", unitPrice: "0.35", taxRate: "21", retentionRate: "15" }));
+
+  it("computes VAT on the summed base per rate", () => {
+    // Línea a línea serían 0,07 × 3 = 0,21; sobre la base del tipo (1,05) la cuota es 0,22.
+    expect(aggregateOutputVat(smallLines)).toEqual([{ rate: 21, base: 1.05, tax: 0.22 }]);
+  });
+
+  it("keeps partial deductibility per line group within a rate bucket", () => {
+    expect(aggregateOutputVat([
+      { quantity: 1, unitPrice: 100, taxRate: 21 },
+      { quantity: 1, unitPrice: 100, taxRate: 21, taxDeductiblePct: 50 },
+    ])).toEqual([{ rate: 21, base: 200, tax: 31.5 }]);
+  });
+
+  it("nets negative lines (rectificativas) inside the bucket", () => {
+    expect(aggregateOutputVat([
+      { quantity: 3, unitPrice: 100, taxRate: 21 },
+      { quantity: -1, unitPrice: 100, taxRate: 21 },
+    ])).toEqual([{ rate: 21, base: 200, tax: 42 }]);
+  });
+
+  it("computes surcharges and withholdings on the bucket base", () => {
+    const surchargeLines = smallLines.map((line) => ({
+      ...line,
+      taxes: [
+        { rate: 21, kind: "VAT", operation: "ADD" as const },
+        { rate: 5.2, kind: "SURCHARGE", operation: "ADD" as const },
+      ],
+    }));
+    expect(aggregateSurcharges(surchargeLines)).toEqual([{ rate: 5.2, base: 1.05, tax: 0.05 }]);
+    expect(aggregateWithholdings(smallLines)).toEqual([{ rate: 15, base: 1.05, tax: 0.16 }]);
   });
 });

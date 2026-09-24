@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { fiscalStatusLabels, spanishFiscalModels } from "@/lib/fiscal-spain";
+import { fiscalStatusLabels, spanishFiscalModels, type SpanishFiscalModel } from "@/lib/fiscal-spain";
 
 const statuses = ["DRAFT", "READY", "FILED"] as const;
 
@@ -17,12 +17,17 @@ type CreateFiscalReportFormProps = {
   onCancel?: () => void;
   onSuccess?: () => void;
   redirectHref?: string;
+  /** Modelos disponibles (p. ej. sin el 130 si la empresa es una sociedad). */
+  models?: SpanishFiscalModel[];
+  initialCode?: string;
+  initialPeriod?: string;
 };
 
-export function CreateFiscalReportForm({ onCancel, onSuccess, redirectHref }: CreateFiscalReportFormProps = {}) {
+export function CreateFiscalReportForm({ onCancel, onSuccess, redirectHref, models = spanishFiscalModels, initialCode, initialPeriod }: CreateFiscalReportFormProps = {}) {
   const router = useRouter();
-  const [code, setCode] = useState("303");
-  const [period, setPeriod] = useState("");
+  const [code, setCode] = useState(initialCode && models.some((model) => model.code === initialCode) ? initialCode : "303");
+  const [period, setPeriod] = useState(initialPeriod ?? "");
+  const selectedModel = models.find((model) => model.code === code);
   const [status, setStatus] = useState<(typeof statuses)[number]>("DRAFT");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,12 +76,13 @@ export function CreateFiscalReportForm({ onCancel, onSuccess, redirectHref }: Cr
           required
           aria-describedby={errorId}
         >
-          {spanishFiscalModels.map((model) => (
+          {models.map((model) => (
             <option key={model.code} value={model.code}>
               {model.name} - {model.shortName}
             </option>
           ))}
         </Select>
+        {selectedModel ? <p className="text-xs text-muted-foreground" id="fiscal-report-code-help">{selectedModel.plainHelp}</p> : null}
       </div>
       <div className="space-y-2">
         <Label htmlFor="fiscal-report-period">Periodo</Label>
@@ -84,7 +90,7 @@ export function CreateFiscalReportForm({ onCancel, onSuccess, redirectHref }: Cr
           id="fiscal-report-period"
           value={period}
           onChange={(e) => setPeriod(e.target.value)}
-          placeholder={spanishFiscalModels.find((model) => model.code === code)?.periodHint ?? "2026-Q1"}
+          placeholder={selectedModel?.periodHint ?? "2026-Q1"}
           required
           aria-describedby={errorId}
         />

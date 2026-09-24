@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { EditSupplierForm } from "@/components/suppliers/edit-supplier-form";
@@ -8,6 +9,18 @@ import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getSupplier } from "@/server/suppliers/service";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const session = await requireUserSession();
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    const { id } = await params;
+    const supplier = await getSupplier(db, ctx.company.id, id);
+    return { title: supplier ? `Editar proveedor ${supplier.name}` : "Editar proveedor" };
+  } catch {
+    return { title: "Editar proveedor" };
+  }
+}
 
 export default async function EditSupplierPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireUserSession();
@@ -28,7 +41,16 @@ export default async function EditSupplierPage({ params }: { params: Promise<{ i
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Proveedores" title="Editar proveedor" description={`${data.number} · ${data.name}`} backHref="/suppliers" backLabel="Volver a proveedores" />
+      <PageHeader
+        title="Editar proveedor"
+        description={`${data.number} · ${data.name}`}
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Proveedores", href: "/suppliers" },
+          { label: data.name, href: `/suppliers/${data.id}` },
+          { label: "Editar" },
+        ]}
+      />
       <PageSection title="Datos del proveedor" description="Actualiza identidad, contacto y estado del proveedor.">
         <EditSupplierForm
           id={data.id}

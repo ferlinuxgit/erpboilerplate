@@ -6,6 +6,7 @@ import { PurchaseOrderRowActions } from "@/components/purchases/purchase-order-r
 import {
   ResourceList,
   type ResourceListColumn,
+  type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate } from "@/lib/format";
@@ -26,6 +27,8 @@ type PurchaseOrderRow = {
 type PurchaseOrdersListProps = {
   canManage?: boolean;
   rows: PurchaseOrderRow[];
+  /** Server pagination state; `rows` is then only the current page. */
+  server?: ServerListState;
 };
 
 const columns = (
@@ -33,19 +36,25 @@ const columns = (
 ): ResourceListColumn<PurchaseOrderRow>[] => [
   {
     header: "Pedido",
+    alwaysVisible: true,
     cell: (order) => (
-      <div>
-        <Link
-          className="font-medium underline-offset-4 hover:underline"
-          href={`/purchases/orders/${order.id}`}
-        >
-          {order.number}
-        </Link>
-        <p className="text-sm text-muted-foreground">{order.supplierName}</p>
-      </div>
+      <Link
+        className="font-mono font-semibold text-primary hover:underline"
+        href={`/purchases/orders/${order.id}`}
+      >
+        {order.number}
+      </Link>
     ),
     exportValue: (order) => order.number,
     sortValue: (order) => order.number,
+    sortKey: "number",
+  },
+  {
+    header: "Proveedor",
+    cell: (order) => order.supplierName,
+    exportValue: (order) => order.supplierName,
+    sortValue: (order) => order.supplierName,
+    sortKey: "supplier",
   },
   {
     header: "Estado",
@@ -57,19 +66,21 @@ const columns = (
     exportValue: (order) =>
       statusLabel(purchaseOrderStatusLabels, order.status),
     sortValue: (order) => order.status,
+    sortKey: "status",
   },
   {
     header: "Creado",
     cell: (order) => formatDate(order.createdAt),
     exportValue: (order) => formatDate(order.createdAt),
     sortValue: (order) => new Date(order.createdAt),
+    sortKey: "createdAt",
   },
   ...(canManage
     ? [
         {
           header: "Acciones",
           cell: (order: PurchaseOrderRow) => (
-            <PurchaseOrderRowActions id={order.id} />
+            <PurchaseOrderRowActions id={order.id} number={order.number} />
           ),
           className: "text-right",
         },
@@ -80,6 +91,7 @@ const columns = (
 export function PurchaseOrdersList({
   canManage = true,
   rows,
+  server,
 }: PurchaseOrdersListProps) {
   return (
     <ResourceList
@@ -88,6 +100,7 @@ export function PurchaseOrdersList({
       emptyTitle="No hay pedidos de compra todavía."
       exportFileName="pedidos-compra.csv"
       getRowId={(order) => order.id}
+      getRowLabel={(order) => order.number}
       getRowTestId={(order) => `purchase-order-row-${order.id}`}
       getSearchText={(order) =>
         [
@@ -99,29 +112,37 @@ export function PurchaseOrdersList({
         ].join(" ")
       }
       items={rows}
+      server={server}
       renderMobileCard={(order) => (
         <div className="space-y-3">
-          <div>
-            <p className="font-medium">{order.number}</p>
-            <p className="text-sm text-muted-foreground">
-              {order.supplierName}
-            </p>
-            <StatusBadge
-              className="mt-2"
-              tone={purchaseOrderStatusTone(order.status)}
-            >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link
+                className="font-mono font-semibold text-primary hover:underline"
+                href={`/purchases/orders/${order.id}`}
+              >
+                {order.number}
+              </Link>
+              <p className="truncate text-xs text-muted-foreground">
+                {order.supplierName}
+              </p>
+            </div>
+            <StatusBadge tone={purchaseOrderStatusTone(order.status)}>
               {statusLabel(purchaseOrderStatusLabels, order.status)}
             </StatusBadge>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Creado: {formatDate(order.createdAt)}
-            </p>
           </div>
-          <PurchaseOrderRowActions id={order.id} />
+          <p className="text-xs text-muted-foreground">
+            Creado: {formatDate(order.createdAt)}
+          </p>
+          {canManage ? (
+            <PurchaseOrderRowActions id={order.id} number={order.number} />
+          ) : null}
         </div>
       )}
       searchPlaceholder="Buscar pedido por número, proveedor o estado"
       testId="purchase-orders-list"
       title="Pedidos de compra"
+      dateRange={{ label: "Fecha de creación", getValue: (order) => order.createdAt }}
       filters={[
         {
           key: "status",

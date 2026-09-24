@@ -3,11 +3,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { item } from "@/db/schema";
-import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { can } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { requirePermission } from "@/lib/rbac-server";
 import { recordAudit } from "@/server/audit";
 
 const itemPayloadSchema = z.object({
@@ -20,23 +18,37 @@ const itemPayloadSchema = z.object({
 });
 
 export async function GET() {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  const rows = await db.select().from(item).where(eq(item.companyId, ctx.company.id));
-  return NextResponse.json(rows);
+  try {
+    const { ctx } = await requirePermission("stock.read");
+    const rows = await db.select().from(item).where(eq(item.companyId, ctx.company.id));
+    return NextResponse.json(rows);
+  } catch (error) {
+    return handleRouteError(error, "item.list");
+  }
 }
 
 export async function POST(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "stock.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  try {
+    return await createItem(request);
+  } catch (error) {
+    const candidate = error as { code?: string; cause?: { code?: string } } | null;
+    if (candidate?.code === "23505" || candidate?.cause?.code === "23505") {
+      return NextResponse.json({ message: "Ya existe un artículo con ese SKU." }, { status: 409 });
+    }
+    return handleRouteError(error, "item.create", "No se pudo crear el artículo.");
+  }
+}
+
+async function createItem(request: Request) {
+  const { ctx, user } = await requirePermission("stock.write");
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
   const parsed = itemPayloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
-  const [created] = await db.insert(item).values({ companyId: ctx.company.id, name: parsed.data.name, sku: parsed.data.sku, isService: parsed.data.isService, salePrice: parsed.data.salePrice.toFixed(2), costPrice: parsed.data.costPrice.toFixed(2), averageCost: parsed.data.costPrice.toFixed(2), minimumStock: parsed.data.minimumStock.toFixed(3) }).returning();
-  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "item.create", entityName: "item", entityId: created.id, payload: parsed.data });
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx.insert(item).values({ companyId: ctx.company.id, name: parsed.data.name, sku: parsed.data.sku, isService: parsed.data.isService, salePrice: parsed.data.salePrice.toFixed(2), costPrice: parsed.data.costPrice.toFixed(2), averageCost: parsed.data.costPrice.toFixed(2), minimumStock: parsed.data.minimumStock.toFixed(3) }).returning();
+    await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: user.id, action: "item.create", entityName: "item", entityId: row.id, payload: parsed.data }, tx);
+    return row;
+  });
   return NextResponse.json(created, { status: 201 });
 }

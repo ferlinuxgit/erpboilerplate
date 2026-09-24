@@ -6,9 +6,12 @@ import { customer, salesQuote, salesQuoteLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { HttpError, handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
+import { settle } from "@/lib/settle";
+import { recordAudit } from "@/server/audit";
 import { computeDocumentTotals } from "@/server/taxation/engine";
+import { rejectForeignItems } from "@/server/inventory/ownership";
 
 const lineSchema = z.object({
   description: z.string().trim().min(1),
@@ -76,9 +79,11 @@ export async function PATCH(
       { message: "Cliente no encontrado." },
       { status: 404 },
     );
+  const foreignItems = await rejectForeignItems(db, ctx.company.id, parsed.data.lines);
+  if (foreignItems) return foreignItems;
   const totals = computeDocumentTotals(parsed.data.lines);
-  await db.transaction(async (tx) => {
-    await tx
+  const result = await settle(db.transaction(async (tx) => {
+    const [updatedQuote] = await tx
       .update(salesQuote)
       .set({
         customerId: parsed.data.customerId,
@@ -94,8 +99,10 @@ export async function PATCH(
         updatedAt: new Date(),
       })
       .where(
-        and(eq(salesQuote.id, id), eq(salesQuote.companyId, ctx.company.id)),
-      );
+        and(eq(salesQuote.id, id), eq(salesQuote.companyId, ctx.company.id), eq(salesQuote.status, "DRAFT")),
+      )
+      .returning({ id: salesQuote.id, number: salesQuote.number, totalAmount: salesQuote.totalAmount });
+    if (!updatedQuote) throw new HttpError(409, "Solo se pueden editar presupuestos en borrador.");
     await tx.delete(salesQuoteLine).where(eq(salesQuoteLine.salesQuoteId, id));
     await tx.insert(salesQuoteLine).values(
       parsed.data.lines.map((line) => ({
@@ -110,6 +117,26 @@ export async function PATCH(
         lineTotal: computeDocumentTotals([line]).totalAmount.toFixed(2),
       })),
     );
-  });
+    await recordAudit(
+      {
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: session.user.id,
+        action: "salesQuote.update",
+        entityName: "salesQuote",
+        entityId: id,
+        payload: {
+          number: updatedQuote.number,
+          customerId: parsed.data.customerId,
+          issueDate: parsed.data.issueDate,
+          validUntil: parsed.data.validUntil || null,
+          totalAmount: updatedQuote.totalAmount,
+          lineCount: parsed.data.lines.length,
+        },
+      },
+      tx,
+    );
+  }));
+  if (!result.ok) return handleRouteError(result.error, "salesQuote.update", "No se pudo actualizar el presupuesto.");
   return NextResponse.json({ id });
 }

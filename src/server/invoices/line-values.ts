@@ -1,4 +1,4 @@
-import { calculateInvoiceTotals, type InvoiceCalculationLine } from "@/lib/invoice-totals";
+import { calculateInvoiceTotals, type InvoiceCalculationLine, type InvoiceCalculationOptions } from "@/lib/invoice-totals";
 
 export type InvoiceLineInput = InvoiceCalculationLine & {
   itemId?: string | null;
@@ -11,8 +11,13 @@ export type InvoiceLineInput = InvoiceCalculationLine & {
   lineTotal?: number | null;
 };
 
-export function buildInvoiceLineInsertValues(invoiceId: string, lines: InvoiceLineInput[], lineIds?: string[]) {
-  const totals = calculateInvoiceTotals(lines);
+export function buildInvoiceLineInsertValues(
+  invoiceId: string,
+  lines: InvoiceLineInput[],
+  lineIds?: string[],
+  options: InvoiceCalculationOptions = {},
+) {
+  const totals = calculateInvoiceTotals(lines, options);
 
   return lines.map((line, index) => ({
     ...(lineIds?.[index] ? { id: lineIds[index] } : {}),
@@ -34,8 +39,8 @@ export function buildInvoiceLineInsertValues(invoiceId: string, lines: InvoiceLi
   }));
 }
 
-export function buildInvoiceLineTaxInsertValues(lineIds: string[], lines: InvoiceLineInput[]) {
-  const totals = calculateInvoiceTotals(lines);
+export function buildInvoiceLineTaxInsertValues(lineIds: string[], lines: InvoiceLineInput[], options: InvoiceCalculationOptions = {}) {
+  const totals = calculateInvoiceTotals(lines, options);
 
   return totals.lines.flatMap((lineTotal, lineIndex) =>
     lineTotal.taxes.map((selectedTax) => ({

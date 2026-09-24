@@ -1,6 +1,7 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
+import { FiscalYearLifecyclePanel } from "@/components/accounting/fiscal-year-lifecycle-panel";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -16,10 +17,15 @@ import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { getFiscalYearLifecycle } from "@/server/accounting/fiscal-years";
 import {
-  listBankAccounts,
-  listBankTransactions,
-} from "@/server/treasury/service";
+  creditedByInvoiceSubquery,
+  invoiceIsIssuedSql,
+  netOutstandingSql,
+  paidByInvoiceSubquery,
+} from "@/server/invoices/sql";
+import { bankTransactionStats } from "@/server/treasury/bank-transaction-list";
+import { listBankAccounts } from "@/server/treasury/service";
 
 const areas = [
   {
@@ -46,34 +52,56 @@ const areas = [
 
 export default async function TreasuryPage() {
   const ctx = await requireContext("treasury.read");
-  const [accounts, rows, invoices, methods] = await Promise.all([
-    listBankAccounts(ctx.company.id),
-    listBankTransactions(ctx.company.id),
+  const companyId = ctx.company.id;
+  // Issued ordinary invoices only (no drafts, voided invoices or credit notes), with the
+  // net outstanding (total + credit notes − payments), aggregated in SQL.
+  const paidByInvoice = paidByInvoiceSubquery(companyId);
+  const creditedByInvoice = creditedByInvoiceSubquery(companyId);
+  const outstanding = netOutstandingSql(paidByInvoice, creditedByInvoice);
+  const trackedInvoice = and(eq(invoice.companyId, companyId), invoiceIsIssuedSql, eq(invoice.invoiceType, "INVOICE"));
+  const [accounts, stats, [invoiceCounts], [selected], methods, lifecycle] = await Promise.all([
+    listBankAccounts(companyId),
+    bankTransactionStats(companyId),
+    db
+      .select({
+        total: sql<number>`count(*)`.mapWith(Number),
+        paid: sql<number>`count(*) filter (where ${invoice.paymentStatus} = 'PAID')`.mapWith(Number),
+        open: sql<number>`count(*) filter (where ${outstanding} > 0)`.mapWith(Number),
+      })
+      .from(invoice)
+      .leftJoin(paidByInvoice, eq(paidByInvoice.invoiceId, invoice.id))
+      .leftJoin(creditedByInvoice, eq(creditedByInvoice.invoiceId, invoice.id))
+      .where(trackedInvoice),
+    // Next invoice to collect: the most recent issued invoice with something left to pay.
     db
       .select({
         id: invoice.id,
         number: invoice.number,
         totalAmount: invoice.totalAmount,
         paymentStatus: invoice.paymentStatus,
+        outstandingAmount: outstanding.mapWith(Number),
         customerName: customer.name,
       })
       .from(invoice)
       .innerJoin(customer, eq(invoice.customerId, customer.id))
-      .where(eq(invoice.companyId, ctx.company.id))
-      .orderBy(desc(invoice.createdAt)),
+      .leftJoin(paidByInvoice, eq(paidByInvoice.invoiceId, invoice.id))
+      .leftJoin(creditedByInvoice, eq(creditedByInvoice.invoiceId, invoice.id))
+      .where(and(trackedInvoice, sql`${outstanding} > 0`))
+      .orderBy(desc(invoice.createdAt), desc(invoice.id))
+      .limit(1),
     db
       .select({ id: paymentMethod.id, name: paymentMethod.name })
       .from(paymentMethod)
-      .where(eq(paymentMethod.companyId, ctx.company.id))
+      .where(eq(paymentMethod.companyId, companyId))
       .orderBy(paymentMethod.name),
+    getFiscalYearLifecycle(companyId, ctx.fiscalYear.id),
   ]);
   const canWrite = can(ctx.membership.role, "treasury.write");
-  const pending = rows.filter(
-    (row) => row.reconciliationStatus === "PENDING",
-  ).length;
-  const selected = invoices.find((row) => row.paymentStatus !== "PAID");
-  const paidInvoices = invoices.filter((row) => row.paymentStatus === "PAID").length;
-  const balance = rows.reduce((sum, row) => sum + Number(row.amount), 0);
+  const pending = stats.pending;
+  const paidInvoices = invoiceCounts?.paid ?? 0;
+  const trackedInvoices = invoiceCounts?.total ?? 0;
+  const openInvoices = invoiceCounts?.open ?? 0;
+  const balance = stats.balance;
 
   return (
     <PageShell>
@@ -99,15 +127,18 @@ export default async function TreasuryPage() {
           ) : null
         }
       />
+      {lifecycle ? (
+        <FiscalYearLifecyclePanel canWrite={can(ctx.membership.role, "accounting.write")} lifecycle={{ ...lifecycle, companyId: ctx.company.id }} variant="alert" />
+      ) : null}
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard
           label="Saldo registrado"
           value={formatMoney(balance, ctx.company.baseCurrencyCode)}
-          helper={`${accounts.length} cuentas`}
+          helper={`Suma de movimientos de ${accounts.filter((account) => account.isActive).length} cuentas activas`}
         />
         <MetricCard
           label="Movimientos"
-          value={rows.length}
+          value={stats.total}
           helper="Transacciones bancarias"
         />
         <MetricCard
@@ -120,12 +151,12 @@ export default async function TreasuryPage() {
         <MetricCard
           href="/treasury/forecast"
           label="Facturas pendientes"
-          value={invoices.filter((row) => row.paymentStatus !== "PAID").length}
+          value={openInvoices}
           helper="Cobros en seguimiento"
         />
       </section>
       <div data-testid="customer-to-cash-report" id="customer-to-cash-report">
-        <MetricCard label="Facturas cobradas" value={paidInvoices} helper={`${invoices.length} facturas en seguimiento`} />
+        <MetricCard label="Facturas cobradas" value={paidInvoices} helper={`${trackedInvoices} facturas en seguimiento`} />
       </div>
       <PageSection
         title="Áreas de tesorería"
@@ -151,7 +182,7 @@ export default async function TreasuryPage() {
       </PageSection>
       <PageSection
         title="Registrar cobro"
-        description="Aplica un cobro a la siguiente factura pendiente."
+        description="Aplica un cobro a la siguiente factura pendiente. Se contabiliza en el banco de la forma de pago elegida (o en 572) contra el cliente."
       >
         {selected && canWrite ? (
           <CustomerCashActions
@@ -165,6 +196,7 @@ export default async function TreasuryPage() {
                 ctx.company.baseCurrencyCode,
               ),
               paymentStatus: selected.paymentStatus,
+              outstandingAmount: Math.round(selected.outstandingAmount * 100) / 100,
             }}
             paymentMethods={methods}
           />

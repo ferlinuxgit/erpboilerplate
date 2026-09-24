@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { session, user, verification } from "@/db/schema";
 import { AUTH_TOKEN_COOKIE, createAuthToken, getAuthCookieOptions, hashAuthToken } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getClientIp } from "@/lib/ip-policy";
 import { readJsonBody } from "@/lib/http";
 
 export async function POST(request: Request) {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
   await db.insert(session).values({
     id: crypto.randomUUID(), token: hashAuthToken(token), userId: authUser.id,
     expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
-    ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+    ipAddress: getClientIp(request.headers),
     userAgent: request.headers.get("user-agent"),
   });
   const response = NextResponse.json({ user: authUser });

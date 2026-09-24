@@ -126,6 +126,17 @@ describe("renderInvoicePdf", () => {
     expect(text).toContain("Pago con tarjeta");
   });
 
+  it("prints the VeriFactu QR and legend at the top of issued invoices", async () => {
+    const { buildVerifactuQrUrl, renderQrPngDataUrl, verifactuLegends } = await import("@/server/verifactu/qr");
+    const url = buildVerifactuQrUrl({ mode: "VERIFACTU", issuerTaxId: "B12345674", invoiceNumber: "FAC-TEST-1", invoiceIssueDate: "02-06-2026", totalAmount: "121.00" }, {});
+    const text = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), legends: verifactuLegends("VERIFACTU"), url } })));
+
+    expect(text).toContain("VERI*FACTU");
+    expect(text).toContain("Factura verificable en la sede electrónica de la AEAT");
+    expect(text.indexOf("VERI*FACTU")).toBeLessThan(text.indexOf("Servicio test"));
+    expect(await pdfText(await renderInvoicePdf(createInput()))).not.toContain("VERI*FACTU");
+  });
+
   it("respects the configured visibility of contact, payment and fiscal blocks", async () => {
     const input = createInput({
       display: {

@@ -1,55 +1,56 @@
 /**
  * Capa de borde Next.js 16: el archivo `src/middleware.ts` quedó deprecado;
  * la convención vigente es exportar `proxy` desde `src/proxy.ts` (sigue apareciendo
- * como "Proxy (Middleware)" en el build). Aquí aplicamos rate limit y CSRF opcional.
+ * como "Proxy (Middleware)" en el build y usa el runtime Node.js).
+ * Aquí aplicamos rate limit (nunca en abierto), CSRF y cabeceras de contexto.
  */
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
-import { AUTH_TOKEN_COOKIE } from "@/lib/auth";
+import { REQUEST_PATH_HEADER } from "@/lib/auth";
+import { getClientIp } from "@/lib/ip-policy";
+import { getRateLimiter, rateLimitKey, resolveRateLimitRule, tooManyRequestsResponse } from "@/lib/rate-limit";
 
-const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-  ? new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
-  : null;
+/** Endpoints previos a la autenticación: no hay sesión que proteger con CSRF. */
+const CSRF_EXEMPT_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/verify-email",
+  "/api/auth/verify-two-factor",
+  "/api/billing/webhook",
+]);
 
-const ratelimit = redis ? new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(100, "1 m") }) : null;
+function withRequestId(response: NextResponse, requestId: string) {
+  response.headers.set("x-request-id", requestId);
+  return response;
+}
 
 export async function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const { pathname } = request.nextUrl;
 
-  if (request.nextUrl.pathname.startsWith("/api/")) {
-    const csrfExcludedPath =
-      request.nextUrl.pathname.startsWith("/api/auth/") || request.nextUrl.pathname === "/api/billing/webhook";
+  if (pathname.startsWith("/api/")) {
+    const rule = resolveRateLimitRule(pathname, request.method);
+    if (rule) {
+      const limitResult = await getRateLimiter().limit(rule, rateLimitKey(getClientIp(request.headers)));
+      if (!limitResult.success) return withRequestId(tooManyRequestsResponse(limitResult), requestId);
+    }
+
     const hasApiKeyAuthorization = hasApiKeyBearerAuthorization(request.headers.get("authorization"));
-
-    if (request.method !== "GET" && !csrfExcludedPath && !hasApiKeyAuthorization) {
+    const safeMethod = request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
+    if (!safeMethod && !CSRF_EXEMPT_PATHS.has(pathname) && !hasApiKeyAuthorization) {
       const csrfToken = request.headers.get("x-csrf-token");
       const csrfCookie = request.cookies.get("csrf-token")?.value;
       if (!csrfToken || !csrfCookie || csrfToken !== csrfCookie) {
-        const response = NextResponse.json({ message: "Token CSRF invalido." }, { status: 403 });
-        response.headers.set("x-request-id", requestId);
-        return response;
-      }
-    }
-
-    if (ratelimit) {
-      const ip = request.headers.get("x-forwarded-for") ?? "anonymous";
-      const userAgent = request.headers.get("user-agent") ?? "unknown";
-      const authCookie = request.cookies.get(AUTH_TOKEN_COOKIE)?.value ?? "anon";
-      const key = `api:${ip}:${userAgent}:${authCookie}`;
-      const { success } = await ratelimit.limit(`api:${key}`);
-      if (!success) {
-        const response = NextResponse.json({ message: "Demasiadas peticiones." }, { status: 429 });
-        response.headers.set("x-request-id", requestId);
-        return response;
+        return withRequestId(NextResponse.json({ message: "Token CSRF inválido. Recarga la página e inténtalo de nuevo." }, { status: 403 }), requestId);
       }
     }
   }
 
-  const response = NextResponse.next();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(REQUEST_PATH_HEADER, `${pathname}${request.nextUrl.search}`);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("x-request-id", requestId);
   if (!request.cookies.get("csrf-token")) {
     response.cookies.set("csrf-token", crypto.randomUUID(), {

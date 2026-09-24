@@ -1,41 +1,49 @@
 import { NextResponse } from "next/server";
 
-import { requireUserSession } from "@/lib/current-user";
-import { ensureUserTenant } from "@/lib/tenant";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { can } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac-server";
 import {
   getTenantSecurityPolicyState,
   updateTenantSecurityPolicy,
 } from "@/server/security-policy";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 
 export async function GET() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant(session.user);
-  const result = await getTenantSecurityPolicyState(ctx.tenant.id);
+  try {
+    // Cualquier miembro puede consultar la política; solo OWNER/ADMIN la gestionan.
+    const { ctx } = await requirePermission(null);
+    const result = await getTenantSecurityPolicyState(ctx.tenant.id);
 
-  return NextResponse.json({
-    canManage: ctx.membership.role === "OWNER" || ctx.membership.role === "ADMIN",
-    policy: result,
-  });
+    return NextResponse.json({
+      canManage: can(ctx.membership.role, "settings.manage"),
+      policy: result,
+    });
+  } catch (error) {
+    return handleRouteError(error, "securityPolicy.get");
+  }
 }
 
 export async function PUT(request: Request) {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant(session.user);
-  const payload = await readJsonBody(request);
-  if (!payload) return invalidJsonResponse();
+  try {
+    const { ctx, user } = await requirePermission(null);
+    const payload = await readJsonBody(request);
+    if (!payload) return invalidJsonResponse();
 
-  const result = await updateTenantSecurityPolicy({
-    actorUserId: session.user.id,
-    role: ctx.membership.role,
-    tenantId: ctx.tenant.id,
-    companyId: ctx.company.id,
-    payload,
-  });
+    // El servicio aplica la autorización por rol (OWNER/ADMIN) y audita el cambio.
+    const result = await updateTenantSecurityPolicy({
+      actorUserId: user.id,
+      role: ctx.membership.role,
+      tenantId: ctx.tenant.id,
+      companyId: ctx.company.id,
+      payload,
+    });
 
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
+    if (result.error) {
+      return NextResponse.json({ error: result.error, message: result.error }, { status: result.status });
+    }
+
+    return NextResponse.json({ policy: result.policy, changes: result.changes }, { status: result.status });
+  } catch (error) {
+    return handleRouteError(error, "securityPolicy.update", "No se pudo guardar la política de seguridad.");
   }
-
-  return NextResponse.json({ policy: result.policy, changes: result.changes }, { status: result.status });
 }

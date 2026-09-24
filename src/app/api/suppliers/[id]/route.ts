@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
 import { getSupplier, removeSupplierRole, updateSupplierWithPartner } from "@/server/suppliers/service";
@@ -35,15 +35,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { id } = await params;
   try {
-    const updated = await db.transaction((tx) =>
-      updateSupplierWithPartner(tx, ctx.company.id, id, parsedPayload.data),
-    );
+    const updated = await db.transaction(async (tx) => {
+      const row = await updateSupplierWithPartner(tx, ctx.company.id, id, parsedPayload.data);
+      if (!row) return null;
+      await recordAudit(
+        { tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "supplier.update", entityName: "partner", entityId: id, payload: parsedPayload.data },
+        tx,
+      );
+      return row;
+    });
     if (!updated) return NextResponse.json({ message: "Proveedor no encontrado." }, { status: 404 });
-    await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "supplier.update", entityName: "supplier", entityId: id, payload: parsedPayload.data });
     return NextResponse.json(updated);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo actualizar el proveedor.";
-    return NextResponse.json({ message }, { status: 400 });
+    return handleRouteError(error, "supplier.update", "No se pudo actualizar el proveedor.");
   }
 }
 
@@ -53,8 +57,19 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const ctx = actor.context;
   if (!hasApiActorPermission(actor, "supplier.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
-  const updated = await removeSupplierRole(db, ctx.company.id, id);
-  if (!updated) return NextResponse.json({ message: "Proveedor no encontrado." }, { status: 404 });
-  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "supplier.delete", entityName: "supplier", entityId: id });
-  return NextResponse.json({ ok: true });
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const row = await removeSupplierRole(tx, ctx.company.id, id);
+      if (!row) return null;
+      await recordAudit(
+        { tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "supplier.delete", entityName: "partner", entityId: id },
+        tx,
+      );
+      return row;
+    });
+    if (!updated) return NextResponse.json({ message: "Proveedor no encontrado." }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return handleRouteError(error, "supplier.delete", "No se pudo eliminar el proveedor.");
+  }
 }

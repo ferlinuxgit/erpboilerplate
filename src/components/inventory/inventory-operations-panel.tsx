@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { isSearchOnlyChange } from "@/components/ui/resource-list";
+import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage as describeError, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { formatDateTime, parseDecimalInput } from "@/lib/format";
+import { buildListSearch, DEFAULT_LIST_PAGE_SIZE, LIST_PARAM } from "@/lib/list-params";
 
 export type InventoryItemOption = {
   id: string;
@@ -50,12 +56,47 @@ export type StockMovementHistoryRow = {
   reference: string | null;
 };
 
+/**
+ * Server-paginated history: `movements` is then only the current page, already filtered by
+ * the server from `?q=&page=&type=&itemId=&warehouseId=`, which the filters below write.
+ */
+export type StockMovementHistoryServerState = {
+  /** Movements matching the filters (all pages). */
+  total: number;
+  /** Movements without filters. */
+  unfilteredTotal: number;
+  page: number;
+  pageSize: number;
+  q: string;
+  filters: { type: string | null; itemId: string | null; warehouseId: string | null };
+};
+
+const HISTORY_FILTER_KEYS = ["itemId", "warehouseId", "type"] as const;
+const HISTORY_SEARCH_DEBOUNCE_MS = 300;
+
+function historySearchFor(state: { q: string; page: number; pageSize: number; itemId: string; warehouseId: string; type: string }) {
+  const value = (selected: string) => (selected === "all" ? null : selected);
+  return buildListSearch(
+    "",
+    {
+      q: state.q,
+      page: state.page,
+      pageSize: state.pageSize,
+      defaultPageSize: DEFAULT_LIST_PAGE_SIZE,
+      filters: { itemId: value(state.itemId), warehouseId: value(state.warehouseId), type: value(state.type) },
+    },
+    HISTORY_FILTER_KEYS,
+  );
+}
+
 type Props = {
   items: InventoryItemOption[];
   warehouses: InventoryWarehouseOption[];
   stock: StockSnapshotRow[];
   alerts: StockSnapshotRow[];
   movements: StockMovementHistoryRow[];
+  /** Server mode for the movement history (see `StockMovementHistoryServerState`). */
+  movementHistory?: StockMovementHistoryServerState;
   initialItemId?: string;
   initialWarehouseId?: string;
   initialMovementItemId?: string;
@@ -72,6 +113,15 @@ const movementLabels = {
   TRANSFER: "Transferencia",
 } as const;
 
+const movementHelp: Record<keyof typeof movementLabels, string> = {
+  IN: "Entrada de mercancía en el almacén (por ejemplo, compra a proveedor).",
+  OUT: "Salida de mercancía del almacén.",
+  ADJUSTMENT: "Corrige el stock tras un conteo físico o una incidencia.",
+  TRANSFER: "Mueve mercancía de un almacén a otro.",
+};
+
+type MovementFieldErrors = Partial<Record<"itemId" | "warehouseId" | "destinationWarehouseId" | "quantity" | "movedAt" | "reason" | "reference", string>>;
+
 function nowForDateTimeInput() {
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -83,7 +133,7 @@ function formatQuantity(value: string) {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("es-ES", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+  return formatDateTime(value);
 }
 
 export function InventoryOperationsPanel({
@@ -92,6 +142,7 @@ export function InventoryOperationsPanel({
   stock,
   alerts,
   movements,
+  movementHistory,
   initialItemId = "all",
   initialWarehouseId = "all",
   initialMovementItemId,
@@ -101,6 +152,9 @@ export function InventoryOperationsPanel({
   showOverview = true,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [isHistoryNavigating, startHistoryNavigation] = useTransition();
+  const isServerHistory = Boolean(movementHistory);
   const [movementType, setMovementType] = useState<keyof typeof movementLabels>("ADJUSTMENT");
   const [itemId, setItemId] = useState(items.some((item) => item.id === initialMovementItemId) ? initialMovementItemId ?? "" : items[0]?.id ?? "");
   const [warehouseId, setWarehouseId] = useState(warehouses.some((warehouse) => warehouse.id === initialMovementWarehouseId) ? initialMovementWarehouseId ?? "" : warehouses[0]?.id ?? "");
@@ -109,15 +163,84 @@ export function InventoryOperationsPanel({
   const [movedAt, setMovedAt] = useState(nowForDateTimeInput());
   const [reason, setReason] = useState("");
   const [reference, setReference] = useState("");
-  const [historyItemFilter, setHistoryItemFilter] = useState(initialItemId);
-  const [historyWarehouseFilter, setHistoryWarehouseFilter] = useState(initialWarehouseId);
-  const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
-  const [historySearch, setHistorySearch] = useState("");
+  const [historyItemFilter, setHistoryItemFilter] = useState(movementHistory ? movementHistory.filters.itemId ?? "all" : initialItemId);
+  const [historyWarehouseFilter, setHistoryWarehouseFilter] = useState(
+    movementHistory ? movementHistory.filters.warehouseId ?? "all" : initialWarehouseId,
+  );
+  const [historyTypeFilter, setHistoryTypeFilter] = useState(movementHistory?.filters.type ?? "all");
+  const [historySearch, setHistorySearch] = useState(movementHistory?.q ?? "");
+  const [historyPage, setHistoryPage] = useState(movementHistory?.page ?? 1);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<MovementFieldErrors>({});
+
+  // Server mode: write the history filters to the URL (search debounced) and let the page re-render.
+  const historyPageSize = movementHistory?.pageSize ?? DEFAULT_LIST_PAGE_SIZE;
+  const historyUrlSearch = isServerHistory
+    ? historySearchFor({
+        q: historySearch,
+        page: historyPage,
+        pageSize: historyPageSize,
+        itemId: historyItemFilter,
+        warehouseId: historyWarehouseFilter,
+        type: historyTypeFilter,
+      })
+    : "";
+  const lastHistorySearchRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isServerHistory) return;
+    const managedKeys = new Set<string>([...Object.values(LIST_PARAM), ...HISTORY_FILTER_KEYS]);
+    const current = new URLSearchParams(window.location.search);
+    const managedCurrent = new URLSearchParams([...current].filter(([key]) => managedKeys.has(key)));
+    managedCurrent.sort();
+    if (managedCurrent.toString() === historyUrlSearch) {
+      lastHistorySearchRef.current = historyUrlSearch;
+      return;
+    }
+    const onlyQueryChanged = isSearchOnlyChange(lastHistorySearchRef.current ?? managedCurrent.toString(), historyUrlSearch);
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams([...current].filter(([key]) => !managedKeys.has(key)));
+      for (const [key, value] of new URLSearchParams(historyUrlSearch)) next.set(key, value);
+      const query = next.toString();
+      lastHistorySearchRef.current = historyUrlSearch;
+      startHistoryNavigation(() => {
+        router.replace(`${pathname}${query ? `?${query}` : ""}${window.location.hash}`, { scroll: false });
+      });
+    }, onlyQueryChanged ? HISTORY_SEARCH_DEBOUNCE_MS : 0);
+    return () => window.clearTimeout(timer);
+  }, [historyUrlSearch, isServerHistory, pathname, router]);
+
+  // Server mode: adopt URL changes made elsewhere (links, back/forward, page clamped by the server).
+  const historyStateKey = movementHistory ? JSON.stringify(movementHistory) : "";
+  useEffect(() => {
+    if (!movementHistory || isHistoryNavigating) return;
+    const received = historySearchFor({
+      q: movementHistory.q,
+      page: movementHistory.page,
+      pageSize: movementHistory.pageSize,
+      itemId: movementHistory.filters.itemId ?? "all",
+      warehouseId: movementHistory.filters.warehouseId ?? "all",
+      type: movementHistory.filters.type ?? "all",
+    });
+    if (received === lastHistorySearchRef.current) return;
+    const timer = window.setTimeout(() => {
+      lastHistorySearchRef.current = received;
+      setHistoryPage(movementHistory.page);
+      setHistoryItemFilter(movementHistory.filters.itemId ?? "all");
+      setHistoryWarehouseFilter(movementHistory.filters.warehouseId ?? "all");
+      setHistoryTypeFilter(movementHistory.filters.type ?? "all");
+      setHistorySearch((current) => (current.trim() === movementHistory.q ? current : movementHistory.q));
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // `historyStateKey` captures every field of `movementHistory`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyStateKey, isHistoryNavigating]);
+
+  const historyPageCount = movementHistory ? Math.max(1, Math.ceil(movementHistory.total / movementHistory.pageSize)) : 1;
 
   const filteredMovements = useMemo(() => {
+    if (isServerHistory) return movements;
     const query = historySearch.trim().toLowerCase();
     return movements.filter((movement) => {
       const matchesItem = historyItemFilter === "all" || movement.itemId === historyItemFilter;
@@ -131,13 +254,36 @@ export function InventoryOperationsPanel({
         movement.warehouseName.toLowerCase().includes(query);
       return matchesItem && matchesWarehouse && matchesType && matchesSearch;
     });
-  }, [historyItemFilter, historySearch, historyTypeFilter, historyWarehouseFilter, movements]);
+  }, [historyItemFilter, historySearch, historyTypeFilter, historyWarehouseFilter, isServerHistory, movements]);
+
+  function validateMovement() {
+    const next: MovementFieldErrors = {};
+    const parsedQuantity = parseDecimalInput(quantity);
+    if (!itemId) next.itemId = "Selecciona el producto.";
+    if (!warehouseId) next.warehouseId = "Selecciona el almacén de origen.";
+    if (movementType === "TRANSFER") {
+      if (!destinationWarehouseId) next.destinationWarehouseId = "Selecciona el almacén de destino.";
+      else if (destinationWarehouseId === warehouseId) next.destinationWarehouseId = "El destino debe ser distinto del origen.";
+    }
+    if (parsedQuantity === null) next.quantity = "Introduce una cantidad válida, por ejemplo 7,5.";
+    else if (parsedQuantity === 0) next.quantity = "La cantidad no puede ser cero.";
+    if (!movedAt) next.movedAt = "Indica la fecha y hora del movimiento.";
+    if (!reason.trim()) next.reason = "Explica brevemente el motivo (por ejemplo, conteo físico).";
+    if (!reference.trim()) next.reference = "Indica una referencia (albarán, lote o ticket).";
+    setFieldErrors(next);
+    return Object.keys(next).length === 0 ? parsedQuantity : null;
+  }
 
   async function submitMovement(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsSubmitting(true);
     setStatusMessage(null);
     setErrorMessage(null);
+    const parsedQuantity = validateMovement();
+    if (parsedQuantity === null) {
+      toast.error("Revisa los campos marcados antes de registrar el movimiento.");
+      return;
+    }
+    setIsSubmitting(true);
 
     try {
       const response = await fetch("/api/stock-movements", {
@@ -148,30 +294,31 @@ export function InventoryOperationsPanel({
           warehouseId,
           destinationWarehouseId: movementType === "TRANSFER" ? destinationWarehouseId : undefined,
           movementType,
-          quantity,
+          quantity: String(parsedQuantity),
           movedAt,
           reason,
           reference,
         }),
       });
-      const payload = (await response.json()) as { message?: string };
-      if (!response.ok) throw new Error(payload.message ?? "No se pudo registrar el movimiento.");
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo registrar el movimiento."));
 
       setStatusMessage("Movimiento de stock registrado. Datos actualizados.");
       setErrorMessage(null);
       setReason("");
       setReference("");
-      toast.success("Movimiento de stock registrado.");
+      toast.success(`Movimiento registrado: ${movementLabels[movementType].toLocaleLowerCase("es-ES")}.`);
       if (redirectAfterSubmit) router.push(redirectAfterSubmit);
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error inesperado.";
+      const message = describeError(error, "No se pudo registrar el movimiento.");
       setErrorMessage(message);
       toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
   }
+
+  const missingMasters = items.length === 0 || warehouses.length === 0;
 
   return (
     <div className="space-y-2">
@@ -183,39 +330,38 @@ export function InventoryOperationsPanel({
           </h2>
           <p className="text-xs text-muted-foreground">Registra recepciones, ajustes/conteos y transferencias con trazabilidad.</p>
         </div>
-        <form className="grid gap-2 md:grid-cols-2 xl:grid-cols-3" onSubmit={submitMovement}>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Tipo de operación
-            <Select value={movementType} onChange={(event) => setMovementType(event.target.value as keyof typeof movementLabels)} required>
+        <form className="grid gap-2 md:grid-cols-2 xl:grid-cols-3" noValidate onSubmit={submitMovement}>
+          <RequiredFieldsNote className="md:col-span-2 xl:col-span-3" />
+          <AccessibleField helperText={movementHelp[movementType]} id="stock-movement-type" label="Tipo de operación" required>
+            <Select id="stock-movement-type" autoFocus value={movementType} onChange={(event) => setMovementType(event.target.value as keyof typeof movementLabels)} required>
               <option value="IN">Recepción</option>
               <option value="ADJUSTMENT">Ajuste / conteo</option>
               <option value="TRANSFER">Transferencia</option>
             </Select>
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Producto
-            <Select value={itemId} onChange={(event) => setItemId(event.target.value)} required disabled={items.length === 0}>
+          </AccessibleField>
+          <AccessibleField error={fieldErrors.itemId} id="stock-movement-item" label="Producto" required>
+            <Select id="stock-movement-item" value={itemId} onChange={(event) => setItemId(event.target.value)} required disabled={items.length === 0}>
+              {items.length === 0 ? <option value="">Sin productos</option> : null}
               {items.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.sku} · {item.name}
                 </option>
               ))}
             </Select>
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Almacén / ubicación origen
-            <Select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} required disabled={warehouses.length === 0}>
+          </AccessibleField>
+          <AccessibleField error={fieldErrors.warehouseId} id="stock-movement-warehouse" label="Almacén / ubicación origen" required>
+            <Select id="stock-movement-warehouse" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} required disabled={warehouses.length === 0}>
+              {warehouses.length === 0 ? <option value="">Sin almacenes</option> : null}
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>
                   {warehouse.code} · {warehouse.name}
                 </option>
               ))}
             </Select>
-          </label>
+          </AccessibleField>
           {movementType === "TRANSFER" ? (
-            <label className="space-y-1 font-mono text-xs font-bold">
-              Almacén destino
-              <Select value={destinationWarehouseId} onChange={(event) => setDestinationWarehouseId(event.target.value)} required>
+            <AccessibleField error={fieldErrors.destinationWarehouseId} id="stock-movement-destination" label="Almacén destino" required>
+              <Select id="stock-movement-destination" value={destinationWarehouseId} onChange={(event) => setDestinationWarehouseId(event.target.value)} required>
                 <option value="">Selecciona destino</option>
                 {warehouses.map((warehouse) => (
                   <option key={warehouse.id} value={warehouse.id}>
@@ -223,33 +369,42 @@ export function InventoryOperationsPanel({
                   </option>
                 ))}
               </Select>
-            </label>
+            </AccessibleField>
           ) : null}
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Cantidad
-            <Input type="number" step="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Fecha
-            <Input type="datetime-local" value={movedAt} onChange={(event) => setMovedAt(event.target.value)} required />
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold md:col-span-2">
-            Motivo
-            <Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. conteo físico, recepción proveedor, traspaso entre almacenes" required />
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Referencia
-            <Input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Albarán, lote, ticket..." required />
-          </label>
-          <div className="flex flex-col justify-end gap-1 md:col-span-2 xl:col-span-3">
-            <Button type="submit" disabled={isSubmitting || items.length === 0 || warehouses.length === 0}>
-              {isSubmitting ? "Registrando..." : "Registrar movimiento"}
-            </Button>
-            <div className="min-h-4 font-mono text-xs" aria-live="polite">
-              {statusMessage ? <p className="text-success">{statusMessage}</p> : null}
-              {errorMessage ? <p className="text-destructive">{errorMessage}</p> : null}
-              {items.length === 0 || warehouses.length === 0 ? <p className="text-muted-foreground">Crea al menos un producto y un almacén antes de mover stock.</p> : null}
-            </div>
+          <AccessibleField
+            error={fieldErrors.quantity}
+            helperText={movementType === "ADJUSTMENT" ? "Usa un número negativo para restar stock (por ejemplo, -2)." : "Admite hasta 3 decimales, por ejemplo 7,5."}
+            id="stock-movement-quantity"
+            label="Cantidad"
+            required
+          >
+            <QuantityInput id="stock-movement-quantity" value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
+          </AccessibleField>
+          <AccessibleField error={fieldErrors.movedAt} id="stock-movement-date" label="Fecha" required>
+            <Input id="stock-movement-date" type="datetime-local" value={movedAt} onChange={(event) => setMovedAt(event.target.value)} required />
+          </AccessibleField>
+          <AccessibleField className="md:col-span-2" error={fieldErrors.reason} id="stock-movement-reason" label="Motivo" required>
+            <Textarea id="stock-movement-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. conteo físico, recepción proveedor, traspaso entre almacenes" required />
+          </AccessibleField>
+          <AccessibleField error={fieldErrors.reference} helperText="Sirve para localizar el movimiento en el historial." id="stock-movement-reference" label="Referencia" required>
+            <Input id="stock-movement-reference" value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Albarán, lote, ticket..." required />
+          </AccessibleField>
+          <div className="space-y-2 md:col-span-2 xl:col-span-3">
+            {missingMasters ? (
+              <p className="border border-dashed border-window-dark-shadow bg-window-panel p-2 text-xs text-muted-foreground">
+                Crea al menos un producto y un almacén antes de mover stock:{" "}
+                <Link className="font-bold text-primary underline" href="/inventory/items/new">nuevo artículo</Link>
+                {" · "}
+                <Link className="font-bold text-primary underline" href="/inventory/warehouses/new">nuevo almacén</Link>.
+              </p>
+            ) : null}
+            <FormErrorMessage>{errorMessage}</FormErrorMessage>
+            {statusMessage ? <p className="font-mono text-xs text-success" aria-live="polite">{statusMessage}</p> : null}
+            <FormActions>
+              <SubmitButton aria-keyshortcuts="Control+Enter Meta+Enter" disabled={missingMasters} pending={isSubmitting} pendingLabel="Registrando…">
+                Registrar movimiento
+              </SubmitButton>
+            </FormActions>
           </div>
         </form>
       </section>
@@ -272,6 +427,7 @@ export function InventoryOperationsPanel({
                 onClick={() => {
                   setHistoryItemFilter(row.itemId);
                   setHistoryWarehouseFilter(row.warehouseId ?? "all");
+                  setHistoryPage(1);
                 }}
               >
                 <span className="font-medium">{row.itemSku} · {row.itemName}</span>
@@ -289,7 +445,7 @@ export function InventoryOperationsPanel({
           Stock por producto y almacén
         </h2>
         <div className="mt-2 grid gap-1.5 md:hidden">
-          {stock.length === 0 ? <p className="text-sm text-muted-foreground">No hay datos de stock.</p> : stock.map((row) => (
+          {stock.length === 0 ? <p className="text-xs text-muted-foreground">No hay datos de stock. Registra un movimiento para empezar.</p> : stock.map((row) => (
             <article className="border border-window-dark-shadow bg-background p-2" id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`} key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-medium">{row.itemName}</p><p className="text-xs text-muted-foreground">{row.itemSku} · {row.warehouseName ?? "Sin almacén"}</p></div>
@@ -313,7 +469,7 @@ export function InventoryOperationsPanel({
               {stock.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-muted-foreground">
-                    No hay datos de stock.
+                    No hay datos de stock. Registra un movimiento para empezar.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -342,9 +498,11 @@ export function InventoryOperationsPanel({
           <p className="text-xs text-muted-foreground">Filtra por producto, almacén, tipo o referencia/motivo.</p>
         </div>
         <div className="mt-2 grid gap-2 md:grid-cols-4">
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Producto
-            <Select value={historyItemFilter} onChange={(event) => setHistoryItemFilter(event.target.value)}>
+          <AccessibleField id="stock-history-item" label="Producto">
+            <Select id="stock-history-item" value={historyItemFilter} onChange={(event) => {
+                setHistoryItemFilter(event.target.value);
+                setHistoryPage(1);
+              }}>
               <option value="all">Todos</option>
               {items.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -352,10 +510,12 @@ export function InventoryOperationsPanel({
                 </option>
               ))}
             </Select>
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Almacén
-            <Select value={historyWarehouseFilter} onChange={(event) => setHistoryWarehouseFilter(event.target.value)}>
+          </AccessibleField>
+          <AccessibleField id="stock-history-warehouse" label="Almacén">
+            <Select id="stock-history-warehouse" value={historyWarehouseFilter} onChange={(event) => {
+                setHistoryWarehouseFilter(event.target.value);
+                setHistoryPage(1);
+              }}>
               <option value="all">Todos</option>
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>
@@ -363,24 +523,28 @@ export function InventoryOperationsPanel({
                 </option>
               ))}
             </Select>
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Tipo
-            <Select value={historyTypeFilter} onChange={(event) => setHistoryTypeFilter(event.target.value)}>
+          </AccessibleField>
+          <AccessibleField id="stock-history-type" label="Tipo">
+            <Select id="stock-history-type" value={historyTypeFilter} onChange={(event) => {
+                setHistoryTypeFilter(event.target.value);
+                setHistoryPage(1);
+              }}>
               <option value="all">Todos</option>
               <option value="IN">Recepción</option>
               <option value="OUT">Salida</option>
               <option value="ADJUSTMENT">Ajuste / conteo</option>
               <option value="TRANSFER">Transferencia</option>
             </Select>
-          </label>
-          <label className="space-y-1 font-mono text-xs font-bold">
-            Buscar
-            <Input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Motivo o referencia" />
-          </label>
+          </AccessibleField>
+          <AccessibleField id="stock-history-search" label="Buscar">
+            <Input id="stock-history-search" type="search" value={historySearch} onChange={(event) => {
+                setHistorySearch(event.target.value);
+                setHistoryPage(1);
+              }} placeholder="Motivo o referencia" />
+          </AccessibleField>
         </div>
-        <div className="mt-2 grid gap-1.5 md:hidden">
-          {filteredMovements.length === 0 ? <p className="text-sm text-muted-foreground">No hay movimientos para los filtros seleccionados.</p> : filteredMovements.map((movement) => (
+        <div aria-busy={isHistoryNavigating || undefined} className="mt-2 grid gap-1.5 md:hidden">
+          {filteredMovements.length === 0 ? <p className="text-xs text-muted-foreground">No hay movimientos para los filtros seleccionados.</p> : filteredMovements.map((movement) => (
             <article className="border border-window-dark-shadow bg-background p-2" key={movement.id}>
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-medium">{movement.itemName}</p><p className="text-xs text-muted-foreground">{movement.itemSku} · {movement.warehouseName}</p></div>
@@ -391,7 +555,7 @@ export function InventoryOperationsPanel({
             </article>
           ))}
         </div>
-        <div className="mt-2 hidden overflow-x-auto border border-window-dark-shadow md:block">
+        <div aria-busy={isHistoryNavigating || undefined} className="mt-2 hidden overflow-x-auto border border-window-dark-shadow md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -431,6 +595,36 @@ export function InventoryOperationsPanel({
             </TableBody>
           </Table>
         </div>
+        {movementHistory && movementHistory.total > 0 ? (
+          <nav aria-label="Paginación del historial de movimientos" className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <p aria-live="polite">
+              Página {movementHistory.page} de {historyPageCount} · {movementHistory.total}
+              {movementHistory.total !== movementHistory.unfilteredTotal ? ` de ${movementHistory.unfilteredTotal}` : ""} movimientos
+            </p>
+            {historyPageCount > 1 ? (
+              <div className="flex gap-2">
+                <Button
+                  disabled={movementHistory.page <= 1 || isHistoryNavigating}
+                  onClick={() => setHistoryPage(movementHistory.page - 1)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Anterior
+                </Button>
+                <Button
+                  disabled={movementHistory.page >= historyPageCount || isHistoryNavigating}
+                  onClick={() => setHistoryPage(movementHistory.page + 1)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Siguiente
+                </Button>
+              </div>
+            ) : null}
+          </nav>
+        ) : null}
       </section>
       </> : null}
     </div>

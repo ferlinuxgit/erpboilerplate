@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 
 import { CreatePurchaseOrderForm } from "@/components/purchases/create-purchase-order-form";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -7,6 +8,8 @@ import { db } from "@/lib/db";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { listSupplierPartners } from "@/server/supplier-invoices/service";
+
+export const metadata: Metadata = { title: "Nuevo pedido de compra" };
 
 export default async function NewPurchaseOrderPage() {
   const tenantContext = await requireContext("purchase.write");
@@ -28,11 +31,13 @@ export default async function NewPurchaseOrderPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Pedidos de compra"
         title="Nuevo pedido de compra"
         description={`Registra un pedido de compra para ${tenantContext.company.name}.`}
-        backHref="/purchases/orders"
-        backLabel="Volver a pedidos de compra"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Pedidos de compra", href: "/purchases/orders" },
+          { label: "Nuevo pedido de compra" },
+        ]}
       />
 
       <PageSection title="Datos del pedido" description="Selecciona el proveedor y añade todos los artículos o conceptos necesarios.">

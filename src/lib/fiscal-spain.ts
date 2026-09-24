@@ -1,4 +1,6 @@
-export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115"] as const;
+import { centsToNumber, lineBaseCents, roundHalfAwayFromZero, taxOnBaseCents } from "@/server/taxation/engine";
+
+export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130"] as const;
 
 export type SpanishFiscalModelCode = (typeof spanishFiscalModelCodes)[number];
 
@@ -9,9 +11,24 @@ export type SpanishFiscalModel = {
   name: string;
   shortName: string;
   description: string;
-  cadence: "monthly-or-quarterly" | "annual";
+  cadence: "monthly-or-quarterly" | "quarterly" | "annual";
   periodHint: string;
+  /** Explicación en lenguaje llano: qué es y quién lo presenta. */
+  plainHelp: string;
+  /** Solo para autónomos (personas físicas en IRPF). */
+  individualsOnly?: boolean;
 };
+
+export type TaxpayerType = "company" | "individual";
+
+export function normalizeTaxpayerType(value: string | null | undefined): TaxpayerType {
+  return value === "individual" ? "individual" : "company";
+}
+
+/** Modelos visibles según el tipo de contribuyente (el 130 solo aplica a autónomos). */
+export function spanishFiscalModelsFor(taxpayerType: TaxpayerType) {
+  return spanishFiscalModels.filter((model) => !model.individualsOnly || taxpayerType === "individual");
+}
 
 export type FiscalPeriodRange = {
   label: string;
@@ -57,41 +74,65 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
     code: "303",
     name: "Modelo 303",
     shortName: "IVA autoliquidación",
-    description: "Borrador de IVA repercutido del periodo con desglose por tipo impositivo.",
+    description: "Borrador de IVA devengado y deducible del periodo por casillas (tipos, recargo, intracomunitarias e ISP).",
     cadence: "monthly-or-quarterly",
     periodHint: "2026-Q1 o 2026-04",
+    plainHelp: "El IVA que has cobrado en tus facturas menos el IVA que has pagado en tus gastos. Se presenta cada trimestre aunque salga a cero.",
   },
   {
     code: "390",
     name: "Modelo 390",
     shortName: "Resumen anual IVA",
-    description: "Resumen anual de IVA a partir de facturación emitida.",
+    description: "Resumen anual de IVA a partir de facturas emitidas y recibidas.",
     cadence: "annual",
     periodHint: "2026",
+    plainHelp: "Resumen de todos los 303 del año. Se presenta en enero junto con el último trimestre.",
   },
   {
     code: "347",
     name: "Modelo 347",
     shortName: "Operaciones con terceros",
-    description: "Control anual de operaciones por cliente por encima de 3.005,06 EUR.",
+    description: "Operaciones anuales con clientes y proveedores españoles por encima de 3.005,06 EUR.",
     cadence: "annual",
     periodHint: "2026",
+    plainHelp: "Lista de clientes y proveedores con los que has operado más de 3.005,06 € en el año. Se presenta en febrero.",
   },
   {
     code: "111",
     name: "Modelo 111",
     shortName: "Retenciones profesionales",
-    description: "Seguimiento de retenciones IRPF cuando las líneas soporten retención.",
+    description: "Retenciones IRPF que practicas en facturas recibidas de profesionales (cuenta 4751).",
     cadence: "monthly-or-quarterly",
     periodHint: "2026-Q1 o 2026-04",
+    plainHelp: "Si un profesional (abogado, gestor, diseñador…) te factura con retención de IRPF, esa retención la ingresas tú a Hacienda con este modelo.",
   },
   {
     code: "115",
     name: "Modelo 115",
     shortName: "Retenciones alquileres",
-    description: "Seguimiento de retenciones de alquiler cuando compras soporten esa clasificación.",
+    description: "Retenciones que practicas en facturas de alquiler de locales (gastos en cuenta 621).",
     cadence: "monthly-or-quarterly",
     periodHint: "2026-Q1 o 2026-04",
+    plainHelp: "Si alquilas un local u oficina, la retención de las facturas del casero la ingresas tú con este modelo.",
+  },
+  {
+    code: "349",
+    name: "Modelo 349",
+    shortName: "Operaciones intracomunitarias",
+    description: "Declaración recapitulativa de ventas y compras de bienes y servicios con empresas de otros países de la UE, por NIF-IVA y clave.",
+    cadence: "monthly-or-quarterly",
+    periodHint: "2026-Q1 o 2026-04",
+    plainHelp: "Solo si vendes o compras a empresas de otros países de la UE (con NIF-IVA). Informa a quién y cuánto; no se paga nada.",
+  },
+  {
+    code: "130",
+    name: "Modelo 130",
+    shortName: "Pago fraccionado IRPF",
+    description: "Pago a cuenta del IRPF de autónomos en estimación directa: 20 % del rendimiento neto acumulado del año, menos retenciones y pagos anteriores.",
+    cadence: "quarterly",
+    periodHint: "2026-Q1",
+    plainHelp: "Para autónomos: cada trimestre adelantas el 20 % de lo que has ganado en el año (ingresos − gastos), descontando lo que ya te han retenido y lo que ya pagaste.",
+    individualsOnly: true,
   },
 ];
 
@@ -132,6 +173,8 @@ export function parseSpanishFiscalPeriod(period: string, modelCode: SpanishFisca
     };
   }
 
+  if (model.cadence === "quarterly" && !quarterMatch) return null;
+
   if (quarterMatch) {
     const year = Number(quarterMatch[1]);
     const quarter = Number(quarterMatch[2]);
@@ -165,6 +208,9 @@ function lastDayOfMonthUtc(year: number, monthOneBased: number) {
   return new Date(Date.UTC(year, monthOneBased, 0));
 }
 
+/** Modelos cuyo último periodo del año vence el 30 de enero (el resto, el 20). */
+const JANUARY_30_MODELS = new Set<SpanishFiscalModelCode>(["303", "130", "349"]);
+
 export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {
   const value = period.trim().toUpperCase();
   const annualMatch = /^(20\d{2})$/.exec(value);
@@ -181,7 +227,7 @@ export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscal
   if (quarterMatch) {
     const year = Number(quarterMatch[1]);
     const quarter = Number(quarterMatch[2]);
-    if (quarter === 4) return new Date(Date.UTC(year + 1, 0, modelCode === "303" ? 30 : 20));
+    if (quarter === 4) return new Date(Date.UTC(year + 1, 0, JANUARY_30_MODELS.has(modelCode) ? 30 : 20));
     return new Date(Date.UTC(year, quarter * 3, 20));
   }
 
@@ -190,7 +236,7 @@ export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscal
     const month = Number(monthMatch[2]);
     const dueMonth = month === 12 ? 0 : month;
     const dueYear = month === 12 ? year + 1 : year;
-    return new Date(Date.UTC(dueYear, dueMonth, modelCode === "303" && month === 12 ? 30 : 20));
+    return new Date(Date.UTC(dueYear, dueMonth, JANUARY_30_MODELS.has(modelCode) && month === 12 ? 30 : 20));
   }
 
   return null;
@@ -218,52 +264,177 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+type CentsRateBucket = { rate: number; baseCents: number; baseCentsByDeductiblePct: Map<number, number> };
+
+/** Base de la línea en céntimos con el motor fiscal único (admite negativos de rectificativas). */
+function fiscalLineBaseCents(line: { quantity: string | number; unitPrice: string | number; discountPct?: string | number | null }) {
+  return lineBaseCents(
+    { quantity: toNumber(line.quantity), unitPrice: toNumber(line.unitPrice), discountPct: toNumber(line.discountPct) },
+    { allowNegative: true },
+  );
+}
+
+function addToRateBucket(buckets: Map<number, CentsRateBucket>, rate: number, baseCents: number, deductiblePct = 100) {
+  const bucket = buckets.get(rate) ?? { rate, baseCents: 0, baseCentsByDeductiblePct: new Map<number, number>() };
+  bucket.baseCents += baseCents;
+  bucket.baseCentsByDeductiblePct.set(deductiblePct, (bucket.baseCentsByDeductiblePct.get(deductiblePct) ?? 0) + baseCents);
+  buckets.set(rate, bucket);
+}
+
+/**
+ * Cuota por tipo: base sumada por tipo y cuota calculada sobre la base del bucket (práctica
+ * española). Con deducibilidad parcial, la cuota se calcula por subgrupo de % deducible.
+ */
+function finalizeRateBuckets(buckets: Map<number, CentsRateBucket>): VatBucket[] {
+  return [...buckets.values()]
+    .map((bucket) => {
+      let taxCents = 0;
+      for (const [deductiblePct, baseCents] of bucket.baseCentsByDeductiblePct) {
+        const fullTax = taxOnBaseCents(baseCents, bucket.rate);
+        taxCents += deductiblePct === 100 ? fullTax : roundHalfAwayFromZero((fullTax * deductiblePct) / 100);
+      }
+      return { rate: bucket.rate, base: centsToNumber(bucket.baseCents), tax: centsToNumber(taxCents) };
+    })
+    .sort((left, right) => right.rate - left.rate);
+}
+
 export function aggregateOutputVat(lines: VatLine[]): VatBucket[] {
-  const buckets = new Map<number, VatBucket>();
+  const buckets = new Map<number, CentsRateBucket>();
 
   for (const line of lines) {
-    const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
     const deductiblePct = Math.min(Math.max(toNumber(line.taxDeductiblePct ?? 100), 0), 100);
-    const base = roundMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
+    const baseCents = fiscalLineBaseCents(line);
     const vatTaxes = line.taxes?.length
       ? line.taxes.filter((selectedTax) => selectedTax.operation === "ADD" && selectedTax.kind === "VAT")
       : [{ rate: line.taxRate }];
     for (const selectedTax of vatTaxes) {
-      const rate = roundMoney(toNumber(selectedTax.rate));
-      const tax = roundMoney(((base * rate) / 100) * (deductiblePct / 100));
-      const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
-      bucket.base = roundMoney(bucket.base + base);
-      bucket.tax = roundMoney(bucket.tax + tax);
-      buckets.set(rate, bucket);
+      addToRateBucket(buckets, roundMoney(toNumber(selectedTax.rate)), baseCents, deductiblePct);
     }
   }
 
-  return [...buckets.values()].sort((left, right) => right.rate - left.rate);
+  return finalizeRateBuckets(buckets);
 }
 
 export function roundFiscalMoney(value: number) {
   return roundMoney(value);
 }
 
-export function aggregateWithholdings(lines: WithholdingLine[]): VatBucket[] {
-  const buckets = new Map<number, VatBucket>();
+/** Estados miembros de la UE (códigos ISO-3166 alfa-2; Grecia también como "EL" en VIES). */
+export const EU_COUNTRY_CODES = new Set([
+  "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "GR", "HR", "HU", "IE",
+  "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK",
+]);
+
+export type SalesVatTreatment = "DOMESTIC" | "INTRA_EU" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
+export type SupplierVatTreatment = "DOMESTIC" | "INTRA_EU" | "REVERSE_CHARGE" | "IMPORT" | "NOT_SUBJECT";
+
+const salesVatTreatments = new Set<SalesVatTreatment>(["DOMESTIC", "INTRA_EU", "EXPORT", "EXEMPT", "REVERSE_CHARGE", "NOT_SUBJECT"]);
+const supplierVatTreatments = new Set<SupplierVatTreatment>(["DOMESTIC", "INTRA_EU", "REVERSE_CHARGE", "IMPORT", "NOT_SUBJECT"]);
+
+export const salesVatTreatmentLabels: Record<SalesVatTreatment, string> = {
+  DOMESTIC: "Nacional",
+  INTRA_EU: "Entrega intracomunitaria",
+  EXPORT: "Exportación",
+  EXEMPT: "Exenta",
+  REVERSE_CHARGE: "Inversión del sujeto pasivo",
+  NOT_SUBJECT: "No sujeta",
+};
+
+export const supplierVatTreatmentLabels: Record<SupplierVatTreatment, string> = {
+  DOMESTIC: "Nacional",
+  INTRA_EU: "Adquisición intracomunitaria",
+  REVERSE_CHARGE: "Inversión del sujeto pasivo",
+  IMPORT: "Importación",
+  NOT_SUBJECT: "No sujeta",
+};
+
+function normalizeCountry(countryCode: string | null | undefined) {
+  return (countryCode ?? "ES").trim().toUpperCase() || "ES";
+}
+
+/** Tratamiento IVA de una venta: explícito o deducido del país del cliente. */
+export function resolveSalesVatTreatment(explicit: string | null | undefined, customerCountryCode: string | null | undefined): SalesVatTreatment {
+  if (explicit && salesVatTreatments.has(explicit as SalesVatTreatment)) return explicit as SalesVatTreatment;
+  const country = normalizeCountry(customerCountryCode);
+  if (country === "ES") return "DOMESTIC";
+  return EU_COUNTRY_CODES.has(country) ? "INTRA_EU" : "EXPORT";
+}
+
+/**
+ * Tratamiento IVA de una compra: explícito o deducido del país del proveedor.
+ * Proveedor UE → adquisición intracomunitaria (autorepercusión). Fuera de la UE → importación
+ * (el IVA se liquida en aduana con el DUA, no en la factura del proveedor).
+ */
+export function resolveSupplierVatTreatment(explicit: string | null | undefined, supplierCountryCode: string | null | undefined): SupplierVatTreatment {
+  if (explicit && supplierVatTreatments.has(explicit as SupplierVatTreatment)) return explicit as SupplierVatTreatment;
+  const country = normalizeCountry(supplierCountryCode);
+  if (country === "ES") return "DOMESTIC";
+  return EU_COUNTRY_CODES.has(country) ? "INTRA_EU" : "IMPORT";
+}
+
+export function isSelfAssessedTreatment(treatment: SupplierVatTreatment) {
+  return treatment === "INTRA_EU" || treatment === "REVERSE_CHARGE";
+}
+
+/** Tipo general usado para la autorepercusión cuando la línea no indica tipo. */
+export const REVERSE_CHARGE_DEFAULT_RATE = 21;
+
+/**
+ * Cuota autorepercutida (ISP / adquisición intracomunitaria) de una línea.
+ * Si la línea trae cuota calculada se usa esa; si no, se aplica el tipo general.
+ */
+export function reverseChargeTaxAmount(subtotal: number, lineTaxAmount: number) {
+  if (lineTaxAmount > 0) return roundMoney(lineTaxAmount);
+  return roundMoney((subtotal * REVERSE_CHARGE_DEFAULT_RATE) / 100);
+}
+
+/** Recargo de equivalencia → casillas del modelo 303 (diseño vigente AEAT). */
+export const surchargeBoxesByRate: Record<string, { base: string; rate: string; tax: string }> = {
+  "0.5": { base: "16", rate: "17", tax: "18" },
+  "1.4": { base: "19", rate: "20", tax: "21" },
+  "5.2": { base: "22", rate: "23", tax: "24" },
+  "1.75": { base: "156", rate: "157", tax: "158" },
+  "0.62": { base: "168", rate: "169", tax: "170" },
+};
+
+/** IVA devengado régimen general → casillas del modelo 303. */
+export const outputVatBoxesByRate: Record<string, { base: string; rate: string; tax: string }> = {
+  "0": { base: "150", rate: "151", tax: "152" },
+  "4": { base: "01", rate: "02", tax: "03" },
+  "5": { base: "153", rate: "154", tax: "155" },
+  "10": { base: "04", rate: "05", tax: "06" },
+  "21": { base: "07", rate: "08", tax: "09" },
+};
+
+/** Agrupa recargos de equivalencia (impuestos de tipo SURCHARGE) por tipo. */
+export function aggregateSurcharges(lines: VatLine[]): VatBucket[] {
+  const buckets = new Map<number, CentsRateBucket>();
 
   for (const line of lines) {
-    const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
-    const base = roundMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
+    const baseCents = fiscalLineBaseCents(line);
+    const surcharges = line.taxes?.filter((selectedTax) => selectedTax.operation === "ADD" && selectedTax.kind === "SURCHARGE") ?? [];
+    for (const selectedTax of surcharges) {
+      addToRateBucket(buckets, roundMoney(toNumber(selectedTax.rate)), baseCents);
+    }
+  }
+
+  return finalizeRateBuckets(buckets);
+}
+
+export function aggregateWithholdings(lines: WithholdingLine[]): VatBucket[] {
+  const buckets = new Map<number, CentsRateBucket>();
+
+  for (const line of lines) {
+    const baseCents = fiscalLineBaseCents(line);
     const withholdingTaxes = line.taxes?.length
       ? line.taxes.filter((selectedTax) => selectedTax.operation === "SUBTRACT")
       : [{ rate: line.retentionRate ?? 0 }];
     for (const selectedTax of withholdingTaxes) {
       const rate = roundMoney(toNumber(selectedTax.rate));
       if (rate <= 0) continue;
-      const tax = roundMoney((base * rate) / 100);
-      const bucket = buckets.get(rate) ?? { rate, base: 0, tax: 0 };
-      bucket.base = roundMoney(bucket.base + base);
-      bucket.tax = roundMoney(bucket.tax + tax);
-      buckets.set(rate, bucket);
+      addToRateBucket(buckets, rate, baseCents);
     }
   }
 
-  return [...buckets.values()].sort((left, right) => right.rate - left.rate);
+  return finalizeRateBuckets(buckets);
 }

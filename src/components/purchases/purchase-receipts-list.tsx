@@ -22,6 +22,10 @@ export type PurchaseReceiptRow = {
   invoiceId: string | null;
 };
 
+function formatQuantity(value: number) {
+  return value.toLocaleString("es-ES", { maximumFractionDigits: 3 });
+}
+
 const columns: ResourceListColumn<PurchaseReceiptRow>[] = [
   {
     header: "Recepción",
@@ -67,8 +71,7 @@ const columns: ResourceListColumn<PurchaseReceiptRow>[] = [
   },
   {
     header: "Unidades",
-    cell: (row) =>
-      row.totalQuantity.toLocaleString("es-ES", { maximumFractionDigits: 3 }),
+    cell: (row) => formatQuantity(row.totalQuantity),
     exportValue: (row) => row.totalQuantity,
     sortValue: (row) => row.totalQuantity,
     className: "text-right",
@@ -117,9 +120,39 @@ export function PurchaseReceiptsList({ rows }: { rows: PurchaseReceiptRow[] }) {
         },
       ]}
       getRowId={(row) => row.id}
+      getRowLabel={(row) => row.number}
       getSearchText={(row) =>
         `${row.number} ${row.orderNumber} ${row.supplierName} ${row.invoiceId ? "facturada" : "pendiente"}`
       }
+      dateRange={{ label: "Fecha de recepción", getValue: (row) => row.receivedAt }}
+      renderMobileCard={(row) => (
+        <div className="space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link
+                className="font-mono font-semibold text-primary hover:underline"
+                href={`/purchases/receipts/${row.id}`}
+              >
+                {row.number}
+              </Link>
+              <p className="truncate text-xs text-muted-foreground">
+                Pedido {row.orderNumber} · {row.supplierName}
+              </p>
+            </div>
+            <StatusBadge tone={row.invoiceId ? "success" : "warning"}>
+              {row.invoiceId ? "Facturada" : "Pendiente"}
+            </StatusBadge>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <dt className="text-muted-foreground">Fecha</dt>
+            <dd>{formatDate(row.receivedAt)}</dd>
+            <dt className="text-muted-foreground">Líneas</dt>
+            <dd className="tabular-nums">{row.lineCount}</dd>
+            <dt className="text-muted-foreground">Unidades</dt>
+            <dd className="tabular-nums">{formatQuantity(row.totalQuantity)}</dd>
+          </dl>
+        </div>
+      )}
       items={rows}
       searchPlaceholder="Buscar por pedido, proveedor o recepción"
       testId="purchase-receipts-list"

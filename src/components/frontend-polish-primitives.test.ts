@@ -70,7 +70,8 @@ describe("frontend polish primitives", () => {
     expect(invoiceActions).toContain("number");
     expect(invoiceActions).toContain("title=");
     expect(invoiceActions).toContain("successMessage=");
-    expect(invoiceRows).toContain("number={invoice.number}");
+    // Drafts have no number yet: the row label ("Borrador de <cliente>") names them in the copy.
+    expect(invoiceRows).toContain("number={rowLabel(invoice)}");
   });
 
   it("migrates customers and invoices to the shared resource list primitive", () => {
@@ -102,7 +103,8 @@ describe("frontend polish primitives", () => {
     expect(dashboardPage).toContain('data-testid="dashboard-empty-states"');
     expect(dashboardPage).toContain('data-testid="dashboard-guided-demo"');
     expect(dashboardPage).toContain("cockpit.guidedDemoSteps.map");
-    expect(dashboardPage).toContain("inventoryItemsCount: items.length");
+    // Counts (items included) now come from SQL aggregates in loadCockpitSummary.
+    expect(dashboardPage).toContain("loadCockpitSummary");
     expect(dashboardPage).toContain("dashboardDataError");
     expect(dashboardPage).toContain("loadDashboardData");
     expect(dashboardPage).toContain('aria-label="Alertas operativas"');

@@ -1,8 +1,12 @@
+import type { Metadata } from "next";
+
 import { BillingActions } from "@/components/billing/billing-actions";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { getBillingViewModelForTenant } from "@/server/billing/data";
+
+export const metadata: Metadata = { title: "Suscripción" };
 
 export default async function BillingPage() {
   const ctx = await requireContext("billing.read");

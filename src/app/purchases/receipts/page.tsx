@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PurchaseReceiptsList } from "@/components/purchases/purchase-receipts-list";
@@ -9,6 +10,8 @@ import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { listPurchasePipeline } from "@/server/purchases/service";
+
+export const metadata: Metadata = { title: "Recepciones" };
 
 export default async function PurchaseReceiptsPage() {
   const ctx = await requireContext("purchase.read");

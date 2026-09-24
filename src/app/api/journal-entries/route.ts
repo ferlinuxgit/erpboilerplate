@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createJournalEntry, listJournalEntries } from "@/server/accounting/service";
@@ -22,7 +22,8 @@ export async function POST(request: Request) {
   const payload = (await readJsonBody(request)) as { postedAt?: string; reference?: string; lines?: Array<{ accountId: string; debit: string; credit: string }> } | null;
   if (!payload) return invalidJsonResponse();
 
-  if (!payload.postedAt || !payload.lines) return NextResponse.json({ message: "Faltan datos." }, { status: 400 });
+  if (!payload.postedAt || !Array.isArray(payload.lines)) return NextResponse.json({ message: "Indica la fecha y las líneas del asiento." }, { status: 400 });
+  if (Number.isNaN(new Date(payload.postedAt).getTime())) return NextResponse.json({ message: "La fecha del asiento no es válida." }, { status: 400 });
   try {
     const created = await createJournalEntry(ctx.company.id, ctx.tenant.id, session.user.id, {
       postedAt: new Date(payload.postedAt),
@@ -31,6 +32,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ message: error instanceof Error ? error.message : "Error de validacion." }, { status: 400 });
+    return handleRouteError(error, "journal-entries.create", "No se pudo crear el asiento. Inténtalo de nuevo.");
   }
 }

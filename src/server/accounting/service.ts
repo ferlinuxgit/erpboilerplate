@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { accountChart, company, journal, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
+import { AccountingRuleError } from "@/server/accounting/errors";
 import { validateJournalLines, type JournalLineInput } from "@/server/accounting/journal-validation";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { reserveJournalEntryNumber } from "@/server/accounting/numbers";
@@ -122,14 +123,18 @@ export async function listJournalEntries(companyId: string) {
       number: journalEntry.number,
       postedAt: journalEntry.postedAt,
       reference: journalEntry.reference,
+      isAutomatic: journalEntry.isAutomatic,
+      reversedAt: journalEntry.reversedAt,
+      reversesEntryId: journalEntry.reversesEntryId,
+      sourceType: journalEntry.sourceType,
       debit: sql<string>`coalesce(sum(${journalLine.debit}), '0')`,
       credit: sql<string>`coalesce(sum(${journalLine.credit}), '0')`,
     })
     .from(journalEntry)
     .leftJoin(journalLine, eq(journalLine.journalEntryId, journalEntry.id))
     .where(eq(journalEntry.companyId, companyId))
-    .groupBy(journalEntry.id, journalEntry.number, journalEntry.postedAt, journalEntry.reference)
-    .orderBy(desc(journalEntry.postedAt));
+    .groupBy(journalEntry.id, journalEntry.number, journalEntry.postedAt, journalEntry.reference, journalEntry.isAutomatic, journalEntry.reversedAt, journalEntry.reversesEntryId, journalEntry.sourceType)
+    .orderBy(desc(journalEntry.postedAt), desc(journalEntry.number));
 }
 
 export async function getJournalEntry(companyId: string, id: string) {
@@ -145,7 +150,9 @@ async function assertAccountsBelongToCompany(companyId: string, lines: Array<{ a
     .from(accountChart)
     .where(and(eq(accountChart.companyId, companyId), eq(accountChart.isPostable, true)));
   const allowedSet = new Set(allowedAccounts.map((account) => account.id));
-  if (lines.some((line) => !allowedSet.has(line.accountId))) throw new Error("Cuenta contable invalida.");
+  if (lines.some((line) => !allowedSet.has(line.accountId))) {
+    throw new AccountingRuleError(422, "ACCOUNT_INVALID", "Alguna cuenta del asiento no existe en el plan contable de la empresa o no admite apuntes.");
+  }
 }
 
 export async function createJournalEntry(
@@ -174,6 +181,14 @@ export async function createJournalEntry(
   return entry;
 }
 
+/**
+ * Edición de un asiento manual.
+ * - Solo asientos manuales, vigentes (no revertidos) y que no sean a su vez una reversión.
+ *   Para corregir asientos automáticos o ya revertidos hay que revertir y crear uno nuevo.
+ * - Tanto la fecha original como la nueva deben estar en un periodo abierto: así un asiento
+ *   de un periodo presentado o de un ejercicio cerrado no puede "sacarse" de él.
+ * - Se audita con los datos anteriores y los nuevos dentro de la misma transacción.
+ */
 export async function updateJournalEntry(
   companyId: string,
   tenantId: string,
@@ -182,27 +197,68 @@ export async function updateJournalEntry(
   payload: { postedAt: Date; reference?: string; lines: JournalLineInput[] },
 ) {
   const { lines } = validateJournalLines(payload.lines);
-  await assertFiscalPeriodOpen(companyId, payload.postedAt);
   await assertAccountsBelongToCompany(companyId, lines);
 
-  const [editable] = await db.select({ isAutomatic: journalEntry.isAutomatic }).from(journalEntry).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).limit(1);
-  if (editable?.isAutomatic) throw new Error("Los asientos automáticos no se pueden editar; corrige el documento de origen.");
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        postedAt: journalEntry.postedAt,
+        reference: journalEntry.reference,
+        isAutomatic: journalEntry.isAutomatic,
+        reversedAt: journalEntry.reversedAt,
+        reversesEntryId: journalEntry.reversesEntryId,
+      })
+      .from(journalEntry)
+      .where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id)))
+      .for("update")
+      .limit(1);
+    if (!existing) return null;
+    assertJournalEntryEditable(existing);
+    await assertFiscalPeriodOpen(companyId, existing.postedAt, tx);
+    await assertFiscalPeriodOpen(companyId, payload.postedAt, tx);
 
-  const updated = await db.transaction(async (tx) => {
-    const [entry] = await tx.update(journalEntry).set({ postedAt: payload.postedAt, reference: payload.reference ?? null }).where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id))).returning();
-    if (!entry) return null;
+    const previousLines = await tx
+      .select({ accountId: journalLine.accountId, debit: journalLine.debit, credit: journalLine.credit })
+      .from(journalLine)
+      .where(eq(journalLine.journalEntryId, id));
+    const [entry] = await tx
+      .update(journalEntry)
+      .set({ postedAt: payload.postedAt, reference: payload.reference ?? null })
+      .where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id)))
+      .returning();
     await tx.delete(journalLine).where(eq(journalLine.journalEntryId, id));
     await tx.insert(journalLine).values(lines.map((line) => ({ journalEntryId: id, accountId: line.accountId, debit: line.debit, credit: line.credit })));
     await tx
       .update(accountChart)
       .set({ isActive: true })
       .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, [...new Set(lines.map((line) => line.accountId))])));
+    await recordAudit({
+      tenantId,
+      companyId,
+      actorUserId,
+      action: "accounting.entry.update",
+      entityName: "journalEntry",
+      entityId: id,
+      payload: {
+        before: { postedAt: existing.postedAt, reference: existing.reference, lines: previousLines },
+        after: { postedAt: payload.postedAt, reference: payload.reference ?? null, lines },
+      },
+    }, tx);
     return entry;
   });
+}
 
-  if (!updated) return null;
-  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.update", entityName: "journalEntry", entityId: id, payload: { ...payload, lines } });
-  return updated;
+/** Reglas de edición de asientos (función pura, testeable). */
+export function assertJournalEntryEditable(entry: { isAutomatic: boolean; reversedAt: Date | null; reversesEntryId: string | null }) {
+  if (entry.isAutomatic) {
+    throw new AccountingRuleError(409, "ENTRY_AUTOMATIC", "Los asientos automáticos no se pueden editar. Corrige o anula el documento de origen (factura, cobro, movimiento) y el asiento se regenerará.");
+  }
+  if (entry.reversedAt) {
+    throw new AccountingRuleError(409, "ENTRY_REVERSED", "Este asiento ya está revertido y no se puede editar. Crea un asiento nuevo con los importes correctos.");
+  }
+  if (entry.reversesEntryId) {
+    throw new AccountingRuleError(409, "ENTRY_IS_REVERSAL", "Este asiento es una reversión y no se puede editar. Si es necesario, revierte el asiento original de nuevo con un asiento manual.");
+  }
 }
 
 export async function deleteJournalEntry(companyId: string, tenantId: string, actorUserId: string, id: string) {
@@ -214,12 +270,12 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
       .for("update")
       .limit(1);
     if (!editable) return false;
-    if (editable.isAutomatic) throw new Error("Los asientos automáticos no se pueden revertir; corrige el documento de origen.");
-    if (editable.reversedAt) throw new Error("Este asiento ya está revertido.");
+    if (editable.isAutomatic) throw new AccountingRuleError(409, "ENTRY_AUTOMATIC", "Los asientos automáticos no se pueden revertir desde aquí; corrige o anula el documento de origen.");
+    if (editable.reversedAt) throw new AccountingRuleError(409, "ENTRY_REVERSED", "Este asiento ya está revertido.");
     const reversedAt = new Date();
     await assertFiscalPeriodOpen(companyId, reversedAt, tx);
     const lines = await tx.select().from(journalLine).where(eq(journalLine.journalEntryId, id));
-    if (lines.length === 0) throw new Error("No se puede revertir un asiento sin líneas.");
+    if (lines.length === 0) throw new AccountingRuleError(422, "ENTRY_EMPTY", "No se puede revertir un asiento sin líneas.");
     const number = await reserveJournalEntryNumber(tx, companyId);
     const [reversal] = await tx
       .insert(journalEntry)

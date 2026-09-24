@@ -8,7 +8,7 @@ import { VerifyEmailForm } from "./verify-email-form";
 export default function VerifyEmailPage() {
   return <AuthPageShell>
     <Card className="mx-auto w-full max-w-md">
-      <CardHeader><CardTitle>Verifica tu correo</CardTitle></CardHeader>
+      <CardHeader><CardTitle aria-level={1} role="heading">Verifica tu correo</CardTitle></CardHeader>
       <CardContent><Suspense fallback={<p>Preparando verificación...</p>}><VerifyEmailForm /></Suspense></CardContent>
     </Card>
   </AuthPageShell>;

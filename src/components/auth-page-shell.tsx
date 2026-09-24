@@ -11,7 +11,8 @@ export function AuthPageShell({ children }: { children: ReactNode }) {
         </Link>
         <div className="relative max-w-lg">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-foreground/60">Una única operación</p>
-          <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-[-0.045em]">Ventas, finanzas e inventario en un espacio claro.</h1>
+          {/* El único h1 de la página es el título del formulario. */}
+          <p className="mt-4 text-4xl font-semibold leading-tight tracking-[-0.045em]">Ventas, finanzas e inventario en un espacio claro.</p>
           <p className="mt-4 max-w-md text-sm leading-6 text-primary-foreground/70">Diseñado para convertir procesos complejos en decisiones rápidas, sin ruido visual.</p>
         </div>
         <p className="text-xs text-primary-foreground/55">Operación · Finanzas · Cumplimiento</p>

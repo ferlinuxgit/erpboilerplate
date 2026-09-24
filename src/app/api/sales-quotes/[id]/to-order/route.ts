@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
+import { handleRouteError } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { convertQuoteToOrder } from "@/server/sales/service";
@@ -14,12 +15,14 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const { id } = await params;
   try {
     const created = await convertQuoteToOrder({
+      tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
+      actorUserId: session.user.id,
       fiscalYearId: ctx.fiscalYear.id,
       quoteId: id,
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo convertir el presupuesto." }, { status: 400 });
+    return handleRouteError(error, "salesQuote.convert", "No se pudo convertir el presupuesto.");
   }
 }

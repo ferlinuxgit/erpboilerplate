@@ -1,10 +1,11 @@
 import { and, desc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ActivityTimeline, type ActivityTimelineItem } from "@/components/ui/activity-timeline";
 import { buttonVariants } from "@/components/ui/button";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { customer, deliveryNote, invoice, partner, salesOrder, salesQuote } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
@@ -12,6 +13,21 @@ import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { canManageCustomers } from "@/lib/rbac";
 import { invoicePaymentStatusLabels, invoicePaymentStatusTone, salesDocumentStatusLabels, statusLabel } from "@/lib/status-labels";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("customer.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ name: customer.name })
+      .from(customer)
+      .where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Cliente ${row.name}` : "Cliente" };
+  } catch {
+    return { title: "Cliente" };
+  }
+}
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("customer.read");
@@ -39,7 +55,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Clientes" title={record.name} description={[record.number ? `N.º cliente ${record.number}` : null, record.taxId, record.city, record.province, record.countryCode].filter(Boolean).join(" · ") || "Ficha comercial y fiscal"} backHref="/customers" backLabel="Volver a clientes" meta={<StatusBadge tone={record.status === "ACTIVE" ? "success" : "neutral"}>{record.status === "ACTIVE" ? "Activo" : "Inactivo"}</StatusBadge>} actions={<>{canManage ? <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.id}/edit`}>Editar</Link> : null}<Link className={buttonVariants({ variant: "outline" })} href={`/sales/new?customerId=${record.id}`}>Nuevo presupuesto</Link><Link className={buttonVariants()} href={`/invoices/new?customerId=${record.id}`}>Nueva factura</Link></>} />
+      <PageHeader breadcrumbs={[{ label: "Comercial" }, { label: "Clientes", href: "/customers" }, { label: record.name }]} title={record.name} description={[record.number ? `N.º cliente ${record.number}` : null, record.taxId, record.city, record.province, record.countryCode].filter(Boolean).join(" · ") || "Ficha comercial y fiscal"} meta={<StatusBadge tone={record.status === "ACTIVE" ? "success" : "neutral"}>{record.status === "ACTIVE" ? "Activo" : "Inactivo"}</StatusBadge>} actions={<>{canManage ? <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.id}/edit`}>Editar</Link> : null}<Link className={buttonVariants({ variant: "outline" })} href={`/sales/new?customerId=${record.id}`}>Nuevo presupuesto</Link><Link className={buttonVariants()} href={`/invoices/new?customerId=${record.id}`}>Nueva factura</Link></>} />
 
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard label="Facturado" value={formatMoney(totalInvoiced, currencyCode)} helper={`${invoices.length} facturas`} />
@@ -54,7 +70,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3"><dt className="text-muted-foreground">N.º cliente</dt><dd className="text-right font-mono font-medium">{record.number ?? "Sin informar"}</dd><dt className="text-muted-foreground">CIF/NIF</dt><dd className="text-right font-medium">{record.taxId ?? "Sin informar"}</dd><dt className="text-muted-foreground">Email</dt><dd className="truncate text-right font-medium">{record.email ?? "Sin informar"}</dd><dt className="text-muted-foreground">Teléfono</dt><dd className="text-right font-medium">{record.phone ?? "Sin informar"}</dd><dt className="text-muted-foreground">Dirección</dt><dd className="text-right font-medium">{[record.address, record.addressLine2, record.postalCode, record.city, record.province, record.countryCode].filter(Boolean).join(", ") || "Sin informar"}</dd><dt className="text-muted-foreground">Condiciones</dt><dd className="text-right font-medium">{record.paymentTermsDays ?? 30} días · {currencyCode}</dd></dl>
           </PageSection>
           <PageSection title="Facturas recientes" description="Últimos documentos emitidos." contentClassName="space-y-2">
-            {invoices.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay facturas.</p> : invoices.slice(0, 6).map((row) => <Link className="flex items-center justify-between gap-3 rounded-[2px] border p-3 text-sm transition-colors hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}><span><span className="font-medium">{row.number}</span><span className="block text-xs text-muted-foreground">{formatDate(row.issueDate)}</span></span><span className="text-right"><span className="block font-mono font-semibold">{formatMoney(row.totalAmount, currencyCode)}</span><StatusBadge tone={invoicePaymentStatusTone(row.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}</StatusBadge></span></Link>)}
+            {invoices.length === 0 ? <EmptyState title="Sin facturas" description="Todavía no hay facturas emitidas a este cliente." action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/invoices/new?customerId=${record.id}`}>Crear factura</Link>} /> :invoices.slice(0, 6).map((row) => <Link className="flex items-center justify-between gap-3 rounded-[2px] border p-3 text-sm transition-colors hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}><span><span className="font-medium">{row.number}</span><span className="block text-xs text-muted-foreground">{formatDate(row.issueDate)}</span></span><span className="text-right"><span className="block font-mono font-semibold">{formatMoney(row.totalAmount, currencyCode)}</span><StatusBadge tone={invoicePaymentStatusTone(row.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}</StatusBadge></span></Link>)}
           </PageSection>
         </div>
         <PageSection title="Actividad" description="Cronología comercial completa del cliente."><ActivityTimeline items={timeline} /></PageSection>

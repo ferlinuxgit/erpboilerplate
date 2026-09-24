@@ -12,6 +12,7 @@ import { DestructiveActionDialog } from "@/components/ui/destructive-action-dial
 import {
   ResourceList,
   type ResourceListColumn,
+  type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -40,14 +41,25 @@ type ExpenseInvoice = {
   outstandingAmount: string;
 };
 
+function sumAmounts(rows: ExpenseInvoice[], pick: (invoice: ExpenseInvoice) => string) {
+  // Sum in cents to avoid floating point drift.
+  return rows.reduce((total, invoice) => total + Math.round(Number(pick(invoice)) * 100), 0) / 100;
+}
+
 type ExpenseInvoicesListProps = {
   canManage: boolean;
   rows: ExpenseInvoice[];
+  /** Server pagination state; `rows` is then only the current page. */
+  server?: ServerListState;
+  /** Footer totals over every filtered invoice (server mode). */
+  totals?: { totalAmount: number; outstandingAmount: number };
 };
 
 export function ExpenseInvoicesList({
   canManage,
   rows,
+  server,
+  totals,
 }: ExpenseInvoicesListProps) {
   const router = useRouter();
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -103,6 +115,7 @@ export function ExpenseInvoicesList({
       ) : "Sin pedido",
       exportValue: (invoice) => [invoice.purchaseOrderNumber, invoice.goodsReceiptNumber].filter(Boolean).join(" · "),
       sortValue: (invoice) => invoice.purchaseOrderNumber ?? "",
+      sortKey: "relation",
     },
     {
       header: "Proveedor",
@@ -116,12 +129,14 @@ export function ExpenseInvoicesList({
       ),
       exportValue: (invoice) => invoice.supplierName,
       sortValue: (invoice) => invoice.supplierName,
+      sortKey: "supplier",
     },
     {
       header: "Fecha",
       cell: (invoice) => formatDate(invoice.issueDate),
       exportValue: (invoice) => formatDate(invoice.issueDate),
       sortValue: (invoice) => new Date(invoice.issueDate),
+      sortKey: "issueDate",
     },
     {
       header: "Vence",
@@ -131,6 +146,7 @@ export function ExpenseInvoicesList({
         invoice.dueDate ? formatDate(invoice.dueDate) : "",
       sortValue: (invoice) =>
         invoice.dueDate ? new Date(invoice.dueDate) : null,
+      sortKey: "dueDate",
     },
     {
       header: "Estado",
@@ -142,20 +158,27 @@ export function ExpenseInvoicesList({
       exportValue: (invoice) =>
         statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus),
       sortValue: (invoice) => invoice.paymentStatus,
+      sortKey: "status",
     },
     {
       header: "Total",
-      className: "text-right",
+      className: "text-right font-mono tabular-nums",
       cell: (invoice) => formatMoney(invoice.totalAmount),
-      exportValue: (invoice) => invoice.totalAmount,
+      exportValue: (invoice) => Number(invoice.totalAmount),
       sortValue: (invoice) => Number(invoice.totalAmount),
+      sortKey: "total",
+      summary: (filtered) =>
+        formatMoney(totals ? totals.totalAmount : sumAmounts(filtered, (invoice) => invoice.totalAmount)),
     },
     {
       header: "Pendiente",
-      className: "text-right",
+      className: "text-right font-mono tabular-nums",
       cell: (invoice) => formatMoney(invoice.outstandingAmount),
-      exportValue: (invoice) => invoice.outstandingAmount,
+      exportValue: (invoice) => Number(invoice.outstandingAmount),
       sortValue: (invoice) => Number(invoice.outstandingAmount),
+      sortKey: "outstanding",
+      summary: (filtered) =>
+        formatMoney(totals ? totals.outstandingAmount : sumAmounts(filtered, (invoice) => invoice.outstandingAmount)),
     },
     {
       header: "Acciones",
@@ -205,10 +228,14 @@ export function ExpenseInvoicesList({
         exportFileName="facturas-proveedor.csv"
         getRowId={(invoice) => invoice.id}
         getRowTestId={(invoice) => `expense-invoice-${invoice.number}`}
+        getRowLabel={(invoice) => `${invoice.supplierDocumentNumber || invoice.number} · ${invoice.supplierName}`}
         getSearchText={(invoice) =>
-          `${invoice.number} ${invoice.supplierDocumentNumber ?? ""} ${invoice.supplierName} ${invoice.purchaseOrderNumber ?? ""} ${invoice.goodsReceiptNumber ?? ""} ${invoice.paymentStatus}`
+          `${invoice.number} ${invoice.supplierDocumentNumber ?? ""} ${invoice.supplierName} ${invoice.purchaseOrderNumber ?? ""} ${invoice.goodsReceiptNumber ?? ""} ${invoice.paymentStatus} ${statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}`
         }
+        dateRange={{ label: "Fecha de emisión", getValue: (invoice) => invoice.issueDate }}
+        summaryLabel="Total filtrado"
         items={rows}
+        server={server}
         renderMobileCard={(invoice) => (
           <div className="space-y-2">
             <div className="flex items-start justify-between gap-3">
@@ -268,7 +295,7 @@ export function ExpenseInvoicesList({
             </div>
           </div>
         )}
-        searchPlaceholder="Buscar por proveedor, factura, pedido, recepción o estado"
+        searchPlaceholder="Buscar por proveedor, factura, pedido o recepción"
         testId="expenses-list"
         title="Facturas de proveedor"
         filters={[

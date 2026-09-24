@@ -1,18 +1,20 @@
-import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, CheckCircle, Circle } from "@phosphor-icons/react/dist/ssr";
 
+import { FinancialOverview } from "@/app/dashboard/financial-overview";
 import { SignOutButton } from "@/components/sign-out-button";
 import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { customer, deliveryNote, invoice, invoicePayment, item, salesOrder, salesQuote, stockLocation } from "@/db/schema";
-import { buildDashboardCockpit, type DashboardCockpitInput } from "@/lib/dashboard-cockpit";
+import { buildDashboardCockpitFromSummary, type DashboardCockpitSummary } from "@/lib/dashboard-cockpit";
 import { requireUserSession } from "@/lib/current-user";
+import { logger } from "@/lib/logger";
+import { can } from "@/lib/rbac";
 import { roleLabels, statusLabel } from "@/lib/status-labels";
-import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
+import { loadCockpitSummary, loadDashboardFinance, type DashboardFinance } from "@/server/reporting/dashboard";
+import { parseFinancePeriod, type FinancePeriod } from "@/server/reporting/dashboard-model";
 
 export const metadata: Metadata = {
   title: "Panel",
@@ -25,88 +27,45 @@ function greetingFor(now: Date, timeZone = "Europe/Madrid") {
   return "Buenas noches";
 }
 
-function toNumber(value: string | number) {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 type DashboardDataResult = {
-  input: DashboardCockpitInput;
+  summary: DashboardCockpitSummary;
+  finance: DashboardFinance | null;
   dashboardDataError: boolean;
 };
 
-const emptyDashboardInput: DashboardCockpitInput = {
-  customers: [],
-  salesQuotes: [],
-  salesOrders: [],
-  deliveryNotes: [],
-  invoices: [],
-  invoicePayments: [],
-  lowStockAlerts: [],
+const emptyCockpitSummary: DashboardCockpitSummary = {
+  activeCustomers: 0,
+  salesInProgress: 0,
+  invoiceCount: 0,
+  unpaidInvoices: 0,
+  overdueInvoices: 0,
+  receivablesAmount: 0,
+  lowStockAlerts: 0,
+  hasRecordedPayment: false,
   inventoryItemsCount: 0,
 };
 
-async function loadDashboardData(companyId: string): Promise<DashboardDataResult> {
+/**
+ * Every indicator is a SQL aggregate (counts, sums, group by month): the panel never loads a
+ * company's invoices, payments, items or ledger lines into memory.
+ */
+async function loadDashboardData(
+  companyId: string,
+  options: { period: FinancePeriod; countryCode: string; includeFinance: boolean },
+): Promise<DashboardDataResult> {
   try {
-    const [customers, salesQuotes, salesOrders, deliveryNotes, invoices, invoicePayments, items, stockLocations] = await Promise.all([
-      db.select({ status: customer.status }).from(customer).where(eq(customer.companyId, companyId)),
-      db.select({ status: salesQuote.status }).from(salesQuote).where(eq(salesQuote.companyId, companyId)),
-      db.select({ status: salesOrder.status }).from(salesOrder).where(eq(salesOrder.companyId, companyId)),
-      db.select({ status: deliveryNote.status }).from(deliveryNote).where(eq(deliveryNote.companyId, companyId)),
-      db
-        .select({ id: invoice.id, dueDate: invoice.dueDate, paymentStatus: invoice.paymentStatus, totalAmount: invoice.totalAmount })
-        .from(invoice)
-        .where(eq(invoice.companyId, companyId)),
-      db
-        .select({ invoiceId: invoicePayment.invoiceId, amountApplied: invoicePayment.amountApplied })
-        .from(invoicePayment)
-        .where(eq(invoicePayment.companyId, companyId)),
-      db
-        .select({ id: item.id, name: item.name, sku: item.sku, isService: item.isService, minimumStock: item.minimumStock })
-        .from(item)
-        .where(eq(item.companyId, companyId)),
-      db
-        .select({ itemId: stockLocation.itemId, currentQuantity: stockLocation.currentQuantity })
-        .from(stockLocation)
-        .where(eq(stockLocation.companyId, companyId)),
+    const [summary, finance] = await Promise.all([
+      loadCockpitSummary(companyId),
+      options.includeFinance ? loadDashboardFinance(companyId, { period: options.period, countryCode: options.countryCode }) : Promise.resolve(null),
     ]);
-
-    const stockByItemId = stockLocations.reduce<Record<string, number>>((totals, location) => {
-      totals[location.itemId] = (totals[location.itemId] ?? 0) + toNumber(location.currentQuantity);
-      return totals;
-    }, {});
-    const lowStockAlerts = items
-      .filter((stockItem) => !stockItem.isService)
-      .map((stockItem) => ({
-        itemName: stockItem.name,
-        itemSku: stockItem.sku,
-        quantity: stockByItemId[stockItem.id] ?? 0,
-        minimumStock: stockItem.minimumStock,
-      }))
-      .filter((stockItem) => toNumber(stockItem.minimumStock) > 0 && toNumber(stockItem.quantity) <= toNumber(stockItem.minimumStock));
-
-    return {
-      dashboardDataError: false,
-      input: {
-        customers,
-        salesQuotes,
-        salesOrders,
-        deliveryNotes,
-        invoices,
-        invoicePayments,
-        lowStockAlerts,
-        inventoryItemsCount: items.length,
-      },
-    };
-  } catch {
-    return {
-      dashboardDataError: true,
-      input: emptyDashboardInput,
-    };
+    return { dashboardDataError: false, summary, finance };
+  } catch (error) {
+    logger.error({ err: error, companyId }, "dashboard.load_failed");
+    return { dashboardDataError: true, summary: emptyCockpitSummary, finance: null };
   }
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ period?: string | string[] }> }) {
   const session = await requireUserSession();
 
   const tenantContext = await ensureUserTenant({
@@ -114,8 +73,14 @@ export default async function DashboardPage() {
     name: session.user.name,
   });
   const companyId = tenantContext.company.id;
-  const { dashboardDataError, input } = await loadDashboardData(companyId);
-  const cockpit = buildDashboardCockpit({ ...input, currencyCode: tenantContext.company.baseCurrencyCode });
+  const currencyCode = tenantContext.company.baseCurrencyCode;
+  const period = parseFinancePeriod((await searchParams).period);
+  const { dashboardDataError, summary, finance } = await loadDashboardData(companyId, {
+    period,
+    countryCode: tenantContext.company.countryCode,
+    includeFinance: can(tenantContext.membership.role, "reporting.read"),
+  });
+  const cockpit = buildDashboardCockpitFromSummary(summary, currencyCode);
   const firstName = session.user.name.trim().split(/\s+/)[0] || session.user.name;
 
   return (
@@ -139,6 +104,9 @@ export default async function DashboardPage() {
           <MetricCard className="h-full" helper={metric.helper} href={metric.href} key={metric.label} label={metric.label} tone={metric.tone} value={metric.value} />
         ))}
       </section>
+
+      {/* Empty companies keep the guided path first; the financial section appears with the first invoice, expense or bank movement. */}
+      {finance?.hasData ? <FinancialOverview currencyCode={currencyCode} finance={finance} /> : null}
 
       {cockpit.alerts.length > 0 ? (
         <section className="grid gap-2 md:grid-cols-2" aria-label="Alertas operativas">

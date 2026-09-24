@@ -8,6 +8,7 @@ import {
   normalizeSpanishFiscalPeriod,
   type FiscalReportStatus,
 } from "@/lib/fiscal-spain";
+import { AccountingRuleError } from "@/server/accounting/errors";
 import { recordAudit } from "@/server/audit";
 import { calculateSpanishFiscalSummary, type SpanishFiscalSummary } from "@/server/fiscal/spain";
 
@@ -58,7 +59,7 @@ export async function getFiscalReport(companyId: string, id: string) {
 
 export async function createFiscalReport(companyId: string, tenantId: string, actorUserId: string, payload: FiscalReportPayload) {
   const normalized = normalizeFiscalReportPayload(payload);
-  if (!normalized) throw new Error("Modelo o periodo fiscal español no soportado.");
+  if (!normalized) throw new AccountingRuleError(422, "FISCAL_PERIOD_INVALID", "Modelo o periodo fiscal no soportado. Usa 2026-Q1, 2026-04 o 2026 según el modelo.");
   await assertFiscalReportKeyAvailable(companyId, normalized.code, normalized.period);
 
   const [created] = await db.insert(fiscalReport).values({
@@ -74,13 +75,13 @@ export async function createFiscalReport(companyId: string, tenantId: string, ac
 
 export async function updateFiscalReport(companyId: string, tenantId: string, actorUserId: string, id: string, payload: FiscalReportPayload) {
   const normalized = normalizeFiscalReportPayload(payload);
-  if (!normalized) throw new Error("Modelo o periodo fiscal español no soportado.");
+  if (!normalized) throw new AccountingRuleError(422, "FISCAL_PERIOD_INVALID", "Modelo o periodo fiscal no soportado. Usa 2026-Q1, 2026-04 o 2026 según el modelo.");
   await assertFiscalReportKeyAvailable(companyId, normalized.code, normalized.period, id);
 
   const current = await getFiscalReport(companyId, id);
   if (!current) return null;
   if (current.status === "FILED" && normalized.status !== "FILED" && !payload.reopenReason?.trim()) {
-    throw new Error("Debes indicar el motivo para reabrir una declaración presentada.");
+    throw new AccountingRuleError(422, "REOPEN_REASON_REQUIRED", "Debes indicar el motivo para reabrir una declaración presentada.");
   }
 
   const [updated] = await db
@@ -111,7 +112,7 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
 export async function deleteFiscalReport(companyId: string, tenantId: string, actorUserId: string, id: string) {
   const current = await getFiscalReport(companyId, id);
   if (!current) return false;
-  if (current.status === "FILED") throw new Error("No se puede eliminar una declaración presentada; debes reabrirla primero.");
+  if (current.status === "FILED") throw new AccountingRuleError(409, "FISCAL_REPORT_FILED", "No se puede eliminar una declaración presentada; debes reabrirla primero.");
   const [deleted] = await db
     .delete(fiscalReport)
     .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId)))
@@ -133,6 +134,6 @@ async function assertFiscalReportKeyAvailable(companyId: string, code: string, p
     .limit(1);
 
   if (duplicate.length > 0) {
-    throw new Error("Ya existe un borrador fiscal para ese modelo y periodo.");
+    throw new AccountingRuleError(409, "FISCAL_REPORT_DUPLICATE", "Ya existe un borrador fiscal para ese modelo y periodo.");
   }
 }

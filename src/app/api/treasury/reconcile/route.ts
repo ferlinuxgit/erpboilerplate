@@ -5,11 +5,11 @@ import { z } from "zod";
 import { bankAccount, bankTransaction, customer, invoice, invoicePayment, partner, payment, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
-import { autoReconcileBankTransactions } from "@/server/treasury/reconciliation";
+import { autoReconcileBankTransactions, reconcileBankTransaction, unreconcileBankTransaction } from "@/server/treasury/reconciliation";
 
 const manualSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("match"), transactionId: z.string().min(1), kind: z.enum(["customer", "supplier"]), matchId: z.string().min(1) }),
@@ -55,17 +55,21 @@ export async function POST() {
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "treasury.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
-  const result = await autoReconcileBankTransactions(ctx.company.id);
-  await recordAudit({
-    tenantId: ctx.tenant.id,
-    companyId: ctx.company.id,
-    actorUserId: session.user.id,
-    action: "treasury.reconcile.auto",
-    entityName: "bankTransaction",
-    entityId: ctx.company.id,
-    payload: result,
-  });
-  return NextResponse.json(result);
+  try {
+    const result = await autoReconcileBankTransactions(ctx.company.id, { tenantId: ctx.tenant.id, actorUserId: session.user.id });
+    await recordAudit({
+      tenantId: ctx.tenant.id,
+      companyId: ctx.company.id,
+      actorUserId: session.user.id,
+      action: "treasury.reconcile.auto",
+      entityName: "bankTransaction",
+      entityId: ctx.company.id,
+      payload: result,
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    return handleRouteError(error, "treasury.reconcile.auto", "No se pudo ejecutar la conciliación automática. Inténtalo de nuevo.");
+  }
 }
 
 export async function PATCH(request: Request) {
@@ -78,44 +82,13 @@ export async function PATCH(request: Request) {
   const parsed = manualSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
+  const actor = { companyId: ctx.company.id, tenantId: ctx.tenant.id, actorUserId: session.user.id };
   try {
-    const result = await db.transaction(async (tx) => {
-      const [bankRow] = await tx.select({ id: bankTransaction.id, amount: bankTransaction.amount, status: bankTransaction.reconciliationStatus })
-        .from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
-        .where(and(eq(bankTransaction.id, parsed.data.transactionId), eq(bankAccount.companyId, ctx.company.id))).for("update").limit(1);
-      if (!bankRow) return null;
-
-      if (parsed.data.action === "unmatch") {
-        if (bankRow.status !== "RECONCILED") throw new Error("El movimiento ya está pendiente.");
-        const [updated] = await tx.update(bankTransaction).set({ reconciliationStatus: "PENDING", matchedInvoicePaymentId: null, matchedSupplierPaymentId: null, reconciledAt: null }).where(eq(bankTransaction.id, bankRow.id)).returning();
-        await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "treasury.reconcile.undo", entityName: "bankTransaction", entityId: bankRow.id }, tx);
-        return updated;
-      }
-
-      if (bankRow.status === "RECONCILED") throw new Error("El movimiento ya está conciliado.");
-      const expectedKind = Number(bankRow.amount) >= 0 ? "customer" : "supplier";
-      if (parsed.data.kind !== expectedKind) throw new Error("La contrapartida no coincide con el signo del movimiento.");
-      const amount = Math.abs(Number(bankRow.amount)).toFixed(2);
-      if (parsed.data.kind === "customer") {
-        const [candidate] = await tx.select({ id: invoicePayment.id }).from(invoicePayment).where(and(eq(invoicePayment.id, parsed.data.matchId), eq(invoicePayment.companyId, ctx.company.id), eq(invoicePayment.amountApplied, amount))).limit(1);
-        if (!candidate) throw new Error("El cobro no existe o no coincide en importe.");
-        const [alreadyUsed] = await tx.select({ id: bankTransaction.id }).from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId)).where(and(eq(bankAccount.companyId, ctx.company.id), eq(bankTransaction.matchedInvoicePaymentId, candidate.id))).limit(1);
-        if (alreadyUsed) throw new Error("El cobro ya está conciliado con otro movimiento.");
-        const [updated] = await tx.update(bankTransaction).set({ reconciliationStatus: "RECONCILED", matchedInvoicePaymentId: candidate.id, matchedSupplierPaymentId: null, reconciledAt: new Date() }).where(eq(bankTransaction.id, bankRow.id)).returning();
-        await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "treasury.reconcile.manual", entityName: "bankTransaction", entityId: bankRow.id, payload: { kind: parsed.data.kind, matchId: candidate.id } }, tx);
-        return updated;
-      }
-      const [candidate] = await tx.select({ id: supplierInvoicePayment.id }).from(supplierInvoicePayment).where(and(eq(supplierInvoicePayment.id, parsed.data.matchId), eq(supplierInvoicePayment.companyId, ctx.company.id), eq(supplierInvoicePayment.amountApplied, amount))).limit(1);
-      if (!candidate) throw new Error("El pago no existe o no coincide en importe.");
-      const [alreadyUsed] = await tx.select({ id: bankTransaction.id }).from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId)).where(and(eq(bankAccount.companyId, ctx.company.id), eq(bankTransaction.matchedSupplierPaymentId, candidate.id))).limit(1);
-      if (alreadyUsed) throw new Error("El pago ya está conciliado con otro movimiento.");
-      const [updated] = await tx.update(bankTransaction).set({ reconciliationStatus: "RECONCILED", matchedInvoicePaymentId: null, matchedSupplierPaymentId: candidate.id, reconciledAt: new Date() }).where(eq(bankTransaction.id, bankRow.id)).returning();
-      await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, action: "treasury.reconcile.manual", entityName: "bankTransaction", entityId: bankRow.id, payload: { kind: parsed.data.kind, matchId: candidate.id } }, tx);
-      return updated;
-    });
-    if (!result) return NextResponse.json({ message: "Movimiento no encontrado." }, { status: 404 });
+    const result = await db.transaction((tx) => parsed.data.action === "unmatch"
+      ? unreconcileBankTransaction(tx, { ...actor, transactionId: parsed.data.transactionId })
+      : reconcileBankTransaction(tx, { ...actor, transactionId: parsed.data.transactionId, kind: parsed.data.kind, matchId: parsed.data.matchId }));
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo actualizar la conciliación." }, { status: 400 });
+    return handleRouteError(error, "treasury.reconcile.manual", "No se pudo actualizar la conciliación. Inténtalo de nuevo.");
   }
 }

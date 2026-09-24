@@ -51,4 +51,21 @@ describe("calculateInvoiceTotals", () => {
 
     expect(totals).toMatchObject({ subtotal: 100, taxAmount: 0, retentionAmount: 0, totalAmount: 100 });
   });
+
+  it("exposes per-rate tax buckets computed on the summed base", () => {
+    const totals = calculateInvoiceTotals([
+      { description: "A", quantity: 1, unitPrice: 0.35, taxRate: 21 },
+      { description: "B", quantity: 1, unitPrice: 0.35, taxRate: 21 },
+      { description: "C", quantity: 1, unitPrice: 0.35, taxRate: 21 },
+      { description: "D", quantity: 1, unitPrice: 10, taxRate: 10, retentionRate: 15 },
+    ]);
+
+    expect(totals.taxBuckets).toEqual([
+      { name: "IVA", kind: "VAT", rate: 21, operation: "ADD", baseAmount: 1.05, amount: 0.22 },
+      { name: "IVA", kind: "VAT", rate: 10, operation: "ADD", baseAmount: 10, amount: 1 },
+      { name: "Retención", kind: "WITHHOLDING", rate: 15, operation: "SUBTRACT", baseAmount: 10, amount: 1.5 },
+    ]);
+    expect(totals.lines.reduce((sum, line) => sum + line.taxAmount, 0)).toBeCloseTo(1.21, 10);
+    expect(totals).toMatchObject({ subtotal: 11.05, taxAmount: 1.22, retentionAmount: 1.5, totalAmount: 10.77 });
+  });
 });

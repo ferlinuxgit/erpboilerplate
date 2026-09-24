@@ -161,7 +161,7 @@ test("customers and invoices create flows work after prerequisite onboarding and
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
   const createdInvoice = (await invoiceResponse.json()) as { number: string };
-  await expect(page.getByText("Factura creada correctamente.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(`Factura ${createdInvoice.number} emitida correctamente.`)).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
 

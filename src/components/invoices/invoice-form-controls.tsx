@@ -6,7 +6,8 @@ import type { UseFormRegisterReturn } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatMoney } from "@/lib/format";
+import { MoneyInput, QuantityInput } from "@/components/ui/number-input";
+import { formatMoney, formatPercent } from "@/lib/format";
 import type { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import { cn } from "@/lib/utils";
@@ -79,20 +80,20 @@ export function InvoicePaymentMethodsField({
         </summary>
         <div className="mt-1 max-h-72 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)]">
           {methods.map((method) => (
-            <label className="flex cursor-pointer items-start gap-2 rounded-[1px] px-2 py-2 text-sm hover:bg-window-panel" key={method.id}>
+            <label className="flex cursor-pointer items-start gap-2 rounded-[1px] px-2 py-2 font-mono text-xs hover:bg-window-panel" key={method.id}>
               <input className="mt-0.5 size-4 accent-primary" type="checkbox" value={method.id} {...getBinding()} />
               <span className="min-w-0">
-                <span className="block font-medium">{method.name}{method.isDefault ? " · Predeterminada" : ""}</span>
+                <span className="block font-bold">{method.name}{method.isDefault ? " · Predeterminada" : ""}</span>
                 <span className="block truncate font-mono text-[0.68rem] text-muted-foreground">
                   {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}
                 </span>
               </span>
             </label>
           ))}
-          {methods.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No hay formas de pago configuradas.</p> : null}
+          {methods.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay formas de pago configuradas. Créalas en Configuración › Maestros.</p> : null}
         </div>
       </details>
-      {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+      {error ? <p className="font-mono text-xs text-destructive" role="alert">{error}</p> : null}
     </div>
   );
 }
@@ -137,7 +138,7 @@ export function InvoiceLinesEditor({
     <section className="space-y-2" aria-labelledby="invoice-lines-title">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h3 id="invoice-lines-title" className="font-mono text-sm font-bold">Líneas de factura</h3>
+          <h2 id="invoice-lines-title" className="font-mono text-sm font-bold">Líneas de factura</h2>
           <p className="text-xs text-muted-foreground">Enter avanza por la fila; desde el precio crea la siguiente línea. Alt+L añade una línea desde cualquier campo.</p>
         </div>
         <Button aria-keyshortcuts="Alt+L" data-testid="invoice-add-line" type="button" variant="outline" onClick={onAdd}>
@@ -175,44 +176,41 @@ export function InvoiceLinesEditor({
                       id={descriptionId}
                       aria-label={`Descripción línea ${lineNumber}`}
                       aria-invalid={Boolean(lineError.description)}
+                      aria-describedby={lineError.description ? `${descriptionId}-error` : undefined}
                       placeholder="Descripción del producto o servicio"
                       onKeyDown={(event) => handleFieldEnter(event, quantityId)}
                       {...bindings.description}
                     />
                   </div>
-                  {lineError.description ? <p className="pl-6 text-xs text-destructive" role="alert">{lineError.description}</p> : null}
+                  {lineError.description ? <p className="pl-6 text-xs text-destructive" id={`${descriptionId}-error`} role="alert">{lineError.description}</p> : null}
                 </div>
                 <div className="space-y-1">
                   <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={quantityId}>Cantidad</label>
-                  <Input
-                    className="h-9 text-right tabular-nums"
+                  <QuantityInput
+                    className="h-9"
                     data-testid={quantityId}
                     id={quantityId}
                     aria-label={`Cantidad línea ${lineNumber}`}
                     aria-invalid={Boolean(lineError.quantity)}
-                    min={0.001}
-                    step="0.001"
-                    type="number"
+                    aria-describedby={lineError.quantity ? `${quantityId}-error` : undefined}
                     onKeyDown={(event) => handleFieldEnter(event, unitPriceId)}
                     {...bindings.quantity}
                   />
-                  {lineError.quantity ? <p className="text-xs text-destructive" role="alert">{lineError.quantity}</p> : null}
+                  {lineError.quantity ? <p className="text-xs text-destructive" id={`${quantityId}-error`} role="alert">{lineError.quantity}</p> : null}
                 </div>
                 <div className="space-y-1">
                   <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={unitPriceId}>Precio unitario</label>
-                  <Input
-                    className="h-9 text-right tabular-nums"
+                  <MoneyInput
+                    className="h-9"
                     data-testid={unitPriceId}
                     id={unitPriceId}
                     aria-label={`Precio unitario línea ${lineNumber}`}
                     aria-invalid={Boolean(lineError.unitPrice)}
-                    min={0}
-                    step="0.01"
-                    type="number"
+                    aria-describedby={lineError.unitPrice ? `${unitPriceId}-error` : undefined}
                     onKeyDown={(event) => handlePriceEnter(event, index)}
                     {...bindings.unitPrice}
                   />
-                  {lineError.unitPrice ? <p className="text-xs text-destructive" role="alert">{lineError.unitPrice}</p> : null}
+                  {lineError.unitPrice ? <p className="text-xs text-destructive" id={`${unitPriceId}-error`} role="alert">{lineError.unitPrice}</p> : null}
                 </div>
                 <div className="space-y-1">
                   <span className="font-mono text-[0.67rem] font-bold lg:sr-only">Impuestos</span>
@@ -223,15 +221,15 @@ export function InvoiceLinesEditor({
                     </summary>
                     <div className="mt-1 max-h-64 min-w-72 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)] lg:min-w-0">
                       {taxes.map((tax) => (
-                        <label className={cn("flex cursor-pointer items-center gap-2 rounded-[1px] px-2 py-2 text-sm hover:bg-window-panel", tax.isActive === false && "opacity-60")} key={tax.id}>
+                        <label className={cn("flex cursor-pointer items-center gap-2 rounded-[1px] px-2 py-2 font-mono text-xs hover:bg-window-panel", tax.isActive === false && "opacity-60")} key={tax.id}>
                           <input className="size-4 accent-primary" type="checkbox" value={tax.id} {...bindings.taxIds()} />
                           <span className="flex min-w-0 flex-1 justify-between gap-3">
                             <span className="truncate">{tax.name}{tax.isActive === false ? " (archivado)" : ""}</span>
-                            <span className="shrink-0 font-mono text-muted-foreground">{tax.operation === "SUBTRACT" ? "−" : "+"}{tax.rate.toLocaleString("es-ES")}%</span>
+                            <span className="shrink-0 font-mono text-muted-foreground">{tax.operation === "SUBTRACT" ? "−" : "+"}{formatPercent(tax.rate)}</span>
                           </span>
                         </label>
                       ))}
-                      {taxes.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No hay impuestos configurados.</p> : null}
+                      {taxes.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay impuestos configurados. Créalos en Configuración › Maestros.</p> : null}
                     </div>
                   </details>
                   {lineError.taxIds ? <p className="text-xs text-destructive" role="alert">{lineError.taxIds}</p> : null}
@@ -244,10 +242,10 @@ export function InvoiceLinesEditor({
                   </div>
                 </div>
                 <div className="flex items-center justify-end gap-0.5" role="group" aria-label={`Acciones línea ${lineNumber}`}>
-                  <Button aria-label={`Subir línea ${lineNumber}`} title="Subir" size="icon-sm" type="button" variant="ghost" disabled={index === 0} onClick={() => onMove(index, index - 1)}><ArrowUp /></Button>
-                  <Button aria-label={`Bajar línea ${lineNumber}`} title="Bajar" size="icon-sm" type="button" variant="ghost" disabled={index === fields.length - 1} onClick={() => onMove(index, index + 1)}><ArrowDown /></Button>
-                  <Button aria-label={`Duplicar línea ${lineNumber}`} title="Duplicar" size="icon-sm" type="button" variant="ghost" onClick={() => onDuplicate(index)}><Copy /></Button>
-                  <Button aria-label={`Eliminar línea ${lineNumber}`} title="Eliminar" size="icon-sm" type="button" variant="ghost" disabled={fields.length === 1} onClick={() => onRemove(index)}><Trash /></Button>
+                  <Button aria-label={`Subir línea ${lineNumber}`} title="Subir" size="icon-sm" type="button" variant="ghost" disabled={index === 0} onClick={() => onMove(index, index - 1)}><ArrowUp aria-hidden="true" /></Button>
+                  <Button aria-label={`Bajar línea ${lineNumber}`} title="Bajar" size="icon-sm" type="button" variant="ghost" disabled={index === fields.length - 1} onClick={() => onMove(index, index + 1)}><ArrowDown aria-hidden="true" /></Button>
+                  <Button aria-label={`Duplicar línea ${lineNumber}`} title="Duplicar" size="icon-sm" type="button" variant="ghost" onClick={() => onDuplicate(index)}><Copy aria-hidden="true" /></Button>
+                  <Button aria-label={`Eliminar línea ${lineNumber}`} title="Eliminar" size="icon-sm" type="button" variant="ghost" disabled={fields.length === 1} onClick={() => onRemove(index)}><Trash aria-hidden="true" /></Button>
                 </div>
               </article>
             );
@@ -256,39 +254,63 @@ export function InvoiceLinesEditor({
       </div>
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{fields.length} línea{fields.length === 1 ? "" : "s"}</p>
-        <Button type="button" size="sm" variant="ghost" onClick={onAdd}><Plus />Añadir otra línea</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onAdd}><Plus aria-hidden="true" />Añadir otra línea</Button>
       </div>
     </section>
   );
 }
 
-export function InvoiceTotalsSummary({ error, totals }: { error?: ReactNode; totals: InvoiceTotals }) {
-  const breakdown = new Map<string, { name: string; rate: number; operation: "ADD" | "SUBTRACT"; amount: number }>();
+export function InvoiceTotalsSummary({
+  currencyCode = "EUR",
+  error,
+  testIdPrefix = "invoice",
+  title = "Resumen",
+  totals,
+}: {
+  currencyCode?: string;
+  error?: ReactNode;
+  /** Prefix of the data-testids ("invoice" → invoice-totals, invoice-grand-total…). */
+  testIdPrefix?: string;
+  title?: string;
+  totals: InvoiceTotals;
+}) {
+  const breakdown = new Map<string, { name: string; rate: number; operation: "ADD" | "SUBTRACT"; amount: number; base: number }>();
   for (const line of totals.lines) {
     for (const tax of line.taxes) {
       const key = `${tax.name}-${tax.rate}-${tax.operation}`;
-      const current = breakdown.get(key) ?? { name: tax.name ?? (tax.operation === "SUBTRACT" ? "Retención" : "Impuesto"), rate: tax.rate, operation: tax.operation, amount: 0 };
+      const current = breakdown.get(key) ?? { name: tax.name ?? (tax.operation === "SUBTRACT" ? "Retención" : "Impuesto"), rate: tax.rate, operation: tax.operation, amount: 0, base: 0 };
       current.amount = Math.round((current.amount + tax.amount + Number.EPSILON) * 100) / 100;
+      current.base = Math.round((current.base + tax.baseAmount + Number.EPSILON) * 100) / 100;
       breakdown.set(key, current);
     }
   }
+  const money = (value: number) => formatMoney(value, currencyCode);
   return (
-    <aside className="border-l-4 border-l-primary bg-window-panel p-3" aria-live="polite" data-testid="invoice-totals">
+    <aside aria-label={title} className="border-l-4 border-l-primary bg-window-panel p-3" aria-live="polite" data-testid={`${testIdPrefix}-totals`}>
       <div className="mb-2 flex items-center justify-between gap-3 border-b border-window-shadow pb-2">
-        <p className="font-mono text-[0.72rem] font-bold uppercase tracking-[0.05em]">Resumen</p>
-        <p className="font-mono text-lg font-bold tabular-nums" data-testid="invoice-grand-total">Total: {formatMoney(totals.totalAmount)}</p>
+        <p className="font-mono text-[0.72rem] font-bold uppercase tracking-[0.05em]">{title}</p>
+        <p className="font-mono text-lg font-bold tabular-nums" data-testid={`${testIdPrefix}-grand-total`}>Total: {money(totals.totalAmount)}</p>
       </div>
       <dl className="space-y-1 font-mono text-[0.72rem] tabular-nums">
-        <div className="flex justify-between gap-3" data-testid="invoice-subtotal"><dt>Subtotal:</dt>{" "}<dd>{formatMoney(totals.subtotal)}</dd></div>
+        <div className="flex justify-between gap-3" data-testid={`${testIdPrefix}-subtotal`}><dt>Subtotal:</dt>{" "}<dd>{money(totals.subtotal)}</dd></div>
         {[...breakdown.values()].map((row) => (
           <div className="flex justify-between gap-3 text-muted-foreground" key={`${row.name}-${row.rate}-${row.operation}`}>
-            <dt>{row.operation === "SUBTRACT" ? "−" : "+"} {row.name} {row.rate.toLocaleString("es-ES")}%</dt>
-            <dd>{formatMoney(row.amount)}</dd>
+            <dt>
+              {row.operation === "SUBTRACT" ? "−" : "+"} {row.name} {formatPercent(row.rate)}
+              <span className="ml-1 text-[0.65rem]">(base {money(row.base)})</span>
+            </dt>
+            <dd>{row.operation === "SUBTRACT" ? "−" : ""}{money(row.amount)}</dd>
           </div>
         ))}
-        <div className="sr-only" data-testid="invoice-tax-total">Impuestos añadidos: {formatMoney(totals.taxAmount)}</div>
+        {totals.retentionAmount > 0 ? (
+          <div className="flex justify-between gap-3 text-muted-foreground" data-testid={`${testIdPrefix}-retention-total`}>
+            <dt>Retenciones:</dt>
+            <dd>−{money(totals.retentionAmount)}</dd>
+          </div>
+        ) : null}
+        <div className="sr-only" data-testid={`${testIdPrefix}-tax-total`}>Impuestos añadidos: {money(totals.taxAmount)}</div>
       </dl>
-      {error ? <div className="mt-2 text-sm text-destructive">{error}</div> : null}
+      {error ? <div className="mt-2 font-mono text-xs text-destructive" role="alert">{error}</div> : null}
     </aside>
   );
 }

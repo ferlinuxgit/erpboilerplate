@@ -1,8 +1,12 @@
+import type { Metadata } from "next";
+
 import { CreateCustomerForm } from "@/components/create-customer-form";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { canManageCustomers } from "@/lib/rbac";
+
+export const metadata: Metadata = { title: "Nuevo cliente" };
 
 export default async function NewCustomerPage() {
   await requireUserSession();
@@ -12,11 +16,13 @@ export default async function NewCustomerPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Clientes"
         title="Nuevo cliente"
         description={`Crea un cliente activo para ${tenantContext.company.name}.`}
-        backHref="/customers"
-        backLabel="Volver a clientes"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Clientes", href: "/customers" },
+          { label: "Nuevo cliente" },
+        ]}
       />
 
       <PageSection title="Datos del cliente" description="Informa identidad fiscal, domicilio y contacto. El número de cliente se asignará automáticamente.">

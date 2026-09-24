@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
+import { handleRouteError } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { convertDeliveryToInvoice } from "@/server/sales/service";
@@ -22,6 +23,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo generar la factura." }, { status: 400 });
+    // Reglas de negocio (HttpError / AccountingRuleError) con su estado; el resto, 500 genérico.
+    return handleRouteError(error, "delivery-note.to-invoice", "No se pudo generar la factura.");
   }
 }

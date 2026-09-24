@@ -50,7 +50,8 @@ test("una declaración presentada bloquea facturas dentro del periodo fiscal", a
       ],
     },
   });
-  expect(lockedInvoiceResponse.status).toBe(400);
+  // Periodo presentado: conflicto con el estado actual (409), con mensaje accionable.
+  expect(lockedInvoiceResponse.status).toBe(409);
   expect(lockedInvoiceResponse.payload?.message ?? "").toContain("periodo fiscal 2026-Q2");
 
   const openInvoiceResponse = await postJson(page, "/api/invoices", {

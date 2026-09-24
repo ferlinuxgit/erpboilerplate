@@ -5,7 +5,7 @@ import { z } from "zod";
 import { bankAccount, partner, paymentMethod, purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { postSupplierPayment } from "@/server/accounting/auto-post";
@@ -13,6 +13,7 @@ import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshSupplierInvoicePaymentStatus } from "@/server/supplier-invoices/service";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
+import { reconcileBankTransaction } from "@/server/treasury/reconciliation";
 
 const payloadSchema = z.object({
   supplierInvoiceId: z.string().trim().optional().or(z.literal("")),
@@ -23,6 +24,8 @@ const payloadSchema = z.object({
   bankAccountId: z.string().trim().optional().or(z.literal("")),
   reference: z.string().trim().max(160).optional().or(z.literal("")),
   notes: z.string().trim().max(1000).optional().or(z.literal("")),
+  /** Movimiento bancario del que nace el pago: se concilia en la misma operación. */
+  bankTransactionId: z.string().trim().min(1).optional(),
 }).refine((value) => Boolean(value.supplierInvoiceId || value.supplierPartnerId), {
   message: "Debes indicar un proveedor o una factura.",
   path: ["supplierPartnerId"],
@@ -152,8 +155,22 @@ export async function POST(request: Request) {
         postedAt,
         reference: parsed.data.reference || (ownedInvoice ? `Pago factura proveedor ${ownedInvoice.id}` : `Pago a cuenta de proveedor ${ownedSupplier.id}`),
         amount: parsed.data.amountApplied,
+        paymentMethodId: parsed.data.paymentMethodId || null,
+        bankAccountId: parsed.data.bankAccountId || null,
         dbClient: tx,
       });
+
+      if (parsed.data.bankTransactionId) {
+        if (!appliedPayment) throw new Error("SUPPLIER_PAYMENT_NEEDS_INVOICE");
+        await reconcileBankTransaction(tx, {
+          companyId: ctx.company.id,
+          tenantId: ctx.tenant.id,
+          actorUserId: session.user.id,
+          transactionId: parsed.data.bankTransactionId,
+          kind: "supplier",
+          matchId: appliedPayment.id,
+        });
+      }
 
       const refreshedInvoice = ownedInvoice
         ? await refreshSupplierInvoicePaymentStatus(ctx.company.id, ownedInvoice.id, tx)
@@ -218,6 +235,8 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "SUPPLIER_INVOICE_VOID") return NextResponse.json({ message: "No se puede pagar una factura anulada." }, { status: 409 });
     if (error instanceof Error && error.message === "PAYMENT_METHOD_NOT_FOUND") return NextResponse.json({ message: "La forma de pago no pertenece a la empresa activa." }, { status: 400 });
     if (error instanceof Error && error.message === "BANK_ACCOUNT_NOT_FOUND") return NextResponse.json({ message: "La cuenta bancaria no pertenece a la empresa activa." }, { status: 400 });
-    throw error;
+    if (error instanceof Error && error.message === "SUPPLIER_PAYMENT_NEEDS_INVOICE") return NextResponse.json({ message: "Para conciliar con un movimiento bancario el pago debe aplicarse a una factura." }, { status: 400 });
+    // Periodo bloqueado, ejercicio cerrado, cuenta contable inexistente, etc.
+    return handleRouteError(error, "supplier-payments.create", "No se pudo registrar el pago. Inténtalo de nuevo.");
   }
 }

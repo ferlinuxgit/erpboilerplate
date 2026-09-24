@@ -52,7 +52,7 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
         actions={
           <>
             {originHref ? <Link className={buttonVariants({ variant: "outline" })} href={originHref}>Ver documento origen</Link> : null}
-            {canWrite && !entry.isAutomatic ? <Link className={buttonVariants({ variant: "outline" })} href={`/accounting/entries/${entry.id}/edit`}>Editar</Link> : null}
+            {canWrite && !entry.isAutomatic && !entry.reversedAt && !entry.reversesEntryId ? <Link className={buttonVariants({ variant: "outline" })} href={`/accounting/entries/${entry.id}/edit`}>Editar</Link> : null}
             {canWrite && !entry.isAutomatic && !entry.reversedAt ? <DeleteButton description="Se creará un contraasiento y el original conservará toda su trazabilidad." label="Revertir" successMessage="Asiento revertido mediante contraasiento." title="Revertir asiento" url={`/api/journal-entries/${entry.id}`} redirectTo="/accounting" /> : null}
           </>
         }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { FiscalYearLifecyclePanel } from "@/components/accounting/fiscal-year-lifecycle-panel";
 import { CompanyDefaultsPanel } from "@/components/company/company-defaults-panel";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -16,6 +17,7 @@ import {
   listAccounts,
   listJournalEntries,
 } from "@/server/accounting/service";
+import { getFiscalYearLifecycle } from "@/server/accounting/fiscal-years";
 import { getCompanyDefaultsStatus } from "@/server/company/defaults";
 
 const areas = [
@@ -38,7 +40,7 @@ const areas = [
 
 export default async function AccountingPage() {
   const ctx = await requireContext("accounting.read");
-  const [[balance], accounts, entries, defaultsStatus] = await Promise.all([
+  const [[balance], accounts, entries, defaultsStatus, lifecycle] = await Promise.all([
     getTrialBalance(ctx.company.id),
     listAccounts(ctx.company.id),
     listJournalEntries(ctx.company.id),
@@ -47,6 +49,7 @@ export default async function AccountingPage() {
       fiscalYearId: ctx.fiscalYear.id,
       countryCode: ctx.company.countryCode,
     }),
+    getFiscalYearLifecycle(ctx.company.id, ctx.fiscalYear.id),
   ]);
   const canWrite = can(ctx.membership.role, "accounting.write");
   const difference = Number(balance?.debit ?? 0) - Number(balance?.credit ?? 0);
@@ -83,12 +86,20 @@ export default async function AccountingPage() {
           value={formatMoney(difference, currency)}
           helper={
             Math.abs(difference) < 0.005
-              ? "Contabilidad cuadrada"
-              : "Requiere revisión"
+              ? "Debe y haber coinciden"
+              : "Debe y haber no coinciden: revisa los asientos manuales"
           }
           tone={Math.abs(difference) < 0.005 ? "success" : "warning"}
         />
       </section>
+      {lifecycle ? (
+        <PageSection
+          title="Ejercicio contable"
+          description="Abre el ejercicio siguiente y cierra el actual para trasladar los saldos."
+        >
+          <FiscalYearLifecyclePanel canWrite={canWrite} lifecycle={{ ...lifecycle, companyId: ctx.company.id }} />
+        </PageSection>
+      ) : null}
       {!defaultsStatus.ready ? (
         <PageSection
           title="Configuración necesaria"

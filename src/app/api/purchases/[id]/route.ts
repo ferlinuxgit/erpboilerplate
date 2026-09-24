@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { purchaseOrderStatuses } from "@/lib/document-pipelines";
@@ -54,7 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         { status: 409 },
       );
     }
-    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo actualizar el pedido." }, { status: 400 });
+    return handleRouteError(error, "purchases.update", "No se pudo actualizar el pedido.");
   }
 }
 
@@ -78,6 +78,6 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
         { status: 409 },
       );
     }
-    throw error;
+    return handleRouteError(error, "purchases.delete", "No se pudo eliminar el pedido.");
   }
 }

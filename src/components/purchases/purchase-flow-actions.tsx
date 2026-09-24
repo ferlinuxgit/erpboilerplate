@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
@@ -16,6 +16,7 @@ import {
   type TransitionResult,
 } from "@/lib/document-pipelines";
 import { Button } from "@/components/ui/button";
+import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
 import { purchaseOrderStatusLabels, statusLabel } from "@/lib/status-labels";
 
@@ -47,14 +48,15 @@ type SupplierInvoice = {
   totalAmount: string;
 };
 type SupplierPayment = { id: string; supplierInvoiceId: string; amount: string };
+type Step = "receive" | "invoice" | "pay";
 
 function StageCards({ stages }: { stages: ReturnType<typeof buildPurchasePipelineStages> }) {
   return (
     <div className="grid gap-3 md:grid-cols-4">
       {stages.map((stage) => (
-        <div className="rounded-md border bg-muted/20 p-3" data-testid={`purchase-stage-${stage.key}`} key={stage.key}>
-          <p className="text-xs uppercase text-muted-foreground">{stage.label}</p>
-          <p className="text-2xl font-semibold">{stage.count}</p>
+        <div className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3" data-testid={`purchase-stage-${stage.key}`} key={stage.key}>
+          <p className="font-mono text-[0.65rem] font-bold uppercase tracking-[0.04em] text-window-muted">{stage.label}</p>
+          <p className="font-mono text-2xl font-bold tabular-nums">{stage.count}</p>
           {stage.nextActionLabel ? <p className="text-xs text-muted-foreground">Siguiente: {stage.nextActionLabel}</p> : null}
           {stage.count === 0 ? <p className="mt-2 text-xs text-warning">{stage.emptyState}</p> : null}
         </div>
@@ -66,25 +68,75 @@ function StageCards({ stages }: { stages: ReturnType<typeof buildPurchasePipelin
 function PipelineSelect<T extends { id: string }>({
   emptyMessage,
   format,
+  id,
   items,
+  label,
   onChange,
   value,
 }: {
   emptyMessage: string;
   format: (item: T) => string;
+  id: string;
   items: T[];
+  label: string;
   onChange: (value: string) => void;
   value: string;
 }) {
-  if (items.length === 0) return <p className="rounded-md border border-dashed p-2 text-sm text-warning">{emptyMessage}</p>;
+  if (items.length === 0) {
+    return <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-2 text-xs text-warning" role="status">{emptyMessage}</p>;
+  }
   return (
-    <Select onChange={(event) => onChange(event.target.value)} value={value}>
-      {items.map((item) => (
-        <option key={item.id} value={item.id}>
-          {format(item)}
-        </option>
-      ))}
-    </Select>
+    <AccessibleField id={id} label={label} required>
+      <Select id={id} onChange={(event) => onChange(event.target.value)} value={value}>
+        {items.map((item) => (
+          <option key={item.id} value={item.id}>
+            {format(item)}
+          </option>
+        ))}
+      </Select>
+    </AccessibleField>
+  );
+}
+
+function PipelineStep({
+  children,
+  error,
+  id,
+  loading,
+  onSubmit,
+  submitDisabled,
+  submitLabel,
+  title,
+}: {
+  children: ReactNode;
+  error: string | null;
+  id: string;
+  loading: boolean;
+  onSubmit: () => void;
+  submitDisabled: boolean;
+  submitLabel: string;
+  title: string;
+}) {
+  return (
+    <form
+      aria-labelledby={`${id}-title`}
+      className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (!submitDisabled) onSubmit();
+      }}
+    >
+      <h3 className="mb-2 font-mono text-xs font-bold" id={`${id}-title`}>
+        {title}
+      </h3>
+      <div className="grid items-end gap-2 md:grid-cols-2">
+        {children}
+        <SubmitButton disabled={submitDisabled} pending={loading} pendingLabel="Procesando…">
+          {submitLabel}
+        </SubmitButton>
+      </div>
+      <FormErrorMessage className="mt-2">{error}</FormErrorMessage>
+    </form>
   );
 }
 
@@ -104,9 +156,9 @@ function DocumentRow({
   transition: TransitionResult;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border bg-background p-3 md:flex-row md:items-center md:justify-between" data-testid={testId}>
+    <div className="flex flex-col gap-2 rounded-[2px] border border-window-shadow bg-window-surface p-3 md:flex-row md:items-center md:justify-between" data-testid={testId}>
       <div>
-        <p className="text-sm font-medium">{label}</p>
+        <p className="font-mono text-xs font-bold">{label}</p>
         <p className="text-xs text-muted-foreground">Estado: {status}</p>
         {!transition.allowed ? <p className="mt-1 text-xs text-warning">Bloqueado: {transition.reason}</p> : null}
       </div>
@@ -134,6 +186,7 @@ export function PurchaseFlowActions({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [stepErrors, setStepErrors] = useState<Record<Step, string | null>>({ receive: null, invoice: null, pay: null });
 
   const orderLinesByOrder = useMemo(() => {
     const groups = new Map<string, OrderLine[]>();
@@ -171,8 +224,16 @@ export function PurchaseFlowActions({
     ? selectedInvoiceId
     : payableInvoices[0]?.id ?? "";
 
-  const post = async (url: string, body: unknown) => {
+  const setStepError = (step: Step, message: string | null) => setStepErrors((current) => ({ ...current, [step]: message }));
+
+  const fail = (step: Step, message: string) => {
+    setStepError(step, message);
+    toast.error(message);
+  };
+
+  const post = async (step: Step, url: string, body: unknown, { failure, success }: { failure: string; success: string }) => {
     setLoading(true);
+    setStepError(step, null);
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -180,58 +241,71 @@ export function PurchaseFlowActions({
         body: JSON.stringify(body),
       });
       if (!response.ok) {
-        const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo completar la transición.");
+        throw new Error(await readApiError(response, failure));
       }
-      toast.success("Transición completada.");
+      toast.success(success);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error inesperado.");
+      fail(step, errorMessage(error, `${failure} Inténtalo de nuevo.`));
     } finally {
       setLoading(false);
     }
   };
 
-  const receiveOrder = (orderId: string) => post("/api/goods-receipts", { purchaseOrderId: orderId, receivedAt: new Date().toISOString() });
+  const receiveOrder = (orderId: string) =>
+    void post("receive", "/api/goods-receipts", { purchaseOrderId: orderId, receivedAt: new Date().toISOString() }, {
+      failure: "No se pudo registrar la recepción.",
+      success: "Recepción registrada.",
+    });
 
   const invoiceReceipt = (receiptId: string) => {
     const receipt = receipts.find((candidate) => candidate.id === receiptId);
     const order = receipt ? orders.find((candidate) => candidate.id === receipt.purchaseOrderId) : null;
     const lines = receipt ? orderLinesByOrder.get(receipt.purchaseOrderId) ?? [] : [];
     if (!receipt || !order) {
-      toast.error("No se encuentra el pedido de compra para esta recepción.");
+      fail("invoice", "No se encuentra el pedido de compra para esta recepción.");
       return;
     }
     if (lines.length === 0) {
-      toast.error("El pedido necesita líneas para generar la factura proveedor.");
+      fail("invoice", "El pedido necesita líneas para generar la factura proveedor.");
       return;
     }
-    void post("/api/supplier-invoices", {
-      supplierPartnerId: order.supplierPartnerId,
-      purchaseOrderId: order.id,
-      goodsReceiptId: receipt.id,
-      issueDate: new Date().toISOString(),
-      lines: lines.map((line) => ({
-        description: line.description,
-        itemId: line.itemId ?? undefined,
-        quantity: Number(line.quantity),
-        unitPrice: Number(line.unitPrice),
-        taxRate: 21,
-      })),
-    });
+    void post(
+      "invoice",
+      "/api/supplier-invoices",
+      {
+        supplierPartnerId: order.supplierPartnerId,
+        purchaseOrderId: order.id,
+        goodsReceiptId: receipt.id,
+        issueDate: new Date().toISOString(),
+        lines: lines.map((line) => ({
+          description: line.description,
+          itemId: line.itemId ?? undefined,
+          quantity: Number(line.quantity),
+          unitPrice: Number(line.unitPrice),
+          taxRate: 21,
+        })),
+      },
+      { failure: "No se pudo generar la factura de proveedor.", success: "Factura de proveedor generada." },
+    );
   };
 
   const payInvoice = (invoiceId: string) => {
     const invoice = invoices.find((candidate) => candidate.id === invoiceId);
     if (!invoice) {
-      toast.error("No se encuentra la factura proveedor.");
+      fail("pay", "No se encuentra la factura proveedor.");
       return;
     }
-    void post("/api/supplier-payments", {
-      supplierInvoiceId: invoice.id,
-      amountApplied: Number(invoice.totalAmount),
-      postedAt: new Date().toISOString(),
-    });
+    void post(
+      "pay",
+      "/api/supplier-payments",
+      {
+        supplierInvoiceId: invoice.id,
+        amountApplied: Number(invoice.totalAmount),
+        postedAt: new Date().toISOString(),
+      },
+      { failure: "No se pudo registrar el pago.", success: `Pago de ${formatMoney(invoice.totalAmount)} registrado.` },
+    );
   };
 
   return (
@@ -245,61 +319,73 @@ export function PurchaseFlowActions({
         })}
       />
 
-      <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">1) Pedido a recepción</p>
-        <div className="grid gap-2 md:grid-cols-2">
-          <PipelineSelect
-            emptyMessage="No hay pedidos pendientes de recepción. Crea un pedido con proveedor antes de recepcionar mercancía."
-            format={(order) => `${order.number} · ${order.supplierName}`}
-            items={receivableOrders}
-            onChange={setSelectedOrderId}
-            value={activeOrderId}
-          />
-          <Button disabled={loading || !activeOrderId} onClick={() => receiveOrder(activeOrderId)} type="button">
-            Recepcionar mercancía
-          </Button>
-        </div>
-      </div>
+      <PipelineStep
+        error={stepErrors.receive}
+        id="purchase-flow-receive"
+        loading={loading}
+        onSubmit={() => receiveOrder(activeOrderId)}
+        submitDisabled={loading || !activeOrderId}
+        submitLabel="Recepcionar mercancía"
+        title="1) Pedido a recepción"
+      >
+        <PipelineSelect
+          emptyMessage="No hay pedidos pendientes de recepción. Crea un pedido con proveedor antes de recepcionar mercancía."
+          format={(order) => `${order.number} · ${order.supplierName}`}
+          id="purchase-flow-order"
+          items={receivableOrders}
+          label="Pedido de compra"
+          onChange={setSelectedOrderId}
+          value={activeOrderId}
+        />
+      </PipelineStep>
 
-      <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">2) Recepción a factura proveedor</p>
-        <div className="grid gap-2 md:grid-cols-2">
-          <PipelineSelect
-            emptyMessage="No hay recepciones facturables. Primero recepciona un pedido con líneas de compra."
-            format={(receipt) => {
-              const order = orders.find((candidate) => candidate.id === receipt.purchaseOrderId);
-              return `${order?.number ?? "Pedido"} · recepción ${receipt.number}`;
-            }}
-            items={invoiceableReceipts}
-            onChange={setSelectedReceiptId}
-            value={activeReceiptId}
-          />
-          <Button disabled={loading || !activeReceiptId} onClick={() => invoiceReceipt(activeReceiptId)} type="button">
-            Generar factura proveedor
-          </Button>
-        </div>
-      </div>
+      <PipelineStep
+        error={stepErrors.invoice}
+        id="purchase-flow-invoice"
+        loading={loading}
+        onSubmit={() => invoiceReceipt(activeReceiptId)}
+        submitDisabled={loading || !activeReceiptId}
+        submitLabel="Generar factura proveedor"
+        title="2) Recepción a factura proveedor"
+      >
+        <PipelineSelect
+          emptyMessage="No hay recepciones facturables. Primero recepciona un pedido con líneas de compra."
+          format={(receipt) => {
+            const order = orders.find((candidate) => candidate.id === receipt.purchaseOrderId);
+            return `${order?.number ?? "Pedido"} · recepción ${receipt.number}`;
+          }}
+          id="purchase-flow-receipt"
+          items={invoiceableReceipts}
+          label="Recepción"
+          onChange={setSelectedReceiptId}
+          value={activeReceiptId}
+        />
+      </PipelineStep>
 
-      <div className="rounded-md border p-3">
-        <p className="mb-2 font-medium">3) Factura proveedor a pago</p>
-        <div className="grid gap-2 md:grid-cols-2">
-          <PipelineSelect
-            emptyMessage="No hay facturas proveedor pendientes de pago. Genera primero la factura desde una recepción."
-            format={(invoice) => `${invoice.number} · ${formatMoney(invoice.totalAmount ?? 0)}`}
-            items={payableInvoices}
-            onChange={setSelectedInvoiceId}
-            value={activeInvoiceId}
-          />
-          <Button disabled={loading || !activeInvoiceId} onClick={() => payInvoice(activeInvoiceId)} type="button">
-            Registrar pago
-          </Button>
-        </div>
-      </div>
+      <PipelineStep
+        error={stepErrors.pay}
+        id="purchase-flow-pay"
+        loading={loading}
+        onSubmit={() => payInvoice(activeInvoiceId)}
+        submitDisabled={loading || !activeInvoiceId}
+        submitLabel="Registrar pago"
+        title="3) Factura proveedor a pago"
+      >
+        <PipelineSelect
+          emptyMessage="No hay facturas proveedor pendientes de pago. Genera primero la factura desde una recepción."
+          format={(invoice) => `${invoice.number} · ${formatMoney(invoice.totalAmount ?? 0)}`}
+          id="purchase-flow-supplier-invoice"
+          items={payableInvoices}
+          label="Factura de proveedor"
+          onChange={setSelectedInvoiceId}
+          value={activeInvoiceId}
+        />
+      </PipelineStep>
 
-      <div className="space-y-2 rounded-md border p-3">
-        <p className="font-medium">Transiciones válidas por documento</p>
+      <div className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3">
+        <h3 className="font-mono text-xs font-bold">Transiciones válidas por documento</h3>
         {orders.length + receipts.length + invoices.length === 0 ? (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">
             Crea un pedido de compra para ver la siguiente acción válida del ciclo.
           </p>
         ) : null}

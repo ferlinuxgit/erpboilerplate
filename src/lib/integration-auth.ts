@@ -1,5 +1,5 @@
 import argon2 from "argon2";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { apiKey, company, fiscalYear, tenant, tenantSecurityPolicy } from "@/db/schema";
@@ -39,21 +39,27 @@ export type AuthenticatedApiActor = {
   scopes: PermissionKey[] | null;
 };
 
+const API_KEY_FORMAT = /^ak_[a-z0-9]{12}_[a-z0-9]{32}$/i;
+
+/**
+ * Busca la API key por su prefijo público (`ak_<12>`, índice único) y verifica
+ * el hash con argon2 sobre UNA sola fila.
+ *
+ * Las claves heredadas sin `keyPrefix` ya no se aceptan: exigían argon2 contra
+ * todas las filas en cada request (DoS/coste lineal). Deben regenerarse
+ * ("Rotar" en Ajustes → API keys), lo que les asigna prefijo.
+ */
 async function findApiKey(plainKey: string) {
-  if (!plainKey.startsWith("ak_")) return null;
+  if (!API_KEY_FORMAT.test(plainKey)) return null;
 
   const keyPrefix = plainKey.split("_").slice(0, 2).join("_");
-  const keys = await db.select().from(apiKey).where(and(isNull(apiKey.revokedAt), or(eq(apiKey.keyPrefix, keyPrefix), isNull(apiKey.keyPrefix))));
-  for (const key of keys) {
-    if (await argon2.verify(key.keyHash, plainKey)) {
-      const [policy] = await db.select({ rotationDays: tenantSecurityPolicy.apiKeyRotationDays }).from(tenantSecurityPolicy).where(eq(tenantSecurityPolicy.tenantId, key.tenantId)).limit(1);
-      if (policy?.rotationDays && key.createdAt.getTime() + policy.rotationDays * 86_400_000 <= Date.now()) return null;
-      await db.update(apiKey).set({ lastUsedAt: new Date() }).where(eq(apiKey.id, key.id));
-      return key;
-    }
-  }
+  const [key] = await db.select().from(apiKey).where(and(isNull(apiKey.revokedAt), eq(apiKey.keyPrefix, keyPrefix))).limit(1);
+  if (!key || !(await argon2.verify(key.keyHash, plainKey).catch(() => false))) return null;
 
-  return null;
+  const [policy] = await db.select({ rotationDays: tenantSecurityPolicy.apiKeyRotationDays }).from(tenantSecurityPolicy).where(eq(tenantSecurityPolicy.tenantId, key.tenantId)).limit(1);
+  if (policy?.rotationDays && key.createdAt.getTime() + policy.rotationDays * 86_400_000 <= Date.now()) return null;
+  await db.update(apiKey).set({ lastUsedAt: new Date() }).where(eq(apiKey.id, key.id));
+  return key;
 }
 
 async function tenantContextFromApiKey(tenantId: string, companyId?: string | null): Promise<IntegrationContext | null> {
@@ -107,7 +113,10 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
   if (token?.startsWith("ak_")) {
     const verifiedKey = await findApiKey(token);
     if (!verifiedKey) {
-      return NextResponse.json({ message: "API key inválida." }, { status: 401 });
+      return NextResponse.json(
+        { message: "API key inválida, caducada o revocada. Si es una clave antigua, regénerala en Ajustes → API keys." },
+        { status: 401 },
+      );
     }
 
     const context = await tenantContextFromApiKey(verifiedKey.tenantId, verifiedKey.companyId);

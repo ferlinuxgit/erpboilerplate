@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, isSafeAttachmentUrl, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createExpenseInvoice, listExpenseInvoices } from "@/server/supplier-invoices/service";
@@ -29,11 +29,12 @@ const payloadSchema = z.object({
   ocrJobId: z.string().trim().optional().or(z.literal("")),
   currencyCode: z.string().trim().length(3).optional(),
   idempotencyKey: z.string().trim().max(160).optional().or(z.literal("")),
+  vatTreatment: z.enum(["DOMESTIC", "INTRA_EU", "REVERSE_CHARGE", "IMPORT", "NOT_SUBJECT"]).optional(),
   attachments: z
     .array(
       z.object({
         fileName: z.string().trim().min(1),
-        fileUrl: z.string().trim().url(),
+        fileUrl: z.string().trim().refine(isSafeAttachmentUrl, "La URL del adjunto debe ser https://, http:// o una ruta interna."),
         storageKey: z.string().trim().optional().or(z.literal("")),
         contentType: z.string().trim().optional().or(z.literal("")),
         sizeBytes: z.number().nonnegative().optional(),
@@ -115,6 +116,7 @@ export async function POST(request: Request) {
       ocrJobId: parsed.data.ocrJobId || undefined,
       currencyCode: parsed.data.currencyCode,
       idempotencyKey: parsed.data.idempotencyKey || undefined,
+      vatTreatment: parsed.data.vatTreatment,
       attachments: parsed.data.attachments?.map((attachment) => ({
         fileName: attachment.fileName,
         fileUrl: attachment.fileUrl,

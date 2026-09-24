@@ -1,10 +1,22 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { company, companySettings, customer, invoice, invoiceLine, invoiceLineTax, invoicePaymentMethod, partner } from "@/db/schema";
+import { company, companySettings, customer, invoice, invoicePaymentMethod, partner, type InvoicePartySnapshot } from "@/db/schema";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
+import {
+  defaultSalesVatTreatment,
+  invoiceLifecycle,
+  isSalesVatTreatment,
+  rectificationReasonLabels,
+  rectificationTypeLabels,
+  vatTreatmentLegalNotes,
+  type RectificationReason,
+  type RectificationType,
+} from "@/server/invoices/lifecycle";
+import { loadStoredLines } from "@/server/invoices/service";
 import type { InvoicePdfInput } from "@/server/pdf/render";
+import { getInvoiceVerifactuInfo, getInvoiceVerifactuQrPng } from "@/server/verifactu/service";
 
 function formatDate(value: Date | null) {
   if (!value) return null;
@@ -21,17 +33,33 @@ function formatDecimal(value: number | string, digits = 2) {
   return new Intl.NumberFormat("es-ES", { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(Number.isFinite(numericValue) ? numericValue : 0);
 }
 
-function safeInvoiceFilename(number: string) {
-  return `invoice-${number.replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`;
+function safeInvoiceFilename(number: string, isCreditNote: boolean) {
+  return `${isCreditNote ? "rectificativa" : "invoice"}-${number.replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`;
 }
 
+/**
+ * Datos del PDF de una factura. Las facturas emitidas se imprimen desde el snapshot fiscal
+ * guardado al emitir (emisor y cliente tal y como eran entonces); los borradores y las facturas
+ * antiguas sin snapshot usan los datos actuales de empresa y cliente.
+ */
 export async function getInvoicePdfData(companyId: string, invoiceId: string): Promise<{ input: InvoicePdfInput; filename: string } | null> {
   const [row] = await db
     .select({
+      id: invoice.id,
       number: invoice.number,
+      status: invoice.status,
+      issuedAt: invoice.issuedAt,
       issueDate: invoice.issueDate,
       dueDate: invoice.dueDate,
       amount: invoice.totalAmount,
+      invoiceType: invoice.invoiceType,
+      vatTreatment: invoice.vatTreatment,
+      rectifiedInvoiceId: invoice.rectifiedInvoiceId,
+      rectificationReason: invoice.rectificationReason,
+      rectificationType: invoice.rectificationType,
+      rectificationDescription: invoice.rectificationDescription,
+      issuerSnapshot: invoice.issuerSnapshot,
+      customerSnapshot: invoice.customerSnapshot,
       paymentMethodName: invoice.paymentMethodName,
       paymentMethodType: invoice.paymentMethodType,
       paymentBankAccountNumber: invoice.paymentBankAccountNumber,
@@ -77,17 +105,12 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
 
   if (!row) return null;
 
-  const [lines, selectedPaymentMethods] = await Promise.all([
-    db.select({
-      id: invoiceLine.id,
-      description: invoiceLine.description,
-      quantity: invoiceLine.quantity,
-      unitPrice: invoiceLine.unitPrice,
-      discountPct: invoiceLine.discountPct,
-      taxRate: invoiceLine.taxRate,
-      retentionRate: invoiceLine.retentionRate,
-      lineTotal: invoiceLine.lineTotal,
-    }).from(invoiceLine).where(eq(invoiceLine.invoiceId, invoiceId)),
+  const isCreditNote = row.invoiceType === "CREDIT_NOTE";
+  const lifecycle = invoiceLifecycle(row);
+  const currency = row.companyBaseCurrencyCode;
+
+  const [lines, selectedPaymentMethods, [original]] = await Promise.all([
+    loadStoredLines(db, invoiceId),
     db.select({
       name: invoicePaymentMethod.name,
       type: invoicePaymentMethod.type,
@@ -96,66 +119,84 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
     }).from(invoicePaymentMethod)
       .where(eq(invoicePaymentMethod.invoiceId, invoiceId))
       .orderBy(invoicePaymentMethod.position),
+    row.rectifiedInvoiceId
+      ? db.select({ number: invoice.number, issueDate: invoice.issueDate })
+          .from(invoice)
+          .where(and(eq(invoice.id, row.rectifiedInvoiceId), eq(invoice.companyId, companyId)))
+          .limit(1)
+      : Promise.resolve([]),
   ]);
 
-  const configuredLineTaxes = lines.length > 0
-    ? await db.select({
-        invoiceLineId: invoiceLineTax.invoiceLineId,
-        taxId: invoiceLineTax.taxId,
-        name: invoiceLineTax.name,
-        rate: invoiceLineTax.rate,
-        kind: invoiceLineTax.kind,
-        operation: invoiceLineTax.operation,
-      }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
-    : [];
-  const lineTaxes = new Map<string, typeof configuredLineTaxes>();
-  for (const configuredTax of configuredLineTaxes) {
-    lineTaxes.set(configuredTax.invoiceLineId, [...(lineTaxes.get(configuredTax.invoiceLineId) ?? []), configuredTax]);
-  }
+  const totals = calculateInvoiceTotals(lines, { allowNegative: isCreditNote });
+  const verifactuInfo = lifecycle === "ISSUED" ? await getInvoiceVerifactuInfo(companyId, invoiceId) : null;
+  const verifactu = verifactuInfo
+    ? { qrDataUrl: await getInvoiceVerifactuQrPng(verifactuInfo), legends: verifactuInfo.legends, url: verifactuInfo.url }
+    : null;
 
-  const totals = calculateInvoiceTotals(
-    lines.map((line) => ({
-      description: line.description,
-      quantity: Number(line.quantity),
-      unitPrice: Number(line.unitPrice),
-      discountPct: Number(line.discountPct),
-      taxRate: Number(line.taxRate),
-      retentionRate: Number(line.retentionRate),
-      taxes: lineTaxes.get(line.id)?.map((selectedTax) => ({
-        id: selectedTax.taxId,
-        name: selectedTax.name,
-        rate: Number(selectedTax.rate),
-        kind: selectedTax.kind,
-        operation: selectedTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const,
-      })),
-    })),
-  );
-  const breakdownMap = new Map<string, { name: string; rate: number; base: number; amount: number; operation: "ADD" | "SUBTRACT" }>();
-  for (const lineTotal of totals.lines) {
-    for (const selectedTax of lineTotal.taxes) {
-      const name = selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto");
-      const key = `${name}-${selectedTax.rate}-${selectedTax.operation}`;
-      const breakdown = breakdownMap.get(key) ?? { name, rate: selectedTax.rate, base: 0, amount: 0, operation: selectedTax.operation };
-      breakdown.base = Math.round((breakdown.base + selectedTax.baseAmount + Number.EPSILON) * 100) / 100;
-      breakdown.amount = Math.round((breakdown.amount + selectedTax.amount + Number.EPSILON) * 100) / 100;
-      breakdownMap.set(key, breakdown);
-    }
-  }
+  const issuer: InvoicePartySnapshot = row.issuerSnapshot ?? {
+    name: row.companyName,
+    legalName: row.companyLegalName,
+    taxId: row.companyVatNumber,
+    address: row.companyFiscalAddress,
+    addressLine2: row.companyFiscalAddressLine2,
+    postalCode: row.companyPostalCode,
+    city: row.companyCity,
+    province: row.companyProvince,
+    countryCode: row.companyCountryCode,
+    email: row.companyEmail,
+    phone: row.companyPhone,
+    website: row.companyWebsite,
+  };
+  const customerParty: InvoicePartySnapshot = row.customerSnapshot ?? {
+    name: row.customerName,
+    taxId: row.customerTaxId,
+    address: row.customerAddress,
+    addressLine2: row.customerAddressLine2,
+    postalCode: row.customerPostalCode,
+    city: row.customerCity,
+    province: row.customerProvince,
+    countryCode: row.customerCountryCode,
+    number: row.customerNumber,
+  };
+
+  const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode);
+  const legalNotes = [vatTreatmentLegalNotes[vatTreatment]].filter((note): note is string => Boolean(note));
+
+  const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
+    ? rectificationReasonLabels[row.rectificationReason as RectificationReason]
+    : null;
+  const typeLabel = row.rectificationType && row.rectificationType in rectificationTypeLabels
+    ? rectificationTypeLabels[row.rectificationType as RectificationType]
+    : null;
 
   return {
-    filename: safeInvoiceFilename(row.number),
+    filename: safeInvoiceFilename(row.number, isCreditNote),
     input: {
+      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : isCreditNote ? "Factura rectificativa" : "Factura",
+      documentEyebrow: lifecycle === "DRAFT" ? "Documento sin validez fiscal" : lifecycle === "VOID" ? "Documento anulado" : "Documento comercial",
       number: row.number,
       issueDate: formatDate(row.issueDate) ?? "",
       dueDate: formatDate(row.dueDate),
-      amount: formatMoney(row.amount, row.companyBaseCurrencyCode),
+      amount: formatMoney(row.amount, currency),
+      draft: lifecycle === "DRAFT",
+      verifactu,
+      legalNotes,
+      rectification: isCreditNote
+        ? {
+            originalNumber: original?.number ?? "—",
+            originalIssueDate: formatDate(original?.issueDate ?? null) ?? "—",
+            reason: reasonLabel ?? "—",
+            type: typeLabel ?? "—",
+            description: row.rectificationDescription ?? null,
+          }
+        : null,
       display: {
         showLogo: row.pdfShowLogo ?? true,
         showEmail: row.pdfShowEmail ?? true,
         showPhone: row.pdfShowPhone ?? true,
         showWebsite: row.pdfShowWebsite ?? true,
         showCustomerNumber: row.pdfShowCustomerNumber ?? true,
-        showPaymentMethod: row.pdfShowPaymentMethod ?? true,
+        showPaymentMethod: (row.pdfShowPaymentMethod ?? true) && !isCreditNote,
         showTaxBreakdown: row.pdfShowTaxBreakdown ?? true,
       },
       payments: (selectedPaymentMethods.length > 0
@@ -170,51 +211,53 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
             bankAccountNumber: method.bankAccountNumber,
           })),
       company: {
-        name: row.companyName,
-        legalName: row.companyLegalName,
-        vatNumber: row.companyVatNumber,
-        fiscalAddress: row.companyFiscalAddress,
-        fiscalAddressLine2: row.companyFiscalAddressLine2,
-        postalCode: row.companyPostalCode,
-        city: row.companyCity,
-        province: row.companyProvince,
-        countryCode: row.companyCountryCode,
-        email: row.companyEmail,
-        phone: row.companyPhone,
-        website: row.companyWebsite,
+        name: issuer.name,
+        legalName: issuer.legalName ?? null,
+        vatNumber: issuer.taxId,
+        fiscalAddress: issuer.address,
+        fiscalAddressLine2: issuer.addressLine2,
+        postalCode: issuer.postalCode,
+        city: issuer.city,
+        province: issuer.province,
+        countryCode: issuer.countryCode,
+        email: issuer.email ?? null,
+        phone: issuer.phone ?? null,
+        website: issuer.website ?? null,
+        // Logo y pie son presentación, no datos fiscales: siempre los actuales.
         logoDataUrl: row.companyLogoDataUrl,
         invoiceFooter: row.companyInvoiceFooter,
       },
       customer: {
-        number: row.customerNumber,
-        name: row.customerName,
-        taxId: row.customerTaxId,
-        address: row.customerAddress,
-        addressLine2: row.customerAddressLine2,
-        postalCode: row.customerPostalCode,
-        city: row.customerCity,
-        province: row.customerProvince,
-        countryCode: row.customerCountryCode,
+        number: customerParty.number ?? null,
+        name: customerParty.name,
+        taxId: customerParty.taxId,
+        address: customerParty.address,
+        addressLine2: customerParty.addressLine2,
+        postalCode: customerParty.postalCode,
+        city: customerParty.city,
+        province: customerParty.province,
+        countryCode: customerParty.countryCode,
       },
       lines: lines.map((line, index) => ({
         description: line.description,
         quantity: formatDecimal(line.quantity, 3),
-        unitPrice: formatMoney(line.unitPrice, row.companyBaseCurrencyCode),
+        unitPrice: formatMoney(line.unitPrice, currency),
         taxRate: totals.lines[index]?.taxes.map((selectedTax) => selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto")).join("\n") || "—",
-        lineTotal: formatMoney(line.lineTotal, row.companyBaseCurrencyCode),
+        lineTotal: formatMoney(totals.lines[index]?.lineTotal ?? 0, currency),
       })),
       totals: {
-        subtotal: formatMoney(totals.subtotal, row.companyBaseCurrencyCode),
-        taxAmount: formatMoney(totals.taxAmount, row.companyBaseCurrencyCode),
-        retentionAmount: formatMoney(totals.retentionAmount, row.companyBaseCurrencyCode),
-        hasRetention: totals.retentionAmount > 0,
-        totalAmount: formatMoney(totals.totalAmount, row.companyBaseCurrencyCode),
-        breakdown: [...breakdownMap.values()].map((breakdown) => ({
-          name: breakdown.name,
-          rate: `${formatDecimal(breakdown.rate, 3)}%`,
-          base: formatMoney(breakdown.base, row.companyBaseCurrencyCode),
-          amount: formatMoney(breakdown.amount, row.companyBaseCurrencyCode),
-          operation: breakdown.operation,
+        subtotal: formatMoney(totals.subtotal, currency),
+        taxAmount: formatMoney(totals.taxAmount, currency),
+        retentionAmount: formatMoney(totals.retentionAmount, currency),
+        hasRetention: totals.retentionAmount !== 0,
+        totalAmount: formatMoney(totals.totalAmount, currency),
+        // Desglose por tipo impositivo (base y cuota por tipo, art. 6.1.f/g RD 1619/2012).
+        breakdown: totals.taxBuckets.map((bucket) => ({
+          name: bucket.name ?? (bucket.operation === "SUBTRACT" ? "Retención" : "Impuesto"),
+          rate: `${formatDecimal(bucket.rate, 3)}%`,
+          base: formatMoney(bucket.baseAmount, currency),
+          amount: formatMoney(bucket.amount, currency),
+          operation: bucket.operation,
         })),
       },
     },

@@ -12,7 +12,8 @@ export async function GET(request: Request) {
   if (!can(ctx.membership.role, "reporting.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const requestedPeriod = new URL(request.url).searchParams.get("period");
   const period: ReportingPeriod = requestedPeriod === "quarter" || requestedPeriod === "year" ? requestedPeriod : "month";
-  const file = await exportKpisExcel(ctx.company.id, period);
+  // Same aggregates as the dashboard and /reporting (src/server/reporting/dashboard.ts).
+  const file = await exportKpisExcel(ctx.company.id, period, { countryCode: ctx.company.countryCode });
   return new NextResponse(file, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

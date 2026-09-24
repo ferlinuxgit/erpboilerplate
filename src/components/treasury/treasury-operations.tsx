@@ -35,9 +35,10 @@ export function TreasuryOperations({ accounts, pendingCount }: TreasuryOperation
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
         body: JSON.stringify({ bankAccountId, csv }),
       });
-      const payload = (await response.json().catch(() => null)) as { count?: number; message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as { count?: number; duplicates?: number; message?: string } | null;
       if (!response.ok) throw new Error(payload?.message ?? "No se pudo importar el extracto.");
-      const message = `${payload?.count ?? 0} movimientos importados.`;
+      const duplicates = payload?.duplicates ?? 0;
+      const message = `${payload?.count ?? 0} movimientos importados${duplicates > 0 ? ` (${duplicates} ya existían y se han omitido)` : ""}. Quedan pendientes de conciliar.`;
       setResult(message);
       setCsv("");
       toast.success(message);
@@ -57,9 +58,10 @@ export function TreasuryOperations({ accounts, pendingCount }: TreasuryOperation
     setResult(null);
     try {
       const response = await fetch("/api/treasury/reconcile", { method: "POST", headers: getCsrfHeader() });
-      const payload = (await response.json().catch(() => null)) as { reconciled?: number; totalPending?: number; message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as { reconciled?: number; skipped?: number; totalPending?: number; message?: string } | null;
       if (!response.ok) throw new Error(payload?.message ?? "No se pudo ejecutar la conciliación.");
-      const message = `${payload?.reconciled ?? 0} de ${payload?.totalPending ?? 0} movimientos conciliados automáticamente.`;
+      const skipped = payload?.skipped ?? 0;
+      const message = `${payload?.reconciled ?? 0} de ${payload?.totalPending ?? 0} movimientos conciliados automáticamente.${skipped > 0 ? ` ${skipped} no se pudieron conciliar (periodo cerrado o ya usados): concílialos a mano.` : ""}`;
       setResult(message);
       toast.success(message);
       router.refresh();
@@ -77,7 +79,8 @@ export function TreasuryOperations({ accounts, pendingCount }: TreasuryOperation
       <div className="space-y-4 rounded-[2px] border bg-muted/20 p-3">
         <div>
           <p className="font-medium">Importar extracto bancario</p>
-          <p className="mt-1 text-sm text-muted-foreground">Formato separado por punto y coma: fecha;importe;descripción.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Formato separado por punto y coma: fecha;importe;concepto. Admite fechas 18/07/2026 o 2026-07-18 e importes 1.250,50. Los movimientos repetidos se omiten.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Cada movimiento se contabiliza en el banco contra la cuenta 555 (pendiente de aplicación) hasta que lo concilies con su cobro o pago.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -111,7 +114,7 @@ export function TreasuryOperations({ accounts, pendingCount }: TreasuryOperation
       <div className="flex flex-col justify-between gap-3 rounded-[2px] border bg-muted/20 p-3">
         <div>
           <p className="font-medium">Conciliación automática</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">Cruza importe, fecha y referencia con cobros y pagos registrados.</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">Cruza importe, fecha (±3 días) y referencia con cobros y pagos registrados. Al conciliar se anula el apunte provisional del movimiento para que el banco no cuente dos veces.</p>
           <p className="mt-4 text-3xl font-semibold tracking-tight">{pendingCount}</p>
           <p className="text-sm text-muted-foreground">movimientos pendientes</p>
         </div>

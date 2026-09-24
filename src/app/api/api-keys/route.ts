@@ -1,35 +1,40 @@
 import argon2 from "argon2";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { apiKey } from "@/db/schema";
 import { normalizeApiKeyScopes } from "@/lib/api-key-scopes";
-import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { can } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { requirePermission } from "@/lib/rbac-server";
 import { recordAudit } from "@/server/audit";
 
 export async function GET() {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "apiKey.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  return NextResponse.json(
-    await db
-      .select({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt })
-      .from(apiKey)
-      .where(eq(apiKey.tenantId, ctx.tenant.id))
-      .orderBy(desc(apiKey.createdAt)),
-  );
+  try {
+    const { ctx } = await requirePermission("apiKey.read");
+    return NextResponse.json(
+      await db
+        // `legacy`: claves antiguas sin prefijo, que ya no autentican y deben rotarse.
+        .select({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt, legacy: isNull(apiKey.keyPrefix) })
+        .from(apiKey)
+        .where(eq(apiKey.tenantId, ctx.tenant.id))
+        .orderBy(desc(apiKey.createdAt)),
+    );
+  } catch (error) {
+    return handleRouteError(error, "apiKey.list");
+  }
 }
 
 export async function POST(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "apiKey.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  try {
+    return await createApiKey(request);
+  } catch (error) {
+    return handleRouteError(error, "apiKey.create", "No se pudo crear la API key.");
+  }
+}
+
+async function createApiKey(request: Request) {
+  const { ctx, user } = await requirePermission("apiKey.write");
   const payload = (await readJsonBody(request)) as { name?: string; scopes?: unknown } | null;
   if (!payload) return invalidJsonResponse();
 
@@ -46,7 +51,7 @@ export async function POST(request: Request) {
   await recordAudit({
     tenantId: ctx.tenant.id,
     companyId: ctx.company.id,
-    actorUserId: session.user.id,
+    actorUserId: user.id,
     action: "apiKey.create",
     entityName: "apiKey",
     entityId: created.id,

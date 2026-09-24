@@ -11,11 +11,20 @@ export type FiscalYearOption = {
   code: string;
 };
 
+export type TenantOption = {
+  id: string;
+  name: string;
+  role: string;
+};
+
 export type ActiveContextPayload = {
   active: {
+    tenantId?: string;
     companyId: string;
     fiscalYearId: string;
   };
+  /** Espacios de trabajo (tenants) del usuario. Puede faltar en respuestas antiguas. */
+  availableTenants?: TenantOption[];
   availableCompanies: CompanyOption[];
   availableFiscalYears: FiscalYearOption[];
   availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;

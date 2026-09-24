@@ -1,13 +1,22 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { writeActiveTenant } from "@/lib/active-context";
 import { getUserSession } from "@/lib/current-user";
+import { handleRouteError, jsonError } from "@/lib/http";
 import { acceptInvitation } from "@/server/team/service";
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const { id } = await params;
-  const accepted = await acceptInvitation(session.user.id, id);
-  if (!accepted) return NextResponse.json({ message: "Invitación inválida o expirada." }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  try {
+    const session = await getUserSession();
+    if (!session?.user) return jsonError(401, "Inicia sesión con el email invitado para aceptar la invitación.");
+    const { id } = await params;
+    const accepted = await acceptInvitation(session.user.id, id);
+    if (!accepted) return jsonError(400, "La invitación no es válida, ha caducado o es para otro email.");
+    // Al aceptar, el usuario pasa a trabajar en el espacio al que le invitaron.
+    writeActiveTenant(await cookies(), accepted.tenantId);
+    return NextResponse.json({ ok: true, tenantId: accepted.tenantId });
+  } catch (error) {
+    return handleRouteError(error, "invitation.accept", "No se pudo aceptar la invitación.");
+  }
 }

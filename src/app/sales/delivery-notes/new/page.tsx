@@ -1,10 +1,15 @@
 import { and, asc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
+import Link from "next/link";
 
 import { CreateDeliveryNoteForm } from "@/components/sales/create-delivery-note-form";
+import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, deliveryNote, deliveryNoteLine, salesOrder, salesOrderLine, warehouse } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+
+export const metadata: Metadata = { title: "Nuevo albarán" };
 
 export default async function NewDeliveryNotePage({ searchParams }: { searchParams?: Promise<{ orderId?: string }> }) {
   const ctx = await requireContext("invoice.create");
@@ -23,5 +28,34 @@ export default async function NewDeliveryNotePage({ searchParams }: { searchPara
     return pendingQuantity > 0.0005 ? [{ id: line.id, itemId: line.itemId, description: line.description, orderedQuantity: Number(line.quantity), deliveredQuantity, pendingQuantity }] : [];
   }) })).filter((order) => order.lines.length > 0);
   const ready = options.length > 0 && warehouses.length > 0;
-  return <PageShell><PageHeader eyebrow="Albaranes" title="Nuevo albarán" description="Registra una entrega total o parcial y descuenta el stock del almacén seleccionado." backHref="/sales/delivery-notes" backLabel="Volver a albaranes" /><PageSection title="Preparar entrega" description="Selecciona pedido, almacén y cantidades realmente expedidas.">{ready ? <CreateDeliveryNoteForm initialOrderId={query?.orderId} orders={options} warehouses={warehouses} /> : <EmptyState title={options.length ? "Falta un almacén activo" : "No hay cantidades pendientes"} description={options.length ? "Crea o reactiva un almacén antes de registrar entregas." : "Todos los pedidos confirmados están entregados o todavía no hay pedidos preparados."} />}</PageSection></PageShell>;
+  return (
+    <PageShell>
+      <PageHeader
+        title="Nuevo albarán"
+        description="Registra una entrega total o parcial y descuenta el stock del almacén seleccionado."
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Albaranes", href: "/sales/delivery-notes" },
+          { label: "Nuevo albarán" },
+        ]}
+      />
+      <PageSection title="Preparar entrega" description="Selecciona pedido, almacén y cantidades realmente expedidas.">
+        {ready ? (
+          <CreateDeliveryNoteForm initialOrderId={query?.orderId} orders={options} warehouses={warehouses} />
+        ) : (
+          <EmptyState
+            title={options.length ? "Falta un almacén activo" : "No hay cantidades pendientes"}
+            description={options.length ? "Crea o reactiva un almacén antes de registrar entregas." : "Todos los pedidos confirmados están entregados o todavía no hay pedidos preparados."}
+            action={
+              options.length ? (
+                <Link className={buttonVariants({ variant: "outline", size: "sm" })} href="/inventory/warehouses/new">Crear almacén</Link>
+              ) : (
+                <Link className={buttonVariants({ variant: "outline", size: "sm" })} href="/sales/orders">Ver pedidos</Link>
+              )
+            }
+          />
+        )}
+      </PageSection>
+    </PageShell>
+  );
 }

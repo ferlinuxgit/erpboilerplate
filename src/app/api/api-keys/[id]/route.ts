@@ -3,24 +3,29 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { apiKey } from "@/db/schema";
-import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { can } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { requirePermission } from "@/lib/rbac-server";
 import { recordAudit } from "@/server/audit";
 
-async function requireApiKeyWriteContext() {
-  const session = await getUserSession();
-  if (!session?.user) return { error: NextResponse.json({ message: "No autorizado." }, { status: 401 }) };
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "apiKey.write")) return { error: NextResponse.json({ message: "Sin permisos." }, { status: 403 }) };
-  return { ctx, session };
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    return await updateApiKey(request, context);
+  } catch (error) {
+    return handleRouteError(error, "apiKey.update", "No se pudo actualizar la API key.");
+  }
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiKeyWriteContext();
-  if (auth.error) return auth.error;
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    return await deleteApiKey(request, context);
+  } catch (error) {
+    return handleRouteError(error, "apiKey.delete", "No se pudo eliminar la API key.");
+  }
+}
+
+async function updateApiKey(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requirePermission("apiKey.write");
 
   const payload = (await readJsonBody(request)) as { action?: string } | null;
   if (!payload) return invalidJsonResponse();
@@ -44,7 +49,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await recordAudit({
       tenantId: auth.ctx.tenant.id,
       companyId: auth.ctx.company.id,
-      actorUserId: auth.session.user.id,
+      actorUserId: auth.user.id,
       action: "apiKey.revoke",
       entityName: "apiKey",
       entityId: id,
@@ -67,7 +72,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await recordAudit({
       tenantId: auth.ctx.tenant.id,
       companyId: auth.ctx.company.id,
-      actorUserId: auth.session.user.id,
+      actorUserId: auth.user.id,
       action: "apiKey.rotate",
       entityName: "apiKey",
       entityId: id,
@@ -80,9 +85,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json({ message: "Acción no soportada." }, { status: 400 });
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiKeyWriteContext();
-  if (auth.error) return auth.error;
+async function deleteApiKey(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requirePermission("apiKey.write");
 
   const { id } = await params;
   const [deleted] = await db
@@ -95,7 +99,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   await recordAudit({
     tenantId: auth.ctx.tenant.id,
     companyId: auth.ctx.company.id,
-    actorUserId: auth.session.user.id,
+    actorUserId: auth.user.id,
     action: "apiKey.delete",
     entityName: "apiKey",
     entityId: deleted.id,

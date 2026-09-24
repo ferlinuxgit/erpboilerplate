@@ -91,6 +91,10 @@
   --chart-3: #9a5b00;
   --chart-4: #006f83;
   --chart-5: #8a2060;
+  /* Series roles of the financial charts (pairs validated for CVD and contrast per theme). */
+  --chart-income: var(--chart-1);
+  --chart-expense: var(--chart-3);
+  --chart-cash: var(--chart-2);
   --surface-subtle: #d2d5d1;
   --surface-raised: #e3e5e2;
   --success: #00552c;
@@ -280,6 +284,12 @@
 .dark {
   --background: #101714;
   --foreground: #e8eee9;
+  /* The default dark theme had no chart tokens and inherited the light ones (navy on dark). */
+  --chart-1: #8fa8ff;
+  --chart-2: #5fc48a;
+  --chart-3: #e0a84a;
+  --chart-4: #4fb8c9;
+  --chart-5: #d48ab4;
   --card: #1b2420;
   --card-foreground: #e8eee9;
   --popover: #1b2420;
@@ -405,6 +415,8 @@
   --chart-3: #c9b65a;
   --chart-4: #5ab4a6;
   --chart-5: #ad78a4;
+  /* chart-1 and chart-3 are too close for deutan vision in this theme. */
+  --chart-expense: var(--chart-5);
   --surface-subtle: #0a170e;
   --surface-raised: #193822;
   --success: #73dc8b;
@@ -459,6 +471,7 @@
   --chart-3: #e5bf58;
   --chart-4: #6db2ad;
   --chart-5: #bd7f91;
+  --chart-expense: var(--chart-4);
   --surface-subtle: #1d1408;
   --surface-raised: #442c11;
   --success: #9bcb78;

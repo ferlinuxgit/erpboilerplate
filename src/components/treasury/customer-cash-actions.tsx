@@ -17,6 +17,8 @@ type CustomerCashActionsProps = {
     totalAmount: number;
     totalAmountLabel: string;
     paymentStatus: string;
+    /** Net outstanding (total − credit notes − payments); proposed as the amount. Defaults to the total. */
+    outstandingAmount?: number;
   };
   paymentMethods: Array<{ id: string; name: string }>;
 };
@@ -27,7 +29,7 @@ function todayInputValue() {
 
 export function CustomerCashActions({ invoice, paymentMethods }: CustomerCashActionsProps) {
   const router = useRouter();
-  const [amount, setAmount] = useState(invoice.totalAmount.toString());
+  const [amount, setAmount] = useState((invoice.outstandingAmount ?? invoice.totalAmount).toString());
   const [postedAt, setPostedAt] = useState(todayInputValue());
   const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);

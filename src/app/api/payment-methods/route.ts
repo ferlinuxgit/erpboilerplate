@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         tenantId: ctx.tenant.id,
         companyId: ctx.company.id,
         actorUserId: session.user.id,
-        action: "payment_method.create",
+        action: "paymentMethod.create",
         entityName: "paymentMethod",
         entityId: row.id,
         payload: { code: row.code, name: row.name, type: row.type, isDefault: row.isDefault },

@@ -28,3 +28,45 @@ export function formatDateTime(value: Date | string, locale = "es-ES") {
     minute: "2-digit",
   }).format(date);
 }
+
+/**
+ * Parses numbers typed by Spanish users. Accepts "1.234,56", "1234,56",
+ * "1234.56", "1,234.56", "12 %" or "1.234,56 €". Returns null for empty or
+ * unparseable input so callers can distinguish "no value" from zero.
+ */
+export function parseDecimalInput(
+  value: string | number | null | undefined,
+  { maximumFractionDigits }: { maximumFractionDigits?: number } = {},
+): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (value === null || value === undefined) return null;
+  let text = String(value).replace(/[\s  €%]/g, "").replace(/^\+/, "");
+  if (!text || text === "-") return null;
+  const lastComma = text.lastIndexOf(",");
+  const lastDot = text.lastIndexOf(".");
+  if (lastComma >= 0 && lastDot >= 0) {
+    // The right-most separator is the decimal mark; the other one groups.
+    text = lastComma > lastDot ? text.replaceAll(".", "").replace(",", ".") : text.replaceAll(",", "");
+  } else if (lastComma >= 0) {
+    text = (text.match(/,/g)?.length ?? 0) > 1 ? text.replaceAll(",", "") : text.replace(",", ".");
+  } else if (lastDot >= 0 && (text.match(/\./g)?.length ?? 0) > 1) {
+    // "1.234.567" can only be thousands grouping.
+    text = text.replaceAll(".", "");
+  } else if (lastDot >= 0 && maximumFractionDigits !== undefined && maximumFractionDigits < 3 && /^-?[1-9]\d{0,2}\.\d{3}$/.test(text)) {
+    // A single dot is a decimal mark ("2.125" from the database), except for
+    // money-like fields where three decimals are impossible: "1.500" = 1500.
+    text = text.replace(".", "");
+  }
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Formats a number for an editable field (es-ES, without currency symbol). */
+export function formatDecimalInput(
+  value: number | null | undefined,
+  { minimumFractionDigits = 0, maximumFractionDigits = 2 }: { minimumFractionDigits?: number; maximumFractionDigits?: number } = {},
+) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  return new Intl.NumberFormat("es-ES", { minimumFractionDigits, maximumFractionDigits }).format(value);
+}

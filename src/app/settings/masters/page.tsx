@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { CompanyDefaultsPanel } from "@/components/company/company-defaults-panel";
 import { LazyAccountingMasters } from "@/components/settings/lazy-accounting-masters";
 import { MastersPanel } from "@/components/settings/masters-panel";
@@ -7,6 +9,8 @@ import { getCompanyTemplate } from "@/lib/company-templates";
 import { requireContext } from "@/lib/current-context";
 import { getAccountingMasterStatus } from "@/server/accounting/masters";
 import { getCompanyDefaultsStatus } from "@/server/company/defaults";
+
+export const metadata: Metadata = { title: "Maestros" };
 
 export default async function MastersSettingsPage() {
   const ctx = await requireContext("settings.manage");

@@ -1,4 +1,18 @@
-export type TaxOperation = "ADD" | "SUBTRACT";
+import {
+  centsToNumber,
+  computeEngineDocument,
+  legacyLineTaxes,
+  type EngineOptions,
+  type EngineTax,
+  type TaxOperation,
+} from "@/server/taxation/engine";
+
+/**
+ * Adaptador de importes en euros sobre el motor fiscal único (`@/server/taxation/engine`).
+ * Mantiene la firma histórica usada por formularios, PDF y servicios.
+ */
+
+export type { TaxOperation };
 
 export type InvoiceCalculationTax = {
   id?: string | null;
@@ -31,66 +45,69 @@ export type InvoiceLineTotal = {
   taxes: InvoiceLineTaxTotal[];
 };
 
+export type InvoiceTaxBucket = {
+  name: string | null;
+  kind: string | null;
+  rate: number;
+  operation: TaxOperation;
+  baseAmount: number;
+  amount: number;
+};
+
 export type InvoiceTotals = {
   lines: InvoiceLineTotal[];
+  /** Desglose por tipo impositivo (base y cuota por bucket, como exige la factura española). */
+  taxBuckets: InvoiceTaxBucket[];
   subtotal: number;
   taxAmount: number;
   retentionAmount: number;
   totalAmount: number;
 };
 
-function normalizeNumber(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+export type InvoiceCalculationOptions = EngineOptions;
+
+function number(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function normalizePercentage(value: number | null | undefined) {
-  return Math.min(normalizeNumber(value), 100);
-}
-
-function roundMoney(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-export function calculateInvoiceTotals(lines: InvoiceCalculationLine[]): InvoiceTotals {
-  const lineTotals = lines.map((line) => {
+export function calculateInvoiceTotals(lines: InvoiceCalculationLine[], options: InvoiceCalculationOptions = {}): InvoiceTotals {
+  const engineLines = lines.map((line) => {
     const hasDescription = Boolean(line.description?.trim());
-    const quantity = hasDescription ? normalizeNumber(line.quantity) : 0;
-    const unitPrice = hasDescription ? normalizeNumber(line.unitPrice) : 0;
-    const discountPct = hasDescription ? normalizePercentage(line.discountPct) : 0;
-    const grossSubtotal = roundMoney(quantity * unitPrice);
-    const subtotal = roundMoney(grossSubtotal * (1 - discountPct / 100));
-    const selectedTaxes = hasDescription && line.taxes !== undefined && line.taxes !== null
+    const selectedTaxes: EngineTax[] = hasDescription && line.taxes !== undefined && line.taxes !== null
       ? line.taxes
-      : [
-          ...(normalizeNumber(line.taxRate) > 0
-            ? [{ name: "IVA", rate: normalizeNumber(line.taxRate), kind: "VAT", operation: "ADD" as const }]
-            : []),
-          ...(normalizePercentage(line.retentionRate) > 0
-            ? [{ name: "Retención", rate: normalizePercentage(line.retentionRate), kind: "WITHHOLDING", operation: "SUBTRACT" as const }]
-            : []),
-        ];
-    const taxes = selectedTaxes.map((selectedTax) => ({
-      ...selectedTax,
-      rate: normalizeNumber(selectedTax.rate),
-      baseAmount: subtotal,
-      amount: roundMoney(subtotal * (normalizeNumber(selectedTax.rate) / 100)),
-    }));
-    const taxAmount = roundMoney(
-      taxes.filter((selectedTax) => selectedTax.operation === "ADD").reduce((sum, selectedTax) => sum + selectedTax.amount, 0),
-    );
-    const retentionAmount = roundMoney(
-      taxes.filter((selectedTax) => selectedTax.operation === "SUBTRACT").reduce((sum, selectedTax) => sum + selectedTax.amount, 0),
-    );
-    const lineTotal = roundMoney(subtotal + taxAmount - retentionAmount);
-
-    return { subtotal, taxAmount, retentionAmount, lineTotal, taxes };
+      : legacyLineTaxes(line);
+    return {
+      quantity: hasDescription ? number(line.quantity) : 0,
+      unitPrice: hasDescription ? number(line.unitPrice) : 0,
+      discountPct: hasDescription ? line.discountPct : 0,
+      taxes: selectedTaxes,
+    };
   });
+  const result = computeEngineDocument(engineLines, options);
 
   return {
-    lines: lineTotals,
-    subtotal: roundMoney(lineTotals.reduce((sum, line) => sum + line.subtotal, 0)),
-    taxAmount: roundMoney(lineTotals.reduce((sum, line) => sum + line.taxAmount, 0)),
-    retentionAmount: roundMoney(lineTotals.reduce((sum, line) => sum + line.retentionAmount, 0)),
-    totalAmount: roundMoney(lineTotals.reduce((sum, line) => sum + line.lineTotal, 0)),
+    lines: result.lines.map((line) => ({
+      subtotal: centsToNumber(line.baseCents),
+      taxAmount: centsToNumber(line.taxCents),
+      retentionAmount: centsToNumber(line.retentionCents),
+      lineTotal: centsToNumber(line.totalCents),
+      taxes: line.taxes.map(({ baseCents, amountCents, ...selectedTax }) => ({
+        ...selectedTax,
+        baseAmount: centsToNumber(baseCents),
+        amount: centsToNumber(amountCents),
+      })),
+    })),
+    taxBuckets: result.buckets.map((bucket) => ({
+      name: bucket.name,
+      kind: bucket.kind,
+      rate: bucket.rate,
+      operation: bucket.operation,
+      baseAmount: centsToNumber(bucket.baseCents),
+      amount: centsToNumber(bucket.amountCents),
+    })),
+    subtotal: centsToNumber(result.subtotalCents),
+    taxAmount: centsToNumber(result.taxCents),
+    retentionAmount: centsToNumber(result.retentionCents),
+    totalAmount: centsToNumber(result.totalCents),
   };
 }

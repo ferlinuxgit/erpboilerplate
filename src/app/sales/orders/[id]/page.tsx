@@ -1,10 +1,11 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SalesDocumentLines } from "@/components/sales/sales-document-lines";
 import { buttonVariants } from "@/components/ui/button";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { customer, deliveryNote, salesOrder, salesOrderLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
@@ -12,6 +13,21 @@ import { db } from "@/lib/db";
 import { getSalesOrderTransition } from "@/lib/document-pipelines";
 import { formatDate, formatMoney } from "@/lib/format";
 import { salesDocumentStatusLabels, salesDocumentStatusTone, statusLabel } from "@/lib/status-labels";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("invoice.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: salesOrder.number })
+      .from(salesOrder)
+      .where(and(eq(salesOrder.id, id), eq(salesOrder.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Pedido de venta ${row.number}` : "Pedido de venta" };
+  } catch {
+    return { title: "Pedido de venta" };
+  }
+}
 
 export default async function SalesOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("invoice.read");
@@ -49,11 +65,13 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Pedido"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Pedidos", href: "/sales/orders" },
+          { label: record.number },
+        ]}
         title={record.number}
         description={`${record.customerName} · ${formatDate(record.issueDate)}`}
-        backHref="/sales/orders"
-        backLabel="Volver a pedidos"
         meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
         actions={
           <>
@@ -74,7 +92,12 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
         <SalesDocumentLines currencyCode={currency} lines={lines} />
       </PageSection>
       <PageSection title="Albaranes relacionados" description="Entregas generadas desde este pedido." contentClassName="space-y-2">
-        {deliveries.length === 0 ? <p className="text-sm text-muted-foreground">No hay entregas registradas.</p> : deliveries.map((delivery) => (
+        {deliveries.length === 0 ? (
+          <EmptyState
+            title="Sin albaranes"
+            description={transition.allowed ? "No hay entregas registradas. Usa «Preparar albarán» para expedir las cantidades pendientes." : "No hay entregas registradas para este pedido."}
+          />
+        ) :deliveries.map((delivery) => (
           <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/sales/delivery-notes/${delivery.id}`} key={delivery.id}>
             <span><span className="font-medium">{delivery.number}</span><span className="block text-xs text-muted-foreground">{formatDate(delivery.issuedAt)}</span></span>
             <StatusBadge tone={salesDocumentStatusTone(delivery.status)}>{statusLabel(salesDocumentStatusLabels, delivery.status)}</StatusBadge>

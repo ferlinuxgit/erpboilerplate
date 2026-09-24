@@ -11,6 +11,13 @@ type InvoiceInput = {
   dueDate: Date | null;
   paymentStatus: string;
   totalAmount: string | number;
+  /** Lifecycle fields (optional for older callers): drafts and credit notes are not receivables. */
+  number?: string;
+  status?: string;
+  issuedAt?: Date | string | null;
+  invoiceType?: string;
+  /** Credit notes: invoice they rectify (their negative total reduces its outstanding). */
+  rectifiedInvoiceId?: string | null;
 };
 
 type InvoicePaymentInput = {
@@ -36,6 +43,19 @@ export type DashboardCockpitInput = {
   lowStockAlerts: LowStockAlertInput[];
   inventoryItemsCount?: number;
   currencyCode?: string;
+};
+
+/** Counts behind the cockpit, computed with SQL aggregates in `src/server/reporting/dashboard.ts`. */
+export type DashboardCockpitSummary = {
+  activeCustomers: number;
+  salesInProgress: number;
+  invoiceCount: number;
+  unpaidInvoices: number;
+  overdueInvoices: number;
+  receivablesAmount: number;
+  lowStockAlerts: number;
+  hasRecordedPayment: boolean;
+  inventoryItemsCount: number;
 };
 
 export type DashboardAction = {
@@ -102,8 +122,29 @@ function toNumber(value: string | number) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const DRAFT_NUMBER_PREFIX = "BORRADOR-";
+
+/** Same rule as `invoiceLifecycle`: provisional number and never issued. */
+function isDraftInvoice(invoice: InvoiceInput) {
+  return !invoice.issuedAt && Boolean(invoice.number?.startsWith(DRAFT_NUMBER_PREFIX));
+}
+
+function isCreditNote(invoice: InvoiceInput) {
+  return invoice.invoiceType === "CREDIT_NOTE";
+}
+
+/** Issued credit note that counts against its original invoice (as in `getInvoiceBalance`). */
+function isAppliedCreditNote(invoice: InvoiceInput) {
+  return isCreditNote(invoice) && Boolean(invoice.issuedAt) && invoice.status !== "VOID";
+}
+
 function isUnpaidInvoice(invoice: InvoiceInput) {
-  return !closedInvoiceStatuses.has(invoice.paymentStatus);
+  return (
+    !closedInvoiceStatuses.has(invoice.paymentStatus) &&
+    invoice.status !== "VOID" &&
+    !isDraftInvoice(invoice) &&
+    !isCreditNote(invoice)
+  );
 }
 
 function isOverdue(invoice: InvoiceInput, now: Date) {
@@ -210,7 +251,8 @@ function buildGuidedDemoSteps(progress: GuidedDemoProgress): DashboardGuidedDemo
   }));
 }
 
-export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCockpit {
+/** Row-level input → summary (kept for callers and tests that already have the rows). */
+export function summarizeDashboardInput(input: DashboardCockpitInput): DashboardCockpitSummary {
   const now = input.now ?? new Date();
   const appliedPaymentsByInvoiceId = (input.invoicePayments ?? []).reduce<Record<string, number>>((totals, payment) => {
     totals[payment.invoiceId] = (totals[payment.invoiceId] ?? 0) + toNumber(payment.amountApplied);
@@ -220,26 +262,51 @@ export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCo
   const salesInProgress = [...input.salesQuotes, ...input.salesOrders, ...input.deliveryNotes].filter(
     (document) => !inactiveSalesStatuses.has(document.status),
   ).length;
-  const unpaidInvoices = input.invoices.filter(isUnpaidInvoice);
-  const overdueInvoices = unpaidInvoices.filter((invoice) => isOverdue(invoice, now)).length;
-  const receivablesAmount = unpaidInvoices.reduce((total, invoice) => {
+  const creditedByInvoiceId = input.invoices.filter(isAppliedCreditNote).reduce<Record<string, number>>((totals, note) => {
+    if (note.rectifiedInvoiceId) totals[note.rectifiedInvoiceId] = (totals[note.rectifiedInvoiceId] ?? 0) + toNumber(note.totalAmount);
+    return totals;
+  }, {});
+  const netOutstanding = (invoice: InvoiceInput) => {
     const paidAmount = invoice.id ? (appliedPaymentsByInvoiceId[invoice.id] ?? 0) : 0;
-    return total + Math.max(toNumber(invoice.totalAmount) - paidAmount, 0);
-  }, 0);
+    const creditedAmount = invoice.id ? (creditedByInvoiceId[invoice.id] ?? 0) : 0;
+    return Math.max(toNumber(invoice.totalAmount) + creditedAmount - paidAmount, 0);
+  };
+  const unpaidInvoices = input.invoices.filter((invoice) => isUnpaidInvoice(invoice) && netOutstanding(invoice) > 0);
+  const overdueInvoices = unpaidInvoices.filter((invoice) => isOverdue(invoice, now)).length;
+  const receivablesAmount = Math.round(unpaidInvoices.reduce((total, invoice) => total + netOutstanding(invoice) * 100, 0)) / 100;
   const lowStockAlerts = input.lowStockAlerts.length;
-  const hasRecordedPayment = input.invoices.some((invoice) => invoice.paymentStatus === "PARTIAL" || invoice.paymentStatus === "PAID") ||
+  const hasRecordedPayment = input.invoices.some((invoice) => !isCreditNote(invoice) && (invoice.paymentStatus === "PARTIAL" || invoice.paymentStatus === "PAID")) ||
     (input.invoicePayments ?? []).length > 0;
 
-  const metrics = {
+  return {
     activeCustomers,
     salesInProgress,
+    invoiceCount: input.invoices.length,
     unpaidInvoices: unpaidInvoices.length,
     overdueInvoices,
     receivablesAmount,
     lowStockAlerts,
+    hasRecordedPayment,
+    inventoryItemsCount: input.inventoryItemsCount ?? 0,
+  };
+}
+
+export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCockpit {
+  return buildDashboardCockpitFromSummary(summarizeDashboardInput(input), input.currencyCode);
+}
+
+export function buildDashboardCockpitFromSummary(summary: DashboardCockpitSummary, currencyCode = "EUR"): DashboardCockpit {
+  const { activeCustomers, salesInProgress, overdueInvoices, lowStockAlerts, hasRecordedPayment } = summary;
+  const metrics = {
+    activeCustomers,
+    salesInProgress,
+    unpaidInvoices: summary.unpaidInvoices,
+    overdueInvoices,
+    receivablesAmount: summary.receivablesAmount,
+    lowStockAlerts,
   };
 
-  const hasOperationalSignals = salesInProgress > 0 || unpaidInvoices.length > 0 || lowStockAlerts > 0;
+  const hasOperationalSignals = salesInProgress > 0 || metrics.unpaidInvoices > 0 || lowStockAlerts > 0;
   const stateLabel =
     activeCustomers === 0 && !hasOperationalSignals ? "Primeros pasos" : hasOperationalSignals ? "Operación real" : "Datos iniciales";
 
@@ -288,7 +355,7 @@ export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCo
   }
 
   const primaryActions: DashboardAction[] = [];
-  if (overdueInvoices > 0 || unpaidInvoices.length > 0) {
+  if (overdueInvoices > 0 || metrics.unpaidInvoices > 0) {
     primaryActions.push({
       title: "Registra o concilia cobros",
       description: "Cierra facturas pendientes desde tesorería y mantén la caja al día.",
@@ -319,16 +386,16 @@ export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCo
 
   const guidedDemoSteps = buildGuidedDemoSteps({
     hasCustomer: activeCustomers > 0,
-    hasSalesDocument: salesInProgress > 0 || input.invoices.length > 0,
-    hasInvoice: input.invoices.length > 0,
+    hasSalesDocument: salesInProgress > 0 || summary.invoiceCount > 0,
+    hasInvoice: summary.invoiceCount > 0,
     hasRecordedPayment,
-    hasInventorySignal: (input.inventoryItemsCount ?? 0) > 0 || lowStockAlerts > 0,
+    hasInventorySignal: summary.inventoryItemsCount > 0 || lowStockAlerts > 0,
   });
 
   return {
     stateLabel,
     metrics,
-    metricCards: buildMetricCards(metrics, input.currencyCode ?? "EUR"),
+    metricCards: buildMetricCards(metrics, currencyCode),
     primaryActions: primaryActions.slice(0, 4),
     guidedDemoSteps,
     emptyStates,

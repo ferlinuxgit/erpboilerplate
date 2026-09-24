@@ -1,8 +1,12 @@
+import type { Metadata } from "next";
+
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireUserSession } from "@/lib/current-user";
 import { ensureUserTenant } from "@/lib/tenant";
+
+export const metadata: Metadata = { title: "Puesta en marcha" };
 
 export default async function OnboardingPage() {
   const session = await requireUserSession();

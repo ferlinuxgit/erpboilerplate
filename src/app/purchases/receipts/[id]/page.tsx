@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -34,6 +35,22 @@ import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { can } from "@/lib/rbac";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("purchase.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: goodsReceipt.number })
+      .from(goodsReceipt)
+      .innerJoin(purchaseOrder, eq(purchaseOrder.id, goodsReceipt.purchaseOrderId))
+      .where(and(eq(goodsReceipt.id, id), eq(purchaseOrder.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Recepción ${row.number}` : "Recepción" };
+  } catch {
+    return { title: "Recepción" };
+  }
+}
 
 export default async function PurchaseReceiptDetailPage({
   params,
@@ -117,11 +134,13 @@ export default async function PurchaseReceiptDetailPage({
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Recepción"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Recepciones", href: "/purchases/receipts" },
+          { label: record.number },
+        ]}
         title={record.number}
         description={`${record.supplierName} · ${formatDate(record.receivedAt)}`}
-        backHref="/purchases/receipts"
-        backLabel="Volver a recepciones"
         meta={
           <StatusBadge tone={linkedInvoices.length > 0 ? "success" : "warning"}>
             {linkedInvoices.length > 0 ? "Facturada" : "Pendiente de factura"}

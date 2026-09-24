@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
+import { handleRouteError } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { convertOrderToDelivery } from "@/server/sales/service";
@@ -14,12 +15,14 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const { id } = await params;
   try {
     const created = await convertOrderToDelivery({
+      tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
+      actorUserId: session.user.id,
       fiscalYearId: ctx.fiscalYear.id,
       salesOrderId: id,
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo generar el albarán." }, { status: 400 });
+    return handleRouteError(error, "deliveryNote.create", "No se pudo generar el albarán.");
   }
 }

@@ -6,6 +6,7 @@ import { BankTransactionRowActions } from "@/components/treasury/bank-transactio
 import {
   ResourceList,
   type ResourceListColumn,
+  type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -27,6 +28,10 @@ type BankTransactionsListProps = {
   canManage?: boolean;
   currencyCode: string;
   rows: BankTransactionRow[];
+  /** Server pagination state; `rows` is then only the current page. */
+  server?: ServerListState;
+  /** Filters fixed by the page (e.g. reconciliation only lists pending movements): not shown. */
+  hiddenFilters?: Array<"account" | "reconciliation">;
 };
 
 const columns = (
@@ -48,6 +53,7 @@ const columns = (
     ),
     exportValue: (row) => row.description,
     sortValue: (row) => row.description,
+    sortKey: "description",
   },
   {
     header: "Importe",
@@ -55,12 +61,14 @@ const columns = (
     cell: (row) => formatMoney(row.amount, currencyCode),
     exportValue: (row) => Number(row.amount),
     sortValue: (row) => Number(row.amount),
+    sortKey: "amount",
   },
   {
     header: "Fecha",
     cell: (row) => formatDate(row.postedAt),
     exportValue: (row) => formatDate(row.postedAt),
     sortValue: (row) => new Date(row.postedAt),
+    sortKey: "postedAt",
   },
   {
     header: "Conciliación",
@@ -74,6 +82,7 @@ const columns = (
     exportValue: (row) =>
       statusLabel(reconciliationStatusLabels, row.reconciliationStatus),
     sortValue: (row) => row.reconciliationStatus,
+    sortKey: "status",
   },
   ...(canManage
     ? [
@@ -92,7 +101,9 @@ export function BankTransactionsList({
   accounts,
   canManage = true,
   currencyCode,
+  hiddenFilters,
   rows,
+  server,
 }: BankTransactionsListProps) {
   return (
     <ResourceList
@@ -113,6 +124,8 @@ export function BankTransactionsList({
         ].join(" ")
       }
       items={rows}
+      server={server}
+      dateRange={{ label: "Fecha", getValue: (row) => row.postedAt }}
       renderMobileCard={(row) => (
         <div className="space-y-3">
           <div>
@@ -149,25 +162,25 @@ export function BankTransactionsList({
       title="Movimientos"
       filters={[
         {
-          key: "account",
+          key: "account" as const,
           label: "Cuenta bancaria",
           allLabel: "Todas las cuentas",
           options: accounts.map((account) => ({
             value: account.id,
             label: account.bankName,
           })),
-          getValue: (row) => row.bankAccountId,
+          getValue: (row: BankTransactionRow) => row.bankAccountId,
         },
         {
-          key: "reconciliation",
+          key: "reconciliation" as const,
           label: "Conciliación",
           allLabel: "Todos los estados",
           options: Object.entries(reconciliationStatusLabels).map(
             ([value, label]) => ({ value, label }),
           ),
-          getValue: (row) => row.reconciliationStatus,
+          getValue: (row: BankTransactionRow) => row.reconciliationStatus,
         },
-      ]}
+      ].filter((filter) => !hiddenFilters?.includes(filter.key))}
     />
   );
 }

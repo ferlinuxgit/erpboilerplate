@@ -2,12 +2,20 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16
@@ -32,10 +40,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run audit:release
       - run: npx playwright install --with-deps chromium
       - run: npm run db:migrate:verify
       - run: npm run db:migrate
@@ -79,3 +86,12 @@ jobs:
           name: test-results
           path: test-results/
           if-no-files-found: ignore
+      # Dependency audit runs last so a new advisory never hides typecheck,
+      # test, build or e2e results. Production dependencies block on
+      # high/critical; the full tree (incl. dev tooling) is reported at
+      # moderate without failing the job.
+      - name: Audit production dependencies (blocking, high+)
+        run: npm run audit:prod
+      - name: Audit all dependencies (informative, moderate+)
+        continue-on-error: true
+        run: npm run audit:release

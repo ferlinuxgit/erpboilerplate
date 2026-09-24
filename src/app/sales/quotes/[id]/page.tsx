@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -14,6 +15,21 @@ import { getSalesQuoteTransition } from "@/lib/document-pipelines";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { salesDocumentStatusLabels, salesDocumentStatusTone, statusLabel } from "@/lib/status-labels";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("invoice.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: salesQuote.number })
+      .from(salesQuote)
+      .where(and(eq(salesQuote.id, id), eq(salesQuote.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Presupuesto ${row.number}` : "Presupuesto" };
+  } catch {
+    return { title: "Presupuesto" };
+  }
+}
 
 export default async function SalesQuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("invoice.read");
@@ -52,11 +68,13 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Presupuesto"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Presupuestos", href: "/sales/quotes" },
+          { label: record.number },
+        ]}
         title={record.number}
         description={`${record.customerName} · Emitido el ${formatDate(record.issueDate)}`}
-        backHref="/sales/quotes"
-        backLabel="Volver a presupuestos"
         meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
         actions={
           <>
@@ -80,7 +98,7 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
         <PageSection title="Vigencia" description="Fechas y validez del presupuesto." contentClassName="space-y-2 text-sm">
           <p>Emisión: <strong>{formatDate(record.issueDate)}</strong></p>
           <p>Válido hasta: <strong>{record.validUntil ? formatDate(record.validUntil) : "Sin fecha límite"}</strong></p>
-          {!transition.allowed && transition.reason ? <p className="rounded-[2px] bg-muted p-3 text-muted-foreground">{transition.reason}</p> : null}
+          {!transition.allowed && transition.reason ? <p className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-muted-foreground">{transition.reason}</p> : null}
         </PageSection>
         <PageSection title="Pedidos relacionados" description="Pedidos creados a partir de este presupuesto." contentClassName="space-y-2">
           {relatedOrders.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no se ha generado ningún pedido.</p> : relatedOrders.map((order) => (

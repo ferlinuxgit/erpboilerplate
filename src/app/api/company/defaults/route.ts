@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireContext } from "@/lib/current-context";
+import { handleRouteError } from "@/lib/http";
 import { applyCompanyDefaults, getCompanyDefaultsStatus } from "@/server/company/defaults";
 
 export async function GET() {
@@ -29,9 +30,6 @@ export async function POST() {
     });
     return NextResponse.json(status);
   } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "No se pudo aplicar la configuración." },
-      { status: 400 },
-    );
+    return handleRouteError(error, "company.defaults.repair", "No se pudo aplicar la configuración.");
   }
 }

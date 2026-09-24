@@ -1,20 +1,49 @@
-import { and, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, ne, notInArray, or, sql, isNull } from "drizzle-orm";
 
-import { accountChart, companySettings, customer, invoice, invoiceLine, invoiceLineTax, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { alias } from "drizzle-orm/pg-core";
+
+import { accountChart, companySettings, customer, invoice, invoiceLine, invoiceLineTax, item, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import {
-  aggregateOutputVat,
-  aggregateWithholdings,
   getDaysUntilDue,
   getFiscalDueStatus,
   getSpanishFiscalDueDate,
   getSpanishFiscalModel,
+  normalizeTaxpayerType,
   parseSpanishFiscalPeriod,
-  roundFiscalMoney,
-  type VatBucket,
+  resolveSalesVatTreatment,
+  resolveSupplierVatTreatment,
   type SpanishFiscalModelCode,
+  type TaxpayerType,
+  type VatBucket,
 } from "@/lib/fiscal-spain";
+import { centsToNumber, toCents } from "@/server/accounting/money";
+import {
+  bucketsToNumbers,
+  buildModelo303Boxes,
+  computeIssuedVat,
+  computeIncomeTaxExpenseCents,
+  computeModelo130,
+  computeModelo303Totals,
+  computeModelo349,
+  computeSupplierVat,
+  isServiceExpenseAccount,
+  modelo349Key,
+  type Modelo130QuarterInput,
+  type Modelo130Result,
+  type Modelo349Entry,
+  type Modelo349Result,
+  type SupplierLineInput,
+  type FiscalSourceDocument,
+  type IssuedVatResult,
+  type Modelo303Box,
+  type SupplierVatResult,
+} from "@/server/fiscal/spain-calc";
 import { isValidSpanishTaxId } from "@/lib/spanish-tax-id";
+import { lineBaseCents } from "@/server/taxation/engine";
+import { DRAFT_NUMBER_PREFIX } from "@/server/invoices/lifecycle";
+
+export type { FiscalSourceDocument, Modelo130Result, Modelo303Box, Modelo349Result } from "@/server/fiscal/spain-calc";
 
 export type SpanishFiscalSummary = {
   code: SpanishFiscalModelCode;
@@ -29,18 +58,38 @@ export type SpanishFiscalSummary = {
   };
   salesInvoiceCount: number;
   supplierInvoiceCount: number;
+  /** Base del IVA devengado en régimen general (sin recargo ni autorepercusiones). */
   outputTaxBase: number;
+  /** Casilla 27: total cuota devengada (IVA + recargo de equivalencia + autorepercusiones). */
   outputTaxAmount: number;
+  domesticOutputTaxAmount: number;
+  surchargeAmount: number;
+  selfAssessedTaxAmount: number;
   inputTaxBase: number;
   inputTaxAmount: number;
+  /** Casilla 45: IVA deducible tras % deducible por línea y prorrata. */
   deductibleInputTaxAmount: number;
   nonDeductibleInputTaxAmount: number;
+  /** Casilla 46: resultado (27 − 45). */
   settlementAmount: number;
+  /**
+   * Importe a ingresar (o a compensar si es negativo) del modelo concreto: 303/390 → resultado del IVA;
+   * 111/115 → retenciones; 130 → pago fraccionado. null en modelos informativos (347, 349).
+   */
+  amountDue: number | null;
+  /** Retenciones practicadas del modelo (111: profesionales, 115: alquileres; resto: ambas). */
   withholdingBase: number;
   withholdingAmount: number;
+  /** Retenciones que nos han practicado los clientes (473), informativo. */
+  salesWithholdingAmount: number;
   buckets: VatBucket[];
+  surchargeBuckets: VatBucket[];
   inputBuckets: VatBucket[];
   withholdingBuckets: VatBucket[];
+  /** Modelo 349 (solo en ese modelo). */
+  modelo349?: Modelo349Result;
+  /** Modelo 130 (solo en ese modelo). */
+  modelo130?: Modelo130Result;
   thirdPartyOperations?: Array<{
     type: "customer" | "supplier";
     taxId: string;
@@ -59,6 +108,7 @@ export type SpanishFiscalSummary = {
     outputVat: ReconciliationLine;
     inputVat: ReconciliationLine;
     withholdings: ReconciliationLine;
+    salesWithholdings: ReconciliationLine;
     balanced: boolean;
   };
 };
@@ -69,13 +119,7 @@ export type FiscalAutomationProfile = {
   siiEnabled: boolean;
   verifactuMode: "pending" | "verifactu" | "non_verifactu";
   prorrataPct: number;
-};
-
-export type Modelo303Box = {
-  box: string;
-  label: string;
-  amount: number;
-  kind: "base" | "tax" | "settlement";
+  taxpayerType: TaxpayerType;
 };
 
 export type FiscalAutomationCheck = {
@@ -92,29 +136,14 @@ type ReconciliationLine = {
   difference: number;
 };
 
-export type FiscalSourceDocument = {
-  id: string;
-  number: string;
-  issueDate: string;
-  totalAmount: number;
-  taxBase: number;
-  taxAmount: number;
-  withholdingAmount?: number;
-};
-
 const THIRD_PARTY_THRESHOLD = 3005.06;
-const STANDARD_VAT_RATES = new Set([0, 4, 10, 21]);
+const STANDARD_VAT_RATES = new Set([0, 4, 5, 10, 21]);
+/** Asientos que no son operaciones del periodo y no deben entrar en la conciliación de IVA. */
+const NON_OPERATIONAL_SOURCES = ["fiscalYearRegularization", "fiscalYearClosing", "fiscalYearOpening"];
 
 function toNumber(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function totalsFromBuckets(buckets: VatBucket[]) {
-  return {
-    outputTaxBase: roundFiscalMoney(buckets.reduce((total, bucket) => total + bucket.base, 0)),
-    outputTaxAmount: roundFiscalMoney(buckets.reduce((total, bucket) => total + bucket.tax, 0)),
-  };
 }
 
 function unsupportedWarnings(code: SpanishFiscalModelCode) {
@@ -123,11 +152,19 @@ function unsupportedWarnings(code: SpanishFiscalModelCode) {
   ];
 
   if (code === "111") {
-    warnings.push("El Modelo 111 se calcula desde retenciones guardadas en líneas de factura emitida; revisa que la clasificación sea correcta antes de presentar.");
+    warnings.push("El Modelo 111 se calcula con las retenciones que practicas en facturas recibidas (salvo gastos de alquiler, cuenta 621, que van al 115).");
   }
-
   if (code === "115") {
-    warnings.push("El Modelo 115 requiere clasificar facturas de alquiler antes de calcular una autoliquidación fiable.");
+    warnings.push("El Modelo 115 toma las retenciones de facturas recibidas cuyo gasto está en la cuenta 621 (arrendamientos). Revisa que los alquileres usen esa cuenta.");
+  }
+  if (code === "347") {
+    warnings.push("El 347 excluye operaciones con retención (se declaran en 190/180) y operaciones con el extranjero (349).");
+  }
+  if (code === "349") {
+    warnings.push("El 349 incluye facturas con tratamiento intracomunitario. Bienes o servicios: en ventas se decide por el artículo (servicio o no); las líneas sin artículo cuentan como servicios. En compras, la cuenta 62x indica servicio.");
+  }
+  if (code === "130") {
+    warnings.push("El 130 usa las bases de facturas emitidas como ingresos y las facturas recibidas (sin bienes de inversión, más el IVA no deducible) como gastos. Añade tú amortizaciones, cuotas de autónomo y otros gastos sin factura.");
   }
 
   return warnings;
@@ -141,6 +178,7 @@ async function fetchFiscalAutomationProfile(companyId: string): Promise<FiscalAu
       siiEnabled: companySettings.siiEnabled,
       verifactuMode: companySettings.verifactuMode,
       prorrataPct: companySettings.prorrataPct,
+      taxpayerType: companySettings.taxpayerType,
     })
     .from(companySettings)
     .where(eq(companySettings.companyId, companyId))
@@ -152,6 +190,7 @@ async function fetchFiscalAutomationProfile(companyId: string): Promise<FiscalAu
     siiEnabled: settings?.siiEnabled ?? false,
     verifactuMode: normalizeVerifactuMode(settings?.verifactuMode),
     prorrataPct: clampPct(toNumber(settings?.prorrataPct ?? 100)),
+    taxpayerType: normalizeTaxpayerType(settings?.taxpayerType),
   };
 }
 
@@ -173,7 +212,33 @@ function clampPct(value: number) {
   return Math.min(Math.max(value, 0), 100);
 }
 
-async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusive: Date) {
+/**
+ * Facturas emitidas que computan en un periodo: de la empresa, por fecha de expedición y sin anuladas (VOID).
+ * Excluye los borradores del ciclo borrador → emisión (número provisional BORRADOR-…, sin asiento);
+ * las facturas antiguas en estado DRAFT sí computan porque ya están numeradas y contabilizadas.
+ * Las rectificativas emitidas computan con su signo (negativas si abonan).
+ */
+export function issuedInvoiceFiscalFilter(companyId: string, start: Date, endExclusive: Date) {
+  return and(
+    eq(invoice.companyId, companyId),
+    ne(invoice.status, "VOID"),
+    sql`${invoice.number} NOT LIKE ${`${DRAFT_NUMBER_PREFIX}%`}`,
+    gte(invoice.issueDate, start),
+    lt(invoice.issueDate, endExclusive),
+  );
+}
+
+/** Facturas recibidas que computan en un periodo: sin anuladas (VOID) ni borradores. */
+export function supplierInvoiceFiscalFilter(companyId: string, start: Date, endExclusive: Date) {
+  return and(
+    eq(supplierInvoice.companyId, companyId),
+    notInArray(supplierInvoice.status, ["VOID", "DRAFT"]),
+    gte(supplierInvoice.issueDate, start),
+    lt(supplierInvoice.issueDate, endExclusive),
+  );
+}
+
+async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusive: Date): Promise<IssuedVatResult> {
   const lines = await db
     .select({
       lineId: invoiceLine.id,
@@ -186,117 +251,189 @@ async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusiv
       number: invoice.number,
       issueDate: invoice.issueDate,
       totalAmount: invoice.totalAmount,
+      status: invoice.status,
+      vatTreatment: invoice.vatTreatment,
+      countryCode: partner.countryCode,
     })
     .from(invoiceLine)
     .innerJoin(invoice, eq(invoiceLine.invoiceId, invoice.id))
-    .where(and(eq(invoice.companyId, companyId), ne(invoice.status, "VOID"), gte(invoice.issueDate, start), lt(invoice.issueDate, endExclusive)));
+    .innerJoin(customer, eq(customer.id, invoice.customerId))
+    .leftJoin(partner, eq(partner.id, customer.partnerId))
+    .where(issuedInvoiceFiscalFilter(companyId, start, endExclusive));
   const selectedTaxes = lines.length > 0
     ? await db.select({
         invoiceLineId: invoiceLineTax.invoiceLineId,
         rate: invoiceLineTax.rate,
         kind: invoiceLineTax.kind,
         operation: invoiceLineTax.operation,
+        baseAmount: invoiceLineTax.baseAmount,
+        amount: invoiceLineTax.amount,
       }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.lineId)))
     : [];
-  const taxesByLine = new Map<string, Array<{ rate: string; kind: string; operation: "ADD" | "SUBTRACT" }>>();
+  const taxesByLine = new Map<string, typeof selectedTaxes>();
   for (const selectedTax of selectedTaxes) {
-    const operation = selectedTax.operation === "SUBTRACT" ? "SUBTRACT" as const : "ADD" as const;
-    taxesByLine.set(selectedTax.invoiceLineId, [
-      ...(taxesByLine.get(selectedTax.invoiceLineId) ?? []),
-      { rate: selectedTax.rate, kind: selectedTax.kind, operation },
-    ]);
+    taxesByLine.set(selectedTax.invoiceLineId, [...(taxesByLine.get(selectedTax.invoiceLineId) ?? []), selectedTax]);
   }
-  const linesWithTaxes = lines.map((line) => ({ ...line, taxes: taxesByLine.get(line.lineId) }));
 
-  return {
-    invoiceIds: new Set(lines.map((line) => line.invoiceId)),
-    buckets: aggregateOutputVat(linesWithTaxes),
-    withholdingBuckets: aggregateWithholdings(linesWithTaxes),
-    documents: aggregateSourceDocuments(linesWithTaxes),
-  };
+  return computeIssuedVat(lines.map((line) => ({
+    ...line,
+    treatment: resolveSalesVatTreatment(line.vatTreatment, line.countryCode),
+    taxes: taxesByLine.get(line.lineId) ?? null,
+  })));
 }
 
-async function fetchSupplierInvoiceVat(companyId: string, start: Date, endExclusive: Date) {
+/** Líneas de facturas recibidas del periodo (sin anuladas ni borradores) con su tratamiento IVA. */
+async function fetchSupplierLines(companyId: string, start: Date, endExclusive: Date): Promise<SupplierLineInput[]> {
   const lines = await db
     .select({
-      quantity: supplierInvoiceLine.quantity,
-      unitPrice: supplierInvoiceLine.unitPrice,
+      subtotal: supplierInvoiceLine.subtotalAmount,
+      taxAmount: supplierInvoiceLine.taxAmount,
       taxRate: supplierInvoiceLine.taxRate,
       taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
+      retentionAmount: supplierInvoiceLine.retentionAmount,
+      retentionRate: supplierInvoiceLine.retentionRate,
+      expenseAccountCode: accountChart.code,
       invoiceId: supplierInvoice.id,
       number: supplierInvoice.number,
       issueDate: supplierInvoice.issueDate,
       totalAmount: supplierInvoice.totalAmount,
+      vatTreatment: supplierInvoice.vatTreatment,
+      countryCode: partner.countryCode,
     })
     .from(supplierInvoiceLine)
     .innerJoin(supplierInvoice, eq(supplierInvoiceLine.supplierInvoiceId, supplierInvoice.id))
-    .where(and(eq(supplierInvoice.companyId, companyId), gte(supplierInvoice.issueDate, start), lt(supplierInvoice.issueDate, endExclusive)));
+    .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
+    .where(supplierInvoiceFiscalFilter(companyId, start, endExclusive));
 
-  return {
-    invoiceIds: new Set(lines.map((line) => line.invoiceId)),
-    buckets: aggregateOutputVat(lines),
-    documents: aggregateSourceDocuments(lines),
-  };
+  return lines.map((line) => ({
+    ...line,
+    treatment: resolveSupplierVatTreatment(line.vatTreatment, line.countryCode),
+  }));
 }
 
-function aggregateSourceDocuments(
-  lines: Array<{
-    invoiceId: string;
-    number: string;
-    issueDate: Date;
-    totalAmount: string | number;
-    quantity: string | number;
-    unitPrice: string | number;
-    taxRate: string | number;
-    taxDeductiblePct?: string | number | null;
-    discountPct?: string | number | null;
-    retentionRate?: string | number | null;
-    taxes?: Array<{
-      rate: string | number;
-      kind?: string | null;
-      operation: "ADD" | "SUBTRACT";
-    }> | null;
-  }>,
-) {
-  const documents = new Map<string, FiscalSourceDocument>();
+/** Facturas recibidas del periodo. Excluye anuladas (VOID) y borradores si los hubiera. */
+async function fetchSupplierInvoiceVat(companyId: string, start: Date, endExclusive: Date, prorrataPct: number): Promise<SupplierVatResult> {
+  return computeSupplierVat(await fetchSupplierLines(companyId, start, endExclusive), prorrataPct);
+}
 
-  for (const line of lines) {
-    const discountPct = Math.min(Math.max(toNumber(line.discountPct), 0), 100);
-    const deductiblePct = Math.min(Math.max(toNumber(line.taxDeductiblePct ?? 100), 0), 100);
-    const base = roundFiscalMoney(toNumber(line.quantity) * toNumber(line.unitPrice) * (1 - discountPct / 100));
-    const taxAmount = line.taxes?.length
-      ? roundFiscalMoney(line.taxes
-          .filter((selectedTax) => selectedTax.operation === "ADD")
-          .reduce((sum, selectedTax) => sum + (base * toNumber(selectedTax.rate)) / 100, 0) * (deductiblePct / 100))
-      : roundFiscalMoney(((base * toNumber(line.taxRate)) / 100) * (deductiblePct / 100));
-    const withholdingAmount = line.taxes?.length
-      ? roundFiscalMoney(line.taxes
-          .filter((selectedTax) => selectedTax.operation === "SUBTRACT")
-          .reduce((sum, selectedTax) => sum + (base * toNumber(selectedTax.rate)) / 100, 0))
-      : roundFiscalMoney((base * toNumber(line.retentionRate)) / 100);
-    const document = documents.get(line.invoiceId) ?? {
-      id: line.invoiceId,
-      number: line.number,
-      issueDate: line.issueDate.toISOString(),
-      totalAmount: roundFiscalMoney(toNumber(line.totalAmount)),
-      taxBase: 0,
-      taxAmount: 0,
-      withholdingAmount: 0,
-    };
+function quarterIndex(date: Date) {
+  return Math.floor(date.getUTCMonth() / 3);
+}
 
-    document.taxBase = roundFiscalMoney(document.taxBase + base);
-    document.taxAmount = roundFiscalMoney(document.taxAmount + taxAmount);
-    document.withholdingAmount = roundFiscalMoney((document.withholdingAmount ?? 0) + withholdingAmount);
-    documents.set(line.invoiceId, document);
+/** Etiqueta de periodo de una fecha con la misma forma (mes o trimestre) que el periodo declarado. */
+function periodOf(date: Date, likePeriod: string) {
+  const year = date.getUTCFullYear();
+  if (/^\d{4}-\d{2}$/.test(likePeriod.trim())) return `${year}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `${year}-Q${quarterIndex(date) + 1}`;
+}
+
+/**
+ * Modelo 349: facturas emitidas y recibidas con tratamiento intracomunitario, agrupadas por NIF-IVA y clave.
+ * Las rectificativas de facturas de otro periodo se declaran como rectificaciones de ese periodo.
+ */
+async function fetchModelo349(companyId: string, start: Date, endExclusive: Date, period: string): Promise<Modelo349Result> {
+  const original = alias(invoice, "original_invoice");
+  const salesLines = await db
+    .select({
+      quantity: invoiceLine.quantity,
+      unitPrice: invoiceLine.unitPrice,
+      discountPct: invoiceLine.discountPct,
+      isService: item.isService,
+      hasItem: invoiceLine.itemId,
+      vatTreatment: invoice.vatTreatment,
+      invoiceType: invoice.invoiceType,
+      originalIssueDate: original.issueDate,
+      customerName: customer.name,
+      partnerName: partner.name,
+      taxId: partner.taxId,
+      countryCode: partner.countryCode,
+    })
+    .from(invoiceLine)
+    .innerJoin(invoice, eq(invoiceLine.invoiceId, invoice.id))
+    .innerJoin(customer, eq(customer.id, invoice.customerId))
+    .leftJoin(partner, eq(partner.id, customer.partnerId))
+    .leftJoin(item, eq(item.id, invoiceLine.itemId))
+    .leftJoin(original, eq(original.id, invoice.rectifiedInvoiceId))
+    .where(issuedInvoiceFiscalFilter(companyId, start, endExclusive));
+
+  const entries: Modelo349Entry[] = [];
+  for (const line of salesLines) {
+    if (resolveSalesVatTreatment(line.vatTreatment, line.countryCode) !== "INTRA_EU") continue;
+    const baseCents = lineBaseCents(
+      { quantity: toNumber(line.quantity), unitPrice: toNumber(line.unitPrice), discountPct: toNumber(line.discountPct) },
+      { allowNegative: true },
+    );
+    const originalOutside = line.invoiceType === "CREDIT_NOTE" && line.originalIssueDate
+      && (line.originalIssueDate < start || line.originalIssueDate >= endExclusive);
+    entries.push({
+      key: modelo349Key("sale", line.hasItem ? Boolean(line.isService) : true),
+      operatorName: line.partnerName ?? line.customerName,
+      operatorTaxId: line.taxId,
+      countryCode: line.countryCode,
+      baseCents,
+      rectifiesPeriod: originalOutside && line.originalIssueDate ? periodOf(line.originalIssueDate, period) : null,
+    });
   }
 
-  return [...documents.values()].sort((left, right) => right.issueDate.localeCompare(left.issueDate));
+  const purchaseLines = await db
+    .select({
+      subtotal: supplierInvoiceLine.subtotalAmount,
+      expenseAccountCode: accountChart.code,
+      vatTreatment: supplierInvoice.vatTreatment,
+      name: partner.name,
+      taxId: partner.taxId,
+      countryCode: partner.countryCode,
+    })
+    .from(supplierInvoiceLine)
+    .innerJoin(supplierInvoice, eq(supplierInvoiceLine.supplierInvoiceId, supplierInvoice.id))
+    .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
+    .where(supplierInvoiceFiscalFilter(companyId, start, endExclusive));
+  for (const line of purchaseLines) {
+    if (resolveSupplierVatTreatment(line.vatTreatment, line.countryCode) !== "INTRA_EU") continue;
+    entries.push({
+      key: modelo349Key("purchase", isServiceExpenseAccount(line.expenseAccountCode)),
+      operatorName: line.name ?? "Proveedor",
+      operatorTaxId: line.taxId,
+      countryCode: line.countryCode,
+      baseCents: toCents(line.subtotal),
+    });
+  }
+  return computeModelo349(entries);
 }
 
+/** Modelo 130: ingresos, gastos y retenciones por trimestre desde el 1 de enero hasta el trimestre declarado. */
+async function fetchModelo130(companyId: string, rangeStart: Date, endExclusive: Date, prorrataPct: number): Promise<Modelo130Result> {
+  const yearStart = new Date(Date.UTC(rangeStart.getUTCFullYear(), 0, 1));
+  const [issued, supplierLines] = await Promise.all([
+    fetchIssuedInvoiceVat(companyId, yearStart, endExclusive),
+    fetchSupplierLines(companyId, yearStart, endExclusive),
+  ]);
+  const quarters: Modelo130QuarterInput[] = [0, 1, 2, 3].map(() => ({ incomeCents: 0, expenseCents: 0, withholdingCents: 0, withheldIncomeCents: 0 }));
+  for (const document of issued.documents) {
+    const quarter = quarters[quarterIndex(new Date(document.issueDate))];
+    const baseCents = toCents(document.taxBase);
+    quarter.incomeCents += baseCents;
+    const withholdingCents = toCents(document.withholdingAmount ?? 0);
+    quarter.withholdingCents += withholdingCents;
+    if (withholdingCents !== 0) quarter.withheldIncomeCents = (quarter.withheldIncomeCents ?? 0) + baseCents;
+  }
+  for (let index = 0; index < 4; index += 1) {
+    quarters[index].expenseCents = computeIncomeTaxExpenseCents(
+      supplierLines.filter((line) => quarterIndex(line.issueDate) === index),
+      prorrataPct,
+    );
+  }
+  return computeModelo130(quarters, quarterIndex(new Date(endExclusive.getTime() - 1)) + 1);
+}
+
+/** Clientes españoles (> 3.005,06 €/año): sin anuladas, sin facturas con retención (van al 190). */
 async function fetchThirdPartyOperations(companyId: string, start: Date, endExclusive: Date) {
+  const withholdingLine = sql`exists (select 1 from ${invoiceLine} il where il."invoiceId" = ${invoice.id} and il."retentionRate" > 0)`;
+  const withholdingTax = sql`exists (select 1 from ${invoiceLineTax} ilt inner join ${invoiceLine} il2 on il2.id = ilt."invoiceLineId" where il2."invoiceId" = ${invoice.id} and ilt.operation = 'SUBTRACT')`;
   const rows = await db
     .select({
-      type: sql<"customer">`'customer'`,
       taxId: partner.taxId,
       partnerName: partner.name,
       customerName: customer.name,
@@ -305,48 +442,64 @@ async function fetchThirdPartyOperations(companyId: string, start: Date, endExcl
     .from(invoice)
     .innerJoin(customer, eq(customer.id, invoice.customerId))
     .leftJoin(partner, eq(partner.id, customer.partnerId))
-    .where(and(eq(invoice.companyId, companyId), ne(invoice.status, "VOID"), gte(invoice.issueDate, start), lt(invoice.issueDate, endExclusive)))
+    .where(and(
+      issuedInvoiceFiscalFilter(companyId, start, endExclusive),
+      or(isNull(partner.countryCode), eq(partner.countryCode, "ES")),
+      sql`not ${withholdingLine}`,
+      sql`not ${withholdingTax}`,
+    ))
     .groupBy(partner.taxId, partner.name, customer.name);
 
   return rows
     .map((row) => ({
-      type: row.type,
+      type: "customer" as const,
       taxId: row.taxId?.trim() || "Sin NIF",
       name: row.partnerName ?? row.customerName,
-      amount: roundFiscalMoney(toNumber(row.amount)),
+      amount: centsToNumber(toCents(row.amount)),
     }))
     .filter((row) => row.amount >= THIRD_PARTY_THRESHOLD)
     .sort((left, right) => right.amount - left.amount);
 }
 
+/** Proveedores españoles (> 3.005,06 €/año): sin anuladas ni facturas con retención. */
 async function fetchSupplierThirdPartyOperations(companyId: string, start: Date, endExclusive: Date) {
   const rows = await db
     .select({
-      type: sql<"supplier">`'supplier'`,
       taxId: partner.taxId,
       name: partner.name,
       amount: sql<string>`sum(${supplierInvoice.totalAmount})`,
     })
     .from(supplierInvoice)
     .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
-    .where(and(eq(supplierInvoice.companyId, companyId), gte(supplierInvoice.issueDate, start), lt(supplierInvoice.issueDate, endExclusive)))
+    .where(and(
+      supplierInvoiceFiscalFilter(companyId, start, endExclusive),
+      eq(partner.countryCode, "ES"),
+      sql`${supplierInvoice.retentionAmount} = 0`,
+    ))
     .groupBy(partner.taxId, partner.name);
 
   return rows
     .map((row) => ({
-      type: row.type,
+      type: "supplier" as const,
       taxId: row.taxId?.trim() || "Sin NIF",
       name: row.name,
-      amount: roundFiscalMoney(toNumber(row.amount)),
+      amount: centsToNumber(toCents(row.amount)),
     }))
     .filter((row) => row.amount >= THIRD_PARTY_THRESHOLD)
     .sort((left, right) => right.amount - left.amount);
 }
 
+/** Saldos del periodo de 477, 472, 4751 y 473 (incluye subcuentas), sin asientos de cierre/apertura. */
 async function fetchAccountingTaxBalances(companyId: string, start: Date, endExclusive: Date) {
+  const group = sql<string>`case
+    when ${accountChart.code} like '477%' then '477'
+    when ${accountChart.code} like '472%' then '472'
+    when ${accountChart.code} like '4751%' then '4751'
+    when ${accountChart.code} like '473%' then '473'
+  end`;
   const rows = await db
     .select({
-      code: accountChart.code,
+      group,
       debit: sql<string>`coalesce(sum(${journalLine.debit}), '0')`,
       credit: sql<string>`coalesce(sum(${journalLine.credit}), '0')`,
     })
@@ -358,20 +511,24 @@ async function fetchAccountingTaxBalances(companyId: string, start: Date, endExc
         eq(journalEntry.companyId, companyId),
         gte(journalEntry.postedAt, start),
         lt(journalEntry.postedAt, endExclusive),
-        inArray(accountChart.code, ["477", "472", "4751"]),
+        or(isNull(journalEntry.sourceType), notInArray(journalEntry.sourceType, NON_OPERATIONAL_SOURCES)),
+        sql`(${accountChart.code} like '477%' or ${accountChart.code} like '472%' or ${accountChart.code} like '4751%' or ${accountChart.code} like '473%')`,
       ),
     )
-    .groupBy(accountChart.code);
+    .groupBy(group);
 
-  const balances = new Map(rows.map((row) => [row.code, { debit: toNumber(row.debit), credit: toNumber(row.credit) }]));
-  const outputVat = balances.get("477");
-  const inputVat = balances.get("472");
-  const withholdings = balances.get("4751");
+  const balances = new Map(rows.map((row) => [row.group, { debit: toCents(row.debit), credit: toCents(row.credit) }]));
+  const net = (code: string, side: "debit" | "credit") => {
+    const entry = balances.get(code);
+    if (!entry) return 0;
+    return centsToNumber(side === "debit" ? entry.debit - entry.credit : entry.credit - entry.debit);
+  };
 
   return {
-    outputVat: roundFiscalMoney((outputVat?.credit ?? 0) - (outputVat?.debit ?? 0)),
-    inputVat: roundFiscalMoney((inputVat?.debit ?? 0) - (inputVat?.credit ?? 0)),
-    withholdings: roundFiscalMoney((withholdings?.debit ?? 0) - (withholdings?.credit ?? 0)),
+    outputVat: net("477", "credit"),
+    inputVat: net("472", "debit"),
+    withholdings: net("4751", "credit"),
+    salesWithholdings: net("473", "debit"),
   };
 }
 
@@ -379,45 +536,32 @@ function reconcile(fiscalAmount: number, accountingAmount: number): Reconciliati
   return {
     fiscalAmount,
     accountingAmount,
-    difference: roundFiscalMoney(fiscalAmount - accountingAmount),
+    difference: centsToNumber(toCents(fiscalAmount) - toCents(accountingAmount)),
   };
-}
-
-function buildModelo303Boxes(buckets: VatBucket[], deductibleInputTaxAmount: number, settlementAmount: number): Modelo303Box[] {
-  const byRate = new Map(buckets.map((bucket) => [bucket.rate, bucket]));
-  const boxes: Modelo303Box[] = [
-    { box: "01", label: "Base IVA devengado 4%", amount: byRate.get(4)?.base ?? 0, kind: "base" },
-    { box: "03", label: "Cuota IVA devengado 4%", amount: byRate.get(4)?.tax ?? 0, kind: "tax" },
-    { box: "04", label: "Base IVA devengado 10%", amount: byRate.get(10)?.base ?? 0, kind: "base" },
-    { box: "06", label: "Cuota IVA devengado 10%", amount: byRate.get(10)?.tax ?? 0, kind: "tax" },
-    { box: "07", label: "Base IVA devengado 21%", amount: byRate.get(21)?.base ?? 0, kind: "base" },
-    { box: "09", label: "Cuota IVA devengado 21%", amount: byRate.get(21)?.tax ?? 0, kind: "tax" },
-    { box: "29", label: "IVA soportado deducible", amount: deductibleInputTaxAmount, kind: "tax" },
-    { box: "46", label: "Resultado estimado autoliquidación", amount: settlementAmount, kind: "settlement" },
-  ];
-
-  const nonStandard = buckets.filter((bucket) => ![0, 4, 10, 21].includes(bucket.rate));
-  for (const bucket of nonStandard) {
-    boxes.push({ box: "REV", label: `Revisar tipo IVA ${bucket.rate}%`, amount: bucket.tax, kind: "tax" });
-  }
-
-  return boxes.map((box) => ({ ...box, amount: roundFiscalMoney(box.amount) }));
 }
 
 function buildAutomationChecks({
   accountingBalanced,
   code,
   dueStatus,
+  issued,
   modelo303Boxes,
   profile,
+  supplier,
   thirdPartyOperations,
   vatRates,
+  modelo130,
+  modelo349,
 }: {
+  modelo130?: Modelo130Result;
+  modelo349?: Modelo349Result;
   accountingBalanced: boolean;
   code: SpanishFiscalModelCode;
   dueStatus: SpanishFiscalSummary["dueStatus"];
+  issued: IssuedVatResult;
   modelo303Boxes: Modelo303Box[];
   profile: FiscalAutomationProfile;
+  supplier: SupplierVatResult;
   thirdPartyOperations?: SpanishFiscalSummary["thirdPartyOperations"];
   vatRates: number[];
 }): FiscalAutomationCheck[] {
@@ -427,9 +571,9 @@ function buildAutomationChecks({
       status: accountingBalanced ? "ok" : "blocking",
       title: "Conciliación fiscal-contable",
       detail: accountingBalanced
-        ? "Las cuentas fiscales cuadran con el cálculo del periodo."
-        : "Hay diferencias entre el cálculo fiscal y las cuentas 477, 472 o 4751.",
-      action: accountingBalanced ? "Listo para cierre operativo." : "Revisa asientos, facturas y cuentas fiscales antes de presentar.",
+        ? "Las cuentas 477, 472, 4751 y 473 cuadran con el cálculo del periodo."
+        : "Hay diferencias entre el cálculo fiscal y las cuentas 477, 472, 4751 o 473.",
+      action: accountingBalanced ? "Listo para cierre operativo." : "Revisa asientos manuales en esas cuentas y documentos con fechas fuera de periodo antes de presentar.",
     },
     {
       code: "verifactu-profile",
@@ -451,6 +595,70 @@ function buildAutomationChecks({
     },
   ];
 
+  if (profile.prorrataPct < 100) {
+    checks.push({
+      code: "prorrata",
+      status: "warning",
+      title: `Prorrata del ${profile.prorrataPct}%`,
+      detail: "El IVA deducible se ha limitado con la prorrata provisional; la parte no deducible se contabiliza como mayor gasto.",
+      action: "En el último periodo del año calcula la prorrata definitiva y regulariza en la casilla 44.",
+    });
+  }
+  if (profile.fiscalRegime === "cash_accounting") {
+    checks.push({
+      code: "cash-accounting",
+      status: "warning",
+      title: "Criterio de caja",
+      detail: "El cálculo usa la fecha de factura, no la de cobro o pago.",
+      action: "Ajusta el IVA de facturas no cobradas/pagadas antes de presentar.",
+    });
+  }
+  if (profile.fiscalRegime === "recargo_equivalencia") {
+    checks.push({
+      code: "own-surcharge-regime",
+      status: "warning",
+      title: "Empresa en recargo de equivalencia",
+      detail: "Los comerciantes minoristas en recargo de equivalencia no presentan 303 por esa actividad.",
+      action: "Confirma si debes presentar el modelo.",
+    });
+  }
+  if (issued.draftInvoiceCount > 0) {
+    checks.push({
+      code: "draft-invoices",
+      status: "warning",
+      title: "Facturas en borrador incluidas",
+      detail: `${issued.draftInvoiceCount} factura(s) en borrador ya están numeradas y contabilizadas, así que se incluyen.`,
+      action: "Emite o anula esas facturas antes de presentar.",
+    });
+  }
+  if (issued.otherTaxCents !== 0) {
+    checks.push({
+      code: "other-taxes",
+      status: "warning",
+      title: "Impuestos de tipo \"Otro\" en ventas",
+      detail: `${centsToNumber(issued.otherTaxCents)} € de impuestos sin clasificar como IVA o recargo se han contabilizado en 477.`,
+      action: "Clasifica esos impuestos o corrige las facturas.",
+    });
+  }
+  if (supplier.defaultRateLines > 0) {
+    checks.push({
+      code: "self-assessed-default-rate",
+      status: "warning",
+      title: "Autorepercusión al 21% por defecto",
+      detail: `${supplier.defaultRateLines} línea(s) de compras intracomunitarias o con inversión del sujeto pasivo no indicaban tipo y se han autorepercutido al 21%.`,
+      action: "Si el tipo aplicable es otro (4% o 10%), indícalo en la línea de la factura.",
+    });
+  }
+  if (supplier.invoicesWithChargedSelfAssessedVat > 0) {
+    checks.push({
+      code: "self-assessed-total",
+      status: "warning",
+      title: "Facturas con autorepercusión y total incorrecto",
+      detail: `${supplier.invoicesWithChargedSelfAssessedVat} factura(s) intracomunitarias o con inversión del sujeto pasivo tienen un total a pagar distinto de base − retención (probablemente incluyen el IVA, que el proveedor no cobra).`,
+      action: "Corrige el total de esas facturas: debe ser la base menos la retención.",
+    });
+  }
+
   if (dueStatus === "due-soon" || dueStatus === "overdue") {
     checks.push({
       code: "deadline",
@@ -461,7 +669,7 @@ function buildAutomationChecks({
     });
   }
 
-  const invalidVatRates = vatRates.filter((rate) => !STANDARD_VAT_RATES.has(rate));
+  const invalidVatRates = [...new Set(vatRates.filter((rate) => !STANDARD_VAT_RATES.has(rate)))];
   if (invalidVatRates.length > 0) {
     checks.push({
       code: "vat-rates",
@@ -493,6 +701,28 @@ function buildAutomationChecks({
     });
   }
 
+  if (code === "130" && profile.taxpayerType !== "individual") {
+    checks.push({
+      code: "model-130-taxpayer",
+      status: "blocking",
+      title: "El 130 es solo para autónomos",
+      detail: "La empresa está configurada como sociedad. Las sociedades hacen pagos fraccionados del Impuesto sobre Sociedades (modelo 202), no el 130.",
+      action: "Si eres autónomo, cambia el tipo de contribuyente en Fiscalidad › Configuración.",
+    });
+  }
+  if (code === "130" && modelo130 && modelo130.withheldIncomePct >= 70) {
+    checks.push({
+      code: "model-130-withholding-rule",
+      status: "warning",
+      title: `El ${modelo130.withheldIncomePct} % de tus ingresos lleva retención`,
+      detail: "Si en el año anterior al menos el 70 % de tus ingresos profesionales tuvo retención, no estás obligado a presentar el 130.",
+      action: "Confírmalo con los datos del año anterior antes de presentar.",
+    });
+  }
+  for (const issue of modelo349?.issues ?? []) {
+    checks.push({ code: issue.code, status: "warning", title: "Modelo 349: revisar operadores", detail: issue.message, action: "Completa el NIF-IVA del cliente o proveedor en su ficha." });
+  }
+
   if (code === "303" && modelo303Boxes.every((box) => box.amount === 0)) {
     checks.push({
       code: "model-303-empty",
@@ -506,6 +736,19 @@ function buildAutomationChecks({
   return checks;
 }
 
+function mergeBuckets(...maps: Array<Map<number, { rate: number; base: number; tax: number }>>) {
+  const merged = new Map<number, { rate: number; base: number; tax: number }>();
+  for (const map of maps) {
+    for (const bucket of map.values()) {
+      const target = merged.get(bucket.rate) ?? { rate: bucket.rate, base: 0, tax: 0 };
+      target.base += bucket.base;
+      target.tax += bucket.tax;
+      merged.set(bucket.rate, target);
+    }
+  }
+  return merged;
+}
+
 export async function calculateSpanishFiscalSummary(companyId: string, code: SpanishFiscalModelCode, period: string): Promise<SpanishFiscalSummary> {
   const model = getSpanishFiscalModel(code);
   const range = parseSpanishFiscalPeriod(period, code);
@@ -514,17 +757,14 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
     throw new Error("Modelo o periodo fiscal español no soportado.");
   }
 
-  const [profile, issuedVat, supplierVat] = await Promise.all([
-    fetchFiscalAutomationProfile(companyId),
+  const profile = await fetchFiscalAutomationProfile(companyId);
+  const [issued, supplier, accountingBalances] = await Promise.all([
     fetchIssuedInvoiceVat(companyId, range.start, range.endExclusive),
-    fetchSupplierInvoiceVat(companyId, range.start, range.endExclusive),
+    fetchSupplierInvoiceVat(companyId, range.start, range.endExclusive, profile.prorrataPct),
+    fetchAccountingTaxBalances(companyId, range.start, range.endExclusive),
   ]);
-  const totals = totalsFromBuckets(issuedVat.buckets);
-  const inputTotals = totalsFromBuckets(supplierVat.buckets);
-  const deductibleInputTaxAmount = roundFiscalMoney((inputTotals.outputTaxAmount * profile.prorrataPct) / 100);
-  const nonDeductibleInputTaxAmount = roundFiscalMoney(inputTotals.outputTaxAmount - deductibleInputTaxAmount);
-  const withholdingTotals = totalsFromBuckets(issuedVat.withholdingBuckets);
-  const accountingBalances = await fetchAccountingTaxBalances(companyId, range.start, range.endExclusive);
+  const totals = computeModelo303Totals(issued, supplier);
+  const modelo303Boxes = buildModelo303Boxes(issued, supplier, { periodYear: range.start.getUTCFullYear() });
   const dueDate = getSpanishFiscalDueDate(period, code);
   const thirdPartyOperations =
     code === "347"
@@ -533,14 +773,28 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
           ...(await fetchSupplierThirdPartyOperations(companyId, range.start, range.endExclusive)),
         ].sort((left, right) => right.amount - left.amount)
       : undefined;
-  const settlementAmount = roundFiscalMoney(totals.outputTaxAmount - deductibleInputTaxAmount);
-  const outputVatReconciliation = reconcile(totals.outputTaxAmount, accountingBalances.outputVat);
-  const inputVatReconciliation = reconcile(deductibleInputTaxAmount, accountingBalances.inputVat);
-  const withholdingReconciliation = reconcile(withholdingTotals.outputTaxAmount, accountingBalances.withholdings);
-  const accountingBalanced = [outputVatReconciliation, inputVatReconciliation, withholdingReconciliation]
-    .every((line) => Math.abs(line.difference) < 0.01);
-  const modelo303Boxes = buildModelo303Boxes(issuedVat.buckets, deductibleInputTaxAmount, settlementAmount);
+
+  const modelo349 = code === "349" ? await fetchModelo349(companyId, range.start, range.endExclusive, period) : undefined;
+  const modelo130 = code === "130" ? await fetchModelo130(companyId, range.start, range.endExclusive, profile.prorrataPct) : undefined;
+
+  const practicedWithholdings = code === "111" ? supplier.professional : code === "115" ? supplier.rent : mergeBuckets(supplier.professional, supplier.rent);
+  const allPracticed = mergeBuckets(supplier.professional, supplier.rent);
+  const sum = (map: Map<number, { base: number; tax: number }>) => [...map.values()].reduce((acc, bucket) => ({ base: acc.base + bucket.base, tax: acc.tax + bucket.tax }), { base: 0, tax: 0 });
+  const practicedTotals = sum(practicedWithholdings);
+  const allPracticedTotals = sum(allPracticed);
+  const salesWithholdingTotals = sum(issued.withholdings);
+  const outputVatTotals = sum(issued.vat);
+  const inputTotals = sum(supplier.input);
+
+  const outputVatReconciliation = reconcile(centsToNumber(totals.accruedCents), accountingBalances.outputVat);
+  const inputVatReconciliation = reconcile(centsToNumber(totals.deductibleCents), accountingBalances.inputVat);
+  const withholdingReconciliation = reconcile(centsToNumber(allPracticedTotals.tax), accountingBalances.withholdings);
+  const salesWithholdingReconciliation = reconcile(centsToNumber(salesWithholdingTotals.tax), accountingBalances.salesWithholdings);
+  const accountingBalanced = [outputVatReconciliation, inputVatReconciliation, withholdingReconciliation, salesWithholdingReconciliation]
+    .every((line) => Math.abs(line.difference) < 0.005);
   const dueStatus = dueDate ? getFiscalDueStatus(dueDate) : null;
+  const buckets = bucketsToNumbers(issued.vat);
+  const inputBuckets = bucketsToNumbers(supplier.input);
 
   return {
     code,
@@ -553,20 +807,34 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
       start: range.start.toISOString(),
       endExclusive: range.endExclusive.toISOString(),
     },
-    salesInvoiceCount: issuedVat.invoiceIds.size,
-    supplierInvoiceCount: supplierVat.invoiceIds.size,
-    outputTaxBase: totals.outputTaxBase,
-    outputTaxAmount: totals.outputTaxAmount,
-    inputTaxBase: inputTotals.outputTaxBase,
-    inputTaxAmount: inputTotals.outputTaxAmount,
-    deductibleInputTaxAmount,
-    nonDeductibleInputTaxAmount,
-    settlementAmount,
-    withholdingBase: withholdingTotals.outputTaxBase,
-    withholdingAmount: withholdingTotals.outputTaxAmount,
-    buckets: issuedVat.buckets,
-    inputBuckets: supplierVat.buckets,
-    withholdingBuckets: issuedVat.withholdingBuckets,
+    salesInvoiceCount: issued.invoiceIds.size,
+    supplierInvoiceCount: supplier.invoiceIds.size,
+    outputTaxBase: centsToNumber(outputVatTotals.base),
+    outputTaxAmount: centsToNumber(totals.accruedCents),
+    domesticOutputTaxAmount: centsToNumber(totals.domesticOutputCents),
+    surchargeAmount: centsToNumber(totals.surchargeCents),
+    selfAssessedTaxAmount: centsToNumber(totals.selfAssessedCents),
+    inputTaxBase: centsToNumber(inputTotals.base),
+    inputTaxAmount: centsToNumber(inputTotals.tax),
+    deductibleInputTaxAmount: centsToNumber(totals.deductibleCents),
+    nonDeductibleInputTaxAmount: centsToNumber(inputTotals.tax - totals.deductibleCents),
+    settlementAmount: centsToNumber(totals.resultCents),
+    amountDue: code === "303" || code === "390"
+      ? centsToNumber(totals.resultCents)
+      : code === "111" || code === "115"
+        ? centsToNumber(practicedTotals.tax)
+        : code === "130" && modelo130
+          ? centsToNumber(modelo130.resultCents)
+          : null,
+    modelo349,
+    modelo130,
+    withholdingBase: centsToNumber(practicedTotals.base),
+    withholdingAmount: centsToNumber(practicedTotals.tax),
+    salesWithholdingAmount: centsToNumber(salesWithholdingTotals.tax),
+    buckets,
+    surchargeBuckets: bucketsToNumbers(issued.surcharge),
+    inputBuckets,
+    withholdingBuckets: bucketsToNumbers(practicedWithholdings),
     thirdPartyOperations,
     warnings: unsupportedWarnings(code),
     fiscalProfile: profile,
@@ -575,19 +843,24 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
       accountingBalanced,
       code,
       dueStatus,
+      issued,
       modelo303Boxes,
       profile,
+      supplier,
       thirdPartyOperations,
-      vatRates: [...issuedVat.buckets, ...supplierVat.buckets].map((bucket) => bucket.rate),
+      vatRates: [...buckets, ...inputBuckets].map((bucket) => bucket.rate),
+      modelo130,
+      modelo349,
     }),
     sourceDocuments: {
-      salesInvoices: issuedVat.documents,
-      supplierInvoices: supplierVat.documents,
+      salesInvoices: issued.documents,
+      supplierInvoices: supplier.documents,
     },
     accountingReconciliation: {
       outputVat: outputVatReconciliation,
       inputVat: inputVatReconciliation,
       withholdings: withholdingReconciliation,
+      salesWithholdings: salesWithholdingReconciliation,
       balanced: accountingBalanced,
     },
   };

@@ -46,7 +46,7 @@ describe("journal line balance validation", () => {
     expect(() => validateJournalLines([
       { accountId: "cash", debit: "abc", credit: "" },
       { accountId: "sales", debit: "", credit: "0" },
-    ])).toThrow("Importe invalido");
+    ])).toThrow("Importe inválido");
   });
 
   it("requires at least two active journal lines", () => {

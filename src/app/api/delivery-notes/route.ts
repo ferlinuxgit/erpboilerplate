@@ -5,7 +5,7 @@ import { z } from "zod";
 import { deliveryNote } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { convertOrderToDelivery } from "@/server/sales/service";
@@ -52,8 +52,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(converted, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo crear el albarán.";
-    return NextResponse.json({ message }, { status: message.includes("no encontrado") ? 404 : 400 });
+    return handleRouteError(error, "deliveryNote.create", "No se pudo crear el albarán.");
   }
-
 }

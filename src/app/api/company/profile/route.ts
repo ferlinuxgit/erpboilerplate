@@ -5,7 +5,7 @@ import { z } from "zod";
 import { company } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
@@ -78,23 +78,34 @@ export async function PUT(request: Request) {
   }
 
   const values = normalizePayload(parsed.data);
-  const [updated] = await db
-    .update(company)
-    .set({ ...values, updatedAt: new Date() })
-    .where(and(eq(company.id, auth.ctx.company.id), eq(company.tenantId, auth.ctx.tenant.id)))
-    .returning();
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(company)
+        .set({ ...values, updatedAt: new Date() })
+        .where(and(eq(company.id, auth.ctx.company.id), eq(company.tenantId, auth.ctx.tenant.id)))
+        .returning();
+      if (!row) return null;
 
-  if (!updated) return NextResponse.json({ message: "Empresa no encontrada." }, { status: 404 });
+      await recordAudit(
+        {
+          tenantId: auth.ctx.tenant.id,
+          companyId: auth.ctx.company.id,
+          actorUserId: auth.userId,
+          action: "company.profile.update",
+          entityName: "company",
+          entityId: auth.ctx.company.id,
+          // El logo en data URL puede ocupar cientos de KB: no se copia al payload de auditoría.
+          payload: { ...values, logoDataUrl: values.logoDataUrl ? "[logo]" : null },
+        },
+        tx,
+      );
+      return row;
+    });
 
-  await recordAudit({
-    tenantId: auth.ctx.tenant.id,
-    companyId: auth.ctx.company.id,
-    actorUserId: auth.userId,
-    action: "company.profile.update",
-    entityName: "company",
-    entityId: auth.ctx.company.id,
-    payload: values,
-  });
-
-  return NextResponse.json(updated);
+    if (!updated) return NextResponse.json({ message: "Empresa no encontrada." }, { status: 404 });
+    return NextResponse.json(updated);
+  } catch (error) {
+    return handleRouteError(error, "company.profile.update", "No se pudo guardar el perfil de la empresa.");
+  }
 }

@@ -2,20 +2,39 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { item, stockMovement, warehouse } from "@/db/schema";
-import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
-import { can } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
+import { handleRouteError, HttpError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { requirePermission } from "@/lib/rbac-server";
 import { type StockMovementType } from "@/server/inventory/movements";
 import { registerStockMovementOperation } from "@/server/inventory/stock-movement-service";
 
 const movementTypes: StockMovementType[] = ["IN", "OUT", "ADJUSTMENT", "TRANSFER"];
 
+// Errores de validación de dominio de `server/inventory` (mensajes pensados para el usuario).
+// Cualquier otro error (p. ej. de base de datos) se registra y se responde con un mensaje genérico.
+const DOMAIN_ERROR_PATTERN = /^(Stock insuficiente|La razón del movimiento|La referencia del movimiento|La cantidad|El almacén destino)/;
+
 export async function GET(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  try {
+    return await listStockMovements(request);
+  } catch (error) {
+    return handleRouteError(error, "stockMovement.list");
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    return await createStockMovement(request);
+  } catch (error) {
+    if (error instanceof Error && !(error instanceof HttpError) && DOMAIN_ERROR_PATTERN.test(error.message)) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    return handleRouteError(error, "stockMovement.create", "No se pudo registrar el movimiento.");
+  }
+}
+
+async function listStockMovements(request: Request) {
+  const { ctx } = await requirePermission("stock.read");
   const url = new URL(request.url);
   const itemId = url.searchParams.get("itemId");
   const warehouseId = url.searchParams.get("warehouseId");
@@ -50,11 +69,8 @@ export async function GET(request: Request) {
   return NextResponse.json(rows);
 }
 
-export async function POST(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "stock.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+async function createStockMovement(request: Request) {
+  const { ctx, user } = await requirePermission("stock.write", "Sin permisos para mover stock.");
 
   const payload = (await readJsonBody(request)) as {
     itemId?: string;
@@ -95,22 +111,17 @@ export async function POST(request: Request) {
   ]);
   if (!ownedItem[0] || ownedWarehouses.length !== new Set(warehouseIds).size) return NextResponse.json({ message: "Item o almacén inválido." }, { status: 404 });
 
-  let created;
-  try {
-    created = await registerStockMovementOperation({
-      companyId: ctx.company.id,
-      itemId: payload.itemId,
-      warehouseId: payload.warehouseId,
-      destinationWarehouseId: payload.destinationWarehouseId,
-      movementType: payload.movementType,
-      quantity: quantityNumber,
-      movedAt,
-      reason: payload.reason,
-      reference: payload.reference,
-    });
-  } catch (error) {
-    return NextResponse.json({ message: error instanceof Error ? error.message : "Movimiento inválido." }, { status: 400 });
-  }
+  const created = await registerStockMovementOperation({
+    companyId: ctx.company.id,
+    itemId: payload.itemId,
+    warehouseId: payload.warehouseId,
+    destinationWarehouseId: payload.destinationWarehouseId,
+    movementType: payload.movementType,
+    quantity: quantityNumber,
+    movedAt,
+    reason: payload.reason,
+    reference: payload.reference,
+  }, { tenantId: ctx.tenant.id, actorUserId: user.id });
 
   return NextResponse.json(created, { status: 201 });
 }

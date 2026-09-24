@@ -25,3 +25,11 @@ export function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 export function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return <td className={cn("border-r border-window-shadow/60 px-2 py-1.5 align-middle last:border-r-0", className)} {...props} />;
 }
+
+export function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
+  return <tfoot className={cn("border-t-2 border-window-dark-shadow bg-window-panel font-bold [&>tr]:last:border-b-0", className)} {...props} />;
+}
+
+export function TableCaption({ className, ...props }: React.ComponentProps<"caption">) {
+  return <caption className={cn("mt-2 text-left text-xs text-muted-foreground", className)} {...props} />;
+}

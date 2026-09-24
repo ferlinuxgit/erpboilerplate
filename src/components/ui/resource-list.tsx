@@ -2,29 +2,39 @@
 
 import {
   CaretDown,
+  CaretLeft,
+  CaretRight,
   CaretUp,
   CaretUpDown,
   DownloadSimple,
   FloppyDisk,
   Funnel,
   MagnifyingGlass,
+  Plus,
   SlidersHorizontal,
   Trash,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { buildListSearch, LIST_PARAM, type ServerListState } from "@/lib/list-params";
+import { cn } from "@/lib/utils";
+
+export type { ServerListState };
 
 export type ResourceListColumn<TItem> = {
   header: string;
@@ -33,6 +43,26 @@ export type ResourceListColumn<TItem> = {
   className?: string;
   exportValue?: (item: TItem) => string | number | null | undefined;
   sortValue?: (item: TItem) => string | number | Date | null | undefined;
+  /** Server mode: whitelisted sort key sent as `?sort=` (the column is sortable only if set). */
+  sortKey?: string;
+  /**
+   * Footer value computed over every filtered row (not only the current page), e.g. a sum of amounts.
+   * In server mode `rows` is only the current page: return a server-computed total instead.
+   */
+  summary?: (rows: TItem[]) => ReactNode;
+};
+
+export type ResourceListCreateAction = {
+  label: string;
+  href: string;
+  testId?: string;
+};
+
+export type ResourceListDateRange<TItem> = {
+  /** Label of the date being filtered, e.g. "Fecha de emisión". */
+  label: string;
+  /** Client mode only (server mode filters with `?from=&to=`). */
+  getValue?: (item: TItem) => string | Date | null | undefined;
 };
 
 export type ResourceListFilter<TItem> = {
@@ -40,14 +70,16 @@ export type ResourceListFilter<TItem> = {
   label: string;
   allLabel?: string;
   options: Array<{ label: string; value: string }>;
-  getValue: (item: TItem) => string | null | undefined;
+  /** Client mode only (server mode sends `?<key>=<value>`). */
+  getValue?: (item: TItem) => string | null | undefined;
 };
 
 type ResourceListProps<TItem> = {
   title: string;
   items: TItem[];
   columns: ResourceListColumn<TItem>[];
-  getSearchText: (item: TItem) => string;
+  /** Client mode only: text matched by the search box (server mode searches in SQL). */
+  getSearchText?: (item: TItem) => string;
   getRowId: (item: TItem) => string;
   emptyTitle: string;
   emptyDescription: string;
@@ -60,10 +92,75 @@ type ResourceListProps<TItem> = {
   pageSizeOptions?: number[];
   enableSelection?: boolean;
   filters?: ResourceListFilter<TItem>[];
+  /** Human name of a row for the selection checkbox ("Seleccionar F-2026/0001"). */
+  getRowLabel?: (item: TItem) => string;
+  /** Extra classes per row (e.g. highlight overdue invoices). */
+  getRowClassName?: (item: TItem) => string | undefined;
+  /** Primary "create" action shown in the toolbar and in the empty state. */
+  createAction?: ResourceListCreateAction;
+  /** Adds "desde / hasta" date inputs filtering by the given date. */
+  dateRange?: ResourceListDateRange<TItem>;
+  /** Actions for the selected rows, rendered in a bar above the table. */
+  bulkActions?: (selectedItems: TItem[], clearSelection: () => void) => ReactNode;
+  /** Label of the totals footer row. */
+  summaryLabel?: string;
+  /**
+   * Server mode: `items` is already the requested page (searched, filtered and sorted by
+   * the server). The list keeps the same UX but writes its state to the URL
+   * (`?q=&page=&pageSize=&sort=&dir=&from=&to=&<filter>=`) and the page re-renders.
+   * Omit for small lists (client-side filtering and pagination).
+   */
+  server?: ServerListState;
 };
 
 type SortDirection = "asc" | "desc";
-const defaultPageSizeOptions = [8, 16, 32];
+const defaultPageSizeOptions = [10, 25, 50, 100];
+const DATE_FROM_KEY = "date-from";
+const DATE_TO_KEY = "date-to";
+const SEARCH_DEBOUNCE_MS = 300;
+
+/** Server state → internal filter state (dates live under the client-mode keys). */
+function serverFiltersToState(server: ServerListState): Record<string, string> {
+  return {
+    ...server.filters,
+    ...(server.from ? { [DATE_FROM_KEY]: server.from } : {}),
+    ...(server.to ? { [DATE_TO_KEY]: server.to } : {}),
+  };
+}
+
+/** True when only the search text changed (typing resets the page too): debounce those. */
+export function isSearchOnlyChange(previous: string, next: string) {
+  const before = new URLSearchParams(previous);
+  const after = new URLSearchParams(next);
+  if (before.get(LIST_PARAM.q) === after.get(LIST_PARAM.q)) return false;
+  for (const params of [before, after]) {
+    params.delete(LIST_PARAM.q);
+    params.delete(LIST_PARAM.page);
+    params.sort();
+  }
+  return before.toString() === after.toString();
+}
+
+function toDateKey(value: string | Date | null | undefined) {
+  if (!value) return "";
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "" : value.toISOString().slice(0, 10);
+  return value.slice(0, 10);
+}
+
+/** Page numbers with ellipsis: 1 … 4 5 6 … 12 */
+export function paginationRange(current: number, total: number): Array<number | "…"> {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+  const pages = new Set([1, total, current - 1, current, current + 1].filter((page) => page >= 1 && page <= total));
+  if (current <= 3) [2, 3, 4].forEach((page) => pages.add(page));
+  if (current >= total - 2) [total - 3, total - 2, total - 1].forEach((page) => pages.add(page));
+  const sorted = [...pages].sort((left, right) => left - right);
+  const result: Array<number | "…"> = [];
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1] > 1) result.push("…");
+    result.push(page);
+  });
+  return result;
+}
 type SavedView = {
   name: string;
   searchQuery: string;
@@ -107,7 +204,7 @@ export function ResourceList<TItem>({
   getRowTestId,
   getSearchText,
   items,
-  pageSize = 8,
+  pageSize = 25,
   pageSizeOptions = defaultPageSizeOptions,
   renderMobileCard,
   searchPlaceholder,
@@ -116,15 +213,34 @@ export function ResourceList<TItem>({
   exportFileName,
   enableSelection = true,
   filters = [],
+  getRowLabel,
+  getRowClassName,
+  createAction,
+  dateRange,
+  bulkActions,
+  summaryLabel = "Total",
+  server,
 }: ResourceListProps<TItem>) {
+  const isServerMode = Boolean(server);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isNavigating, startNavigation] = useTransition();
   const sectionRef = useRef<HTMLElement>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [activePageSize, setActivePageSize] = useState(pageSize);
+  const selectPageRef = useRef<HTMLInputElement>(null);
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const listId = testId ?? "resource-list";
+  const sortHeaderFor = (sortKey: string | null | undefined) =>
+    sortKey ? columns.find((column) => column.sortKey === sortKey)?.header ?? null : null;
+  const [searchQuery, setSearchQuery] = useState(() => server?.q ?? "");
+  const [currentPage, setCurrentPage] = useState(() => server?.page ?? 1);
+  const [activePageSize, setActivePageSize] = useState(() => server?.pageSize ?? pageSize);
   const [sort, setSort] = useState<{
     header: string;
     direction: SortDirection;
-  } | null>(null);
+  } | null>(() => {
+    const header = sortHeaderFor(server?.sort);
+    return header && server ? { header, direction: server.dir } : null;
+  });
   const [visibleHeaders, setVisibleHeaders] = useState(
     () => new Set(columns.map((column) => column.header)),
   );
@@ -134,7 +250,7 @@ export function ResourceList<TItem>({
   const [showSaveView, setShowSaveView] = useState(false);
   const [activeViewName, setActiveViewName] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>(
-    {},
+    () => (server ? serverFiltersToState(server) : {}),
   );
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const storageKey = `erp-resource-list:${testId ?? title}`;
@@ -146,11 +262,15 @@ export function ResourceList<TItem>({
     .filter((column) => column.alwaysVisible)
     .map((column) => column.header)
     .join("\u001f");
-  const filterKeysKey = filters.map((filter) => filter.key).join("\u001f");
+  const filterKeysKey = [
+    ...filters.map((filter) => filter.key),
+    ...(dateRange ? [DATE_FROM_KEY, DATE_TO_KEY] : []),
+  ].join("\u001f");
   const urlPrefix = `rl-${testId ?? title.toLocaleLowerCase().replaceAll(/\s+/g, "-")}-`;
   const visibleColumns = columns.filter((column) =>
     column.alwaysVisible || visibleHeaders.has(column.header),
   );
+  const isSortable = (column: ResourceListColumn<TItem>) => (isServerMode ? Boolean(column.sortKey) : Boolean(column.sortValue));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -179,12 +299,15 @@ export function ResourceList<TItem>({
               ),
             );
           }
+          // In server mode the URL is the source of truth for the page size.
           if (
+            !isServerMode &&
             parsed.pageSize &&
             pageSizeOptionsKey.split(",").map(Number).includes(parsed.pageSize)
           )
             setActivePageSize(parsed.pageSize);
         }
+        if (isServerMode) return;
         const params = new URLSearchParams(window.location.search);
         const storedQuery = params.get(`${urlPrefix}q`);
         const storedSort = params.get(`${urlPrefix}sort`);
@@ -218,6 +341,7 @@ export function ResourceList<TItem>({
     columnHeadersKey,
     alwaysVisibleHeadersKey,
     filterKeysKey,
+    isServerMode,
     pageSizeOptionsKey,
     storageKey,
     urlPrefix,
@@ -241,8 +365,9 @@ export function ResourceList<TItem>({
     visibleHeaders,
   ]);
 
+  // Client mode: mirror the state in prefixed URL params without navigating.
   useEffect(() => {
-    if (!preferencesLoaded) return;
+    if (!preferencesLoaded || isServerMode) return;
     const params = new URLSearchParams(window.location.search);
     const setOrDelete = (
       key: string,
@@ -260,11 +385,8 @@ export function ResourceList<TItem>({
       `${urlPrefix}size`,
       activePageSize === pageSize ? null : activePageSize,
     );
-    for (const filter of filters)
-      setOrDelete(
-        `${urlPrefix}filter-${filter.key}`,
-        activeFilters[filter.key],
-      );
+    for (const key of filterKeysKey.split("\u001f").filter(Boolean))
+      setOrDelete(`${urlPrefix}filter-${key}`, activeFilters[key]);
     const query = params.toString();
     window.history.replaceState(
       window.history.state,
@@ -275,31 +397,123 @@ export function ResourceList<TItem>({
     activeFilters,
     activePageSize,
     currentPage,
-    filters,
+    filterKeysKey,
+    isServerMode,
     pageSize,
     preferencesLoaded,
     searchQuery,
     sort,
     urlPrefix,
   ]);
+
+  // Server mode: write the state to `?q=&page=…` and let the page re-render with the new rows.
+  // Typing is debounced; every other change navigates immediately.
+  const serverSortKey = sort ? columns.find((column) => column.header === sort.header)?.sortKey ?? null : null;
+  const serverSearch = isServerMode
+    ? buildListSearch(
+        "",
+        {
+          q: searchQuery,
+          page: currentPage,
+          pageSize: activePageSize,
+          defaultPageSize: pageSize,
+          sort: serverSortKey,
+          dir: sort?.direction ?? null,
+          from: activeFilters[DATE_FROM_KEY],
+          to: activeFilters[DATE_TO_KEY],
+          filters: activeFilters,
+        },
+        filters.map((filter) => filter.key),
+      )
+    : "";
+  const lastSearchRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isServerMode) return;
+    const managedKeys = new Set<string>([
+      ...Object.values(LIST_PARAM),
+      ...filterKeysKey.split("\u001f").filter(Boolean),
+    ]);
+    const current = new URLSearchParams(window.location.search);
+    const managedCurrent = new URLSearchParams([...current].filter(([key]) => managedKeys.has(key)));
+    managedCurrent.sort();
+    if (managedCurrent.toString() === serverSearch) {
+      lastSearchRef.current = serverSearch;
+      return;
+    }
+    const onlyQueryChanged = isSearchOnlyChange(lastSearchRef.current ?? managedCurrent.toString(), serverSearch);
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams([...current].filter(([key]) => !managedKeys.has(key)));
+      for (const [key, value] of new URLSearchParams(serverSearch)) next.set(key, value);
+      const query = next.toString();
+      lastSearchRef.current = serverSearch;
+      startNavigation(() => {
+        router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+      });
+    }, onlyQueryChanged ? SEARCH_DEBOUNCE_MS : 0);
+    return () => window.clearTimeout(timer);
+  }, [filterKeysKey, isServerMode, pathname, router, serverSearch]);
+
+  // Server mode: adopt URL changes made outside the list (links, back/forward, server clamping the page).
+  const serverStateKey = server ? JSON.stringify(server) : "";
+  useEffect(() => {
+    if (!server || isNavigating) return;
+    const receivedSearch = buildListSearch(
+      "",
+      {
+        q: server.q,
+        page: server.page,
+        pageSize: server.pageSize,
+        defaultPageSize: pageSize,
+        sort: server.sort,
+        dir: server.dir,
+        from: server.from,
+        to: server.to,
+        filters: server.filters,
+      },
+      filters.map((filter) => filter.key),
+    );
+    // Echo of our own navigation: the local state is already current (maybe newer, while typing).
+    if (receivedSearch === lastSearchRef.current) return;
+    const timer = window.setTimeout(() => {
+      lastSearchRef.current = receivedSearch;
+      setCurrentPage(server.page);
+      setActivePageSize(server.pageSize);
+      setActiveFilters(serverFiltersToState(server));
+      const header = columns.find((column) => server.sort && column.sortKey === server.sort)?.header;
+      setSort(header ? { header, direction: server.dir } : null);
+      setSearchQuery((current) => (current.trim() === server.q ? current : server.q));
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // `serverStateKey` captures every field of `server`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverStateKey, isNavigating]);
+
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredItems = useMemo(
     () =>
-      items.filter((item) => {
-        if (
-          normalizedQuery &&
-          !getSearchText(item).toLocaleLowerCase().includes(normalizedQuery)
-        )
-          return false;
-        return filters.every((filter) => {
-          const selected = activeFilters[filter.key];
-          return !selected || filter.getValue(item) === selected;
-        });
-      }),
-    [activeFilters, filters, getSearchText, items, normalizedQuery],
+      isServerMode
+        ? items
+        : items.filter((item) => {
+            if (
+              normalizedQuery &&
+              !(getSearchText?.(item) ?? "").toLocaleLowerCase().includes(normalizedQuery)
+            )
+              return false;
+            if (dateRange?.getValue && (activeFilters[DATE_FROM_KEY] || activeFilters[DATE_TO_KEY])) {
+              const date = toDateKey(dateRange.getValue(item));
+              if (!date) return false;
+              if (activeFilters[DATE_FROM_KEY] && date < activeFilters[DATE_FROM_KEY]) return false;
+              if (activeFilters[DATE_TO_KEY] && date > activeFilters[DATE_TO_KEY]) return false;
+            }
+            return filters.every((filter) => {
+              const selected = activeFilters[filter.key];
+              return !selected || !filter.getValue || filter.getValue(item) === selected;
+            });
+          }),
+    [activeFilters, dateRange, filters, getSearchText, isServerMode, items, normalizedQuery],
   );
   const sortedItems = useMemo(() => {
-    if (!sort) return filteredItems;
+    if (!sort || isServerMode) return filteredItems;
 
     const column = visibleColumns.find((entry) => entry.header === sort.header);
     if (!column?.sortValue) return filteredItems;
@@ -311,16 +525,22 @@ export function ResourceList<TItem>({
         leftValue > rightValue ? 1 : leftValue < rightValue ? -1 : 0;
       return sort.direction === "asc" ? result : -result;
     });
-  }, [filteredItems, sort, visibleColumns]);
+  }, [filteredItems, isServerMode, sort, visibleColumns]);
+  /** Rows matching search and filters (all pages). */
+  const matchingCount = server ? server.total : sortedItems.length;
+  /** Rows without search/filters. */
+  const recordCount = server ? server.unfilteredTotal : items.length;
   const totalPages = Math.max(
     1,
-    Math.ceil(sortedItems.length / activePageSize),
+    Math.ceil(matchingCount / activePageSize),
   );
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedItems = sortedItems.slice(
-    (safePage - 1) * activePageSize,
-    safePage * activePageSize,
-  );
+  const paginatedItems = isServerMode
+    ? sortedItems
+    : sortedItems.slice(
+        (safePage - 1) * activePageSize,
+        safePage * activePageSize,
+      );
   const hasSearch = searchQuery.trim().length > 0;
   const exportableColumns = visibleColumns.filter(
     (column) => column.exportValue,
@@ -329,6 +549,31 @@ export function ResourceList<TItem>({
     selectedIds.has(getRowId(item)),
   );
   const hasActiveFilters = Object.values(activeFilters).some(Boolean);
+  const summaryColumns = visibleColumns.filter((column) => column.summary);
+  const pageSelectedCount = paginatedItems.filter((item) => selectedIds.has(getRowId(item))).length;
+  const allPageSelected = paginatedItems.length > 0 && pageSelectedCount === paginatedItems.length;
+  const somePageSelected = pageSelectedCount > 0 && !allPageSelected;
+  const firstShown = matchingCount === 0 ? 0 : (safePage - 1) * activePageSize + 1;
+  const lastShown = Math.min(safePage * activePageSize, matchingCount);
+  const rowIdsOnPage = paginatedItems.map((item) => getRowId(item));
+  const focusableRowId = activeRowId && rowIdsOnPage.includes(activeRowId) ? activeRowId : rowIdsOnPage[0];
+  const rowLabel = (item: TItem, index: number) => getRowLabel?.(item) ?? `fila ${(safePage - 1) * activePageSize + index + 1}`;
+
+  useEffect(() => {
+    if (selectPageRef.current) selectPageRef.current.indeterminate = somePageSelected;
+  }, [somePageSelected]);
+
+  function setFilterValue(key: string, value: string) {
+    setActiveFilters((current) => ({ ...current, [key]: value }));
+    setCurrentPage(1);
+    setSelectedIds(new Set());
+    setActiveViewName("");
+  }
+
+  function goToPage(page: number) {
+    setCurrentPage(Math.min(Math.max(1, page), totalPages));
+    requestAnimationFrame(() => sectionRef.current?.querySelector<HTMLElement>("[data-resource-row]")?.scrollIntoView({ block: "nearest" }));
+  }
 
   function toggleSort(header: string) {
     setCurrentPage(1);
@@ -433,6 +678,12 @@ export function ResourceList<TItem>({
 
   function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, rowId: string) {
     if (event.target !== event.currentTarget) return;
+    if ((event.key === "PageDown" || event.key === "PageUp") && totalPages > 1) {
+      event.preventDefault();
+      goToPage(safePage + (event.key === "PageDown" ? 1 : -1));
+      requestAnimationFrame(() => sectionRef.current?.querySelector<HTMLElement>("[data-resource-row][tabindex='0']")?.focus());
+      return;
+    }
     const rows = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>("[data-resource-row]") ?? [])
       .filter((row) => row.getClientRects().length > 0);
     const currentIndex = rows.indexOf(event.currentTarget);
@@ -463,42 +714,56 @@ export function ResourceList<TItem>({
 
   return (
     <section
-      aria-describedby={`${testId ?? "resource-list"}-keyboard-help`}
+      aria-busy={isNavigating || undefined}
+      aria-describedby={`${listId}-keyboard-help`}
       className="min-w-0 space-y-2"
+      data-loading={isNavigating || undefined}
       data-testid={testId}
-      aria-labelledby={`${testId ?? "resource-list"}-title`}
+      aria-labelledby={`${listId}-title`}
       ref={sectionRef}
     >
-      <h3 className="sr-only" id={`${testId ?? "resource-list"}-title`}>
+      <h3 className="sr-only" id={`${listId}-title`}>
         {title}
       </h3>
-      <p className="sr-only" id={`${testId ?? "resource-list"}-keyboard-help`}>
-        Pulsa Alt F para buscar. En las filas usa flecha arriba y abajo para moverte, Enter para abrir y Espacio para seleccionar.
+      <p className="sr-only" id={`${listId}-keyboard-help`}>
+        Pulsa Alt F para buscar. En las filas usa flecha arriba y abajo para moverte, Enter para abrir, Espacio para seleccionar y Av Pág o Re Pág para cambiar de página.
       </p>
       <div className="w-full overflow-visible rounded-[2px] border border-window-dark-shadow bg-card p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">
         <div className="mb-1.5 flex min-h-5 flex-wrap items-center justify-between gap-1">
           <p
-            className="font-mono text-[0.7rem] font-medium text-foreground"
+            className="font-mono text-[0.7rem] font-bold text-foreground"
             aria-live="polite"
-            data-testid={`${testId ?? "resource-list"}-summary`}
+            data-testid={`${listId}-summary`}
           >
             <span className="font-semibold tabular-nums">
-              {sortedItems.length}
+              {matchingCount}
             </span>
             <span className="text-muted-foreground">
-              {" "}de {items.length} registros
+              {" "}de {recordCount} registros
             </span>
           </p>
-          {selectedItems.length > 0 ? (
-            <p
-              aria-live="polite"
-              className="border border-window-dark-shadow bg-primary px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-primary-foreground"
-            >
-              {selectedItems.length} seleccionados
-            </p>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-1">
+            {selectedItems.length > 0 ? (
+              <p
+                aria-live="polite"
+                className="border border-window-dark-shadow bg-primary px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-primary-foreground"
+              >
+                {selectedItems.length} seleccionados
+              </p>
+            ) : null}
+            {createAction && recordCount > 0 ? (
+              <Link
+                className={buttonVariants({ size: "sm" })}
+                data-testid={createAction.testId}
+                href={createAction.href}
+              >
+                <Plus aria-hidden="true" />
+                {createAction.label}
+              </Link>
+            ) : null}
+          </div>
         </div>
-        {items.length > 0 ? (
+        {recordCount > 0 ? (
           <div className="flex w-full min-w-0 flex-col gap-1.5">
             <div className="grid min-w-0 gap-1.5 lg:grid-cols-[minmax(14rem,1fr)_auto]">
               <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row">
@@ -532,7 +797,7 @@ export function ResourceList<TItem>({
                 ) : null}
                 <label
                   className="sr-only"
-                  htmlFor={`${testId ?? "resource-list"}-search`}
+                  htmlFor={`${listId}-search`}
                 >
                   Buscar en {title}
                 </label>
@@ -545,7 +810,7 @@ export function ResourceList<TItem>({
                     aria-keyshortcuts="Alt+F Escape"
                     className="h-8 pl-8 pr-8"
                     data-resource-search
-                    id={`${testId ?? "resource-list"}-search`}
+                    id={`${listId}-search`}
                     placeholder={
                       searchPlaceholder ??
                       `Buscar en ${title.toLocaleLowerCase()}`
@@ -585,9 +850,11 @@ export function ResourceList<TItem>({
                     aria-label={
                       selectedItems.length > 0
                         ? `Exportar ${selectedItems.length} registros seleccionados`
-                        : "Exportar registros visibles"
+                        : isServerMode
+                          ? "Exportar los registros de esta página"
+                          : "Exportar registros visibles"
                     }
-                    disabled={sortedItems.length === 0}
+                    disabled={paginatedItems.length === 0}
                     onClick={() =>
                       exportRows(
                         selectedItems.length > 0 ? selectedItems : sortedItems,
@@ -597,7 +864,9 @@ export function ResourceList<TItem>({
                     title={
                       selectedItems.length > 0
                         ? `Exportar ${selectedItems.length} seleccionados`
-                        : "Exportar registros"
+                        : isServerMode
+                          ? "Exportar esta página"
+                          : "Exportar registros"
                     }
                     type="button"
                     variant="outline"
@@ -663,13 +932,13 @@ export function ResourceList<TItem>({
                 <div className="min-w-24 flex-1 sm:flex-none">
                   <label
                     className="sr-only"
-                    htmlFor={`${testId ?? "resource-list"}-page-size`}
+                    htmlFor={`${listId}-page-size`}
                   >
                     Registros por página
                   </label>
                   <Select
                     className="h-9"
-                    id={`${testId ?? "resource-list"}-page-size`}
+                    id={`${listId}-page-size`}
                     onChange={(event) => {
                       setActivePageSize(Number(event.target.value));
                       setCurrentPage(1);
@@ -678,7 +947,7 @@ export function ResourceList<TItem>({
                   >
                     {pageSizeOptions.map((option) => (
                       <option key={option} value={option}>
-                        {option}/pág.
+                        {option} por página
                       </option>
                     ))}
                   </Select>
@@ -712,7 +981,7 @@ export function ResourceList<TItem>({
                 </Button>
               </div>
             ) : null}
-            {filters.length > 0 ? (
+            {filters.length > 0 || dateRange ? (
               <div className="flex w-full flex-col gap-1.5 border border-window-shadow bg-window-panel p-2 lg:flex-row lg:items-end">
                 <div className="flex min-h-8 shrink-0 items-center gap-1.5 font-mono text-xs font-bold text-foreground lg:pr-1">
                   <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-primary shadow-[inset_1px_1px_0_var(--window-highlight)]">
@@ -731,15 +1000,7 @@ export function ResourceList<TItem>({
                       </span>
                       <Select
                         className="h-8 bg-window-highlight"
-                        onChange={(event) => {
-                          setActiveFilters((current) => ({
-                            ...current,
-                            [filter.key]: event.target.value,
-                          }));
-                          setCurrentPage(1);
-                          setSelectedIds(new Set());
-                          setActiveViewName("");
-                        }}
+                        onChange={(event) => setFilterValue(filter.key, event.target.value)}
                         value={activeFilters[filter.key] ?? ""}
                       >
                         <option value="">
@@ -754,6 +1015,37 @@ export function ResourceList<TItem>({
                       </Select>
                     </label>
                   ))}
+                  {dateRange ? (
+                    <fieldset className="flex min-w-0 flex-1 gap-1.5 sm:min-w-64 sm:max-w-80">
+                      <legend className="sr-only">{dateRange.label}</legend>
+                      <label className="min-w-0 flex-1 space-y-0.5">
+                        <span className="block font-mono text-[0.6rem] font-bold uppercase tracking-[0.05em] text-muted-foreground">
+                          {dateRange.label}: desde
+                        </span>
+                        <Input
+                          className="h-8"
+                          data-testid={`${listId}-date-from`}
+                          max={activeFilters[DATE_TO_KEY] || undefined}
+                          onChange={(event) => setFilterValue(DATE_FROM_KEY, event.target.value)}
+                          type="date"
+                          value={activeFilters[DATE_FROM_KEY] ?? ""}
+                        />
+                      </label>
+                      <label className="min-w-0 flex-1 space-y-0.5">
+                        <span className="block font-mono text-[0.6rem] font-bold uppercase tracking-[0.05em] text-muted-foreground">
+                          hasta
+                        </span>
+                        <Input
+                          className="h-8"
+                          data-testid={`${listId}-date-to`}
+                          min={activeFilters[DATE_FROM_KEY] || undefined}
+                          onChange={(event) => setFilterValue(DATE_TO_KEY, event.target.value)}
+                          type="date"
+                          value={activeFilters[DATE_TO_KEY] ?? ""}
+                        />
+                      </label>
+                    </fieldset>
+                  ) : null}
                 </div>
                 {hasActiveFilters || hasSearch || sort ? (
                   <Button
@@ -771,6 +1063,20 @@ export function ResourceList<TItem>({
             ) : null}
           </div>
         ) : null}
+        {bulkActions && selectedItems.length > 0 ? (
+          <div
+            aria-label="Acciones sobre la selección"
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5"
+            role="toolbar"
+          >
+            <span className="font-mono text-[0.7rem] font-bold">Con {selectedItems.length} seleccionados:</span>
+            {bulkActions(selectedItems, () => setSelectedIds(new Set()))}
+            <Button className="ml-auto" onClick={() => setSelectedIds(new Set())} size="sm" type="button" variant="ghost">
+              <X aria-hidden="true" />
+              Quitar selección
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {paginatedItems.length === 0 ? (
@@ -786,6 +1092,16 @@ export function ResourceList<TItem>({
               ? `Ningún registro coincide con ${hasSearch && hasActiveFilters ? "la búsqueda y los filtros" : hasSearch ? "la búsqueda" : "los filtros"} aplicados.`
               : emptyDescription}
           </p>
+          {!hasSearch && !hasActiveFilters && createAction ? (
+            <Link
+              className={cn(buttonVariants(), "mt-2")}
+              data-testid={createAction.testId ? `${createAction.testId}-empty` : undefined}
+              href={createAction.href}
+            >
+              <Plus aria-hidden="true" />
+              {createAction.label}
+            </Link>
+          ) : null}
           {hasSearch || hasActiveFilters ? (
             <Button
               className="mt-2"
@@ -801,20 +1117,17 @@ export function ResourceList<TItem>({
         </div>
       ) : (
         <>
-          <div className="hidden overflow-x-auto border border-window-dark-shadow bg-card md:block">
+          <div className={cn("hidden max-h-[max(24rem,calc(100dvh-13rem))] overflow-auto border border-window-dark-shadow bg-card md:block", isNavigating && "opacity-60 motion-safe:transition-opacity")}>
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 shadow-[0_1px_0_var(--window-dark-shadow)]">
                 <TableRow>
                   {enableSelection ? (
                     <TableHead className="w-10">
                       <input
-                        aria-label="Seleccionar página"
-                        checked={
-                          paginatedItems.length > 0 &&
-                          paginatedItems.every((item) =>
-                            selectedIds.has(getRowId(item)),
-                          )
-                        }
+                        aria-checked={somePageSelected ? "mixed" : allPageSelected}
+                        aria-label={`Seleccionar las ${paginatedItems.length} filas de esta página`}
+                        checked={allPageSelected}
+                        ref={selectPageRef}
                         onChange={(event) =>
                           setSelectedIds((current) => {
                             const next = new Set(current);
@@ -842,7 +1155,7 @@ export function ResourceList<TItem>({
                       className={column.className}
                       key={column.header}
                     >
-                      {column.sortValue ? (
+                      {isSortable(column) ? (
                         <button
                           className="inline-flex items-center gap-1 hover:text-foreground"
                           onClick={() => toggleSort(column.header)}
@@ -876,17 +1189,23 @@ export function ResourceList<TItem>({
                 {paginatedItems.map((item, index) => (
                   <TableRow
                     aria-keyshortcuts="ArrowUp ArrowDown Home End Enter Space"
-                    className="focus-visible:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+                    aria-selected={enableSelection ? selectedIds.has(getRowId(item)) : undefined}
+                    className={cn(
+                      "focus-visible:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
+                      selectedIds.has(getRowId(item)) && "bg-primary/10",
+                      getRowClassName?.(item),
+                    )}
                     data-resource-row
                     data-testid={getRowTestId?.(item)}
                     key={getRowId(item)}
+                    onFocus={() => setActiveRowId(getRowId(item))}
                     onKeyDown={(event) => handleRowKeyDown(event, getRowId(item))}
-                    tabIndex={index === 0 ? 0 : -1}
+                    tabIndex={getRowId(item) === focusableRowId ? 0 : -1}
                   >
                     {enableSelection ? (
                       <TableCell>
                         <input
-                          aria-label={`Seleccionar ${getRowId(item)}`}
+                          aria-label={`Seleccionar ${rowLabel(item, index)}`}
                           checked={selectedIds.has(getRowId(item))}
                           onChange={() => toggleSelection(getRowId(item))}
                           type="checkbox"
@@ -904,24 +1223,50 @@ export function ResourceList<TItem>({
                   </TableRow>
                 ))}
               </TableBody>
+              {summaryColumns.length > 0 ? (
+                <TableFooter className="sticky bottom-0 z-10" data-testid={`${listId}-totals`}>
+                  <TableRow className="hover:bg-transparent">
+                    {enableSelection ? <TableCell /> : null}
+                    {visibleColumns.map((column, columnIndex) => (
+                      <TableCell className={column.className} key={column.header}>
+                        {column.summary ? (
+                          <span className="tabular-nums">{column.summary(sortedItems)}</span>
+                        ) : columnIndex === 0 ? (
+                          <span className="text-[0.68rem] uppercase tracking-[0.04em]">
+                            {summaryLabel} ({matchingCount})
+                          </span>
+                        ) : null}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableFooter>
+              ) : null}
             </Table>
           </div>
 
           <div
-            className="grid gap-2 md:hidden"
+            className={cn("grid gap-2 md:hidden", isNavigating && "opacity-60")}
             data-testid="resource-list-mobile"
           >
-            {paginatedItems.map((item, index) => (
+            {paginatedItems.map((item) => (
               <article
                 aria-keyshortcuts="ArrowUp ArrowDown Home End Enter Space"
-                className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                aria-label={getRowLabel?.(item)}
+                className={cn(
+                  "border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+                  selectedIds.has(getRowId(item)) && "outline-2 outline-primary",
+                  getRowClassName?.(item),
+                )}
                 data-resource-row
                 data-testid={
                   getRowTestId ? `${getRowTestId(item)}-mobile` : undefined
                 }
                 key={getRowId(item)}
+                onFocus={(event) => {
+                  if (event.target === event.currentTarget) setActiveRowId(getRowId(item));
+                }}
                 onKeyDown={(event) => handleRowKeyDown(event, getRowId(item))}
-                tabIndex={index === 0 ? 0 : -1}
+                tabIndex={getRowId(item) === focusableRowId ? 0 : -1}
               >
                 {renderMobileCard ? (
                   renderMobileCard(item)
@@ -944,35 +1289,83 @@ export function ResourceList<TItem>({
                 )}
               </article>
             ))}
+            {summaryColumns.length > 0 ? (
+              <dl className="space-y-1 border border-window-dark-shadow bg-window-panel p-2.5 font-mono text-xs">
+                <div className="flex justify-between gap-3 font-bold uppercase">
+                  <dt>{summaryLabel}</dt>
+                  <dd>{matchingCount} registros</dd>
+                </div>
+                {summaryColumns.map((column) => (
+                  <div className="flex justify-between gap-3" key={column.header}>
+                    <dt className="text-muted-foreground">{column.header}</dt>
+                    <dd className="font-bold tabular-nums">{column.summary?.(sortedItems)}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
           </div>
         </>
       )}
 
-      {sortedItems.length > activePageSize ? (
-        <div className="flex items-center justify-between gap-2 border-t border-window-shadow pt-2">
-          <p className="font-mono text-xs text-muted-foreground">
-            Página {safePage} de {totalPages}
+      {matchingCount > 0 ? (
+        <div className="flex flex-col gap-2 border-t border-window-shadow pt-2 sm:flex-row sm:items-center sm:justify-between">
+          <p aria-live="polite" className="font-mono text-xs text-muted-foreground" data-testid={`${listId}-range`}>
+            Mostrando <span className="font-bold text-foreground tabular-nums">{firstShown}–{lastShown}</span> de{" "}
+            <span className="font-bold text-foreground tabular-nums">{matchingCount}</span>
           </p>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              disabled={safePage === 1}
-            >
-              Anterior
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setCurrentPage((page) => Math.min(totalPages, page + 1))
-              }
-              disabled={safePage === totalPages}
-            >
-              Siguiente
-            </Button>
-          </div>
+          {totalPages > 1 ? (
+            <nav aria-label={`Paginación de ${title.toLocaleLowerCase()}`}>
+              <ul className="flex flex-wrap items-center gap-1">
+                <li>
+                  <Button
+                    aria-label="Página anterior"
+                    disabled={safePage === 1}
+                    onClick={() => goToPage(safePage - 1)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <CaretLeft aria-hidden="true" />
+                    <span className="max-sm:sr-only">Anterior</span>
+                  </Button>
+                </li>
+                {paginationRange(safePage, totalPages).map((page, index) =>
+                  page === "…" ? (
+                    <li aria-hidden="true" className="px-1 font-mono text-xs text-muted-foreground" key={`gap-${index}`}>
+                      …
+                    </li>
+                  ) : (
+                    <li key={page}>
+                      <Button
+                        aria-current={page === safePage ? "page" : undefined}
+                        aria-label={`Página ${page}`}
+                        className="min-w-7 tabular-nums"
+                        onClick={() => goToPage(page)}
+                        size="sm"
+                        type="button"
+                        variant={page === safePage ? "default" : "outline"}
+                      >
+                        {page}
+                      </Button>
+                    </li>
+                  ),
+                )}
+                <li>
+                  <Button
+                    aria-label="Página siguiente"
+                    disabled={safePage === totalPages}
+                    onClick={() => goToPage(safePage + 1)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <span className="max-sm:sr-only">Siguiente</span>
+                    <CaretRight aria-hidden="true" />
+                  </Button>
+                </li>
+              </ul>
+            </nav>
+          ) : null}
         </div>
       ) : null}
     </section>

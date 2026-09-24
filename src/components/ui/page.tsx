@@ -1,4 +1,4 @@
-import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
+import { ArrowLeft, CaretRight } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 import type { HTMLAttributes, ReactNode } from "react";
 
@@ -17,8 +17,15 @@ type PageShellProps = {
   className?: string;
 };
 
+export type Breadcrumb = {
+  label: string;
+  href?: string;
+};
+
 type PageHeaderProps = {
   title: string;
+  /** Trail from the module to the current record; the last item is the current page. */
+  breadcrumbs?: Breadcrumb[];
   description?: ReactNode;
   eyebrow?: string;
   meta?: ReactNode;
@@ -90,9 +97,37 @@ export function PageShell({ children, className }: PageShellProps) {
   );
 }
 
+export function Breadcrumbs({ className, items }: { className?: string; items: Breadcrumb[] }) {
+  if (items.length === 0) return null;
+  return (
+    <nav aria-label="Migas de pan" className={cn("min-w-0", className)}>
+      <ol className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 font-mono text-[0.66rem] text-muted-foreground">
+        {items.map((item, index) => {
+          const isCurrent = index === items.length - 1;
+          return (
+            <li className="flex min-w-0 items-center gap-1" key={`${item.label}-${index}`}>
+              {index > 0 ? <CaretRight aria-hidden="true" className="size-2.5 shrink-0" /> : null}
+              {isCurrent || !item.href ? (
+                <span aria-current={isCurrent ? "page" : undefined} className={cn("truncate", isCurrent && "font-bold text-foreground")}>
+                  {item.label}
+                </span>
+              ) : (
+                <Link className="truncate underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" href={item.href}>
+                  {item.label}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
 export function PageHeader({
   actions,
   backHref,
+  breadcrumbs,
   backLabel = "Volver",
   className,
   description,
@@ -109,9 +144,10 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0 space-y-1">
-        {backHref || eyebrow || meta ? (
+        {breadcrumbs?.length ? <Breadcrumbs items={breadcrumbs} /> : null}
+        {(backHref && !breadcrumbs?.length) || eyebrow || meta ? (
           <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            {backHref ? (
+            {backHref && !breadcrumbs?.length ? (
               <Link
                 className={cn(
                   buttonVariants({ variant: "link", size: "xs" }),

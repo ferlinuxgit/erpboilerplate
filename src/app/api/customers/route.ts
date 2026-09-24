@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 
 import { customer, partner } from "@/db/schema";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
-import { logger } from "@/lib/logger";
+import { recordAudit } from "@/server/audit";
 import { createCustomerWithPartner } from "@/server/customers/service";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
@@ -64,13 +64,25 @@ export async function POST(request: Request) {
   }
 
   try {
-    const createdCustomer = await db.transaction((tx) =>
-      createCustomerWithPartner(tx, actor.context.company.id, parsedPayload.data),
-    );
+    const createdCustomer = await db.transaction(async (tx) => {
+      const created = await createCustomerWithPartner(tx, actor.context.company.id, parsedPayload.data);
+      await recordAudit(
+        {
+          tenantId: actor.context.tenant.id,
+          companyId: actor.context.company.id,
+          actorUserId: actor.actorUserId,
+          action: "customer.create",
+          entityName: "customer",
+          entityId: created.id,
+          payload: { ...parsedPayload.data, number: created.number, partnerId: created.partnerId },
+        },
+        tx,
+      );
+      return created;
+    });
 
     return NextResponse.json(createdCustomer, { status: 201 });
   } catch (error) {
-    logger.error({ error }, "customer.create_failed");
-    return NextResponse.json({ message: "No se pudo crear el cliente. Revisa si el CIF/NIF ya existe o si hay migraciones pendientes." }, { status: 500 });
+    return handleRouteError(error, "customer.create", "No se pudo crear el cliente. Revisa si el CIF/NIF ya existe o si hay migraciones pendientes.");
   }
 }

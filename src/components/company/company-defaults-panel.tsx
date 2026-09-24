@@ -5,7 +5,8 @@ import { CheckCircle as CheckCircle2, GearSix as Settings2, Warning as TriangleA
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { cn } from "@/lib/utils";
 import type { CompanyDefaultsStatus } from "@/server/company/defaults";
@@ -23,24 +24,27 @@ function isCompanyDefaultsStatus(value: unknown): value is CompanyDefaultsStatus
 export function CompanyDefaultsPanel({ canRepair = true, compact = false, initialStatus }: CompanyDefaultsPanelProps) {
   const [status, setStatus] = useState(initialStatus);
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const ready = status.ready;
 
-  const repair = async () => {
+  const repair = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setLoading(true);
+    setFormError(null);
     try {
       const response = await fetch("/api/company/defaults", {
         method: "POST",
         headers: getCsrfHeader(),
       });
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo reparar la configuración."));
       const payload = (await response.json().catch(() => null)) as unknown;
-      if (!response.ok || !isCompanyDefaultsStatus(payload)) {
-        const message = payload && typeof payload === "object" && "message" in payload ? String(payload.message) : null;
-        throw new Error(message ?? "No se pudo reparar la configuración.");
-      }
+      if (!isCompanyDefaultsStatus(payload)) throw new Error("La respuesta del servidor no es válida. Recarga la página e inténtalo de nuevo.");
       setStatus(payload);
-      toast.success("Configuración revisada.");
+      toast.success(payload.ready ? "Plantilla reparada: la configuración base está completa." : "Configuración revisada. Aún quedan elementos pendientes.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error inesperado.");
+      const message = errorMessage(error, "No se pudo reparar la configuración.");
+      setFormError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -48,8 +52,8 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
 
   if (status.preset === "UNSUPPORTED") {
     return (
-      <div className="rounded-[2px] border bg-muted/20 p-3 text-sm text-muted-foreground">
-        No hay una plantilla automatica para el pais de esta empresa.
+      <div className="border border-dashed border-window-dark-shadow bg-window-panel p-3 text-xs text-muted-foreground">
+        No hay una plantilla automática para el país de esta empresa. Revisa los maestros y el plan contable manualmente.
       </div>
     );
   }
@@ -57,7 +61,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
   return (
     <div
       className={cn(
-        "rounded-[2px] border p-3",
+        "border p-3 shadow-[inset_1px_1px_0_var(--window-highlight)]",
         ready ? "border-success bg-success/10" : "border-warning bg-warning/10",
       )}
     >
@@ -65,9 +69,9 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
         <div className="min-w-0 space-y-2">
           <div className="flex items-center gap-2">
             {ready ? <CheckCircle2 aria-hidden="true" className="size-5 text-success" /> : <TriangleAlert aria-hidden="true" className="size-5 text-warning" />}
-            <p className="font-medium">{ready ? "Plantilla completa" : "Plantilla incompleta"}</p>
+            <p className="font-mono text-sm font-bold">{ready ? "Plantilla completa" : "Plantilla incompleta"}</p>
           </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">
+          <p className="max-w-3xl text-xs text-muted-foreground">
             {ready
               ? `La empresa tiene aplicada la plantilla ${status.label} y puede operar con sus ajustes base.`
               : `Faltan ${status.missingCount} de ${status.totalCount} elementos de la plantilla ${status.label}.`}
@@ -75,14 +79,17 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {!ready && canRepair ? (
-            <Button disabled={loading} onClick={repair} type="button">
-              <Wrench />
-              {loading ? "Reparando…" : "Reparar automáticamente"}
-            </Button>
+            <form className="space-y-2" onSubmit={repair}>
+              <SubmitButton pending={loading} pendingLabel="Reparando…">
+                <Wrench aria-hidden="true" />
+                Reparar automáticamente
+              </SubmitButton>
+              <FormErrorMessage>{formError}</FormErrorMessage>
+            </form>
           ) : null}
           {!ready && !canRepair ? (
             <Link className={buttonVariants({ variant: "outline" })} href="/settings/masters">
-              <Settings2 />
+              <Settings2 aria-hidden="true" />
               Revisar maestros
             </Link>
           ) : null}
@@ -90,16 +97,16 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
       </div>
 
       {!compact || !ready ? (
-        <details className="mt-4 rounded-[2px] border border-window-dark-shadow bg-background/70">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+        <details className="mt-4 border border-window-dark-shadow bg-window-panel">
+          <summary className="cursor-pointer px-3 py-2 font-mono text-xs font-bold">
             {ready ? "Ver detalle de configuración" : "Ver elementos pendientes"}
           </summary>
-          <div className="grid gap-2 border-t p-3 md:grid-cols-2">
+          <div className="grid gap-2 border-t border-window-shadow p-3 md:grid-cols-2">
             {status.groups.map((group) => (
-              <div className="rounded-[2px] border border-window-shadow bg-card p-3" key={group.key}>
+              <div className="border border-window-shadow bg-card p-3" key={group.key}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium">{group.label}</p>
+                    <p className="font-mono text-xs font-bold">{group.label}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{group.description}</p>
                   </div>
                   <span
@@ -121,7 +128,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
                           {item.label}
                         </li>
                       ))}
-                    {group.missingCount > 6 ? <li>{group.missingCount - 6} elementos mas</li> : null}
+                    {group.missingCount > 6 ? <li>{group.missingCount - 6} elementos más</li> : null}
                   </ul>
                 ) : null}
               </div>

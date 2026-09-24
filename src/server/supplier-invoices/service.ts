@@ -19,12 +19,19 @@ import {
 } from "@/db/schema";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
 import { buildSupplierIdentityKey, normalizeSupplierDocumentNumber, normalizeTaxIdentity } from "@/lib/expense-dedup";
+import {
+  isSelfAssessedTreatment,
+  resolveSupplierVatTreatment,
+  reverseChargeTaxAmount,
+  type SupplierVatTreatment,
+} from "@/lib/fiscal-spain";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { postSupplierInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { reservePartnerNumber } from "@/server/partners/numbers";
+import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
 
 export type SupplierInvoiceOrigin = "PURCHASE" | "EXPENSE";
 
@@ -64,6 +71,8 @@ export type CreatePurchaseSupplierInvoiceInput = {
   attachments?: SupplierInvoiceAttachmentInput[];
   currencyCode?: string;
   idempotencyKey?: string;
+  /** Tratamiento de IVA; si no se indica se deduce del país del proveedor. */
+  vatTreatment?: SupplierVatTreatment;
 };
 
 export type CreateExpenseInvoiceInput = {
@@ -94,11 +103,9 @@ export type CreateExpenseInvoiceInput = {
   ocrJobId?: string;
   currencyCode?: string;
   idempotencyKey?: string;
+  /** Tratamiento de IVA; si no se indica se deduce del país del proveedor. */
+  vatTreatment?: SupplierVatTreatment;
 };
-
-function roundMoney(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
 
 function clampPct(value: number | undefined, fallback: number) {
   const pct = value ?? fallback;
@@ -128,43 +135,106 @@ function sanitizeAttachments(attachments: SupplierInvoiceAttachmentInput[] | und
     .slice(0, 10);
 }
 
-function buildLineValues(invoiceId: string, lines: SupplierInvoiceLineInput[], fallbackExpenseAccountId?: string) {
-  return lines.map((line) => {
-    const quantity = line.quantity;
-    const unitPrice = line.unitPrice;
-    const taxRate = clampPct(line.taxRate, 21);
-    const taxDeductiblePct = clampPct(line.taxDeductiblePct, 100);
-    const retentionRate = clampPct(line.retentionRate, 0);
-    const subtotalAmount = roundMoney(quantity * unitPrice);
-    const taxAmount = roundMoney((subtotalAmount * taxRate) / 100);
-    const retentionAmount = roundMoney((subtotalAmount * retentionRate) / 100);
-    const lineTotal = roundMoney(subtotalAmount + taxAmount - retentionAmount);
+export type SupplierInvoiceLineAmounts = {
+  taxRate: number;
+  taxDeductiblePct: number;
+  retentionRate: number;
+  subtotalAmount: number;
+  /** Cuota de IVA de la línea al tipo indicado (en autorepercusión, la que figura en la línea). */
+  taxAmount: number;
+  retentionAmount: number;
+  /** Importe de la línea a pagar al proveedor. */
+  lineTotal: number;
+};
 
+export type SupplierInvoiceAmounts = {
+  vatTreatment: SupplierVatTreatment;
+  lines: SupplierInvoiceLineAmounts[];
+  subtotalAmount: number;
+  /** IVA soportado; en autorepercusión (intracomunitaria / ISP) es la cuota autorrepercutida. */
+  taxAmount: number;
+  retentionAmount: number;
+  /** Total a pagar al proveedor (en autorepercusión excluye el IVA: base − retención). */
+  totalAmount: number;
+};
+
+/**
+ * Importes de una factura recibida con el motor fiscal único (céntimos enteros).
+ * - Base por línea redondeada a céntimos; IVA y retención por tipo sobre la suma de bases.
+ * - Autorepercusión (INTRA_EU / REVERSE_CHARGE): el proveedor no cobra el IVA. El total a pagar es
+ *   base − retención y la cuota (por línea, con la semántica de `reverseChargeTaxAmount`) coincide
+ *   con la del asiento automático (477/472) y con el modelo 303.
+ */
+export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[], vatTreatment: SupplierVatTreatment): SupplierInvoiceAmounts {
+  const selfAssessed = isSelfAssessedTreatment(vatTreatment);
+  const rates = lines.map((line) => ({
+    taxRate: clampPct(line.taxRate, 21),
+    taxDeductiblePct: clampPct(line.taxDeductiblePct, 100),
+    retentionRate: clampPct(line.retentionRate, 0),
+  }));
+  const document = computeEngineDocument(lines.map((line, index) => ({
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    taxes: legacyLineTaxes(rates[index]),
+  })));
+
+  const lineAmounts = document.lines.map((result, index) => ({
+    ...rates[index],
+    subtotalAmount: centsToNumber(result.baseCents),
+    taxAmount: centsToNumber(result.taxCents),
+    retentionAmount: centsToNumber(result.retentionCents),
+    lineTotal: centsToNumber(selfAssessed ? result.baseCents - result.retentionCents : result.totalCents),
+  }));
+
+  if (!selfAssessed) {
+    return {
+      vatTreatment,
+      lines: lineAmounts,
+      subtotalAmount: centsToNumber(document.subtotalCents),
+      taxAmount: centsToNumber(document.taxCents),
+      retentionAmount: centsToNumber(document.retentionCents),
+      totalAmount: centsToNumber(document.totalCents),
+    };
+  }
+
+  const selfAssessedTaxCents = lineAmounts.reduce(
+    (total, line) => total + amountToCents(reverseChargeTaxAmount(line.subtotalAmount, line.taxAmount)),
+    0,
+  );
+  return {
+    vatTreatment,
+    lines: lineAmounts,
+    subtotalAmount: centsToNumber(document.subtotalCents),
+    taxAmount: centsToNumber(selfAssessedTaxCents),
+    retentionAmount: centsToNumber(document.retentionCents),
+    totalAmount: centsToNumber(document.subtotalCents - document.retentionCents),
+  };
+}
+
+function buildLineValues(
+  invoiceId: string,
+  lines: SupplierInvoiceLineInput[],
+  amounts: SupplierInvoiceLineAmounts[],
+  fallbackExpenseAccountId?: string,
+) {
+  return lines.map((line, index) => {
+    const lineAmounts = amounts[index];
     return {
       supplierInvoiceId: invoiceId,
       itemId: line.itemId || null,
       expenseAccountId: line.expenseAccountId || fallbackExpenseAccountId || null,
       description: line.description.trim(),
-      quantity: quantity.toFixed(3),
-      unitPrice: unitPrice.toFixed(2),
-      taxRate: taxRate.toFixed(3),
-      taxDeductiblePct: taxDeductiblePct.toFixed(3),
-      retentionRate: retentionRate.toFixed(3),
-      subtotalAmount: subtotalAmount.toFixed(2),
-      taxAmount: taxAmount.toFixed(2),
-      retentionAmount: retentionAmount.toFixed(2),
-      lineTotal: lineTotal.toFixed(2),
+      quantity: line.quantity.toFixed(3),
+      unitPrice: line.unitPrice.toFixed(2),
+      taxRate: lineAmounts.taxRate.toFixed(3),
+      taxDeductiblePct: lineAmounts.taxDeductiblePct.toFixed(3),
+      retentionRate: lineAmounts.retentionRate.toFixed(3),
+      subtotalAmount: lineAmounts.subtotalAmount.toFixed(2),
+      taxAmount: lineAmounts.taxAmount.toFixed(2),
+      retentionAmount: lineAmounts.retentionAmount.toFixed(2),
+      lineTotal: lineAmounts.lineTotal.toFixed(2),
     };
   });
-}
-
-function calculateTotals(lines: ReturnType<typeof buildLineValues>) {
-  return {
-    subtotalAmount: roundMoney(lines.reduce((total, line) => total + Number(line.subtotalAmount), 0)),
-    taxAmount: roundMoney(lines.reduce((total, line) => total + Number(line.taxAmount), 0)),
-    retentionAmount: roundMoney(lines.reduce((total, line) => total + Number(line.retentionAmount), 0)),
-    totalAmount: roundMoney(lines.reduce((total, line) => total + Number(line.lineTotal), 0)),
-  };
 }
 
 async function assertNoDuplicateExpenseInvoice(input: {
@@ -395,6 +465,7 @@ async function createSupplierInvoiceHeader(input: {
   documentSha256?: string | null;
   idempotencyKey?: string;
   currencyCode?: string;
+  vatTreatment?: SupplierVatTreatment;
   client: AppDbTransaction;
 }) {
   assertValidLines(input.lines);
@@ -413,7 +484,7 @@ async function createSupplierInvoiceHeader(input: {
       fiscalYearId: input.fiscalYearId,
       type: "SUPPLIER_INVOICE",
     }));
-  const [supplierIdentity] = input.supplierIdentityKey
+  const [supplierIdentity] = input.supplierIdentityKey && input.vatTreatment
     ? []
     : await input.client
       .select({ name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode })
@@ -426,6 +497,7 @@ async function createSupplierInvoiceHeader(input: {
     taxId: supplierIdentity?.taxId,
     countryCode: supplierIdentity?.countryCode,
   });
+  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment, supplierIdentity?.countryCode);
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim() || null;
   const supplierDocumentNumberNormalized = normalizeSupplierDocumentNumber(supplierDocumentNumber) || null;
   const [ownedCompany] = await input.client
@@ -454,6 +526,7 @@ async function createSupplierInvoiceHeader(input: {
       documentSha256: input.documentSha256 ?? null,
       idempotencyKey: input.idempotencyKey?.trim() || null,
       currencyCode,
+      vatTreatment,
       issueDate: input.issueDate,
       dueDate: input.dueDate ?? null,
       status: "POSTED",
@@ -466,8 +539,8 @@ async function createSupplierInvoiceHeader(input: {
     })
     .returning();
 
-  const lineValues = buildLineValues(header.id, input.lines, fallbackExpenseAccountId);
-  const totals = calculateTotals(lineValues);
+  const totals = computeSupplierInvoiceAmounts(input.lines, vatTreatment);
+  const lineValues = buildLineValues(header.id, input.lines, totals.lines, fallbackExpenseAccountId);
   await input.client.insert(supplierInvoiceLine).values(lineValues);
   const attachments = sanitizeAttachments(input.attachments);
   if (attachments.length > 0) {
@@ -503,12 +576,13 @@ async function createSupplierInvoiceHeader(input: {
     taxAmount: totals.taxAmount,
     retentionAmount: totals.retentionAmount,
     totalAmount: totals.totalAmount,
-    expenseLines: lineValues.map((line) => ({
+    vatTreatment,
+    expenseLines: lineValues.map((line, index) => ({
       accountId: line.expenseAccountId ?? fallbackExpenseAccountId,
-      subtotal: Number(line.subtotalAmount),
-      taxAmount: Number(line.taxAmount),
-      taxDeductiblePct: Number(line.taxDeductiblePct),
-      retentionAmount: Number(line.retentionAmount),
+      subtotal: totals.lines[index].subtotalAmount,
+      taxAmount: totals.lines[index].taxAmount,
+      taxDeductiblePct: totals.lines[index].taxDeductiblePct,
+      retentionAmount: totals.lines[index].retentionAmount,
     })),
     dbClient: input.client,
   });
@@ -521,7 +595,7 @@ async function createSupplierInvoiceHeader(input: {
       action: input.origin === "EXPENSE" ? "expense.create" : "purchase.supplierInvoice.create",
       entityName: "supplierInvoice",
       entityId: header.id,
-      payload: { origin: input.origin, totalAmount: totals.totalAmount, supplierDocumentNumber: input.supplierDocumentNumber },
+      payload: { origin: input.origin, vatTreatment, totalAmount: totals.totalAmount, supplierDocumentNumber: input.supplierDocumentNumber },
     },
     input.client,
   );
@@ -890,7 +964,7 @@ export async function listSupplierInvoiceRelations(companyId: string) {
 
 export async function listSupplierPartners(companyId: string) {
   return db
-    .select({ id: partner.id, number: partner.number, name: partner.name, taxId: partner.taxId })
+    .select({ id: partner.id, number: partner.number, name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode })
     .from(partner)
     .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
     .orderBy(partner.name);

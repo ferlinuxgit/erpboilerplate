@@ -23,7 +23,7 @@ test.describe("keyboard-only application operation", () => {
     await page.keyboard.press("Escape");
     await expect(helpDialog).toBeHidden();
 
-    await page.keyboard.press("Alt+1");
+    await page.keyboard.press("Alt+Shift+Digit1");
     const customersNav = page.getByTestId("nav-link-customers");
     await expect(customersNav).toBeFocused();
     await page.keyboard.press("ArrowDown");
@@ -31,7 +31,7 @@ test.describe("keyboard-only application operation", () => {
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/sales\/quotes$/);
 
-    await page.keyboard.press("Alt+2");
+    await page.keyboard.press("Alt+Shift+Digit2");
     await expect(page.getByRole("navigation", { name: "Secciones de Comercial" }).getByRole("link", { name: "Presupuestos" })).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await expect(page.getByRole("navigation", { name: "Secciones de Comercial" }).getByRole("link", { name: "Pedidos", exact: true })).toBeFocused();
@@ -39,11 +39,13 @@ test.describe("keyboard-only application operation", () => {
     await expect(page).toHaveURL(/\/sales\/orders$/);
 
     await page.keyboard.press("Control+k");
-    const commandSearch = page.getByPlaceholder("Cliente, factura, nuevo gasto…");
+    const commandSearch = page.getByRole("combobox", { name: "Buscar módulos, registros o acciones" });
     await expect(commandSearch).toBeFocused();
     await commandSearch.fill("inventario");
     await commandSearch.press("ArrowDown");
-    await expect(page.locator("[data-command-item]:focus")).toContainText("Inventario");
+    const activeOption = page.getByRole("option", { selected: true });
+    await expect(activeOption).toContainText("Inventario");
+    await expect(commandSearch).toHaveAttribute("aria-activedescendant", (await activeOption.getAttribute("id")) ?? "");
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/inventory$/);
 
@@ -52,7 +54,7 @@ test.describe("keyboard-only application operation", () => {
     await page.keyboard.press("1");
     await expect(page).toHaveURL(/\/accounting$/);
 
-    await page.keyboard.press("Alt+3");
+    await page.keyboard.press("Alt+Shift+Digit3");
     await expect(page.locator("#main-content")).toBeFocused();
   });
 
@@ -107,7 +109,7 @@ test.describe("keyboard-only mobile drawer operation", () => {
     await registerAndSignIn(page, `Keyboard Mobile E2E ${Date.now()}`);
     await page.goto("/customers");
 
-    await page.keyboard.press("Alt+1");
+    await page.keyboard.press("Alt+Shift+Digit1");
     const drawer = page.getByRole("dialog", { name: "Navegación principal" });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByTestId("nav-link-customers")).toBeFocused();
@@ -120,7 +122,7 @@ test.describe("keyboard-only mobile drawer operation", () => {
     await page.keyboard.press("F1");
     await expect(page.getByRole("dialog", { name: /KEYBOARD\.EXE/ })).toBeVisible();
     await page.keyboard.press("Escape");
-    await page.keyboard.press("Alt+3");
+    await page.keyboard.press("Alt+Shift+Digit3");
     await expect(page.locator("#main-content")).toBeFocused();
   });
 });

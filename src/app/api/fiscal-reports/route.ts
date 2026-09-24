@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireContext } from "@/lib/current-context";
 import { spanishFiscalModelCodes } from "@/lib/fiscal-spain";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { createFiscalReport, listFiscalReports } from "@/server/fiscal/service";
 
 const payloadSchema = z.object({
@@ -25,14 +25,13 @@ export async function POST(request: Request) {
   if (!rawPayload) return invalidJsonResponse();
 
   const payload = payloadSchema.safeParse(rawPayload);
-  if (!payload.success) return NextResponse.json({ message: "Datos invalidos." }, { status: 400 });
+  if (!payload.success) return NextResponse.json({ message: "Revisa el modelo, el periodo (p. ej. 2026-Q1, 2026-04 o 2026) y el estado." }, { status: 400 });
 
   try {
     const created = await createFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, payload.data);
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Datos invalidos.";
-    return NextResponse.json({ message }, { status: 400 });
+    return handleRouteError(error, "fiscal-reports.save", "No se pudo guardar el modelo. Inténtalo de nuevo.");
   }
 }
 
@@ -40,7 +39,6 @@ async function requireApiContext(permission: "fiscal.read" | "fiscal.write") {
   try {
     return await requireContext(permission);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No autorizado.";
-    return NextResponse.json({ message }, { status: message.includes("permisos") ? 403 : 401 });
+    return handleRouteError(error, "fiscal-reports.context");
   }
 }

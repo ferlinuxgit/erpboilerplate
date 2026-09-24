@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CreateSalesQuoteForm } from "@/components/sales/create-sales-quote-form";
@@ -8,6 +9,8 @@ import { customer, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 
+export const metadata: Metadata = { title: "Nuevo presupuesto" };
+
 export default async function NewSalesQuotePage({ searchParams }: { searchParams: Promise<{ customerId?: string | string[] }> }) {
   const ctx = await requireContext("invoice.create");
   const params = await searchParams;
@@ -16,7 +19,15 @@ export default async function NewSalesQuotePage({ searchParams }: { searchParams
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Presupuestos" title="Nuevo presupuesto" description={`Prepara una propuesta comercial para ${ctx.company.name}.`} backHref="/sales/quotes" backLabel="Volver a presupuestos" />
+      <PageHeader
+        title="Nuevo presupuesto"
+        description={`Prepara una propuesta comercial para ${ctx.company.name}.`}
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Presupuestos", href: "/sales/quotes" },
+          { label: "Nuevo presupuesto" },
+        ]}
+      />
       <PageSection title="Datos del presupuesto" description="Selecciona el cliente, define la vigencia y añade los conceptos de la propuesta.">
         {customers.length === 0 ? (
           <EmptyState title="Falta un cliente" description="Crea al menos un cliente antes de preparar un presupuesto." action={<Link className={buttonVariants()} href="/customers/new">Crear cliente</Link>} />

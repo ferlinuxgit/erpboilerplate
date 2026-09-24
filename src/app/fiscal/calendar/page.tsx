@@ -11,6 +11,7 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
 import { requireContext } from "@/lib/current-context";
+import { getSpanishFiscalModel } from "@/lib/fiscal-spain";
 import { listFiscalReportsWithSummary } from "@/server/fiscal/service";
 
 export default async function FiscalCalendarPage() {
@@ -72,7 +73,10 @@ export default async function FiscalCalendarPage() {
               >
                 <span className="font-semibold">Modelo {report.code}</span>
                 <span className="text-sm text-muted-foreground">
-                  Periodo {report.period}
+                  Periodo {report.summary?.periodLabel ?? report.period}
+                  {getSpanishFiscalModel(report.code) ? (
+                    <span className="block text-xs">{getSpanishFiscalModel(report.code)!.plainHelp}</span>
+                  ) : null}
                 </span>
                 <StatusBadge
                   tone={
@@ -98,7 +102,9 @@ export default async function FiscalCalendarPage() {
                     {formatDate(report.summary!.dueDate!)}
                   </span>
                   <span className="text-muted-foreground">
-                    {formatMoney(report.summary?.settlementAmount ?? 0)}
+                    {report.summary?.amountDue === null || report.summary?.amountDue === undefined
+                      ? "Informativo"
+                      : formatMoney(report.summary.amountDue)}
                   </span>
                 </span>
               </Link>

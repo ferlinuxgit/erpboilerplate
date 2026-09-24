@@ -11,3 +11,7 @@ export async function register() {
     sendDefaultPii: false,
   });
 }
+
+// Reports errors from Server Components, Route Handlers, Server Actions and
+// the proxy. It is a no-op when Sentry has not been initialised (no DSN).
+export const onRequestError = Sentry.captureRequestError;

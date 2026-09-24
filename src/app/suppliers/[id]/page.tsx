@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
@@ -5,8 +6,9 @@ import { notFound } from "next/navigation";
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { accountChart, paymentMethod } from "@/db/schema";
 import { formatDate, formatMoney } from "@/lib/format";
 import { requireUserSession } from "@/lib/current-user";
@@ -14,6 +16,18 @@ import { db } from "@/lib/db";
 import { ensureUserTenant } from "@/lib/tenant";
 import { invoicePaymentStatusLabels, invoicePaymentStatusTone, purchaseOrderStatusLabels, statusLabel } from "@/lib/status-labels";
 import { getSupplier, getSupplierActivity } from "@/server/suppliers/service";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const session = await requireUserSession();
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    const { id } = await params;
+    const supplier = await getSupplier(db, ctx.company.id, id);
+    return { title: supplier ? `Proveedor ${supplier.name}` : "Proveedor" };
+  } catch {
+    return { title: "Proveedor" };
+  }
+}
 
 export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireUserSession();
@@ -35,11 +49,13 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Proveedores"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Proveedores", href: "/suppliers" },
+          { label: supplier.name },
+        ]}
         title={supplier.name}
         description={[`N.º proveedor ${supplier.number}`, supplier.taxId, supplier.city, supplier.province, supplier.countryCode].filter(Boolean).join(" · ") || "Ficha de proveedor"}
-        backHref="/suppliers"
-        backLabel="Volver a proveedores"
         meta={<StatusBadge tone={supplier.isActive ? "success" : "neutral"}>{supplier.isActive ? "Activo" : "Inactivo"}</StatusBadge>}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -104,41 +120,47 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
       </section>
 
       <PageSection title="Facturas recientes" description="Últimas facturas recibidas de este proveedor, con o sin pedido asociado.">
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left">
-              <tr>
-                <th className="p-3">Número</th>
-                <th className="p-3">Pedido</th>
-                <th className="p-3">Fecha</th>
-                <th className="p-3">Estado pago</th>
-                <th className="p-3 text-right">Total</th>
-                <th className="p-3 text-right">Pendiente</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activity.invoices.length === 0 ? (
-                <tr><td className="p-3 text-muted-foreground" colSpan={6}>Sin facturas registradas.</td></tr>
-              ) : activity.invoices.map((invoice) => (
-                <tr className="border-t" key={invoice.id}>
-                  <td className="p-3"><Link className="font-medium text-primary hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></td>
-                  <td className="p-3">{invoice.purchaseOrderId ? <Link className="text-primary hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</td>
-                  <td className="p-3">{formatDate(invoice.issueDate)}</td>
-                  <td className="p-3"><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></td>
-                  <td className="p-3 text-right">{formatMoney(invoice.totalAmount, supplier.currencyCode)}</td>
-                  <td className="p-3 text-right">{formatMoney(invoice.outstandingAmount, supplier.currencyCode)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {activity.invoices.length === 0 ? (
+          <EmptyState
+            title="Sin facturas registradas"
+            description="Registra la primera factura recibida de este proveedor."
+            action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/expenses/new?supplierId=${supplier.id}`}>Registrar primera factura</Link>}
+          />
+        ) : (
+          <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Número</TableHead>
+                  <TableHead>Pedido</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Estado pago</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Pendiente</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {activity.invoices.map((invoice) => (
+                  <TableRow key={invoice.id}>
+                    <TableCell><Link className="font-bold text-primary hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></TableCell>
+                    <TableCell>{invoice.purchaseOrderId ? <Link className="text-primary hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</TableCell>
+                    <TableCell>{formatDate(invoice.issueDate)}</TableCell>
+                    <TableCell><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">{formatMoney(invoice.totalAmount, supplier.currencyCode)}</TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">{formatMoney(invoice.outstandingAmount, supplier.currencyCode)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </PageSection>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <PageSection title="Pedidos recientes" description="Últimos pedidos de compra asociados.">
           <div className="space-y-2 text-sm">
             {activity.purchaseOrders.length === 0 ? <p className="text-muted-foreground">Sin pedidos registrados.</p> : activity.purchaseOrders.map((order) => (
-              <Link className="flex items-center justify-between rounded-md border p-3 hover:bg-accent" href={`/purchases/orders/${order.id}`} key={order.id}>
+              <Link className="flex items-center justify-between rounded-[2px] border border-window-dark-shadow p-3 hover:bg-accent" href={`/purchases/orders/${order.id}`} key={order.id}>
                 <span className="font-medium">{order.number}</span>
                 <span className="text-muted-foreground">{statusLabel(purchaseOrderStatusLabels, order.status)} · {formatDate(order.createdAt)}</span>
               </Link>
@@ -148,9 +170,9 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <PageSection title="Pagos recientes" description="Últimos pagos aplicados a facturas del proveedor.">
           <div className="space-y-2 text-sm">
             {activity.payments.length === 0 ? <p className="text-muted-foreground">Sin pagos registrados.</p> : activity.payments.map((payment) => (
-              <div className="flex items-center justify-between rounded-md border p-3" key={payment.id}>
+              <div className="flex items-center justify-between rounded-[2px] border border-window-dark-shadow p-3" key={payment.id}>
                 <span><span className="block font-mono font-semibold">{payment.number}</span><span className="text-xs text-muted-foreground">{formatDate(payment.postedAt)} · {payment.supplierInvoiceId ? "Aplicado a factura" : "Pago a cuenta"}</span></span>
-                <span className="font-medium">{formatMoney(payment.amount, supplier.currencyCode)}</span>
+                <span className="font-mono font-bold tabular-nums">{formatMoney(payment.amount, supplier.currencyCode)}</span>
               </div>
             ))}
           </div>

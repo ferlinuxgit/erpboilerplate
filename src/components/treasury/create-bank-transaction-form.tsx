@@ -4,13 +4,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { AccessibleField, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { MoneyInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { parseDecimalInput } from "@/lib/format";
 
-type AccountOption = { id: string; bankName: string; iban: string };
+type AccountOption = { id: string; bankName: string; iban: string; isActive?: boolean };
 
 type CreateBankTransactionFormProps = {
   accounts: AccountOption[];
@@ -22,10 +24,11 @@ type CreateBankTransactionFormProps = {
 
 export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCancel, onSuccess, redirectHref }: CreateBankTransactionFormProps) {
   const router = useRouter();
-  const [bankAccountId, setBankAccountId] = useState(accounts.some((account) => account.id === initialBankAccountId) ? initialBankAccountId ?? "" : accounts[0]?.id ?? "");
+  const activeAccounts = accounts.filter((account) => account.isActive !== false);
+  const [bankAccountId, setBankAccountId] = useState(activeAccounts.some((account) => account.id === initialBankAccountId) ? initialBankAccountId ?? "" : activeAccounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [postedAt, setPostedAt] = useState("");
+  const [postedAt, setPostedAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = error ? "bank-transaction-error" : undefined;
@@ -37,17 +40,22 @@ export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCa
         event.preventDefault();
         setLoading(true);
         setError(null);
+        const parsedAmount = parseDecimalInput(amount);
+        if (parsedAmount === null || parsedAmount === 0) {
+          setError("Indica un importe distinto de cero: positivo si entra dinero, negativo si sale.");
+          setLoading(false);
+          return;
+        }
         try {
           const res = await fetch("/api/bank-transactions", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-            body: JSON.stringify({ bankAccountId, amount, description, postedAt }),
+            body: JSON.stringify({ bankAccountId, amount: parsedAmount.toFixed(2), description, postedAt }),
           });
-          if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "No se pudo crear el movimiento.");
+          if (!res.ok) throw new Error(await readApiError(res, "No se pudo registrar el movimiento."));
           setAmount("");
           setDescription("");
-          setPostedAt("");
-          toast.success("Movimiento bancario creado correctamente.");
+          toast.success("Movimiento registrado.", { description: "Queda pendiente de conciliar con su cobro o pago (cuenta 555)." });
           if (onSuccess) {
             onSuccess();
           } else if (redirectHref) {
@@ -56,7 +64,7 @@ export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCa
             router.refresh();
           }
         } catch (e) {
-          const message = e instanceof Error ? e.message : "Error inesperado.";
+          const message = errorMessage(e, "No se pudo registrar el movimiento.");
           setError(message);
           toast.error(message);
         } finally {
@@ -64,55 +72,31 @@ export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCa
         }
       }}
     >
-      <div className="space-y-2">
-        <Label htmlFor="bank-transaction-account">Cuenta bancaria</Label>
-        <Select
-          id="bank-transaction-account"
-          value={bankAccountId}
-          onChange={(e) => setBankAccountId(e.target.value)}
-          required
-          aria-describedby={errorId}
-        >
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.bankName} - {a.iban}</option>
+      <AccessibleField id="bank-transaction-account" label="Cuenta bancaria" required>
+        <Select id="bank-transaction-account" value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} required>
+          {activeAccounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.bankName} · {a.iban}</option>
           ))}
         </Select>
+      </AccessibleField>
+      <AccessibleField helperText="Positivo si entra dinero, negativo si sale (p. ej. -12,50)." id="bank-transaction-amount" label="Importe" required>
+        <MoneyInput id="bank-transaction-amount" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+      </AccessibleField>
+      <AccessibleField helperText="Tal como aparece en el extracto; ayuda a conciliarlo." id="bank-transaction-description" label="Concepto" required>
+        <Input id="bank-transaction-description" value={description} onChange={(e) => setDescription(e.target.value)} required />
+      </AccessibleField>
+      <AccessibleField id="bank-transaction-posted-at" label="Fecha" required>
+        <Input id="bank-transaction-posted-at" value={postedAt} onChange={(e) => setPostedAt(e.target.value)} type="date" required />
+      </AccessibleField>
+      <p className="text-xs text-muted-foreground md:col-span-4">
+        El movimiento se contabiliza en el banco contra la cuenta 555 (pendiente de aplicación). Cuando lo concilies con su cobro o pago, ese apunte provisional se anula para que el banco no cuente dos veces.
+      </p>
+      <div className="flex flex-col-reverse gap-2 md:col-span-4 sm:flex-row sm:justify-end">
+        {onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}
+        <Button aria-busy={loading} aria-describedby={errorId} type="submit" disabled={loading || !bankAccountId}>{loading ? "Guardando…" : "Registrar movimiento"}</Button>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="bank-transaction-amount">Importe</Label>
-        <Input
-          id="bank-transaction-amount"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          type="number"
-          step="0.01"
-          required
-          aria-describedby={errorId}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="bank-transaction-description">Descripción</Label>
-        <Input
-          id="bank-transaction-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
-          aria-describedby={errorId}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="bank-transaction-posted-at">Fecha</Label>
-        <Input
-          id="bank-transaction-posted-at"
-          value={postedAt}
-          onChange={(e) => setPostedAt(e.target.value)}
-          type="date"
-          required
-          aria-describedby={errorId}
-        />
-      </div>
-      <div className="flex flex-col-reverse gap-2 md:col-span-4 sm:flex-row sm:justify-end">{onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear movimiento"}</Button></div>
-      {error ? <InlineAlert id="bank-transaction-error" className="md:col-span-4" role="alert" tone="danger">{error}</InlineAlert> : null}
+      {activeAccounts.length === 0 ? <InlineAlert className="md:col-span-4" tone="warning">No hay cuentas bancarias activas. Crea o reactiva una cuenta para registrar movimientos.</InlineAlert> : null}
+      {error ? <InlineAlert className="md:col-span-4" id="bank-transaction-error" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

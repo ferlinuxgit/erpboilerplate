@@ -3,13 +3,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Bank as Landmark, Buildings as Building2, Envelope as Mail, FileText, FloppyDisk as Save, GlobeHemisphereWest as Globe2, ImageSquare as ImageIcon, MapPin, UploadSimple as Upload, X } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
-import { useMemo, type ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { AccessibleField } from "@/components/ui/form";
+import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -71,6 +71,8 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
   const watchedValues = useWatch({ control });
   const invoiceReadiness = useMemo(() => completion(watchedValues), [watchedValues]);
   const logoDataUrl = watchedValues.logoDataUrl ?? "";
+  const [formError, setFormError] = useState<string | null>(null);
+  const invoiceHelper = "Necesario para emitir facturas.";
 
   const handleLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -97,28 +99,34 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
     reader.readAsDataURL(file);
   };
 
-  const submit = handleSubmit(async (values) => {
-    try {
-      const response = await fetch("/api/company/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify(values),
-      });
+  const submit = handleSubmit(
+    async (values) => {
+      setFormError(null);
+      try {
+        const response = await fetch("/api/company/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+          body: JSON.stringify(values),
+        });
 
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(payload?.message ?? "No se pudo guardar el perfil de empresa.");
+        if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar el perfil de empresa."));
+
+        toast.success("Perfil de empresa guardado correctamente.");
+        router.refresh();
+      } catch (error) {
+        const message = errorMessage(error, "No se pudo guardar el perfil de empresa.");
+        setFormError(message);
+        toast.error(message);
       }
-
-      toast.success("Perfil de empresa guardado.");
-      router.refresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error inesperado.");
-    }
-  });
+    },
+    () => {
+      setFormError(null);
+      toast.error("Revisa los campos marcados antes de guardar.");
+    },
+  );
 
   return (
-    <form className="space-y-2" onSubmit={submit}>
+    <form className="space-y-2" noValidate onSubmit={submit}>
       <div className="flex flex-col gap-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight)] md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -138,11 +146,12 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
             </p>
           )}
         </div>
-        <Button disabled={isSubmitting} type="submit">
+        <SubmitButton pending={isSubmitting}>
           <Save aria-hidden="true" />
-          {isSubmitting ? "Guardando" : "Guardar perfil"}
-        </Button>
+          Guardar perfil
+        </SubmitButton>
       </div>
+      <RequiredFieldsNote />
 
       <section className="border border-window-dark-shadow p-2.5">
         <div className="mb-2 flex items-center gap-1.5 border-b border-window-shadow pb-1.5">
@@ -153,10 +162,10 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
           <AccessibleField id="company-name" label="Nombre comercial" required error={errors.name?.message} className="md:col-span-3">
             <Input id="company-name" required autoComplete="organization" {...register("name")} />
           </AccessibleField>
-          <AccessibleField id="company-legal-name" label="Razón social" error={errors.legalName?.message} className="md:col-span-3">
+          <AccessibleField id="company-legal-name" label="Razón social" helperText={invoiceHelper} error={errors.legalName?.message} className="md:col-span-3">
             <Input id="company-legal-name" autoComplete="organization" placeholder="Empresa Demo S.L." {...register("legalName")} />
           </AccessibleField>
-          <AccessibleField id="company-vat-number" label="CIF/NIF/VAT" error={errors.vatNumber?.message} helperText="Para España se valida y normaliza sin espacios ni guiones." className="md:col-span-2">
+          <AccessibleField id="company-vat-number" label="CIF/NIF/VAT" error={errors.vatNumber?.message} helperText="Necesario para facturar. En España se valida y se guarda sin espacios ni guiones." className="md:col-span-2">
             <Input id="company-vat-number" autoCapitalize="characters" placeholder="B12345678" {...register("vatNumber")} />
           </AccessibleField>
           <AccessibleField id="company-country" label="País" required error={errors.countryCode?.message} className="md:col-span-2">
@@ -182,19 +191,19 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
           <h3 className="font-mono text-xs font-bold">Domicilio fiscal</h3>
         </div>
         <div className="grid gap-2 md:grid-cols-6">
-          <AccessibleField id="company-fiscal-address" label="Dirección fiscal" error={errors.fiscalAddress?.message} className="md:col-span-4">
+          <AccessibleField id="company-fiscal-address" label="Dirección fiscal" helperText={invoiceHelper} error={errors.fiscalAddress?.message} className="md:col-span-4">
             <Input id="company-fiscal-address" autoComplete="street-address" placeholder="Calle Mayor 1" {...register("fiscalAddress")} />
           </AccessibleField>
-          <AccessibleField id="company-postal-code" label="Código postal" error={errors.postalCode?.message} className="md:col-span-2">
+          <AccessibleField id="company-postal-code" label="Código postal" helperText={invoiceHelper} error={errors.postalCode?.message} className="md:col-span-2">
             <Input id="company-postal-code" autoComplete="postal-code" {...register("postalCode")} />
           </AccessibleField>
           <AccessibleField id="company-fiscal-address-line-2" label="Dirección 2" error={errors.fiscalAddressLine2?.message} className="md:col-span-3">
             <Input id="company-fiscal-address-line-2" placeholder="Planta, oficina, edificio" {...register("fiscalAddressLine2")} />
           </AccessibleField>
-          <AccessibleField id="company-city" label="Ciudad" error={errors.city?.message} className="md:col-span-1">
+          <AccessibleField id="company-city" label="Ciudad" helperText={invoiceHelper} error={errors.city?.message} className="md:col-span-1">
             <Input id="company-city" autoComplete="address-level2" {...register("city")} />
           </AccessibleField>
-          <AccessibleField id="company-province" label="Provincia" error={errors.province?.message} className="md:col-span-2">
+          <AccessibleField id="company-province" label="Provincia" helperText={invoiceHelper} error={errors.province?.message} className="md:col-span-2">
             <Input id="company-province" autoComplete="address-level1" {...register("province")} />
           </AccessibleField>
         </div>
@@ -212,7 +221,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
           <AccessibleField id="company-phone" label="Teléfono" error={errors.phone?.message} className="md:col-span-2">
             <Input id="company-phone" type="tel" autoComplete="tel" {...register("phone")} />
           </AccessibleField>
-          <AccessibleField id="company-website" label="Web" error={errors.website?.message} className="md:col-span-2">
+          <AccessibleField id="company-website" label="Web" helperText="Incluye https:// al principio." error={errors.website?.message} className="md:col-span-2">
             <Input id="company-website" type="url" placeholder="https://empresa.com" {...register("website")} />
           </AccessibleField>
           <AccessibleField id="company-timezone" label="Zona horaria" required error={errors.timezone?.message} className="md:col-span-2">
@@ -231,7 +240,8 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
           <h3 className="font-mono text-xs font-bold">Documentos emitidos</h3>
         </div>
         <div className="grid gap-2 md:grid-cols-[160px_1fr]">
-          <AccessibleField id="company-logo" label="Logotipo" error={errors.logoDataUrl?.message} helperText="PNG o JPG hasta 250 KB.">
+          <div className="min-w-0 space-y-1" role="group" aria-labelledby="company-logo-title">
+            <p className="font-mono text-[0.72rem] font-bold leading-none" id="company-logo-title">Logotipo</p>
             <input type="hidden" {...register("logoDataUrl")} />
             <div className="flex min-h-20 items-center justify-center border border-window-dark-shadow bg-window-panel p-2">
               {logoDataUrl ? (
@@ -242,31 +252,49 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-window-dark-shadow bg-window-surface px-2 font-mono text-xs font-bold shadow-[inset_1px_1px_0_var(--window-highlight)] hover:bg-window-highlight">
+              <label
+                className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-window-dark-shadow bg-window-surface px-2 font-mono text-xs font-bold shadow-[inset_1px_1px_0_var(--window-highlight)] hover:bg-window-highlight has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus"
+                htmlFor="company-logo"
+              >
                 <Upload aria-hidden="true" className="size-4" />
                 Subir logo
-                <Input id="company-logo" type="file" accept="image/png,image/jpeg" className="sr-only" onChange={handleLogoChange} />
+                <Input
+                  id="company-logo"
+                  aria-describedby={errors.logoDataUrl ? "company-logo-helper company-logo-error" : "company-logo-helper"}
+                  aria-invalid={errors.logoDataUrl ? true : undefined}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  className="sr-only"
+                  onChange={handleLogoChange}
+                />
               </label>
               {logoDataUrl ? (
                 <Button type="button" variant="outline" onClick={() => setValue("logoDataUrl", "", { shouldDirty: true, shouldValidate: true })}>
                   <X aria-hidden="true" />
-                  Quitar
+                  Quitar logo
                 </Button>
               ) : null}
             </div>
-          </AccessibleField>
+            <p className="text-xs leading-4 text-muted-foreground" id="company-logo-helper">PNG o JPG hasta 250 KB.</p>
+            {errors.logoDataUrl?.message ? (
+              <p className="font-mono text-xs text-destructive" id="company-logo-error" role="alert">
+                {errors.logoDataUrl.message}
+              </p>
+            ) : null}
+          </div>
           <AccessibleField id="company-invoice-footer" label="Pie de factura" error={errors.invoiceFooter?.message} helperText="Se imprime al final del PDF de factura.">
             <Textarea id="company-invoice-footer" maxLength={500} placeholder="Registro mercantil, datos bancarios o condiciones de pago." {...register("invoiceFooter")} />
           </AccessibleField>
         </div>
       </section>
 
-      <div className="flex justify-end">
-        <Button disabled={isSubmitting} type="submit">
+      <FormErrorMessage>{formError}</FormErrorMessage>
+      <FormActions sticky>
+        <SubmitButton aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting}>
           <Globe2 aria-hidden="true" />
-          {isSubmitting ? "Guardando" : "Guardar cambios"}
-        </Button>
-      </div>
+          Guardar cambios
+        </SubmitButton>
+      </FormActions>
     </form>
   );
 }

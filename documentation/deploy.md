@@ -28,6 +28,9 @@ Plantillas versionables:
 - SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`
   `SMTP_HOST` debe coincidir con un hostname incluido en el certificado TLS del servidor. No uses un alias MX si el certificado identifica otro nombre.
   En Coolify, configura `SMTP_PASSWORD` desde la vista normal y activa `Literal` si contiene `$` u otros caracteres especiales; de lo contrario Coolify puede interpolar el valor antes de pasarlo al contenedor. Déjala solo como variable de runtime, no de build.
+- Sentry servidor: `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` (runtime). Errores de request se reportan vía `onRequestError` en `instrumentation.ts`.
+- Sentry navegador: `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` (**build-time**, se incrustan en el bundle; en Docker pásalo como build arg `NEXT_PUBLIC_SENTRY_DSN`). Sin DSN, `instrumentation-client.ts` no inicializa nada. Su origen se añade automáticamente a `connect-src` de la CSP.
+- Sentry source maps (opcional, build-time): `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`. Sin token no se generan ni suben source maps ni se crean releases.
 - S3/R2: `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`
 
 ## Migraciones Drizzle
@@ -48,7 +51,7 @@ Para una base real de entorno:
 npm run db:migrate
 ```
 
-Rollback mínimo: restaura snapshot/backup de la base antes del deploy; las migraciones no deben revertirse manualmente en producción sin una migración inversa revisada.
+Rollback mínimo: restaura snapshot/backup de la base antes del deploy; las migraciones no deben revertirse manualmente en producción sin una migración inversa revisada. Ver [Rollback y backup/restore](#rollback-y-backuprestore).
 
 ## Health/readiness
 
@@ -91,3 +94,39 @@ Checklist local/CI obligatorio:
 7. `npm run build`
 8. `curl -i /api/health` y `curl -i /api/readyz` contra el build arrancado
 9. `npm run test:e2e` sin skips obligatorios
+10. Auditoría de dependencias al final: `npm run audit:prod` (bloqueante: dependencias de producción, severidad high/critical) y `npm run audit:release` (informativa en CI: árbol completo, moderate+).
+
+Node.js 22 (`.nvmrc`, `engines.node >=22`) en local, CI y Docker. npm es el único gestor de paquetes.
+
+## Docker
+
+- La imagen final corre como usuario sin privilegios `node`.
+- `HEALTHCHECK` consulta `GET /api/health` con `fetch` de Node (la imagen slim no trae `curl`); `start-period` de 90 s cubre la espera de DB y las migraciones de arranque.
+- No se usa `output: "standalone"`: `scripts/docker-start.mjs` arranca con `npm run start`, ejecuta `drizzle-kit migrate` y el worker OCR (`tsx`), que necesitan `node_modules` completo de producción, `src/` y `drizzle/`.
+
+## Rollback y backup/restore
+
+Antes de cada deploy con migraciones, toma un backup de la base:
+
+```bash
+pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL" > backup-$(date +%Y%m%d-%H%M%S).dump
+```
+
+(o un snapshot/branch del proveedor, p. ej. Neon). Guarda el fichero fuera del servidor de la app y nunca en el repositorio.
+
+Rollback de la app (sin cambios de esquema incompatibles): en Coolify vuelve a desplegar la imagen/commit anterior ("Redeploy" de un deployment previo) o `git revert` del commit y push a `main`. Comprueba `GET /api/health` y `GET /api/readyz`.
+
+Rollback con migraciones aplicadas:
+
+1. Para la app (o ponla en mantenimiento) para evitar escrituras.
+2. Restaura el backup previo al deploy en una base nueva y verifica:
+
+   ```bash
+   createdb erp_restore
+   pg_restore --no-owner --no-acl --dbname="postgresql://.../erp_restore" backup-AAAAMMDD-HHMMSS.dump
+   ```
+
+3. Apunta `DATABASE_URL` a la base restaurada (o renómbrala) y despliega la versión anterior de la app.
+4. Verifica `/api/readyz` y un smoke funcional (`npm run deploy:smoke`).
+
+Los datos escritos entre el backup y el rollback se pierden; si no es aceptable, escribe una migración inversa revisada en lugar de restaurar. Prueba la restauración periódicamente en un entorno no productivo.

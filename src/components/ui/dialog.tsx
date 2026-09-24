@@ -52,7 +52,11 @@ export function Dialog({ children, className, description, initialFocusId, onClo
     });
     return () => {
       document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus();
+      // Opened from a menu item that is now hidden: return focus to the menu button.
+      const isVisible = previouslyFocused?.isConnected && previouslyFocused.getClientRects().length > 0;
+      const fallback = previouslyFocused?.closest("[data-dropdown-root]")?.querySelector<HTMLElement>("[data-dropdown-trigger]");
+      if (!isVisible && fallback) fallback.focus();
+      else previouslyFocused?.focus();
     };
   }, [initialFocusId, open]);
 

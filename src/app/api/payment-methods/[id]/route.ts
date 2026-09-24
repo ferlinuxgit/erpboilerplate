@@ -4,8 +4,9 @@ import { NextResponse } from "next/server";
 import { bankAccount, paymentMethod } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
+import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
 import { paymentMethodPayloadSchema } from "@/server/schemas/payment-methods";
@@ -52,7 +53,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         tenantId: ctx.tenant.id,
         companyId: ctx.company.id,
         actorUserId: session.user.id,
-        action: "payment_method.update",
+        action: "paymentMethod.update",
         entityName: "paymentMethod",
         entityId: id,
         payload: { code: row.code, name: row.name, type: row.type, isDefault: row.isDefault },
@@ -71,7 +72,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "settings.manage")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
-  const deleted = await db.transaction(async (tx) => {
+  const result = await settle(db.transaction(async (tx) => {
     const [row] = await tx.delete(paymentMethod)
       .where(and(eq(paymentMethod.id, id), eq(paymentMethod.companyId, ctx.company.id)))
       .returning({ id: paymentMethod.id, name: paymentMethod.name });
@@ -80,13 +81,14 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
       tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
       actorUserId: session.user.id,
-      action: "payment_method.delete",
+      action: "paymentMethod.delete",
       entityName: "paymentMethod",
       entityId: id,
       payload: { name: row.name },
     }, tx);
     return row;
-  });
-  if (!deleted) return NextResponse.json({ message: "Forma de pago no encontrada." }, { status: 404 });
+  }));
+  if (!result.ok) return handleRouteError(result.error, "paymentMethod.delete", "No se pudo eliminar la forma de pago.");
+  if (!result.value) return NextResponse.json({ message: "Forma de pago no encontrada." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

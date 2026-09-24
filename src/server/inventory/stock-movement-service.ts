@@ -2,11 +2,19 @@ import { and, eq } from "drizzle-orm";
 
 import { stockLocation, stockMovement } from "@/db/schema";
 import { db } from "@/lib/db";
+import { recordAudit } from "@/server/audit";
 
 import { buildStockMovementEntries, type StockMovementOperationInput } from "./movements";
 import { refreshStockLocation } from "./stock-location";
 
-export async function registerStockMovementOperation(input: StockMovementOperationInput) {
+export type StockMovementAuditContext = { tenantId: string; actorUserId: string };
+
+/**
+ * Registra un movimiento (o transferencia) de stock. Si se pasa `audit`, deja
+ * rastro `stockMovement.create` dentro de la misma transacción (las repeticiones
+ * idempotentes con la misma referencia no generan auditoría nueva).
+ */
+export async function registerStockMovementOperation(input: StockMovementOperationInput, audit?: StockMovementAuditContext) {
   const entries = buildStockMovementEntries(input);
   const warehouseIds = new Set(entries.map((entry) => entry.warehouseId));
   const reference = entries[0]?.reference;
@@ -54,6 +62,31 @@ export async function registerStockMovementOperation(input: StockMovementOperati
         refreshStockLocation({ companyId: input.companyId, itemId: input.itemId, warehouseId }, tx),
       ),
     );
+
+    if (audit && created[0]) {
+      await recordAudit(
+        {
+          tenantId: audit.tenantId,
+          companyId: input.companyId,
+          actorUserId: audit.actorUserId,
+          action: "stockMovement.create",
+          entityName: "stockMovement",
+          entityId: created[0].id,
+          payload: {
+            movementIds: created.map((movement) => movement.id),
+            itemId: input.itemId,
+            warehouseId: input.warehouseId,
+            destinationWarehouseId: input.destinationWarehouseId ?? null,
+            movementType: input.movementType,
+            quantity: input.quantity,
+            movedAt: input.movedAt,
+            reason: input.reason,
+            reference: input.reference,
+          },
+        },
+        tx,
+      );
+    }
 
     return created;
   });

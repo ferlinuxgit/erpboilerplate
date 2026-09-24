@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createBankAccount, listBankAccounts } from "@/server/treasury/service";
@@ -23,15 +23,20 @@ export async function POST(request: Request) {
   if (!can(ctx.membership.role, "treasury.write")) {
     return NextResponse.json({ message: "Sin permisos de tesoreria." }, { status: 403 });
   }
-  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string } | null;
+  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string; accountId?: string | null } | null;
   if (!payload) return invalidJsonResponse();
 
   if (!payload.iban?.trim() || !payload.bankName?.trim()) {
     return NextResponse.json({ message: "IBAN y banco son obligatorios." }, { status: 400 });
   }
-  const created = await createBankAccount(ctx.company.id, ctx.tenant.id, session.user.id, {
-    iban: payload.iban.trim(),
-    bankName: payload.bankName.trim(),
-  });
-  return NextResponse.json(created, { status: 201 });
+  try {
+    const created = await createBankAccount(ctx.company.id, ctx.tenant.id, session.user.id, {
+      iban: payload.iban.trim(),
+      bankName: payload.bankName.trim(),
+      accountId: payload.accountId?.trim() || null,
+    });
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    return handleRouteError(error, "bank-accounts.create", "No se pudo crear la cuenta bancaria. Comprueba que el IBAN no esté ya dado de alta.");
+  }
 }

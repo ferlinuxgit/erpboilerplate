@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
-import { logger } from "@/lib/logger";
+import { recordAudit } from "@/server/audit";
 import { createSupplierWithPartner, listSuppliers } from "@/server/suppliers/service";
 import { createSupplierSchema } from "@/server/schemas/forms";
 
@@ -32,13 +32,24 @@ export async function POST(request: Request) {
   }
 
   try {
-    const createdSupplier = await db.transaction((tx) =>
-      createSupplierWithPartner(tx, actor.context.company.id, parsedPayload.data),
-    );
+    const createdSupplier = await db.transaction(async (tx) => {
+      const created = await createSupplierWithPartner(tx, actor.context.company.id, parsedPayload.data);
+      await recordAudit(
+        {
+          tenantId: actor.context.tenant.id,
+          companyId: actor.context.company.id,
+          actorUserId: actor.actorUserId,
+          action: "supplier.create",
+          entityName: "partner",
+          entityId: created.id,
+          payload: { ...parsedPayload.data, number: created.number },
+        },
+        tx,
+      );
+      return created;
+    });
     return NextResponse.json(createdSupplier, { status: 201 });
   } catch (error) {
-    logger.error({ error }, "supplier.create_failed");
-    const message = error instanceof Error ? error.message : "No se pudo crear el proveedor.";
-    return NextResponse.json({ message }, { status: 500 });
+    return handleRouteError(error, "supplier.create", "No se pudo crear el proveedor.");
   }
 }

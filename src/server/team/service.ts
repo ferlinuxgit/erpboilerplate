@@ -7,6 +7,7 @@ import {
   user,
 } from "@/db/schema";
 import { db } from "@/lib/db";
+import { HttpError } from "@/lib/http";
 import { recordAudit } from "@/server/audit";
 
 export async function listTeamMembers(tenantId: string) {
@@ -45,7 +46,8 @@ export async function updateTeamMemberRole(input: {
     input.actorRole !== "OWNER" &&
     (target.role !== "MEMBER" || input.role === "OWNER")
   )
-    throw new Error(
+    throw new HttpError(
+      403,
       "Solo un propietario puede gestionar administradores y propietarios.",
     );
   if (target.role === "OWNER" && input.role !== "OWNER") {
@@ -60,7 +62,7 @@ export async function updateTeamMemberRole(input: {
         ),
       );
     if (Number(owners?.count ?? 0) === 0)
-      throw new Error("El espacio debe conservar al menos un propietario.");
+      throw new HttpError(409, "El espacio debe conservar al menos un propietario.");
   }
   const [updated] = await db
     .update(membership)
@@ -101,7 +103,8 @@ export async function removeTeamMember(input: {
     .limit(1);
   if (!target) return false;
   if (input.actorRole !== "OWNER" && target.role !== "MEMBER")
-    throw new Error(
+    throw new HttpError(
+      403,
       "Solo un propietario puede eliminar administradores o propietarios.",
     );
   if (target.role === "OWNER") {
@@ -116,7 +119,7 @@ export async function removeTeamMember(input: {
         ),
       );
     if (Number(owners?.count ?? 0) === 0)
-      throw new Error("No puedes eliminar al único propietario del espacio.");
+      throw new HttpError(409, "No puedes eliminar al único propietario del espacio.");
   }
   await db
     .delete(membership)
@@ -157,7 +160,8 @@ export async function createInvitation(
     allowedDomains.length > 0 &&
     !allowedDomains.includes(normalizedEmail.split("@")[1] ?? "")
   )
-    throw new Error(
+    throw new HttpError(
+      422,
       "El dominio del email no está permitido por la política de seguridad.",
     );
   const [created] = await db
@@ -181,7 +185,11 @@ export async function createInvitation(
   return created;
 }
 
-export async function acceptInvitation(userId: string, token: string) {
+/**
+ * Acepta una invitación vigente para el email del usuario. Devuelve el tenant al
+ * que se une (también si ya era miembro) o `null` si la invitación no es válida.
+ */
+export async function acceptInvitation(userId: string, token: string): Promise<{ tenantId: string; membershipId: string | null } | null> {
   return db.transaction(async (tx) => {
     const [current] = await tx
       .select()
@@ -205,11 +213,22 @@ export async function acceptInvitation(userId: string, token: string) {
       .insert(membership)
       .values({ userId, tenantId: current.tenantId, role: current.role })
       .onConflictDoNothing()
-      .returning();
+      .returning({ id: membership.id });
     await tx
       .update(invitation)
       .set({ acceptedAt: new Date() })
       .where(and(eq(invitation.id, current.id), eq(invitation.token, token)));
-    return created ?? null;
+    await recordAudit(
+      {
+        tenantId: current.tenantId,
+        actorUserId: userId,
+        action: "invitation.accept",
+        entityName: "invitation",
+        entityId: current.id,
+        payload: { role: current.role, alreadyMember: !created },
+      },
+      tx,
+    );
+    return { tenantId: current.tenantId, membershipId: created?.id ?? null };
   });
 }

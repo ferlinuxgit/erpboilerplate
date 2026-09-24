@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -13,6 +14,21 @@ import { db } from "@/lib/db";
 import { getDeliveryNoteTransition } from "@/lib/document-pipelines";
 import { formatDate } from "@/lib/format";
 import { salesDocumentStatusLabels, salesDocumentStatusTone, statusLabel } from "@/lib/status-labels";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("invoice.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: deliveryNote.number })
+      .from(deliveryNote)
+      .where(and(eq(deliveryNote.id, id), eq(deliveryNote.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Albarán ${row.number}` : "Albarán" };
+  } catch {
+    return { title: "Albarán" };
+  }
+}
 
 export default async function DeliveryNoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("invoice.read");
@@ -39,11 +55,13 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Albarán"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Albaranes", href: "/sales/delivery-notes" },
+          { label: record.number },
+        ]}
         title={record.number}
         description={`${record.customerName} · Entregado el ${formatDate(record.issuedAt)}`}
-        backHref="/sales/delivery-notes"
-        backLabel="Volver a albaranes"
         meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
         actions={
           <>

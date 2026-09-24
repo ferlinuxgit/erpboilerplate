@@ -36,3 +36,50 @@ export function isIpAllowed(ip: string, allowlist: string | null | undefined): b
     return (address & mask) === (network & mask);
   });
 }
+
+type HeaderReader = { get(name: string): string | null };
+
+const DEFAULT_TRUSTED_PROXY_COUNT = 1;
+
+export function getTrustedProxyCount(value = process.env.TRUSTED_PROXY_COUNT): number {
+  if (value === undefined || value.trim() === "") return DEFAULT_TRUSTED_PROXY_COUNT;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_TRUSTED_PROXY_COUNT;
+}
+
+function normalizeIp(value: string | null | undefined): string | null {
+  let candidate = value?.trim();
+  if (!candidate) return null;
+  // "[2001:db8::1]:443" → "2001:db8::1"; "203.0.113.5:8080" → "203.0.113.5".
+  const bracketed = candidate.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracketed) candidate = bracketed[1];
+  else if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(candidate)) candidate = candidate.slice(0, candidate.lastIndexOf(":"));
+  candidate = candidate.replace(/^::ffff:(?=\d{1,3}(?:\.\d{1,3}){3}$)/i, "");
+  if (candidate.length > 45 || !/^[0-9a-f.:]+$/i.test(candidate)) return null;
+  return candidate;
+}
+
+/**
+ * IP real del cliente detrás de `TRUSTED_PROXY_COUNT` proxies de confianza.
+ *
+ * Cada proxy de confianza añade a `X-Forwarded-For` la IP que ve, así que la
+ * IP del cliente es la N-ésima empezando por la DERECHA. Lo que haya más a la
+ * izquierda lo controla el cliente y no se usa nunca. Si no hay XFF se usa
+ * `x-real-ip` (fijado por el proxy). Con `TRUSTED_PROXY_COUNT=0` no se confía en
+ * ninguna cabecera y se devuelve `null` (IP desconocida).
+ */
+export function getClientIp(headers: HeaderReader, trustedProxyCount = getTrustedProxyCount()): string | null {
+  if (trustedProxyCount <= 0) return null;
+
+  const forwarded = headers
+    .get("x-forwarded-for")
+    ?.split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (forwarded && forwarded.length > 0) {
+    const index = Math.max(0, forwarded.length - trustedProxyCount);
+    return normalizeIp(forwarded[index]);
+  }
+
+  return normalizeIp(headers.get("x-real-ip"));
+}

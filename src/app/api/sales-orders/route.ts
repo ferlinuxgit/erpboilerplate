@@ -11,11 +11,14 @@ import {
 } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
+import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
+import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { computeDocumentTotals } from "@/server/taxation/engine";
+import { rejectForeignItems } from "@/server/inventory/ownership";
 
 const lineSchema = z.object({
   description: z.string().trim().min(1),
@@ -114,17 +117,22 @@ export async function POST(request: Request) {
     );
   }
 
+  const foreignItems = await rejectForeignItems(db, ctx.company.id, parsed.data.lines);
+  if (foreignItems) return foreignItems;
   const directTotals = parsed.data.lines?.length
     ? computeDocumentTotals(parsed.data.lines)
     : null;
-  const created = await db.transaction(async (tx) => {
-    const number =
-      parsed.data.number?.trim() ||
-      (await reserveSeriesNumber(tx, {
-        companyId: ctx.company.id,
-        fiscalYearId: ctx.fiscalYear.id,
-        type: "SALES_ORDER",
-      }));
+  const issueDate = new Date(parsed.data.issueDate);
+  if (Number.isNaN(issueDate.getTime()))
+    return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+  const result = await settle(db.transaction(async (tx) => {
+    // El número de pedido siempre sale de la serie: se ignora cualquier `number` del cliente.
+    const number = await reserveSeriesNumber(tx, {
+      companyId: ctx.company.id,
+      type: "SALES_ORDER",
+      referenceDate: issueDate,
+      fiscalYearId: ctx.fiscalYear.id,
+    });
 
     const [header] = await tx
       .insert(salesOrder)
@@ -132,7 +140,7 @@ export async function POST(request: Request) {
         companyId: ctx.company.id,
         customerId: parsed.data.customerId,
         number,
-        issueDate: new Date(parsed.data.issueDate),
+        issueDate,
         salesQuoteId: parsed.data.salesQuoteId || null,
         subtotal: (directTotals?.subtotal ?? parsed.data.subtotal ?? 0).toFixed(
           2,
@@ -201,8 +209,29 @@ export async function POST(request: Request) {
       );
     }
 
-    return header;
-  });
+    await recordAudit(
+      {
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        actorUserId: session.user.id,
+        action: "salesOrder.create",
+        entityName: "salesOrder",
+        entityId: header.id,
+        payload: {
+          number: header.number,
+          customerId: parsed.data.customerId,
+          salesQuoteId: parsed.data.salesQuoteId || null,
+          issueDate: parsed.data.issueDate,
+          totalAmount: header.totalAmount,
+          lineCount: parsed.data.lines?.length ?? null,
+        },
+      },
+      tx,
+    );
 
-  return NextResponse.json(created, { status: 201 });
+    return header;
+  }));
+
+  if (!result.ok) return handleRouteError(result.error, "salesOrder.create", "No se pudo crear el pedido de venta.");
+  return NextResponse.json(result.value, { status: 201 });
 }

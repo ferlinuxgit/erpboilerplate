@@ -4,12 +4,15 @@ import { JournalEntriesList } from "@/components/accounting/journal-entries-list
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
+import { parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { can } from "@/lib/rbac";
-import { listJournalEntries } from "@/server/accounting/service";
+import { journalEntryListConfig, listJournalEntriesPage } from "@/server/accounting/journal-entry-list";
+import { toServerListState } from "@/server/lists/paginate";
 
-export default async function JournalEntriesPage() {
+export default async function JournalEntriesPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const ctx = await requireContext("accounting.read");
-  const rows = await listJournalEntries(ctx.company.id);
+  const params = parseListParams(await searchParams, journalEntryListConfig);
+  const result = await listJournalEntriesPage(ctx.company.id, params);
   const canManage = can(ctx.membership.role, "accounting.write");
   return (
     <PageShell>
@@ -34,7 +37,9 @@ export default async function JournalEntriesPage() {
         <JournalEntriesList
           canManage={canManage}
           currencyCode={ctx.company.baseCurrencyCode}
-          rows={rows}
+          rows={result.rows}
+          server={toServerListState(params, result, result.unfilteredTotal)}
+          totals={result.totals}
         />
       </PageSection>
     </PageShell>

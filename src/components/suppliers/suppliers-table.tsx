@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
+
 import { SupplierRowActions } from "@/components/suppliers/supplier-row-actions";
 import {
   ResourceList,
   type ResourceListColumn,
+  type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
@@ -26,23 +29,39 @@ type SupplierRow = {
   type: "CUSTOMER" | "SUPPLIER" | "BOTH";
 };
 
-type SuppliersTableProps = {
-  rows: SupplierRow[];
+type SupplierTotals = {
+  outstandingBalance: number;
+  /** Null when the filtered suppliers use more than one currency. */
+  currencyCode: string | null;
 };
 
-const columns: ResourceListColumn<SupplierRow>[] = [
+type SuppliersTableProps = {
+  rows: SupplierRow[];
+  /** Server pagination state; `rows` is then only the current page. */
+  server?: ServerListState;
+  /** Footer totals over every filtered supplier (server mode). */
+  totals?: SupplierTotals;
+};
+
+const buildColumns = (totals?: SupplierTotals): ResourceListColumn<SupplierRow>[] => [
   {
     header: "N.º proveedor",
     alwaysVisible: true,
     cell: (supplier) => <span className="font-mono font-medium">{supplier.number}</span>,
     exportValue: (supplier) => supplier.number,
     sortValue: (supplier) => supplier.number,
+    sortKey: "number",
   },
   {
     header: "Nombre",
-    cell: (supplier) => <span className="font-medium">{supplier.name}</span>,
+    cell: (supplier) => (
+      <Link className="font-medium underline-offset-4 hover:underline" href={`/suppliers/${supplier.id}`}>
+        {supplier.name}
+      </Link>
+    ),
     exportValue: (supplier) => supplier.name,
     sortValue: (supplier) => supplier.name,
+    sortKey: "name",
   },
   {
     header: "Estado",
@@ -53,6 +72,7 @@ const columns: ResourceListColumn<SupplierRow>[] = [
     ),
     exportValue: (supplier) => (supplier.isActive ? "Activo" : "Inactivo"),
     sortValue: (supplier) => (supplier.isActive ? "ACTIVE" : "INACTIVE"),
+    sortKey: "status",
   },
   {
     header: "Saldo pendiente",
@@ -64,22 +84,35 @@ const columns: ResourceListColumn<SupplierRow>[] = [
         ) : null}
       </div>
     ),
-    exportValue: (supplier) => supplier.outstandingBalance,
+    exportValue: (supplier) => Number(supplier.outstandingBalance),
     sortValue: (supplier) => Number(supplier.outstandingBalance),
+    sortKey: "outstanding",
+    summary: (rows) => {
+      if (totals) {
+        return totals.currencyCode ? formatMoney(totals.outstandingBalance, totals.currencyCode) : "Varias divisas";
+      }
+      const currencies = new Set(rows.map((supplier) => supplier.currencyCode));
+      if (currencies.size > 1) return "Varias divisas";
+      const cents = rows.reduce((total, supplier) => total + Math.round(Number(supplier.outstandingBalance) * 100), 0);
+      return formatMoney(cents / 100, rows[0]?.currencyCode ?? "EUR");
+    },
     className: "text-right",
   },
   {
     header: "Tipo",
     cell: (supplier) =>
       supplier.type === "BOTH" ? "Cliente y proveedor" : "Proveedor",
-    exportValue: (supplier) => supplier.type,
+    exportValue: (supplier) =>
+      supplier.type === "BOTH" ? "Cliente y proveedor" : "Proveedor",
     sortValue: (supplier) => supplier.type,
+    sortKey: "type",
   },
   {
     header: "CIF/NIF",
     cell: (supplier) => supplier.taxId ?? "Sin CIF/NIF",
     exportValue: (supplier) => supplier.taxId ?? "",
     sortValue: (supplier) => supplier.taxId ?? "",
+    sortKey: "taxId",
   },
   {
     header: "Domicilio",
@@ -105,18 +138,21 @@ const columns: ResourceListColumn<SupplierRow>[] = [
       [supplier.city, supplier.province, supplier.countryCode]
         .filter(Boolean)
         .join(" "),
+    sortKey: "address",
   },
   {
     header: "Email",
     cell: (supplier) => supplier.email ?? "Sin email",
     exportValue: (supplier) => supplier.email ?? "",
     sortValue: (supplier) => supplier.email ?? "",
+    sortKey: "email",
   },
   {
     header: "Teléfono",
     cell: (supplier) => supplier.phone ?? "Sin teléfono",
     exportValue: (supplier) => supplier.phone ?? "",
     sortValue: (supplier) => supplier.phone ?? "",
+    sortKey: "phone",
   },
   {
     header: "Acciones",
@@ -127,14 +163,17 @@ const columns: ResourceListColumn<SupplierRow>[] = [
   },
 ];
 
-export function SuppliersTable({ rows }: SuppliersTableProps) {
+export function SuppliersTable({ rows, server, totals }: SuppliersTableProps) {
   return (
     <ResourceList
       title="Proveedores"
       items={rows}
-      columns={columns}
+      server={server}
+      columns={buildColumns(totals)}
       getRowId={(supplier) => supplier.id}
       getRowTestId={(supplier) => `supplier-row-${supplier.id}`}
+      getRowLabel={(supplier) => supplier.name}
+      summaryLabel="Total pendiente"
       getSearchText={(supplier) =>
         [
           supplier.name,
@@ -182,7 +221,9 @@ export function SuppliersTable({ rows }: SuppliersTableProps) {
         <div className="space-y-3">
           <div>
             <p className="font-mono text-xs text-muted-foreground">{supplier.number}</p>
-            <p className="font-medium">{supplier.name}</p>
+            <Link className="font-medium underline-offset-4 hover:underline" href={`/suppliers/${supplier.id}`}>
+              {supplier.name}
+            </Link>
             <p className="text-sm text-muted-foreground">
               {supplier.isActive ? "Activo" : "Inactivo"}
             </p>

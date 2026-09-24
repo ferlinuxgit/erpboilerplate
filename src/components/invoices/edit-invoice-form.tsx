@@ -17,19 +17,18 @@ import {
   type InvoiceTaxOption,
 } from "@/components/invoices/invoice-form-controls";
 import { Input } from "@/components/ui/input";
+import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
 import { Dialog } from "@/components/ui/dialog";
-import { AccessibleField } from "@/components/ui/form";
-import { Label } from "@/components/ui/label";
+import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { InlineAlert } from "@/components/ui/page";
-import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { invoiceStatusLabels, statusLabel } from "@/lib/status-labels";
-import { createCustomerSchema, updateInvoiceSchema } from "@/server/schemas/forms";
+import { defaultSalesVatTreatment, type SalesVatTreatmentCode } from "@/server/invoices/lifecycle";
+import { draftInvoiceFormSchema } from "@/server/invoices/schemas";
+import { createCustomerSchema } from "@/server/schemas/forms";
 
-const statusOptions = ["DRAFT", "SENT"] as const;
-
-type UpdateInvoicePayload = z.infer<typeof updateInvoiceSchema>;
+type UpdateInvoicePayload = z.infer<typeof draftInvoiceFormSchema>;
 type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
 
 type EditableInvoiceLine = UpdateInvoicePayload["lines"][number];
@@ -53,8 +52,8 @@ export function EditInvoiceForm({
   defaultIssueDate,
   defaultNotes,
   defaultPaymentMethodIds,
-  defaultStatus,
   defaultTotalAmount,
+  defaultVatTreatment,
   id,
   invoiceNumber,
   paymentMethods,
@@ -70,8 +69,8 @@ export function EditInvoiceForm({
   defaultIssueDate: string;
   defaultNotes: string | null;
   defaultPaymentMethodIds: string[];
-  defaultStatus: "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "VOID";
   defaultTotalAmount: number;
+  defaultVatTreatment: SalesVatTreatmentCode | null;
   taxes: Array<InvoiceTaxOption & { isActive: boolean }>;
   paymentMethods: InvoicePaymentMethodOption[];
 }) {
@@ -84,6 +83,11 @@ export function EditInvoiceForm({
   const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
+  // Un tratamiento guardado distinto del que corresponde al país del cliente se considera elegido a mano.
+  const [vatTreatmentTouched, setVatTreatmentTouched] = useState(
+    Boolean(defaultVatTreatment) && defaultVatTreatment !== defaultSalesVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)?.countryCode),
+  );
   const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive && configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
   const emptyLine: EditableInvoiceLine = {
     description: "",
@@ -100,10 +104,10 @@ export function EditInvoiceForm({
     setValue,
     formState: { errors, isDirty, isSubmitting },
   } = useForm<UpdateInvoicePayload>({
-    resolver: zodResolver(updateInvoiceSchema),
+    resolver: zodResolver(draftInvoiceFormSchema),
     defaultValues: {
-      status: defaultStatus,
       customerId: defaultCustomerId,
+      vatTreatment: defaultVatTreatment ?? defaultSalesVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)?.countryCode),
       issueDate: defaultIssueDate,
       dueDate: defaultDueDate,
       notes: defaultNotes ?? "",
@@ -116,12 +120,12 @@ export function EditInvoiceForm({
   const watchedLines = useWatch({ control, name: "lines" });
   const selectedPaymentMethodIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
   const selectedCustomerId = useWatch({ control, name: "customerId" });
+  const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
   }));
   const totals = calculateInvoiceTotals(calculatedLines);
-  const statusErrorId = errors.status ? "invoice-status-error" : undefined;
   const paymentMethodError = firstFormErrorMessage(errors.paymentMethodIds);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
   const filteredCustomers = useMemo(() => {
@@ -156,9 +160,19 @@ export function EditInvoiceForm({
     },
   });
 
+  const hasChargedVat = totals.taxBuckets.some(
+    (bucket) => bucket.operation === "ADD" && bucket.rate > 0 && ["VAT", "SURCHARGE"].includes((bucket.kind ?? "").toUpperCase()),
+  );
+
   useEffect(() => {
     setValue("totalAmount", totals.totalAmount, { shouldValidate: true });
   }, [setValue, totals.totalAmount]);
+
+  // Mientras el usuario no fije el tratamiento de IVA, sigue al país del cliente.
+  useEffect(() => {
+    if (vatTreatmentTouched || !selectedCustomer) return;
+    setValue("vatTreatment", defaultSalesVatTreatment(selectedCustomer.countryCode));
+  }, [selectedCustomer, setValue, vatTreatmentTouched]);
 
   useEffect(() => {
     if (pendingFocusLineIndex === null) return;
@@ -206,6 +220,7 @@ export function EditInvoiceForm({
   };
 
   const onCreateCustomer = handleCustomerSubmit(async (values) => {
+    setCustomerSubmitError(null);
     try {
       const response = await fetch("/api/customers", {
         method: "POST",
@@ -213,8 +228,7 @@ export function EditInvoiceForm({
         body: JSON.stringify(values),
       });
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(payload?.message ?? "No se pudo crear el cliente.");
+        throw new Error(await readApiError(response, "No se pudo crear el cliente."));
       }
       const createdCustomer = (await response.json()) as CustomerOption;
       setCustomerOptions((current) => current.some((customer) => customer.id === createdCustomer.id) ? current : [...current, createdCustomer]);
@@ -224,7 +238,9 @@ export function EditInvoiceForm({
       toast.success("Cliente creado y seleccionado.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Ha ocurrido un error inesperado.");
+      const message = errorMessage(error, "No se pudo crear el cliente. Inténtalo de nuevo.");
+      setCustomerSubmitError(message);
+      toast.error(message);
     }
   });
 
@@ -242,16 +258,15 @@ export function EditInvoiceForm({
           body: JSON.stringify({ ...values, totalAmount: invoiceTotals.totalAmount }),
         });
 
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         if (!response.ok) {
-          throw new Error(payload?.message ?? `No se pudo actualizar la factura (error ${response.status}).`);
+          throw new Error(await readApiError(response, "No se pudo actualizar la factura."));
         }
 
-        toast.success("Factura actualizada correctamente.");
+        toast.success("Borrador guardado. Emítelo desde la ficha cuando esté listo.");
         router.push(`/invoices/${id}`);
         router.refresh();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "No se pudo actualizar la factura.";
+        const message = errorMessage(error, "No se pudo actualizar la factura. Inténtalo de nuevo.");
         setSubmissionError(message);
         toast.error(message);
       }
@@ -288,11 +303,11 @@ export function EditInvoiceForm({
       ) : null}
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
-      <section className="space-y-3 rounded-md border p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
+      <section className="space-y-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 id="invoice-customer-title" className="text-sm font-medium">Cliente</h3>
-            <p className="text-sm text-muted-foreground">Puedes corregir el cliente mientras la factura no tenga cobros registrados.</p>
+            <h3 id="invoice-customer-title" className="font-mono text-xs font-bold uppercase tracking-wide">Cliente</h3>
+            <p className="text-xs text-muted-foreground">Es un borrador: puedes cambiar cualquier dato hasta emitirlo.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => setCustomerSearchDialogOpen(true)}>Buscar cliente</Button>
@@ -304,20 +319,21 @@ export function EditInvoiceForm({
           </div>
         </div>
         {selectedCustomer ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="font-medium">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
-            <p className="text-sm text-muted-foreground">
+          <div className="rounded-[2px] border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
+            <p className="font-mono text-sm font-bold">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
+            <p className="text-xs text-muted-foreground">
               {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
             </p>
           </div>
         ) : (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Selecciona un cliente activo.</p>
+          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Selecciona un cliente activo.</p>
         )}
-        {errors.customerId ? <p className="text-sm text-destructive" role="alert">{errors.customerId.message}</p> : null}
+        {errors.customerId ? <p className="font-mono text-xs text-destructive" role="alert">{errors.customerId.message}</p> : null}
       </section>
-      <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-        <p className="text-sm font-medium">Número de factura</p>
-        <p className="text-sm text-muted-foreground" data-testid="invoice-number-preview">{invoiceNumber}</p>
+      <div className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3">
+        <p className="font-mono text-xs font-bold">Número provisional</p>
+        <p className="font-mono text-sm tabular-nums" data-testid="invoice-number-preview">{invoiceNumber}</p>
+        <p className="text-xs text-muted-foreground">El número definitivo se asigna al emitir.</p>
       </div>
       <AccessibleField id="invoice-issue-date" label="Fecha emisión" required error={errors.issueDate?.message}>
         <Input
@@ -342,26 +358,6 @@ export function EditInvoiceForm({
           {...register("dueDate")}
         />
       </AccessibleField>
-      <div className="space-y-2">
-        <Label htmlFor="invoice-status">Estado</Label>
-        <Select
-          id="invoice-status"
-          aria-invalid={Boolean(errors.status)}
-          aria-describedby={statusErrorId}
-          {...register("status")}
-        >
-          {statusOptions.map((status) => (
-            <option key={status} value={status}>
-              {statusLabel(invoiceStatusLabels, status)}
-            </option>
-          ))}
-        </Select>
-        {errors.status ? (
-          <p id="invoice-status-error" className="text-sm text-destructive" role="alert">
-            {errors.status.message}
-          </p>
-        ) : null}
-      </div>
       <div className="md:col-span-3">
         <InvoiceLinesEditor
           errors={fields.map((_, index) => {
@@ -376,8 +372,8 @@ export function EditInvoiceForm({
           fields={fields}
           getBindings={(index) => ({
             description: register(`lines.${index}.description`),
-            quantity: register(`lines.${index}.quantity`, { valueAsNumber: true }),
-            unitPrice: register(`lines.${index}.unitPrice`, { valueAsNumber: true }),
+            quantity: register(`lines.${index}.quantity`, decimalRegisterOptions),
+            unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
             taxIds: () => register(`lines.${index}.taxIds`),
           })}
           lines={watchedLines ?? []}
@@ -388,7 +384,7 @@ export function EditInvoiceForm({
           taxes={taxes}
           totals={totals}
         />
-        {errors.lines?.root ? <p className="mt-2 text-sm text-destructive" role="alert">{errors.lines.root.message}</p> : null}
+        {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-destructive" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
@@ -398,6 +394,12 @@ export function EditInvoiceForm({
             getBinding={() => register("paymentMethodIds")}
             methods={paymentMethods}
             selectedIds={selectedPaymentMethodIds}
+          />
+          <InvoiceVatTreatmentField
+            binding={register("vatTreatment", { onChange: () => setVatTreatmentTouched(true) })}
+            error={errors.vatTreatment?.message}
+            hasChargedVat={hasChargedVat}
+            value={selectedVatTreatment}
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input id="invoice-notes" placeholder="Observaciones" aria-label="Notas de factura" {...register("notes")} />
@@ -410,9 +412,9 @@ export function EditInvoiceForm({
         <p className="hidden text-xs text-muted-foreground sm:block">
           {submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
         </p>
-        <Button className="ml-auto min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" disabled={isSubmitting} type="submit">
-          {isSubmitting ? "Guardando..." : "Guardar cambios"}
-        </Button>
+        <SubmitButton className="ml-auto min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting}>
+          Guardar borrador
+        </SubmitButton>
       </div>
     </form>
     <Dialog
@@ -437,10 +439,10 @@ export function EditInvoiceForm({
         </div>
         <div className="max-h-80 space-y-2 overflow-y-auto">
           {filteredCustomers.length === 0 ? (
-            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No hay clientes que coincidan con la búsqueda.</p>
+            <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
           ) : filteredCustomers.map((customer) => (
             <button
-              className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full rounded-[2px] border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               key={customer.id}
               type="button"
               onClick={() => {
@@ -448,8 +450,8 @@ export function EditInvoiceForm({
                 setCustomerSearchDialogOpen(false);
               }}
             >
-              <span className="block font-medium">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
-              <span className="block text-sm text-muted-foreground">{[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}</span>
+              <span className="block font-mono text-sm font-bold">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
+              <span className="block text-xs text-muted-foreground">{[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}</span>
             </button>
           ))}
         </div>
@@ -490,17 +492,18 @@ export function EditInvoiceForm({
           <Input data-testid="invoice-new-customer-province-input" id="invoice-new-customer-province" required aria-label="Provincia del cliente nuevo" aria-invalid={Boolean(customerErrors.province)} {...registerCustomer("province")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-address-line-2" label="Dirección 2" error={customerErrors.addressLine2?.message}>
-          <Input id="invoice-new-customer-address-line-2" aria-label="Dirección 2" {...registerCustomer("addressLine2")} />
+          <Input data-testid="invoice-new-customer-address-line-2-input" id="invoice-new-customer-address-line-2" aria-label="Dirección 2 del cliente nuevo" {...registerCustomer("addressLine2")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-email" label="Email" error={customerErrors.email?.message}>
-          <Input id="invoice-new-customer-email" type="email" aria-label="Email" {...registerCustomer("email")} />
+          <Input data-testid="invoice-new-customer-email-input" id="invoice-new-customer-email" type="email" aria-label="Email del cliente nuevo" {...registerCustomer("email")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-phone" label="Teléfono" error={customerErrors.phone?.message}>
-          <Input id="invoice-new-customer-phone" aria-label="Teléfono" {...registerCustomer("phone")} />
+          <Input data-testid="invoice-new-customer-phone-input" id="invoice-new-customer-phone" aria-label="Teléfono del cliente nuevo" {...registerCustomer("phone")} />
         </AccessibleField>
+        <FormErrorMessage className="md:col-span-2">{customerSubmitError}</FormErrorMessage>
         <div className="flex justify-end gap-2 md:col-span-2">
           <Button type="button" variant="outline" onClick={() => setCustomerCreateDialogOpen(false)}>Cancelar</Button>
-          <Button data-testid="invoice-new-customer-submit" disabled={isCreatingCustomer} type="submit">{isCreatingCustomer ? "Creando..." : "Crear cliente y usar"}</Button>
+          <SubmitButton data-testid="invoice-new-customer-submit" pending={isCreatingCustomer} pendingLabel="Creando…">Crear cliente y usar</SubmitButton>
         </div>
       </form>
     </Dialog>

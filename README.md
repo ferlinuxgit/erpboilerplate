@@ -13,6 +13,8 @@ Base avanzada para un ERP SaaS multi-tenant con:
 
 ## Getting Started
 
+Requisitos: Node.js 22 o superior (`.nvmrc` fija 22; ejecuta `nvm use`) y npm. npm es el único gestor de paquetes soportado (`package-lock.json`).
+
 1. Instala dependencias:
 
 ```bash

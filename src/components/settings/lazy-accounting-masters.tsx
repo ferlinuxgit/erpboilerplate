@@ -8,7 +8,7 @@ import type { AccountingMasterAccount, AccountingMasterJournal } from "@/lib/acc
 
 const AccountingMastersForm = dynamic(
   () => import("@/components/accounting/accounting-masters-form").then((module) => module.AccountingMastersForm),
-  { loading: () => <p className="text-sm text-muted-foreground">Cargando catálogo contable…</p> },
+  { loading: () => <p className="font-mono text-xs text-muted-foreground" aria-busy="true">Cargando catálogo contable…</p> },
 );
 
 type LazyAccountingMastersProps = {
@@ -24,10 +24,10 @@ export function LazyAccountingMasters(props: LazyAccountingMastersProps) {
 
   if (!open) {
     return (
-      <div className="flex flex-col items-start gap-3 rounded-[2px] border border-dashed bg-muted/25 p-3">
+      <div className="flex flex-col items-start gap-3 border border-dashed border-window-dark-shadow bg-window-panel p-3">
         <div>
-          <p className="font-medium">Catálogo contable completo</p>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          <h3 className="font-mono text-sm font-bold">Catálogo contable completo</h3>
+          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
             Carga esta vista sólo cuando necesites revisar cuentas y diarios individuales. El catálogo se mostrará por bloques para mantener la página ligera.
           </p>
         </div>

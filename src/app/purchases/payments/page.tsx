@@ -1,4 +1,5 @@
 import { desc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { SupplierPaymentsList } from "@/components/purchases/supplier-payments-list";
@@ -7,6 +8,8 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { bankAccount, partner, paymentMethod, supplierInvoice, supplierPayment } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+
+export const metadata: Metadata = { title: "Pagos a proveedores" };
 
 export default async function PurchasePaymentsPage() {
   const ctx = await requireContext("purchase.read");

@@ -13,6 +13,10 @@ export function FiscalReportRowActions({ canWrite = true, hideView = false, repo
         <Download aria-hidden="true" />
         PDF
       </Link>
+      <Link href={`/api/fiscal-reports/${report.id}/export?format=csv`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+        <Download aria-hidden="true" />
+        CSV
+      </Link>
       <Link href={`/api/fiscal-reports/${report.id}/export`} className={buttonVariants({ variant: "outline", size: "sm" })}>
         <Download aria-hidden="true" />
         JSON

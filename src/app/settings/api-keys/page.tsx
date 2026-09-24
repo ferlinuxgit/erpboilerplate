@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import type { Metadata } from "next";
 
 import { ApiDocumentationPanel } from "@/components/settings/api-documentation-panel";
 import { ApiKeyManager } from "@/components/settings/api-key-manager";
@@ -9,10 +10,12 @@ import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { can } from "@/lib/rbac";
 
+export const metadata: Metadata = { title: "API" };
+
 export default async function ApiKeysPage() {
   const ctx = await requireContext("apiKey.read");
   const keys = await db
-    .select({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt })
+    .select({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt, legacy: sql<boolean>`${apiKey.keyPrefix} is null` })
     .from(apiKey)
     .where(eq(apiKey.tenantId, ctx.tenant.id));
   const canManage = can(ctx.membership.role, "apiKey.write");

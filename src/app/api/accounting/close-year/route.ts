@@ -1,25 +1,35 @@
-import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
-import { fiscalYear } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
-import { db } from "@/lib/db";
+import { handleRouteError, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { postYearEndClosing } from "@/server/accounting/auto-post";
+import { closeFiscalYear } from "@/server/accounting/fiscal-years";
 
-export async function POST() {
+const payloadSchema = z.object({ fiscalYearId: z.string().trim().min(1).optional() }).nullable();
+
+/**
+ * Cierra el ejercicio indicado (o el activo): asiento de regularización (6/7 → 129), asiento de
+ * cierre de cuentas de balance y, si el ejercicio siguiente ya existe, su asiento de apertura.
+ */
+export async function POST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "accounting.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const closed = await db.transaction(async (tx) => {
-    const [year] = await tx.select().from(fiscalYear).where(and(eq(fiscalYear.id, ctx.fiscalYear.id), eq(fiscalYear.companyId, ctx.company.id))).for("update").limit(1);
-    if (!year) throw new Error("Ejercicio fiscal no encontrado.");
-    if (year.isClosed) throw new Error("El ejercicio fiscal ya está cerrado.");
-    await postYearEndClosing({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id, fiscalYearId: ctx.fiscalYear.id, dbClient: tx });
-    const [updated] = await tx.update(fiscalYear).set({ isClosed: true }).where(and(eq(fiscalYear.id, ctx.fiscalYear.id), eq(fiscalYear.companyId, ctx.company.id))).returning();
-    return updated;
-  });
-  return NextResponse.json(closed);
+  if (!can(ctx.membership.role, "accounting.write")) return NextResponse.json({ message: "Sin permisos para cerrar el ejercicio." }, { status: 403 });
+  const parsed = payloadSchema.safeParse(await readJsonBody(request));
+  if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+
+  try {
+    const result = await closeFiscalYear({
+      companyId: ctx.company.id,
+      tenantId: ctx.tenant.id,
+      actorUserId: session.user.id,
+      fiscalYearId: parsed.data?.fiscalYearId ?? ctx.fiscalYear.id,
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    return handleRouteError(error, "accounting.close-year", "No se pudo cerrar el ejercicio. Inténtalo de nuevo.");
+  }
 }

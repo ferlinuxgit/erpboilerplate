@@ -3,22 +3,29 @@ import { notFound } from "next/navigation";
 
 import { BankTransactionsList } from "@/components/treasury/bank-transactions-list";
 import { buttonVariants } from "@/components/ui/button";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { BankAccountArchiveButton } from "@/components/treasury/bank-account-archive-button";
+import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
-import { getBankAccount, listBankTransactions } from "@/server/treasury/service";
+import { bankTransactionStats, recentBankTransactions } from "@/server/treasury/bank-transaction-list";
+import { getBankAccount } from "@/server/treasury/service";
+
+const RECENT_MOVEMENTS = 20;
 
 export default async function BankAccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("treasury.read");
   const { id } = await params;
-  const [account, transactions] = await Promise.all([getBankAccount(ctx.company.id, id), listBankTransactions(ctx.company.id, id)]);
+  const account = await getBankAccount(ctx.company.id, id);
   if (!account) notFound();
-
-  const balance = transactions.reduce((sum, transaction) => sum + Number(transaction.amount), 0);
-  const income = transactions.reduce((sum, transaction) => sum + Math.max(Number(transaction.amount), 0), 0);
-  const outflow = transactions.reduce((sum, transaction) => sum + Math.min(Number(transaction.amount), 0), 0);
-  const pending = transactions.filter((transaction) => transaction.reconciliationStatus === "PENDING").length;
+  // Totals in SQL and only the latest movements; the full history is the paginated list.
+  const [stats, recent] = await Promise.all([
+    bankTransactionStats(ctx.company.id, { bankAccountId: account.id }),
+    recentBankTransactions(ctx.company.id, { bankAccountId: account.id }, RECENT_MOVEMENTS),
+  ]);
+  const { balance, income, outflow, pending } = stats;
+  const allMovementsHref = `/treasury/bank-transactions?account=${encodeURIComponent(account.id)}`;
   const canWrite = can(ctx.membership.role, "treasury.write");
 
   return (
@@ -26,21 +33,38 @@ export default async function BankAccountDetailPage({ params }: { params: Promis
       <PageHeader
         eyebrow="Tesorería · Cuenta"
         title={account.bankName}
-        description={account.iban}
-        backHref="/treasury"
-        backLabel="Volver a tesorería"
-        actions={canWrite ? <><Link className={buttonVariants({ variant: "outline" })} href={`/treasury/bank-accounts/${account.id}/edit`}>Editar</Link><Link className={buttonVariants()} href={`/treasury/bank-transactions/new?bankAccountId=${account.id}`}>Nuevo movimiento</Link></> : null}
+        description={`${account.iban} · Cuenta contable ${account.accountCode ? `${account.accountCode} ${account.accountName ?? ""}` : "572 (por defecto)"}`}
+        backHref="/treasury/bank-accounts"
+        backLabel="Volver a cuentas bancarias"
+        meta={<StatusBadge tone={account.isActive ? "success" : "neutral"}>{account.isActive ? "Activa" : "Archivada"}</StatusBadge>}
+        actions={canWrite ? <><Link className={buttonVariants({ variant: "outline" })} href={`/treasury/bank-accounts/${account.id}/edit`}>Editar</Link><BankAccountArchiveButton accountId={account.id} bankName={account.bankName} isActive={account.isActive} />{account.isActive ? <Link className={buttonVariants()} href={`/treasury/bank-transactions/new?bankAccountId=${account.id}`}>Nuevo movimiento</Link> : null}</> : null}
       />
 
+      {!account.isActive ? (
+        <InlineAlert tone="neutral">Cuenta archivada: conserva su historial y sus asientos, pero no admite movimientos nuevos. Reactívala si vuelves a usarla.</InlineAlert>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Saldo registrado" value={formatMoney(balance, ctx.company.baseCurrencyCode)} helper={`${transactions.length} movimientos`} tone={balance >= 0 ? "success" : "warning"} />
+        <MetricCard label="Saldo registrado" value={formatMoney(balance, ctx.company.baseCurrencyCode)} helper={`${stats.total} movimientos`} tone={balance >= 0 ? "success" : "warning"} />
         <MetricCard label="Entradas" value={formatMoney(income, ctx.company.baseCurrencyCode)} helper="Cobros y abonos" />
         <MetricCard label="Salidas" value={formatMoney(Math.abs(outflow), ctx.company.baseCurrencyCode)} helper="Pagos y cargos" />
-        <MetricCard label="Sin conciliar" value={pending} helper="Requieren revisión" tone={pending > 0 ? "warning" : "success"} />
+        <MetricCard href={pending > 0 ? `${allMovementsHref}&reconciliation=PENDING` : undefined} label="Sin conciliar" value={pending} helper="Requieren revisión" tone={pending > 0 ? "warning" : "success"} />
       </section>
 
-      <PageSection title="Movimientos de la cuenta" description="Histórico completo, búsqueda, vistas guardadas y exportación.">
-        <BankTransactionsList accounts={[account]} canManage={canWrite} currencyCode={ctx.company.baseCurrencyCode} rows={transactions} />
+      <PageSection
+        title="Últimos movimientos"
+        description={
+          stats.total > recent.length
+            ? `Los ${recent.length} movimientos más recientes de ${stats.total}. El histórico completo, con búsqueda y exportación, está en Movimientos bancarios.`
+            : "Movimientos de la cuenta. Para buscar por fechas o exportar, abre el listado de movimientos bancarios."
+        }
+        actions={
+          <Link className={buttonVariants({ variant: "outline", size: "sm" })} data-testid="bank-account-all-movements" href={allMovementsHref}>
+            Ver todos los movimientos{stats.total > recent.length ? ` (${stats.total})` : ""}
+          </Link>
+        }
+      >
+        <BankTransactionsList accounts={[account]} canManage={canWrite} currencyCode={ctx.company.baseCurrencyCode} hiddenFilters={["account"]} rows={recent} />
       </PageSection>
     </PageShell>
   );

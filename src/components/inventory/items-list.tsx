@@ -25,6 +25,43 @@ export type InventoryItemRow = {
   canManage: boolean;
   isActive: boolean;
 };
+
+function formatQuantity(value: number) {
+  return value.toLocaleString("es-ES", { maximumFractionDigits: 3 });
+}
+
+function ItemActions({ row }: { row: InventoryItemRow }) {
+  if (!row.canManage) {
+    return (
+      <Link
+        className={buttonVariants({ variant: "outline", size: "sm" })}
+        href={`/inventory/items/${row.id}`}
+      >
+        Ver
+      </Link>
+    );
+  }
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      <Link
+        className={buttonVariants({ variant: "outline", size: "sm" })}
+        href={`/inventory/items/${row.id}/edit`}
+      >
+        Editar
+      </Link>
+      {row.isActive ? (
+        <DeleteButton
+          description="El artículo dejará de estar disponible para nuevas operaciones. Su histórico y movimientos se conservarán."
+          label="Archivar"
+          successMessage="Artículo archivado; el histórico se conserva."
+          title={`Archivar ${row.name}`}
+          url={`/api/items/${row.id}`}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 const columns: ResourceListColumn<InventoryItemRow>[] = [
   {
     header: "Artículo",
@@ -64,9 +101,7 @@ const columns: ResourceListColumn<InventoryItemRow>[] = [
       row.isService ? (
         "No aplica"
       ) : (
-        <span className="font-mono">
-          {row.quantity.toLocaleString("es-ES", { maximumFractionDigits: 3 })}
-        </span>
+        <span className="font-mono">{formatQuantity(row.quantity)}</span>
       ),
     exportValue: (row) => row.quantity,
     sortValue: (row) => row.quantity,
@@ -77,7 +112,7 @@ const columns: ResourceListColumn<InventoryItemRow>[] = [
     cell: (row) =>
       row.isService
         ? "No aplica"
-        : Number(row.minimumStock).toLocaleString("es-ES"),
+        : formatQuantity(Number(row.minimumStock)),
     exportValue: (row) => Number(row.minimumStock),
     sortValue: (row) => Number(row.minimumStock),
     className: "text-right",
@@ -98,31 +133,7 @@ const columns: ResourceListColumn<InventoryItemRow>[] = [
   },
   {
     header: "Acciones",
-    cell: (row) =>
-      row.canManage ? (
-        <div className="flex flex-wrap justify-end gap-2">
-          <Link
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-            href={`/inventory/items/${row.id}/edit`}
-          >
-            Editar
-          </Link>
-          {row.isActive ? <DeleteButton
-            description="El artículo dejará de estar disponible para nuevas operaciones. Su histórico y movimientos se conservarán."
-            label="Archivar"
-            successMessage="Artículo archivado; el histórico se conserva."
-            title={`Archivar ${row.name}`}
-            url={`/api/items/${row.id}`}
-          /> : null}
-        </div>
-      ) : (
-        <Link
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-          href={`/inventory/items/${row.id}`}
-        >
-          Ver
-        </Link>
-      ),
+    cell: (row) => <ItemActions row={row} />,
     className: "text-right",
   },
 ];
@@ -145,6 +156,16 @@ export function ItemsList({ rows }: { rows: InventoryItemRow[] }) {
           getValue: (row) => (row.isService ? "SERVICE" : "PRODUCT"),
         },
         {
+          key: "status",
+          label: "Estado",
+          allLabel: "Todos los estados",
+          options: [
+            { value: "ACTIVE", label: "Activos" },
+            { value: "ARCHIVED", label: "Archivados" },
+          ],
+          getValue: (row) => (row.isActive ? "ACTIVE" : "ARCHIVED"),
+        },
+        {
           key: "availability",
           label: "Disponibilidad",
           allLabel: "Todos",
@@ -161,9 +182,37 @@ export function ItemsList({ rows }: { rows: InventoryItemRow[] }) {
         },
       ]}
       getRowId={(row) => row.id}
+      getRowLabel={(row) => `${row.sku} · ${row.name}`}
       getSearchText={(row) =>
-        `${row.sku} ${row.name} ${row.isService ? "servicio" : "producto"}`
+        `${row.sku} ${row.name} ${row.isService ? "servicio" : "producto"} ${row.isActive ? "activo" : "archivado"}`
       }
+      renderMobileCard={(row) => (
+        <div className="space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link className="font-medium underline-offset-4 hover:underline" href={`/inventory/items/${row.id}`}>
+                {row.name}
+              </Link>
+              <p className="font-mono text-xs text-muted-foreground">{row.sku}</p>
+            </div>
+            <div className="flex flex-wrap justify-end gap-1">
+              <StatusBadge tone={row.isService ? "info" : "neutral"}>{row.isService ? "Servicio" : "Producto"}</StatusBadge>
+              <StatusBadge tone={row.isActive ? "success" : "neutral"}>{row.isActive ? "Activo" : "Archivado"}</StatusBadge>
+            </div>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <dt className="text-muted-foreground">Stock</dt>
+            <dd className="font-mono tabular-nums">{row.isService ? "No aplica" : formatQuantity(row.quantity)}</dd>
+            <dt className="text-muted-foreground">Mínimo</dt>
+            <dd className="font-mono tabular-nums">{row.isService ? "No aplica" : formatQuantity(Number(row.minimumStock))}</dd>
+            <dt className="text-muted-foreground">Venta</dt>
+            <dd className="font-mono tabular-nums">{formatMoney(row.salePrice, row.currencyCode)}</dd>
+            <dt className="text-muted-foreground">Coste medio</dt>
+            <dd className="font-mono tabular-nums">{formatMoney(row.averageCost, row.currencyCode)}</dd>
+          </dl>
+          <ItemActions row={row} />
+        </div>
+      )}
       items={rows}
       searchPlaceholder="Buscar por SKU o nombre"
       testId="inventory-items-list"

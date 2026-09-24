@@ -9,52 +9,101 @@ import { z } from "zod";
 
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 const onboardingSchema = z.object({
   legalName: z.string().trim().optional().or(z.literal("")),
   vatNumber: z.string().trim().optional().or(z.literal("")),
-  defaultSeriesPrefix: z.string().trim().optional().or(z.literal("")),
-  inviteEmail: z.string().trim().email("Debes indicar un email válido.").optional().or(z.literal("")),
+  defaultSeriesPrefix: z.string().trim().max(20, "El prefijo no puede superar 20 caracteres.").optional().or(z.literal("")),
+  inviteEmail: z.string().trim().email("Indica un email válido, por ejemplo persona@empresa.com, o deja el campo vacío.").optional().or(z.literal("")),
 });
 
 type OnboardingPayload = z.infer<typeof onboardingSchema>;
 
+const defaultValues: OnboardingPayload = {
+  legalName: "",
+  vatNumber: "",
+  defaultSeriesPrefix: "FA",
+  inviteEmail: "",
+};
+
 const steps = [
-  "Empresa",
-  "Fiscalidad",
-  "Series",
-  "Plan contable",
-  "Invitar equipo",
+  { title: "Empresa", optional: false, description: "Nombre legal con el que emitirás facturas." },
+  { title: "Fiscalidad", optional: true, description: "Identificación fiscal de la empresa." },
+  { title: "Series", optional: true, description: "Prefijo de la numeración de facturas." },
+  { title: "Plan contable", optional: false, description: "Cuentas y diarios base, sin tener que configurar nada." },
+  { title: "Invitar equipo", optional: true, description: "Invita a una persona para trabajar contigo." },
 ] as const;
+
+/** Fields reset when the user skips an optional step. */
+const stepFields: Partial<Record<number, keyof OnboardingPayload>> = {
+  1: "vatNumber",
+  2: "defaultSeriesPrefix",
+  4: "inviteEmail",
+};
 
 export function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const isFinalStep = stepIndex === steps.length - 1;
+  const currentStep = steps[stepIndex];
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<OnboardingPayload>({
     resolver: zodResolver(onboardingSchema),
-    defaultValues: {
-      legalName: "",
-      vatNumber: "",
-      defaultSeriesPrefix: "FA",
-      inviteEmail: "",
-    },
+    defaultValues,
   });
+
+  const goToStep = (index: number) => setStepIndex(Math.min(steps.length - 1, Math.max(0, index)));
+
+  const finish = handleSubmit(
+    async (values) => {
+      setFormError(null);
+      try {
+        const response = await fetch("/api/onboarding/seed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+          body: JSON.stringify(values),
+        });
+
+        if (!response.ok) throw new Error(await readApiError(response, "No se pudo completar el onboarding."));
+
+        setIsComplete(true);
+        toast.success("Onboarding completado. Se han aplicado los datos base.");
+      } catch (error) {
+        const message = errorMessage(error, "No se pudo completar el onboarding.");
+        setFormError(message);
+        toast.error(message);
+      }
+    },
+    (fieldErrors) => {
+      const firstInvalidStep = fieldErrors.legalName ? 0 : fieldErrors.vatNumber ? 1 : fieldErrors.defaultSeriesPrefix ? 2 : 4;
+      setStepIndex(firstInvalidStep);
+      toast.error("Revisa el dato marcado antes de finalizar.");
+    },
+  );
+
+  const skipStep = (form: HTMLFormElement | null) => {
+    const field = stepFields[stepIndex];
+    if (field) setValue(field, defaultValues[field] ?? "", { shouldValidate: false });
+    if (isFinalStep) form?.requestSubmit();
+    else goToStep(stepIndex + 1);
+  };
 
   if (isComplete) {
     return (
-      <section className="space-y-4 rounded-[2px] border border-success bg-success/10 p-3 text-foreground" role="status">
+      <section className="space-y-3 border border-success bg-success/10 p-3 text-foreground shadow-[inset_1px_1px_0_var(--window-highlight)]" role="status">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide">Configuración inicial lista</p>
-          <h2 className="mt-1 text-lg font-semibold">Onboarding completado</h2>
-          <p className="mt-1 text-sm">
-            Ya aplicamos los seeds base. El siguiente paso recomendado es crear tu primer cliente para alimentar dashboard y reporting.
+          <p className="font-mono text-[0.66rem] font-bold uppercase tracking-[0.04em]">Configuración inicial lista</p>
+          <h2 className="mt-1 font-mono text-lg font-bold">Onboarding completado</h2>
+          <p className="mt-1 text-xs">
+            Hemos aplicado la configuración base. El siguiente paso recomendado es crear tu primer cliente para empezar a facturar y ver datos en el dashboard.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -71,103 +120,142 @@ export function OnboardingWizard() {
 
   return (
     <form
-      className="space-y-4"
-      onSubmit={handleSubmit(async (values) => {
-        const response = await fetch("/api/onboarding/seed", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-          body: JSON.stringify(values),
-        });
-
-        if (!response.ok) {
-          const payload = (await response.json()) as { message?: string };
-          toast.error(payload.message ?? "No se pudo completar el onboarding.");
+      aria-labelledby="onboarding-step-title"
+      className="space-y-3"
+      noValidate
+      onSubmit={(event) => {
+        // Enter on an intermediate step moves forward instead of finishing.
+        if (!isFinalStep) {
+          event.preventDefault();
+          goToStep(stepIndex + 1);
           return;
         }
-
-        setIsComplete(true);
-        toast.success("Onboarding completado. Se han aplicado los seeds base.");
-      })}
+        void finish(event);
+      }}
     >
-      <div className="space-y-2">
-        <p className="text-sm font-medium" aria-live="polite">
-          Paso {stepIndex + 1} de {steps.length}: {steps[stepIndex]}
-        </p>
-        <div className="flex flex-wrap gap-2" aria-label="Pasos de onboarding">
-          {steps.map((step, index) => (
-            <button
-              aria-current={index === stepIndex ? "step" : undefined}
-              className={`rounded-md border px-3 py-1 text-xs ${index === stepIndex ? "bg-primary text-primary-foreground" : "bg-background"}`}
-              key={step}
-              onClick={() => setStepIndex(index)}
-              type="button"
-            >
-              {index + 1}. {step}
-            </button>
-          ))}
+      <nav aria-label="Pasos de onboarding">
+        <ol className="grid gap-1 sm:grid-cols-5">
+          {steps.map((step, index) => {
+            const isCurrent = index === stepIndex;
+            const isDone = index < stepIndex;
+            return (
+              <li key={step.title}>
+                <button
+                  aria-current={isCurrent ? "step" : undefined}
+                  className={cn(
+                    "flex h-full w-full flex-col items-start gap-0.5 border px-2 py-1.5 text-left font-mono text-xs shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+                    isCurrent
+                      ? "border-window-dark-shadow bg-primary text-primary-foreground"
+                      : isDone
+                        ? "border-success/70 bg-success/10 text-foreground hover:bg-window-highlight"
+                        : "border-window-dark-shadow bg-window-panel text-foreground hover:bg-window-highlight",
+                  )}
+                  onClick={() => goToStep(index)}
+                  type="button"
+                >
+                  <span className="font-bold">
+                    {index + 1}. {step.title}
+                    {isDone ? <span className="sr-only"> (revisado)</span> : null}
+                  </span>
+                  {step.optional ? <span className={cn("text-[0.62rem] uppercase", isCurrent ? "text-primary-foreground" : "text-muted-foreground")}>Opcional</span> : null}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+
+      <div className="space-y-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)]">
+        <div className="space-y-0.5 border-b border-window-shadow pb-2">
+          <p className="font-mono text-xs text-muted-foreground" aria-live="polite">
+            Paso {stepIndex + 1} de {steps.length}: {currentStep.title}
+          </p>
+          <h3 className="font-mono text-sm font-bold" id="onboarding-step-title">
+            {currentStep.title}
+            {currentStep.optional ? <span className="ml-1 font-normal text-muted-foreground">(opcional)</span> : null}
+          </h3>
+          <p className="text-xs text-muted-foreground">{currentStep.description}</p>
         </div>
+
+        {stepIndex === 0 ? (
+          <AccessibleField
+            error={errors.legalName?.message}
+            helperText="Aparecerá en tus facturas. Podrás cambiarla después en Ajustes > Empresa."
+            id="legalName"
+            label="Razón social"
+          >
+            <Input id="legalName" autoComplete="organization" autoFocus placeholder="Empresa Demo S.L." {...register("legalName")} />
+          </AccessibleField>
+        ) : null}
+
+        {stepIndex === 1 ? (
+          <AccessibleField
+            error={errors.vatNumber?.message}
+            helperText="CIF de la sociedad o NIF si eres autónomo. Si aún no lo tienes a mano, omite este paso."
+            id="vatNumber"
+            label="NIF/CIF"
+          >
+            <Input id="vatNumber" autoCapitalize="characters" autoFocus placeholder="B12345678" {...register("vatNumber")} />
+          </AccessibleField>
+        ) : null}
+
+        {stepIndex === 2 ? (
+          <AccessibleField
+            error={errors.defaultSeriesPrefix?.message}
+            helperText="Letras al inicio del número de factura (por ejemplo FA → FA2026-000001). Si no sabes qué poner, deja FA."
+            id="defaultSeriesPrefix"
+            label="Prefijo de serie principal"
+          >
+            <Input id="defaultSeriesPrefix" autoFocus className="font-mono" placeholder="FA" {...register("defaultSeriesPrefix")} />
+          </AccessibleField>
+        ) : null}
+
+        {stepIndex === 3 ? (
+          <p className="border border-dashed border-window-dark-shadow bg-card p-3 text-xs text-muted-foreground">
+            Se aplicará automáticamente la plantilla contable general del país de la empresa. No tienes que hacer nada: pulsa Siguiente para continuar.
+          </p>
+        ) : null}
+
+        {stepIndex === 4 ? (
+          <AccessibleField
+            error={errors.inviteEmail?.message}
+            helperText="Opcional. Le enviaremos una invitación; puedes invitar a más personas después desde Ajustes > Equipo."
+            id="inviteEmail"
+            label="Email del primer miembro a invitar"
+          >
+            <Input id="inviteEmail" autoComplete="email" autoFocus inputMode="email" placeholder="persona@empresa.com" type="email" {...register("inviteEmail")} />
+          </AccessibleField>
+        ) : null}
       </div>
 
-      {stepIndex === 0 ? (
-        <div className="space-y-2">
-          <Label htmlFor="legalName">Razón social</Label>
-          <Input id="legalName" placeholder="Empresa Demo S.L." {...register("legalName")} />
-          {errors.legalName ? <p className="text-sm text-destructive">{errors.legalName.message}</p> : null}
-        </div>
-      ) : null}
+      <FormErrorMessage>{formError}</FormErrorMessage>
 
-      {stepIndex === 1 ? (
-        <div className="space-y-2">
-          <Label htmlFor="vatNumber">NIF/CIF</Label>
-          <Input id="vatNumber" placeholder="B12345678" {...register("vatNumber")} />
-          {errors.vatNumber ? <p className="text-sm text-destructive">{errors.vatNumber.message}</p> : null}
-        </div>
-      ) : null}
-
-      {stepIndex === 2 ? (
-        <div className="space-y-2">
-          <Label htmlFor="defaultSeriesPrefix">Prefijo de serie principal</Label>
-          <Input id="defaultSeriesPrefix" placeholder="FA" {...register("defaultSeriesPrefix")} />
-        </div>
-      ) : null}
-
-      {stepIndex === 3 ? (
-        <div className="rounded-md border p-3 text-sm text-muted-foreground">
-          Se aplicara automaticamente la plantilla general del pais de la empresa.
-        </div>
-      ) : null}
-
-      {stepIndex === 4 ? (
-        <div className="space-y-2">
-          <Label htmlFor="inviteEmail">Email del primer miembro a invitar (opcional)</Label>
-          <Input id="inviteEmail" placeholder="persona@empresa.com" {...register("inviteEmail")} />
-          {errors.inviteEmail ? <p className="text-sm text-destructive">{errors.inviteEmail.message}</p> : null}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        <Button
-          disabled={stepIndex === 0}
-          onClick={() => setStepIndex((current) => Math.max(0, current - 1))}
-          type="button"
-          variant="outline"
-        >
+      <div className="flex flex-wrap items-center gap-2 border-t border-window-shadow pt-3">
+        <Button disabled={stepIndex === 0 || isSubmitting} onClick={() => goToStep(stepIndex - 1)} type="button" variant="outline">
           Anterior
         </Button>
-        {!isFinalStep ? (
-          <Button
-            onClick={() => setStepIndex((current) => Math.min(steps.length - 1, current + 1))}
-            type="button"
-            variant="outline"
-          >
-            Siguiente
-          </Button>
-        ) : null}
-        {isFinalStep ? (
-          <Button disabled={isSubmitting} type="submit">
-            {isSubmitting ? "Aplicando..." : "Finalizar onboarding"}
-          </Button>
-        ) : null}
+        <div className="ml-auto flex flex-wrap gap-2">
+          {currentStep.optional ? (
+            <Button
+              disabled={isSubmitting}
+              onClick={(event) => skipStep(event.currentTarget.form)}
+              type="button"
+              variant="ghost"
+            >
+              Omitir este paso
+            </Button>
+          ) : null}
+          {!isFinalStep ? (
+            <Button onClick={() => goToStep(stepIndex + 1)} type="button">
+              Siguiente
+            </Button>
+          ) : null}
+          {isFinalStep ? (
+            <SubmitButton pending={isSubmitting} pendingLabel="Aplicando configuración…">
+              Finalizar onboarding
+            </SubmitButton>
+          ) : null}
+        </div>
       </div>
     </form>
   );

@@ -6,6 +6,7 @@ import { CustomerRowActions } from "@/components/customers/customer-row-actions"
 import {
   ResourceList,
   type ResourceListColumn,
+  type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 
@@ -25,6 +26,10 @@ type CustomerRow = {
 
 type CustomersTableProps = {
   rows: CustomerRow[];
+  /** Server pagination state; `rows` is then only the current page. */
+  server?: ServerListState;
+  /** Country filter options (server mode: every country in use, not only this page). */
+  countryOptions?: string[];
 };
 
 const columns: ResourceListColumn<CustomerRow>[] = [
@@ -34,6 +39,7 @@ const columns: ResourceListColumn<CustomerRow>[] = [
     cell: (customer) => <span className="font-mono font-medium">{customer.number ?? "Sin número"}</span>,
     exportValue: (customer) => customer.number ?? "",
     sortValue: (customer) => customer.number ?? "",
+    sortKey: "number",
   },
   {
     header: "Nombre",
@@ -47,6 +53,7 @@ const columns: ResourceListColumn<CustomerRow>[] = [
     ),
     exportValue: (customer) => customer.name,
     sortValue: (customer) => customer.name,
+    sortKey: "name",
   },
   {
     header: "Estado",
@@ -58,12 +65,14 @@ const columns: ResourceListColumn<CustomerRow>[] = [
     exportValue: (customer) =>
       customer.status === "ACTIVE" ? "Activo" : "Inactivo",
     sortValue: (customer) => customer.status,
+    sortKey: "status",
   },
   {
     header: "CIF/NIF",
     cell: (customer) => customer.taxId ?? "Sin CIF/NIF",
     exportValue: (customer) => customer.taxId ?? "",
     sortValue: (customer) => customer.taxId ?? "",
+    sortKey: "taxId",
   },
   {
     header: "Domicilio",
@@ -89,18 +98,21 @@ const columns: ResourceListColumn<CustomerRow>[] = [
       [customer.city, customer.province, customer.countryCode]
         .filter(Boolean)
         .join(" "),
+    sortKey: "address",
   },
   {
     header: "Email",
     cell: (customer) => customer.email ?? "Sin email",
     exportValue: (customer) => customer.email ?? "",
     sortValue: (customer) => customer.email ?? "",
+    sortKey: "email",
   },
   {
     header: "Teléfono",
     cell: (customer) => customer.phone ?? "Sin teléfono",
     exportValue: (customer) => customer.phone ?? "",
     sortValue: (customer) => customer.phone ?? "",
+    sortKey: "phone",
   },
   {
     header: "Acciones",
@@ -111,14 +123,20 @@ const columns: ResourceListColumn<CustomerRow>[] = [
   },
 ];
 
-export function CustomersTable({ rows }: CustomersTableProps) {
+export function CustomersTable({ rows, server, countryOptions }: CustomersTableProps) {
+  const countries =
+    countryOptions ??
+    [...new Set(rows.map((customer) => customer.countryCode).filter((value): value is string => Boolean(value)))].sort();
+
   return (
     <ResourceList
       title="Clientes"
       items={rows}
+      server={server}
       columns={columns}
       getRowId={(customer) => customer.id}
       getRowTestId={(customer) => `customer-row-${customer.id}`}
+      getRowLabel={(customer) => customer.name}
       getSearchText={(customer) =>
         [
           customer.name,
@@ -153,15 +171,7 @@ export function CustomersTable({ rows }: CustomersTableProps) {
           key: "country",
           label: "País",
           allLabel: "Todos los países",
-          options: [
-            ...new Set(
-              rows
-                .map((customer) => customer.countryCode)
-                .filter((value): value is string => Boolean(value)),
-            ),
-          ]
-            .sort()
-            .map((value) => ({ value, label: value })),
+          options: countries.map((value) => ({ value, label: value })),
           getValue: (customer) => customer.countryCode,
         },
       ]}
@@ -169,7 +179,9 @@ export function CustomersTable({ rows }: CustomersTableProps) {
         <div className="space-y-3">
           <div>
             <p className="font-mono text-xs text-muted-foreground">{customer.number ?? "Sin número"}</p>
-            <p className="font-medium">{customer.name}</p>
+            <Link className="font-medium underline-offset-4 hover:underline" href={`/customers/${customer.id}`}>
+              {customer.name}
+            </Link>
             <p className="text-sm text-muted-foreground">
               {customer.status === "ACTIVE" ? "Activo" : "Inactivo"}
             </p>

@@ -5,8 +5,10 @@ import { tax } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { logger } from "@/lib/logger";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
+import { recordAudit } from "@/server/audit";
 import { operationForTaxKind, taxMutationSchema } from "@/server/taxes/schema";
 
 function taxWriteError(error: unknown) {
@@ -44,17 +46,33 @@ export async function POST(request: Request) {
 
   const values = parsed.data;
   try {
-    const [created] = await db.insert(tax).values({
-      companyId: ctx.company.id,
-      name: values.name,
-      rate: values.rate.toFixed(3),
-      kind: values.kind,
-      operation: operationForTaxKind(values.kind, values.operation),
-      isDefault: values.isDefault,
-      isActive: values.isActive,
-    }).returning();
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(tax).values({
+        companyId: ctx.company.id,
+        name: values.name,
+        rate: values.rate.toFixed(3),
+        kind: values.kind,
+        operation: operationForTaxKind(values.kind, values.operation),
+        isDefault: values.isDefault,
+        isActive: values.isActive,
+      }).returning();
+      await recordAudit(
+        {
+          tenantId: ctx.tenant.id,
+          companyId: ctx.company.id,
+          actorUserId: session.user.id,
+          action: "tax.create",
+          entityName: "tax",
+          entityId: row.id,
+          payload: { name: row.name, rate: row.rate, kind: row.kind, operation: row.operation, isDefault: row.isDefault, isActive: row.isActive },
+        },
+        tx,
+      );
+      return row;
+    });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
+    logger.error({ err: error }, "tax.create_failed");
     return NextResponse.json({ message: taxWriteError(error) }, { status: 409 });
   }
 }

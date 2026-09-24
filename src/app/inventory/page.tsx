@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 
@@ -5,16 +6,18 @@ import {
   InventoryOperationsPanel,
   type InventoryItemOption,
   type InventoryWarehouseOption,
-  type StockMovementHistoryRow,
   type StockSnapshotRow,
 } from "@/components/inventory/inventory-operations-panel";
 import { PageHeader, PageShell } from "@/components/ui/page";
 import { buttonVariants } from "@/components/ui/button";
 import { requireContext } from "@/lib/current-context";
-import { getInventoryOptions, getLowStockAlerts, getStockMovementHistory, getStockSnapshot } from "@/server/inventory/service";
+import { parseListParams, type RawSearchParams } from "@/lib/list-params";
+import { listStockMovementsPage, stockMovementListConfig } from "@/server/inventory/movement-list";
+import { getInventoryOptions, getLowStockAlerts, getStockSnapshot } from "@/server/inventory/service";
 
 type InventoryPageProps = {
-  searchParams?: Promise<{ itemId?: string; warehouseId?: string }>;
+  // `?itemId=&warehouseId=` preselect the history filters; `?q=&type=&page=` page through it.
+  searchParams: Promise<RawSearchParams>;
 };
 
 function serializeStockRow(row: Awaited<ReturnType<typeof getStockSnapshot>>[number]): StockSnapshotRow {
@@ -30,33 +33,26 @@ function serializeStockRow(row: Awaited<ReturnType<typeof getStockSnapshot>>[num
   };
 }
 
-function serializeMovement(row: Awaited<ReturnType<typeof getStockMovementHistory>>[number]): StockMovementHistoryRow {
-  return {
-    id: row.id,
-    itemId: row.itemId,
-    itemName: row.itemName,
-    itemSku: row.itemSku,
-    warehouseId: row.warehouseId,
-    warehouseName: row.warehouseName,
-    warehouseCode: row.warehouseCode,
-    movementType: row.movementType as StockMovementHistoryRow["movementType"],
-    quantity: row.quantity,
-    movedAt: row.movedAt.toISOString(),
-    reason: row.reason,
-    reference: row.reference,
-  };
-}
+export const metadata: Metadata = { title: "Control de stock" };
 
 export default async function InventoryPage({ searchParams }: InventoryPageProps) {
   const ctx = await requireContext("stock.read");
-  const params = await searchParams;
 
-  const [options, stockRows, alertRows, movementRows] = await Promise.all([
+  const [options, rawParams, stockRows, alertRows] = await Promise.all([
     getInventoryOptions(ctx.company.id),
+    searchParams,
     getStockSnapshot(ctx.company.id),
     getLowStockAlerts(ctx.company.id),
-    getStockMovementHistory(ctx.company.id),
   ]);
+  // Product/warehouse filters only accept the company's own options.
+  const params = parseListParams(
+    rawParams,
+    stockMovementListConfig(
+      options.items.map((option) => option.id),
+      options.warehouses.map((option) => option.id),
+    ),
+  );
+  const history = await listStockMovementsPage(ctx.company.id, params);
 
   const items: InventoryItemOption[] = options.items;
   const warehouses: InventoryWarehouseOption[] = options.warehouses;
@@ -76,9 +72,10 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
           warehouses={warehouses}
           stock={stockRows.map(serializeStockRow)}
           alerts={alertRows.map(serializeStockRow)}
-          movements={movementRows.map(serializeMovement)}
-          initialItemId={params?.itemId ?? "all"}
-          initialWarehouseId={params?.warehouseId ?? "all"}
+          movements={history.rows}
+          movementHistory={history.state}
+          initialItemId={params.filters.itemId ?? "all"}
+          initialWarehouseId={params.filters.warehouseId ?? "all"}
           showMovementForm={false}
         />
       </Suspense>

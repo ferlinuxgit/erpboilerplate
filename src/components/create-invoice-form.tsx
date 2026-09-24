@@ -9,8 +9,9 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { AccessibleField } from "@/components/ui/form";
+import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
 import {
   InvoiceLinesEditor,
   InvoicePaymentMethodsField,
@@ -19,8 +20,11 @@ import {
   type InvoiceTaxOption,
 } from "@/components/invoices/invoice-form-controls";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { createCustomerSchema, createInvoiceSchema } from "@/server/schemas/forms";
+import { defaultSalesVatTreatment } from "@/server/invoices/lifecycle";
+import { createInvoiceSchema } from "@/server/invoices/schemas";
+import { createCustomerSchema } from "@/server/schemas/forms";
 
 export type CustomerOption = {
   id: string;
@@ -31,6 +35,7 @@ export type CustomerOption = {
   taxId?: string | null;
   city?: string | null;
   province?: string | null;
+  countryCode?: string | null;
 };
 
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
@@ -39,8 +44,11 @@ type CreatedInvoicePayload = {
   id: string;
   number: string;
   status: string;
+  lifecycle?: "DRAFT" | "ISSUED" | "VOID";
   customer?: CustomerOption | null;
 };
+
+type SubmitMode = "draft" | "issue";
 
 export function CreateInvoiceForm({
   canCreateCustomer,
@@ -67,6 +75,10 @@ export function CreateInvoiceForm({
   const [customerLocationSearch, setCustomerLocationSearch] = useState("");
   const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
+  const [vatTreatmentTouched, setVatTreatmentTouched] = useState(false);
+  const [submitMode, setSubmitMode] = useState<SubmitMode | null>(null);
   const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
   const defaultPaymentMethodIds = useMemo(() => paymentMethods.filter((method) => method.isDefault).map((method) => method.id), [paymentMethods]);
   const {
@@ -80,6 +92,7 @@ export function CreateInvoiceForm({
     shouldUnregister: true,
     defaultValues: {
       customerId: customers.some((customer) => customer.id === initialCustomerId) ? initialCustomerId : "",
+      vatTreatment: defaultSalesVatTreatment(customers.find((customer) => customer.id === initialCustomerId)?.countryCode),
       issueDate: defaultIssueDate,
       dueDate: "",
       totalAmount: 0,
@@ -112,6 +125,7 @@ export function CreateInvoiceForm({
   const watchedLines = useWatch({ control, name: "lines" });
   const selectedPaymentMethodIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
   const selectedCustomerId = useWatch({ control, name: "customerId" });
+  const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
@@ -131,9 +145,19 @@ export function CreateInvoiceForm({
     });
   }, [customerLocationSearch, customerOptions, customerSearch, customerTaxSearch]);
 
+  const hasChargedVat = totals.taxBuckets.some(
+    (bucket) => bucket.operation === "ADD" && bucket.rate > 0 && ["VAT", "SURCHARGE"].includes((bucket.kind ?? "").toUpperCase()),
+  );
+
   useEffect(() => {
     setValue("totalAmount", totals.totalAmount, { shouldValidate: true });
   }, [setValue, totals.totalAmount]);
+
+  // El tratamiento de IVA sigue al país del cliente mientras el usuario no lo cambie a mano.
+  useEffect(() => {
+    if (vatTreatmentTouched || !selectedCustomer) return;
+    setValue("vatTreatment", defaultSalesVatTreatment(selectedCustomer.countryCode));
+  }, [selectedCustomer, setValue, vatTreatmentTouched]);
 
   useEffect(() => {
     if (pendingFocusLineIndex === null) return;
@@ -206,7 +230,9 @@ export function CreateInvoiceForm({
     }
   };
 
-  const onSubmit = handleSubmit(async (values) => {
+  const submitInvoice = async (values: CreateInvoicePayload, mode: SubmitMode) => {
+    setSubmitError(null);
+    setSubmitMode(mode);
     try {
       const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
         ...line,
@@ -218,25 +244,34 @@ export function CreateInvoiceForm({
           "Content-Type": "application/json",
           ...getCsrfHeader(),
         },
-        body: JSON.stringify({ ...values, newCustomer: undefined, totalAmount: invoiceTotals.totalAmount }),
+        body: JSON.stringify({ ...values, newCustomer: undefined, mode, totalAmount: invoiceTotals.totalAmount }),
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo crear la factura.");
+        throw new Error(await readApiError(response, mode === "draft" ? "No se pudo guardar el borrador." : "No se pudo emitir la factura."));
       }
 
       const created = (await response.json()) as CreatedInvoicePayload;
-      toast.success("Factura creada correctamente.");
+      toast.success(mode === "draft"
+        ? "Borrador guardado. Puedes seguir editándolo y emitirlo cuando esté listo."
+        : `Factura ${created.number} emitida correctamente.`);
       router.push(`/invoices/${created.id}`);
       router.refresh();
     } catch (submissionError) {
-      const message = submissionError instanceof Error ? submissionError.message : "Ha ocurrido un error inesperado.";
+      const message = errorMessage(submissionError, "No se pudo guardar la factura. Inténtalo de nuevo.");
+      setSubmitError(message);
       toast.error(message);
+    } finally {
+      setSubmitMode(null);
     }
-  });
+  };
+
+  /** Enviar el formulario (botón principal o Ctrl/Cmd + Enter) emite la factura. */
+  const onSubmit = handleSubmit((values) => submitInvoice(values, "issue"));
+  const onSaveDraft = handleSubmit((values) => submitInvoice(values, "draft"));
 
   const onCreateCustomer = handleCustomerSubmit(async (values) => {
+    setCustomerSubmitError(null);
     try {
       const response = await fetch("/api/customers", {
         method: "POST",
@@ -248,8 +283,7 @@ export function CreateInvoiceForm({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(payload?.message ?? "No se pudo crear el cliente.");
+        throw new Error(await readApiError(response, "No se pudo crear el cliente."));
       }
 
       const createdCustomer = (await response.json()) as CustomerOption;
@@ -263,7 +297,9 @@ export function CreateInvoiceForm({
       router.refresh();
       requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Ha ocurrido un error inesperado.");
+      const message = errorMessage(error, "No se pudo crear el cliente. Inténtalo de nuevo.");
+      setCustomerSubmitError(message);
+      toast.error(message);
     }
   });
 
@@ -272,13 +308,13 @@ export function CreateInvoiceForm({
     <form className="grid gap-4 md:grid-cols-3" data-testid="invoice-create-form" onKeyDown={handleInvoiceKeyDown} onSubmit={onSubmit}>
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
-      <section className="space-y-3 rounded-md border p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
+      <section className="space-y-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 id="invoice-customer-title" className="text-sm font-medium">
+            <h3 id="invoice-customer-title" className="font-mono text-xs font-bold uppercase tracking-wide">
               Cliente
             </h3>
-            <p className="text-sm text-muted-foreground">Selecciona el cliente desde el buscador avanzado antes de emitir la factura.</p>
+            <p className="text-xs text-muted-foreground">Selecciona el cliente desde el buscador avanzado antes de emitir la factura.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -303,27 +339,29 @@ export function CreateInvoiceForm({
         </div>
 
         {customerOptions.length === 0 ? (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">
             {canCreateCustomer
               ? "Todavía no hay clientes activos. Crea uno desde el botón Crear cliente para poder emitir la factura."
               : "No hay clientes activos y tu rol no permite crear clientes desde la factura."}
           </p>
         ) : selectedCustomer ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="font-medium">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
-            <p className="text-sm text-muted-foreground">
+          <div className="rounded-[2px] border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
+            <p className="font-mono text-sm font-bold">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
+            <p className="text-xs text-muted-foreground">
               {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
             </p>
           </div>
         ) : (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
+          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
         )}
-        {errors.customerId ? <p className="text-sm text-destructive" role="alert">{errors.customerId.message}</p> : null}
+        {errors.customerId ? <p className="font-mono text-xs text-destructive" role="alert">{errors.customerId.message}</p> : null}
       </section>
-      <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-        <p className="text-sm font-medium">Número automático</p>
-        <p className="text-sm text-muted-foreground" data-testid="invoice-number-preview">
-          {nextInvoiceNumberPreview ? `Siguiente previsto: ${nextInvoiceNumberPreview}` : "Se asignará el siguiente número correlativo al guardar."}
+      <div className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3">
+        <p className="font-mono text-xs font-bold">Número automático</p>
+        <p className="text-xs text-muted-foreground" data-testid="invoice-number-preview">
+          {nextInvoiceNumberPreview
+            ? `Al emitir tendrá el siguiente número de la serie (previsto: ${nextInvoiceNumberPreview}). Los borradores no consumen número.`
+            : "Al emitir se asignará el siguiente número correlativo. Los borradores no consumen número."}
         </p>
       </div>
       <AccessibleField id="invoice-issue-date" label="Fecha emisión" required error={errors.issueDate?.message}>
@@ -363,8 +401,8 @@ export function CreateInvoiceForm({
           fields={fields}
           getBindings={(index) => ({
             description: register(`lines.${index}.description`),
-            quantity: register(`lines.${index}.quantity`, { valueAsNumber: true }),
-            unitPrice: register(`lines.${index}.unitPrice`, { valueAsNumber: true }),
+            quantity: register(`lines.${index}.quantity`, decimalRegisterOptions),
+            unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
             taxIds: () => register(`lines.${index}.taxIds`),
           })}
           lines={watchedLines ?? []}
@@ -375,7 +413,7 @@ export function CreateInvoiceForm({
           taxes={taxes}
           totals={totals}
         />
-        {errors.lines?.root ? <p className="mt-2 text-sm text-destructive" role="alert">{errors.lines.root.message}</p> : null}
+        {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-destructive" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
@@ -385,6 +423,12 @@ export function CreateInvoiceForm({
             getBinding={() => register("paymentMethodIds")}
             methods={paymentMethods}
             selectedIds={selectedPaymentMethodIds}
+          />
+          <InvoiceVatTreatmentField
+            binding={register("vatTreatment", { onChange: () => setVatTreatmentTouched(true) })}
+            error={errors.vatTreatment?.message}
+            hasChargedVat={hasChargedVat}
+            value={selectedVatTreatment}
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input
@@ -401,11 +445,32 @@ export function CreateInvoiceForm({
         <InvoiceTotalsSummary error={errors.totalAmount?.message} totals={totals} />
       </div>
 
+      <FormErrorMessage className="md:col-span-3">{submitError}</FormErrorMessage>
       <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)] md:col-span-3">
-        <p className="hidden text-xs text-muted-foreground sm:block">Ctrl/Cmd + Enter para guardar</p>
-        <Button className="ml-auto min-w-36" aria-keyshortcuts="Control+Enter Meta+Enter" data-testid="invoice-create-submit" disabled={isSubmitting} type="submit">
-          {isSubmitting ? "Guardando..." : "Crear factura"}
-        </Button>
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          Guarda un borrador para revisarlo más tarde o emítela ya: al emitir se asigna el número y deja de ser editable.
+        </p>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button
+            data-testid="invoice-save-draft"
+            disabled={isSubmitting}
+            onClick={() => void onSaveDraft()}
+            type="button"
+            variant="outline"
+          >
+            {submitMode === "draft" ? "Guardando…" : "Guardar borrador"}
+          </Button>
+          <SubmitButton
+            aria-keyshortcuts="Control+Enter Meta+Enter"
+            className="min-w-36"
+            data-testid="invoice-create-submit"
+            pending={isSubmitting && submitMode === "issue"}
+            pendingLabel="Emitiendo…"
+            title="Ctrl/Cmd + Enter"
+          >
+            Emitir factura
+          </SubmitButton>
+        </div>
       </div>
     </form>
     <Dialog
@@ -446,11 +511,11 @@ export function CreateInvoiceForm({
 
         <div className="max-h-80 space-y-2 overflow-y-auto">
           {filteredCustomers.length === 0 ? (
-            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No hay clientes que coincidan con la búsqueda.</p>
+            <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
           ) : (
             filteredCustomers.map((customer) => (
               <button
-                className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="w-full rounded-[2px] border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 key={customer.id}
                 type="button"
                 onClick={() => {
@@ -459,8 +524,8 @@ export function CreateInvoiceForm({
                   requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
                 }}
               >
-                <span className="block font-medium">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
-                <span className="block text-sm text-muted-foreground">
+                <span className="block font-mono text-sm font-bold">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
+                <span className="block text-xs text-muted-foreground">
                   {[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}
                 </span>
               </button>
@@ -599,13 +664,14 @@ export function CreateInvoiceForm({
             {...registerCustomer("phone")}
           />
         </AccessibleField>
+        <FormErrorMessage className="md:col-span-2">{customerSubmitError}</FormErrorMessage>
         <div className="flex justify-end gap-2 md:col-span-2">
           <Button type="button" variant="outline" onClick={() => setCustomerCreateDialogOpen(false)}>
             Cancelar
           </Button>
-          <Button data-testid="invoice-new-customer-submit" disabled={isCreatingCustomer} type="submit">
-            {isCreatingCustomer ? "Creando..." : "Crear cliente y usar"}
-          </Button>
+          <SubmitButton data-testid="invoice-new-customer-submit" pending={isCreatingCustomer} pendingLabel="Creando…">
+            Crear cliente y usar
+          </SubmitButton>
         </div>
       </form>
     </Dialog>

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ExpenseInvoicesList } from "@/components/expenses/expense-invoices-list";
@@ -5,16 +6,22 @@ import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
-import { summarizeExpenses } from "@/lib/expense-summary";
+import { parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
-import { listExpenseInvoices } from "@/server/supplier-invoices/service";
+import { toServerListState } from "@/server/lists/paginate";
+import { expenseInvoiceListConfig, listExpenseInvoicesPage, summarizeExpenseInvoices } from "@/server/supplier-invoices/list";
 
-export default async function ExpensesPage() {
+export const metadata: Metadata = { title: "Facturas de proveedor" };
+
+export default async function ExpensesPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const ctx = await requireContext("expense.read");
-  const invoices = await listExpenseInvoices(ctx.company.id);
+  const params = parseListParams(await searchParams, expenseInvoiceListConfig);
+  const [result, summary] = await Promise.all([
+    listExpenseInvoicesPage(ctx.company.id, params),
+    summarizeExpenseInvoices(ctx.company.id),
+  ]);
   const canWriteExpenses = can(ctx.membership.role, "expense.write");
-  const summary = summarizeExpenses(invoices);
 
   return (
     <PageShell>
@@ -41,7 +48,12 @@ export default async function ExpensesPage() {
       </section>
 
       <PageSection title="Facturas recibidas" description="Relaciona opcionalmente cada factura con su pedido o recepción y controla vencimientos y pagos.">
-        <ExpenseInvoicesList canManage={canWriteExpenses} rows={invoices} />
+        <ExpenseInvoicesList
+          canManage={canWriteExpenses}
+          rows={result.rows}
+          server={toServerListState(params, result, result.unfilteredTotal)}
+          totals={result.totals}
+        />
       </PageSection>
     </PageShell>
   );

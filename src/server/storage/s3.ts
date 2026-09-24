@@ -15,10 +15,11 @@ const s3 = region && accessKeyId && secretAccessKey
     })
   : null;
 
-export async function createUploadUrl(key: string, contentType: string) {
+export async function createUploadUrl(key: string, contentType: string, contentLength?: number) {
   if (!s3 || !process.env.S3_BUCKET) throw new Error("Storage no configurado.");
-  const command = new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, ContentType: contentType });
-  return getSignedUrl(s3, command, { expiresIn: 60 * 10 });
+  // ContentLength is part of the signature: the PUT must match the declared size.
+  const command = new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, ContentType: contentType, ContentLength: contentLength });
+  return getSignedUrl(s3, command, { expiresIn: 60 * 10, signableHeaders: new Set(["content-type", "content-length"]) });
 }
 
 export function isObjectStorageConfigured() {

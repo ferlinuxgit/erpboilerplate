@@ -22,6 +22,8 @@ type ApiKeyRow = {
   createdAt: Date | string;
   revokedAt: Date | string | null;
   scopes: string;
+  /** Clave antigua sin prefijo: ya no autentica; hay que rotarla. */
+  legacy?: boolean;
 };
 
 type ApiKeyManagerProps = {
@@ -68,8 +70,8 @@ const columns = (
   },
   {
     header: "Estado",
-    cell: (key) => key.revokedAt ? <StatusBadge tone="danger">Revocada</StatusBadge> : <StatusBadge tone="success">Activa</StatusBadge>,
-    exportValue: (key) => key.revokedAt ? "Revocada" : "Activa",
+    cell: (key) => key.revokedAt ? <StatusBadge tone="danger">Revocada</StatusBadge> : key.legacy ? <span title="Clave antigua sin prefijo: ya no se acepta. Rótala para obtener una nueva."><StatusBadge tone="warning">Rotar necesario</StatusBadge></span> : <StatusBadge tone="success">Activa</StatusBadge>,
+    exportValue: (key) => key.revokedAt ? "Revocada" : key.legacy ? "Rotar necesario" : "Activa",
     sortValue: (key) => key.revokedAt ? "revocada" : "activa",
   },
   {

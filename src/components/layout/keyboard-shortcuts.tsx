@@ -26,11 +26,13 @@ const shortcutGroups = [
   {
     label: "Acceso directo",
     shortcuts: [
-      ["Alt 1", "Navegación principal"],
-      ["Alt 2", "Pestañas de la sección"],
-      ["Alt 3", "Contenido de la página"],
-      ["Alt 4", "Selector de empresa"],
+      ["Alt Mayús 1", "Navegación principal"],
+      ["Alt Mayús 2", "Pestañas de la sección"],
+      ["Alt Mayús 3", "Contenido de la página"],
+      ["Alt Mayús 4", "Selector de empresa"],
       ["Alt F", "Buscar en el primer listado visible"],
+      ["Alt L", "Añadir una línea en facturas, presupuestos y pedidos"],
+      ["Alt N", "Crear cliente sin salir de la factura"],
     ],
   },
   {
@@ -41,6 +43,7 @@ const shortcutGroups = [
       ["Inicio / Fin", "Ir al primer o último elemento"],
       ["Enter", "Abrir el elemento enfocado"],
       ["Espacio", "Seleccionar una fila cuando está permitido"],
+      ["Av Pág / Re Pág", "Página siguiente o anterior de un listado"],
       ["Ctrl Enter", "Enviar el formulario activo"],
       ["Esc", "Cerrar ventanas o limpiar una búsqueda local"],
     ],
@@ -211,20 +214,28 @@ export function KeyboardShortcuts() {
         return;
       }
 
-      if (event.altKey && !event.ctrlKey && !event.metaKey) {
-        if (event.key === "1") {
+      // Alt+Shift+digit: plain Alt+digit switches browser tabs on Linux and
+      // Windows. event.code keeps it layout-independent (Shift+1 = "!").
+      const zoneDigit = event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey ? /^Digit([1-4])$/.exec(event.code)?.[1] : undefined;
+      if (zoneDigit) {
+        if (zoneDigit === "1") {
           event.preventDefault();
           focusPrimaryNavigation();
-        } else if (event.key === "2") {
+        } else if (zoneDigit === "2") {
           event.preventDefault();
           focusContextNavigation();
-        } else if (event.key === "3") {
+        } else if (zoneDigit === "3") {
           event.preventDefault();
           focusElement(document.getElementById("main-content"));
-        } else if (event.key === "4") {
+        } else {
           const companySelect = document.querySelector<HTMLElement>("[aria-label='Empresa activa']");
           if (focusElement(companySelect)) event.preventDefault();
-        } else if (key === "f") {
+        }
+        return;
+      }
+
+      if (event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (key === "f" || event.code === "KeyF") {
           const resourceSearch = Array.from(document.querySelectorAll<HTMLElement>("[data-resource-search]"))
             .find(isVisible);
           if (focusElement(resourceSearch ?? null)) event.preventDefault();

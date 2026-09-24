@@ -1,8 +1,9 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, exists, sql, type SQL } from "drizzle-orm";
+import { cache } from "react";
 
 import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { db } from "@/lib/db";
-import { getActiveContextCookies } from "@/lib/active-context";
+import { getActiveContextCookies, getActiveTenantCookie } from "@/lib/active-context";
 
 type UserTenantContext = {
   tenant: {
@@ -58,22 +59,59 @@ async function createUniqueSlug(baseName: string): Promise<string> {
   }
 }
 
+/**
+ * Orden canónico para elegir la membership activa: primero el tenant preferido
+ * (cookie `active-tenant-id`, que aquí solo actúa como preferencia porque la
+ * consulta siempre filtra por `membership.userId`), después la membership más
+ * antigua. Lo comparten `ensureUserTenant` y la política de seguridad de
+ * `getUserSession`, de modo que ambos resuelven SIEMPRE el mismo tenant.
+ */
+export function activeMembershipOrder(preferredTenantId: string | null | undefined): SQL[] {
+  const order: SQL[] = [];
+  if (preferredTenantId) order.push(sql`case when ${membership.tenantId} = ${preferredTenantId} then 0 else 1 end`);
+  order.push(asc(membership.createdAt), asc(company.createdAt), asc(fiscalYear.startsAt));
+  return order;
+}
+
+/** Tenants del usuario que tienen al menos una empresa (los únicos activables). */
+export async function listUserTenants(userId: string) {
+  return db
+    .select({ id: tenant.id, name: tenant.name, role: membership.role })
+    .from(membership)
+    .innerJoin(tenant, eq(tenant.id, membership.tenantId))
+    .where(and(eq(membership.userId, userId), exists(db.select({ id: company.id }).from(company).where(eq(company.tenantId, tenant.id)))))
+    .orderBy(asc(tenant.name));
+}
+
 const tenantProvisioningByUserId = new Map<string, Promise<UserTenantContext>>();
 
-export async function ensureUserTenant(user: { id: string; name: string }): Promise<UserTenantContext> {
-  const pendingProvisioning = tenantProvisioningByUserId.get(user.id);
+/**
+ * Tenant, empresa y ejercicio activos del usuario (provisiona un tenant si no tiene).
+ * Memoizado por petición con React `cache()` (clave: id y nombre del usuario, que son
+ * primitivos: `cache` compara argumentos por identidad, no por valor).
+ */
+export function ensureUserTenant(user: { id: string; name: string }): Promise<UserTenantContext> {
+  return ensureUserTenantForRequest(user.id, user.name);
+}
+
+const ensureUserTenantForRequest = cache((userId: string, userName: string) => ensureUserTenantUncached({ id: userId, name: userName }));
+
+async function ensureUserTenantUncached(user: { id: string; name: string }): Promise<UserTenantContext> {
+  const preferredTenantId = await getActiveTenantCookie();
+  const provisioningKey = `${user.id}:${preferredTenantId ?? ""}`;
+  const pendingProvisioning = tenantProvisioningByUserId.get(provisioningKey);
 
   if (pendingProvisioning) {
     return resolveActiveContext(await pendingProvisioning);
   }
 
-  const provisioning = ensureUserTenantInternal(user);
-  tenantProvisioningByUserId.set(user.id, provisioning);
+  const provisioning = ensureUserTenantInternal(user, preferredTenantId);
+  tenantProvisioningByUserId.set(provisioningKey, provisioning);
 
   try {
     return resolveActiveContext(await provisioning);
   } finally {
-    tenantProvisioningByUserId.delete(user.id);
+    tenantProvisioningByUserId.delete(provisioningKey);
   }
 }
 
@@ -108,7 +146,7 @@ async function resolveActiveContext(fallback: UserTenantContext): Promise<UserTe
   };
 }
 
-async function ensureUserTenantInternal(user: { id: string; name: string }): Promise<UserTenantContext> {
+async function ensureUserTenantInternal(user: { id: string; name: string }, preferredTenantId: string | null): Promise<UserTenantContext> {
   const existingMembership = await db
     .select({
       membershipId: membership.id,
@@ -128,7 +166,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }): Pro
     .innerJoin(company, eq(company.tenantId, tenant.id))
     .innerJoin(fiscalYear, eq(fiscalYear.companyId, company.id))
     .where(eq(membership.userId, user.id))
-    .orderBy(asc(membership.createdAt))
+    .orderBy(...activeMembershipOrder(preferredTenantId))
     .limit(1);
 
   if (existingMembership.length > 0) {
@@ -179,7 +217,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }): Pro
       .innerJoin(company, eq(company.tenantId, tenant.id))
       .innerJoin(fiscalYear, eq(fiscalYear.companyId, company.id))
       .where(eq(membership.userId, user.id))
-      .orderBy(asc(membership.createdAt))
+      .orderBy(...activeMembershipOrder(preferredTenantId))
       .limit(1);
     if (concurrentlyCreated) {
       return {

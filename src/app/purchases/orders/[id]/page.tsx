@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DownloadSimple as Download } from "@phosphor-icons/react/dist/ssr";
@@ -40,6 +41,22 @@ import {
   purchaseOrderStatusTone,
   statusLabel,
 } from "@/lib/status-labels";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("purchase.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: purchaseOrder.number })
+      .from(purchaseOrder)
+      .where(and(eq(purchaseOrder.id, id), eq(purchaseOrder.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Pedido de compra ${row.number}` : "Pedido de compra" };
+  } catch {
+    return { title: "Pedido de compra" };
+  }
+}
+
 export default async function PurchaseDetailPage({
   params,
 }: {
@@ -172,11 +189,13 @@ export default async function PurchaseDetailPage({
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Pedido de compra"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Pedidos de compra", href: "/purchases/orders" },
+          { label: record.number },
+        ]}
         title={record.number}
         description={`${record.supplierName} · ${formatDate(record.createdAt)}`}
-        backHref="/purchases/orders"
-        backLabel="Volver a pedidos"
         meta={
           <StatusBadge tone={purchaseOrderStatusTone(record.status)}>
             {statusLabel(purchaseOrderStatusLabels, record.status)}
@@ -190,7 +209,7 @@ export default async function PurchaseDetailPage({
               rel="noreferrer"
               target="_blank"
             >
-              <Download className="size-4" />
+              <Download aria-hidden="true" className="size-4" />
               PDF
             </a>
             <Link

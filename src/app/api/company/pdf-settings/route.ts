@@ -5,7 +5,7 @@ import { companySettings } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { defaultPdfDisplaySettings } from "@/lib/pdf-settings";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
@@ -52,17 +52,26 @@ export async function PUT(request: Request) {
     pdfShowTaxBreakdown: parsed.data.showTaxBreakdown,
     updatedAt: new Date(),
   };
-  const [saved] = await db.insert(companySettings).values({ companyId: auth.ctx.company.id, ...values })
-    .onConflictDoUpdate({ target: companySettings.companyId, set: values })
-    .returning();
-  await recordAudit({
-    tenantId: auth.ctx.tenant.id,
-    companyId: auth.ctx.company.id,
-    actorUserId: auth.session.user.id,
-    action: "company.pdf_settings.update",
-    entityName: "companySettings",
-    entityId: saved.id,
-    payload: parsed.data,
-  });
-  return NextResponse.json(parsed.data);
+  try {
+    await db.transaction(async (tx) => {
+      const [saved] = await tx.insert(companySettings).values({ companyId: auth.ctx.company.id, ...values })
+        .onConflictDoUpdate({ target: companySettings.companyId, set: values })
+        .returning({ id: companySettings.id });
+      await recordAudit(
+        {
+          tenantId: auth.ctx.tenant.id,
+          companyId: auth.ctx.company.id,
+          actorUserId: auth.session.user.id,
+          action: "company.pdf_settings.update",
+          entityName: "companySettings",
+          entityId: saved.id,
+          payload: parsed.data,
+        },
+        tx,
+      );
+    });
+    return NextResponse.json(parsed.data);
+  } catch (error) {
+    return handleRouteError(error, "company.pdf_settings.update", "No se pudo guardar la configuración de PDF.");
+  }
 }

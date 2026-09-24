@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { customer, partner } from "@/db/schema";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
 import { updateCustomerWithPartner } from "@/server/customers/service";
@@ -67,12 +67,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .limit(1);
   if (!existingCustomers[0]) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
 
-  const updated = await db.transaction((tx) =>
-    updateCustomerWithPartner(tx, ctx.company.id, id, existingCustomers[0].partnerId, values),
-  );
-  if (!updated) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
-  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "customer.update", entityName: "customer", entityId: id, payload: values });
-  return NextResponse.json(updated);
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const row = await updateCustomerWithPartner(tx, ctx.company.id, id, existingCustomers[0].partnerId, values);
+      if (!row) return null;
+      await recordAudit(
+        { tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "customer.update", entityName: "customer", entityId: id, payload: values },
+        tx,
+      );
+      return row;
+    });
+    if (!updated) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
+    return NextResponse.json(updated);
+  } catch (error) {
+    return handleRouteError(error, "customer.update", "No se pudo actualizar el cliente.");
+  }
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -81,8 +90,22 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const ctx = actor.context;
   if (!hasApiActorPermission(actor, "customer.create")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const { id } = await params;
-  const [deleted] = await db.delete(customer).where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id))).returning({ id: customer.id });
-  if (!deleted) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
-  await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "customer.delete", entityName: "customer", entityId: id });
-  return NextResponse.json({ ok: true });
+  try {
+    const deleted = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .delete(customer)
+        .where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id)))
+        .returning({ id: customer.id, name: customer.name, partnerId: customer.partnerId });
+      if (!row) return null;
+      await recordAudit(
+        { tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: actor.actorUserId, action: "customer.delete", entityName: "customer", entityId: id, payload: { name: row.name, partnerId: row.partnerId } },
+        tx,
+      );
+      return row;
+    });
+    if (!deleted) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return handleRouteError(error, "customer.delete", "No se pudo eliminar el cliente.");
+  }
 }

@@ -1,7 +1,11 @@
+import type { Metadata } from "next";
+
 import { InventoryOperationsPanel } from "@/components/inventory/inventory-operations-panel";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { getInventoryOptions } from "@/server/inventory/service";
+
+export const metadata: Metadata = { title: "Nuevo movimiento" };
 
 export default async function NewInventoryMovementPage({ searchParams }: { searchParams: Promise<{ itemId?: string | string[]; warehouseId?: string | string[] }> }) {
   const ctx = await requireContext("stock.write");
@@ -12,7 +16,15 @@ export default async function NewInventoryMovementPage({ searchParams }: { searc
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Inventario" title="Nuevo movimiento" description="Registra una recepción, un ajuste de conteo o una transferencia entre almacenes." backHref="/inventory" backLabel="Volver a inventario" />
+      <PageHeader
+        title="Nuevo movimiento"
+        description="Registra una recepción, un ajuste de conteo o una transferencia entre almacenes."
+        breadcrumbs={[
+          { label: "Inventario", href: "/inventory" },
+          { label: "Movimientos", href: "/inventory/movements" },
+          { label: "Nuevo movimiento" },
+        ]}
+      />
       <PageSection title="Datos del movimiento" description="Selecciona el producto y la ubicación; el histórico se actualizará al guardar.">
         <InventoryOperationsPanel
           alerts={[]}

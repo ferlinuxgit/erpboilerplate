@@ -1,8 +1,9 @@
 ---
-description: Convenciones de internacionalización
+description: Idioma de la interfaz y formato regional
 alwaysApply: true
 ---
 
-- Mantener `es` y `en` en `messages/`.
-- Formatear fecha y moneda con `Intl`.
-- Mantener claves de traducción estables.
+- La interfaz es solo en español (España). No hay andamiaje de traducción (`messages/`, diccionarios ni selector de idioma): no lo reintroduzcas sin una decisión de producto explícita.
+- Los textos de estados, roles y tipos se centralizan en `src/lib/status-labels.ts`; no muestres valores en crudo (`DRAFT`, `OWNER`, `OUT`).
+- Formatea importes, porcentajes y fechas con los helpers de `src/lib/format.ts` (`formatMoney`, `formatAmount`, `formatPercent`, `formatDate`, `formatDateTime`), siempre en `es-ES`.
+- Los campos numéricos de formularios usan `MoneyInput`, `PercentInput` y `QuantityInput` (`src/components/ui/number-input.tsx`), que aceptan `1.234,56` y `1234.56`; convierte con `parseDecimalInput`.

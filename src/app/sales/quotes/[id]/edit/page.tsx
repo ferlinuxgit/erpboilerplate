@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CreateSalesQuoteForm } from "@/components/sales/create-sales-quote-form";
@@ -6,6 +7,21 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, partner, salesQuote, salesQuoteLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("invoice.create");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: salesQuote.number })
+      .from(salesQuote)
+      .where(and(eq(salesQuote.id, id), eq(salesQuote.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Editar presupuesto ${row.number}` : "Editar presupuesto" };
+  } catch {
+    return { title: "Editar presupuesto" };
+  }
+}
 
 export default async function EditSalesQuotePage({
   params,
@@ -32,11 +48,14 @@ export default async function EditSalesQuotePage({
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Presupuestos"
         title={`Editar ${record.number}`}
         description="Modifica la cabecera y las líneas mientras el presupuesto siga en borrador."
-        backHref={`/sales/quotes/${id}`}
-        backLabel="Volver al presupuesto"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Presupuestos", href: "/sales/quotes" },
+          { label: record.number, href: `/sales/quotes/${id}` },
+          { label: "Editar" },
+        ]}
       />
       <PageSection
         title="Datos del presupuesto"
@@ -55,6 +74,8 @@ export default async function EditSalesQuotePage({
               quantity: line.quantity,
               unitPrice: line.unitPrice,
               taxRate: line.taxRate,
+              discountPct: line.discountPct,
+              retentionRate: line.retentionRate,
             })),
           }}
         />

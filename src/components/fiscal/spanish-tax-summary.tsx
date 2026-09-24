@@ -20,6 +20,16 @@ const dueTone = {
   overdue: "danger",
 } as const;
 
+const devengadoBoxes = new Set(["01", "03", "04", "06", "07", "09", "150", "152", "153", "155", "10", "11", "12", "13", "16", "18", "19", "21", "22", "24", "156", "158", "168", "170", "27"]);
+const deducibleBoxes = new Set(["28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "45"]);
+
+const boxGroups: Array<{ title: string; match: (box: { box: string; kind: string }) => boolean }> = [
+  { title: "IVA devengado", match: (box) => devengadoBoxes.has(box.box) },
+  { title: "IVA deducible", match: (box) => deducibleBoxes.has(box.box) },
+  { title: "Resultado", match: (box) => box.kind === "settlement" },
+  { title: "Información adicional y revisión", match: (box) => !devengadoBoxes.has(box.box) && !deducibleBoxes.has(box.box) && box.kind !== "settlement" },
+];
+
 const checkTone = {
   ok: "success",
   warning: "warning",
@@ -90,8 +100,13 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
           <p className="mt-1 text-2xl font-semibold">{activeSummary?.periodLabel ?? "Sin borrador"}</p>
         </div>
         <div className="rounded-[2px] border p-3">
-          <p className="text-sm text-muted-foreground">IVA repercutido</p>
+          <p className="text-sm text-muted-foreground">IVA devengado</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(activeSummary?.outputTaxAmount ?? 0)}</p>
+          {activeSummary && (activeSummary.surchargeAmount > 0 || activeSummary.selfAssessedTaxAmount > 0) ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Incluye {formatMoney(activeSummary.surchargeAmount)} de recargo y {formatMoney(activeSummary.selfAssessedTaxAmount)} autorepercutido
+            </p>
+          ) : null}
         </div>
         <div className="rounded-[2px] border p-3">
           <p className="text-sm text-muted-foreground">IVA soportado</p>
@@ -103,10 +118,14 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
         <div className="rounded-[2px] border p-3">
           <p className="text-sm text-muted-foreground">Resultado estimado</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(activeSummary?.settlementAmount ?? 0)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{(activeSummary?.settlementAmount ?? 0) > 0 ? "A ingresar" : "A compensar o devolver"}</p>
         </div>
         <div className="rounded-[2px] border p-3">
-          <p className="text-sm text-muted-foreground">Retenciones</p>
+          <p className="text-sm text-muted-foreground">Retenciones practicadas</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(activeSummary?.withholdingAmount ?? 0)}</p>
+          {activeSummary && activeSummary.salesWithholdingAmount > 0 ? (
+            <p className="mt-1 text-xs text-muted-foreground">Te han retenido {formatMoney(activeSummary.salesWithholdingAmount)} (473)</p>
+          ) : null}
         </div>
         <div className="rounded-[2px] border p-3">
           <p className="text-sm text-muted-foreground">Vencimiento</p>
@@ -127,7 +146,7 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
           <div className="rounded-[2px] border p-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-medium">Desglose IVA repercutido</h2>
+                <h2 className="text-sm font-medium">IVA repercutido por tipo</h2>
                 <p className="text-sm text-muted-foreground">{activeSummary.salesInvoiceCount} facturas emitidas incluidas</p>
               </div>
               <StatusBadge tone="info">{activeSummary.modelName}</StatusBadge>
@@ -149,12 +168,12 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
 
           <div className="rounded-[2px] border p-3">
             <div>
-              <h2 className="text-sm font-medium">Retenciones detectadas</h2>
-              <p className="text-sm text-muted-foreground">{formatMoney(activeSummary.withholdingBase)} base sujeta</p>
+              <h2 className="text-sm font-medium">Retenciones que practicas</h2>
+              <p className="text-sm text-muted-foreground">Facturas recibidas de profesionales y alquileres · {formatMoney(activeSummary.withholdingBase)} base sujeta</p>
             </div>
             <dl className="mt-4 grid gap-2">
               {activeSummary.withholdingBuckets.length === 0 ? (
-                <div className="rounded-[2px] border border-dashed p-3 text-sm text-muted-foreground">No hay líneas con retención en el periodo.</div>
+                <div className="rounded-[2px] border border-dashed p-3 text-sm text-muted-foreground">No hay facturas recibidas con retención en el periodo.</div>
               ) : (
                 activeSummary.withholdingBuckets.map((bucket) => (
                   <div className="grid grid-cols-3 gap-3 rounded-[2px] border p-3 text-sm" key={bucket.rate}>
@@ -169,12 +188,12 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
 
           <div className="rounded-[2px] border p-3">
             <div>
-              <h2 className="text-sm font-medium">Desglose IVA soportado</h2>
+              <h2 className="text-sm font-medium">IVA soportado por tipo</h2>
               <p className="text-sm text-muted-foreground">{activeSummary.supplierInvoiceCount} facturas proveedor incluidas</p>
             </div>
             <dl className="mt-4 grid gap-2">
               {activeSummary.inputBuckets.length === 0 ? (
-                <div className="rounded-[2px] border border-dashed p-3 text-sm text-muted-foreground">No hay líneas de proveedor con IVA en el periodo.</div>
+                <div className="rounded-[2px] border border-dashed p-3 text-sm text-muted-foreground">No hay facturas de proveedor con IVA en el periodo.</div>
               ) : (
                 activeSummary.inputBuckets.map((bucket) => (
                   <div className="grid grid-cols-3 gap-3 rounded-[2px] border p-3 text-sm" key={bucket.rate}>
@@ -186,6 +205,24 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
               )}
             </dl>
           </div>
+
+          {activeSummary.surchargeBuckets.length > 0 ? (
+            <div className="rounded-[2px] border p-3">
+              <div>
+                <h2 className="text-sm font-medium">Recargo de equivalencia repercutido</h2>
+                <p className="text-sm text-muted-foreground">Clientes minoristas en recargo; va en sus propias casillas del 303.</p>
+              </div>
+              <dl className="mt-4 grid gap-2">
+                {activeSummary.surchargeBuckets.map((bucket) => (
+                  <div className="grid grid-cols-3 gap-3 rounded-[2px] border p-3 text-sm" key={bucket.rate}>
+                    <dt className="font-medium">{bucket.rate}%</dt>
+                    <dd className="text-muted-foreground">{formatMoney(bucket.base)} base</dd>
+                    <dd className="text-right font-medium">{formatMoney(bucket.tax)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
 
           <div className="rounded-[2px] border p-3">
             <h2 className="text-sm font-medium">Cobertura MVP fiscal</h2>
@@ -229,7 +266,7 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
               <div className="flex items-center justify-between gap-3 rounded-[2px] border p-3">
                 <dt className="text-muted-foreground">VERI*FACTU</dt>
                 <StatusBadge tone={activeSummary.fiscalProfile.verifactuMode === "pending" ? "warning" : "success"}>
-                  {activeSummary.fiscalProfile.verifactuMode}
+                  {activeSummary.fiscalProfile.verifactuMode === "verifactu" ? "VERI*FACTU" : activeSummary.fiscalProfile.verifactuMode === "non_verifactu" ? "NO VERI*FACTU" : "Sin activar"}
                 </StatusBadge>
               </div>
             </dl>
@@ -266,14 +303,25 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
               </div>
               <StatusBadge tone="info">Modelo 303</StatusBadge>
             </div>
-            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {activeSummary.modelo303Boxes.map((box) => (
-                <div className="rounded-[2px] border p-3 text-sm" key={`${box.box}-${box.label}`}>
-                  <p className="text-xs text-muted-foreground">Casilla {box.box}</p>
-                  <p className="mt-1 min-h-10 font-medium">{box.label}</p>
-                  <p className="mt-2 text-lg font-semibold">{formatMoney(box.amount)}</p>
-                </div>
-              ))}
+            <div className="mt-4 space-y-4">
+              {boxGroups.map((group) => {
+                const boxes = activeSummary.modelo303Boxes.filter(group.match);
+                if (boxes.length === 0) return null;
+                return (
+                  <div key={group.title}>
+                    <h3 className="text-xs font-semibold uppercase text-muted-foreground">{group.title}</h3>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                      {boxes.map((box) => (
+                        <div className={`rounded-[2px] border p-3 text-sm ${box.kind === "settlement" ? "border-primary" : ""}`} key={`${box.box}-${box.label}`}>
+                          <p className="text-xs text-muted-foreground">{box.box === "REV" || box.box === "EXE" ? "Revisar" : `Casilla ${box.box}`}</p>
+                          <p className="mt-1 min-h-10 font-medium">{box.label}</p>
+                          <p className="mt-2 text-lg font-semibold">{formatMoney(box.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -316,7 +364,7 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-medium">Conciliación fiscal-contable</h2>
-              <p className="text-sm text-muted-foreground">Compara el cálculo fiscal con las cuentas 477, 472 y 4751.</p>
+              <p className="text-sm text-muted-foreground">Compara el cálculo fiscal con las cuentas 477 (IVA y recargo repercutidos), 472 (IVA deducible), 4751 (retenciones practicadas) y 473 (retenciones soportadas).</p>
             </div>
             <StatusBadge tone={activeSummary.accountingReconciliation.balanced ? "success" : "warning"}>
               {activeSummary.accountingReconciliation.balanced ? "Cuadrado" : "Revisar"}
@@ -324,9 +372,10 @@ export function SpanishTaxSummary({ reports }: SpanishTaxSummaryProps) {
           </div>
           <div className="mt-4 grid gap-2">
             {[
-              ["IVA repercutido", activeSummary.accountingReconciliation.outputVat],
-              ["IVA soportado", activeSummary.accountingReconciliation.inputVat],
-              ["Retenciones", activeSummary.accountingReconciliation.withholdings],
+              ["IVA devengado (477)", activeSummary.accountingReconciliation.outputVat],
+              ["IVA deducible (472)", activeSummary.accountingReconciliation.inputVat],
+              ["Retenciones practicadas (4751)", activeSummary.accountingReconciliation.withholdings],
+              ...(activeSummary.accountingReconciliation.salesWithholdings ? [["Retenciones soportadas (473)", activeSummary.accountingReconciliation.salesWithholdings]] : []),
             ].map(([label, line]) => (
               <div className="grid gap-2 rounded-[2px] border p-3 text-sm md:grid-cols-[minmax(0,1fr)_140px_140px_140px]" key={label as string}>
                 <span className="font-medium">{label as string}</span>

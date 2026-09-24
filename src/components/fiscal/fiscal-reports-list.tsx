@@ -29,6 +29,12 @@ const dueTone = {
   overdue: "danger",
 } as const;
 
+/** Importe a ingresar del modelo; los informativos (347, 349) no tienen importe. */
+function amountDueLabel(report: FiscalReportWithSummary) {
+  if (!report.summary) return "—";
+  return report.summary.amountDue === null ? "Informativo" : formatMoney(report.summary.amountDue);
+}
+
 export function FiscalReportsList({
   canWrite,
   reports,
@@ -97,11 +103,11 @@ export function FiscalReportsList({
       header: "A ingresar",
       cell: (report) => (
         <span className="font-medium">
-          {formatMoney(report.summary?.settlementAmount ?? 0)}
+          {amountDueLabel(report)}
         </span>
       ),
-      exportValue: (report) => report.summary?.settlementAmount ?? 0,
-      sortValue: (report) => report.summary?.settlementAmount ?? 0,
+      exportValue: (report) => report.summary?.amountDue ?? 0,
+      sortValue: (report) => report.summary?.amountDue ?? 0,
     },
     {
       header: "Retenciones",
@@ -178,7 +184,7 @@ export function FiscalReportsList({
             <div>
               <dt className="text-muted-foreground">A ingresar</dt>
               <dd className="font-medium">
-                {formatMoney(report.summary?.settlementAmount ?? 0)}
+                {amountDueLabel(report)}
               </dd>
             </div>
           </dl>

@@ -1,11 +1,12 @@
 import { and, asc, eq } from "drizzle-orm";
+import { cache } from "react";
 
 import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { getActiveContextCookies } from "@/lib/active-context";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import type { PermissionKey } from "@/lib/rbac";
-import { canFromDb } from "@/lib/rbac-server";
+import { ForbiddenError, UnauthorizedError } from "@/lib/http";
+import { can, type PermissionKey } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 
 type AuthenticatedContext = Omit<Awaited<ReturnType<typeof ensureUserTenant>>, "company"> & {
@@ -25,10 +26,28 @@ type AuthenticatedContext = Omit<Awaited<ReturnType<typeof ensureUserTenant>>, "
   };
 };
 
+/**
+ * Contexto completo (tenant activo, empresa, ejercicio y opciones disponibles).
+ * Lanza `UnauthorizedError` (401) o `ForbiddenError` (403); en route handlers
+ * captúralos con `handleRouteError` de `@/lib/http`.
+ */
 export async function requireContext(permission?: PermissionKey): Promise<AuthenticatedContext> {
+  const context = await resolveRequestContext();
+  if (permission && !can(context.membership.role, permission)) {
+    throw new ForbiddenError();
+  }
+  return context;
+}
+
+/**
+ * Resolución del contexto memoizada por petición con React `cache()`: layout, page y
+ * componentes que llaman a `requireContext` comparten las mismas consultas (sesión,
+ * tenant, empresas y ejercicios). El permiso se comprueba fuera, en cada llamada.
+ */
+const resolveRequestContext = cache(async function resolveRequestContext(): Promise<AuthenticatedContext> {
   const session = await getUserSession();
   if (!session?.user) {
-    throw new Error("No autorizado.");
+    throw new UnauthorizedError();
   }
   const fallbackContext = await ensureUserTenant({
     id: session.user.id,
@@ -82,10 +101,6 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
     },
   };
 
-  if (permission && !(await canFromDb(tenantContext.membership.role, permission))) {
-    throw new Error("Sin permisos para ejecutar esta acción.");
-  }
-
   return {
     ...tenantContext,
     availableCompanies,
@@ -96,4 +111,4 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
       name: session.user.name,
     },
   };
-}
+});

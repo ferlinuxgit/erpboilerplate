@@ -4,13 +4,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { AccessibleField, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { MoneyInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { parseDecimalInput } from "@/lib/format";
 
-type AccountOption = { id: string; bankName: string; iban: string };
+type AccountOption = { id: string; bankName: string; iban: string; isActive?: boolean };
 
 export function EditBankTransactionForm({
   id,
@@ -39,26 +41,32 @@ export function EditBankTransactionForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = error ? "edit-bank-transaction-error" : undefined;
+  const selectableAccounts = accounts.filter((account) => account.isActive !== false || account.id === defaultBankAccountId);
 
   return (
     <form
       className="grid gap-3"
       onSubmit={async (event) => {
         event.preventDefault();
-        setLoading(true);
         setError(null);
+        const parsedAmount = parseDecimalInput(amount);
+        if (parsedAmount === null || parsedAmount === 0) {
+          setError("Indica un importe distinto de cero: positivo si entra dinero, negativo si sale.");
+          return;
+        }
+        setLoading(true);
         try {
           const res = await fetch(`/api/bank-transactions/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-            body: JSON.stringify({ bankAccountId, amount, description, postedAt }),
+            body: JSON.stringify({ bankAccountId, amount: parsedAmount.toFixed(2), description, postedAt }),
           });
-          if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "No se pudo actualizar el movimiento.");
-          toast.success("Movimiento bancario actualizado correctamente.");
+          if (!res.ok) throw new Error(await readApiError(res, "No se pudo actualizar el movimiento."));
+          toast.success("Movimiento actualizado.", { description: "Su asiento provisional (banco ↔ 555) se ha rehecho con los datos nuevos." });
           if (onSuccess) onSuccess();
-          else { router.push("/treasury"); router.refresh(); }
+          else { router.push("/treasury/bank-transactions"); router.refresh(); }
         } catch (e) {
-          const message = e instanceof Error ? e.message : "Error inesperado.";
+          const message = errorMessage(e, "No se pudo actualizar el movimiento.");
           setError(message);
           toast.error(message);
         } finally {
@@ -66,54 +74,27 @@ export function EditBankTransactionForm({
         }
       }}
     >
-      <div className="space-y-2">
-        <Label htmlFor="edit-bank-transaction-account">Cuenta bancaria</Label>
-        <Select
-          id="edit-bank-transaction-account"
-          value={bankAccountId}
-          onChange={(e) => setBankAccountId(e.target.value)}
-          required
-          aria-describedby={errorId}
-        >
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.bankName} - {a.iban}</option>
+      <AccessibleField id="edit-bank-transaction-account" label="Cuenta bancaria" required>
+        <Select id="edit-bank-transaction-account" value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} required>
+          {selectableAccounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.bankName} · {a.iban}</option>
           ))}
         </Select>
+      </AccessibleField>
+      <AccessibleField helperText="Positivo si entra dinero, negativo si sale." id="edit-bank-transaction-amount" label="Importe" required>
+        <MoneyInput id="edit-bank-transaction-amount" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+      </AccessibleField>
+      <AccessibleField id="edit-bank-transaction-description" label="Concepto" required>
+        <Input id="edit-bank-transaction-description" value={description} onChange={(e) => setDescription(e.target.value)} required />
+      </AccessibleField>
+      <AccessibleField id="edit-bank-transaction-posted-at" label="Fecha" required>
+        <Input id="edit-bank-transaction-posted-at" value={postedAt} onChange={(e) => setPostedAt(e.target.value)} type="date" required />
+      </AccessibleField>
+      <p className="text-xs text-muted-foreground">Solo se pueden editar movimientos pendientes de conciliar y con fechas en periodos abiertos.</p>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}
+        <Button aria-busy={loading} aria-describedby={errorId} type="submit" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="edit-bank-transaction-amount">Importe</Label>
-        <Input
-          id="edit-bank-transaction-amount"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          type="number"
-          step="0.01"
-          required
-          aria-describedby={errorId}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="edit-bank-transaction-description">Descripción</Label>
-        <Input
-          id="edit-bank-transaction-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
-          aria-describedby={errorId}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="edit-bank-transaction-posted-at">Fecha</Label>
-        <Input
-          id="edit-bank-transaction-posted-at"
-          value={postedAt}
-          onChange={(e) => setPostedAt(e.target.value)}
-          type="date"
-          required
-          aria-describedby={errorId}
-        />
-      </div>
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button></div>
       {error ? <InlineAlert id="edit-bank-transaction-error" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );

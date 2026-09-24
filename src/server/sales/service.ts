@@ -16,6 +16,7 @@ import {
   warehouse,
 } from "@/db/schema";
 import { db } from "@/lib/db";
+import { HttpError } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { postSalesInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
@@ -23,6 +24,7 @@ import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshStockLocation } from "@/server/inventory/stock-location";
 import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
+import { loadCustomerSnapshot, loadIssuerSnapshot } from "@/server/invoices/snapshot";
 import {
   assertSalesTransitionAllowed,
   getDeliveryNoteTransition,
@@ -43,6 +45,15 @@ export function assertOrderCanConvertToDelivery(status: SalesDocumentStatus) {
 
 export function assertDeliveryCanConvertToInvoice(status: SalesDocumentStatus) {
   assertSalesTransitionAllowed(getDeliveryNoteTransition(status));
+}
+
+/** Igual que `assertSalesTransitionAllowed`, pero con un error HTTP seguro para el cliente (400). */
+function assertTransitionOrHttpError(result: ReturnType<typeof getSalesOrderTransition>) {
+  try {
+    assertSalesTransitionAllowed(result);
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : "Transición de documento no permitida.", { cause: error });
+  }
 }
 
 async function reserveDocumentNumber(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], companyId: string, fiscalYearId: string, type: SeriesType, referenceDate?: Date | string | null) {
@@ -118,7 +129,9 @@ function findSourceOrderLine(
 }
 
 export async function convertQuoteToOrder(input: {
+  tenantId: string;
   companyId: string;
+  actorUserId: string;
   fiscalYearId: string;
   quoteId: string;
 }) {
@@ -129,8 +142,8 @@ export async function convertQuoteToOrder(input: {
       .where(and(eq(salesQuote.id, input.quoteId), eq(salesQuote.companyId, input.companyId)))
       .for("update")
       .limit(1);
-    if (!quote) throw new Error("Presupuesto no encontrado.");
-    assertQuoteCanConvert(quote.status as SalesDocumentStatus);
+    if (!quote) throw new HttpError(404, "Presupuesto no encontrado.");
+    assertTransitionOrHttpError(getSalesQuoteTransition(quote.status as SalesDocumentStatus));
 
     const issueDate = new Date();
     const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_ORDER", issueDate);
@@ -170,16 +183,34 @@ export async function convertQuoteToOrder(input: {
     await tx
       .update(salesQuote)
       .set({ status: "CONFIRMED", updatedAt: new Date() })
-      .where(eq(salesQuote.id, quote.id));
+      .where(and(eq(salesQuote.id, quote.id), eq(salesQuote.companyId, input.companyId)));
+
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "salesQuote.convert",
+        entityName: "salesQuote",
+        entityId: quote.id,
+        payload: {
+          quoteNumber: quote.number,
+          salesOrderId: created.id,
+          salesOrderNumber: created.number,
+          totalAmount: created.totalAmount,
+        },
+      },
+      tx,
+    );
 
     return created;
   });
 }
 
 export async function convertOrderToDelivery(input: {
-  tenantId?: string;
+  tenantId: string;
   companyId: string;
-  actorUserId?: string;
+  actorUserId: string;
   fiscalYearId: string;
   salesOrderId: string;
   warehouseId?: string | null;
@@ -192,8 +223,8 @@ export async function convertOrderToDelivery(input: {
       .where(and(eq(salesOrder.id, input.salesOrderId), eq(salesOrder.companyId, input.companyId)))
       .for("update")
       .limit(1);
-    if (!order) throw new Error("Pedido no encontrado.");
-    assertSalesTransitionAllowed(getSalesOrderTransition(order.status as SalesDocumentStatus));
+    if (!order) throw new HttpError(404, "Pedido no encontrado.");
+    assertTransitionOrHttpError(getSalesOrderTransition(order.status as SalesDocumentStatus));
 
     const [ownedWarehouse] = input.warehouseId
       ? await tx
@@ -202,12 +233,12 @@ export async function convertOrderToDelivery(input: {
           .where(and(eq(warehouse.id, input.warehouseId), eq(warehouse.companyId, input.companyId)))
           .limit(1)
       : await tx.select({ id: warehouse.id }).from(warehouse).where(eq(warehouse.companyId, input.companyId)).limit(1);
-    if (!ownedWarehouse) throw new Error("Almacén no encontrado.");
+    if (!ownedWarehouse) throw new HttpError(404, "Almacén no encontrado.");
 
     const issuedAt = new Date();
     const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "DELIVERY_NOTE", issuedAt);
     const orderLines = await tx.select().from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, order.id));
-    if (orderLines.length === 0) throw new Error("No se puede crear el albarán sin líneas del pedido de origen.");
+    if (orderLines.length === 0) throw new HttpError(400, "No se puede crear el albarán sin líneas del pedido de origen.");
 
     const previousDeliveryLines = await tx
       .select({ salesOrderLineId: deliveryNoteLine.salesOrderLineId, quantity: deliveryNoteLine.quantity })
@@ -221,14 +252,14 @@ export async function convertOrderToDelivery(input: {
       const remaining = Number(line.quantity) - (deliveredByLine.get(line.id) ?? 0);
       return remaining > 0.0005 ? [{ salesOrderLineId: line.id, quantity: remaining }] : [];
     });
-    if (requested.length === 0) throw new Error("El pedido ya está entregado por completo.");
+    if (requested.length === 0) throw new HttpError(400, "El pedido ya está entregado por completo.");
     const quantitiesByLine = new Map<string, number>();
     for (const requestLine of requested) {
       const source = orderLineById.get(requestLine.salesOrderLineId);
-      if (!source || !Number.isFinite(requestLine.quantity) || requestLine.quantity <= 0) throw new Error("Las líneas del albarán no pertenecen al pedido o tienen una cantidad inválida.");
+      if (!source || !Number.isFinite(requestLine.quantity) || requestLine.quantity <= 0) throw new HttpError(400, "Las líneas del albarán no pertenecen al pedido o tienen una cantidad inválida.");
       const accumulated = (quantitiesByLine.get(source.id) ?? 0) + requestLine.quantity;
       const remaining = Number(source.quantity) - (deliveredByLine.get(source.id) ?? 0);
-      if (accumulated > remaining + 0.0005) throw new Error(`La cantidad de ${source.description} supera la pendiente de entrega.`);
+      if (accumulated > remaining + 0.0005) throw new HttpError(400, `La cantidad de ${source.description} supera la pendiente de entrega.`);
       quantitiesByLine.set(source.id, accumulated);
     }
 
@@ -269,7 +300,7 @@ export async function convertOrderToDelivery(input: {
         .for("update")
         .limit(1);
       if (Number(location?.currentQuantity ?? 0) + 0.0005 < Number(line.quantity)) {
-        throw new Error(`Stock insuficiente para entregar ${line.description}.`);
+        throw new HttpError(400, `Stock insuficiente para entregar ${line.description}.`);
       }
       await tx.insert(stockMovement).values({
         companyId: input.companyId,
@@ -290,24 +321,25 @@ export async function convertOrderToDelivery(input: {
       .set({ status: fullyDelivered ? "DELIVERED" : "CONFIRMED", updatedAt: new Date() })
       .where(eq(salesOrder.id, order.id));
 
-    if (input.tenantId && input.actorUserId) {
-      await recordAudit(
-        {
-          tenantId: input.tenantId,
-          companyId: input.companyId,
-          actorUserId: input.actorUserId,
-          action: "sales.delivery.create",
-          entityName: "delivery_note",
-          entityId: created.id,
-          payload: {
-            salesOrderId: order.id,
-            warehouseId: ownedWarehouse.id,
-            number: created.number,
-          },
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "deliveryNote.create",
+        entityName: "deliveryNote",
+        entityId: created.id,
+        payload: {
+          salesOrderId: order.id,
+          salesOrderNumber: order.number,
+          warehouseId: ownedWarehouse.id,
+          number: created.number,
+          lines: [...quantitiesByLine.entries()].map(([salesOrderLineId, quantity]) => ({ salesOrderLineId, quantity })),
+          salesOrderStatus: fullyDelivered ? "DELIVERED" : "CONFIRMED",
         },
-        tx,
-      );
-    }
+      },
+      tx,
+    );
 
     return created;
   });
@@ -327,7 +359,7 @@ export async function convertDeliveryToInvoice(input: {
       .where(and(eq(deliveryNote.id, input.deliveryNoteId), eq(deliveryNote.companyId, input.companyId)))
       .for("update")
       .limit(1);
-    if (!note) throw new Error("Albarán no encontrado.");
+    if (!note) throw new HttpError(404, "Albarán no encontrado.");
     const deliveryTransition = getDeliveryNoteTransition(note.status as SalesDocumentStatus);
     if (deliveryTransition.allowed === false) {
       if (note.status === "INVOICED" || note.status === "PAID") {
@@ -360,7 +392,7 @@ export async function convertDeliveryToInvoice(input: {
           if (existingInvoice) return existingInvoice;
         }
       }
-      assertSalesTransitionAllowed(deliveryTransition);
+      if (deliveryTransition.allowed === false) throw new HttpError(409, deliveryTransition.reason);
     }
 
     const [order] = note.salesOrderId
@@ -371,19 +403,19 @@ export async function convertDeliveryToInvoice(input: {
           .limit(1)
       : [null];
 
-    if (!order) throw new Error("No se puede facturar un albarán sin pedido de origen.");
+    if (!order) throw new HttpError(409, "No se puede facturar un albarán sin pedido de origen.");
 
     const deliveryLines = await tx.select().from(deliveryNoteLine).where(eq(deliveryNoteLine.deliveryNoteId, note.id));
-    if (deliveryLines.length === 0) throw new Error("No se puede crear la factura sin líneas del albarán de origen.");
+    if (deliveryLines.length === 0) throw new HttpError(409, "No se puede crear la factura sin líneas del albarán de origen.");
 
     const orderLines = await tx.select().from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, order.id));
-    if (orderLines.length === 0) throw new Error("No se puede crear la factura sin líneas del pedido de origen.");
+    if (orderLines.length === 0) throw new HttpError(409, "No se puede crear la factura sin líneas del pedido de origen.");
 
     const availableOrderLines = orderLines.map((line) => ({ ...line }));
     const sourceLineByInvoiceIndex: Array<Record<string, unknown>> = [];
     const invoiceLines = deliveryLines.map((deliveryLine) => {
       const sourceLine = findSourceOrderLine(deliveryLine, availableOrderLines);
-      if (!sourceLine) throw new Error("No se puede crear la factura sin líneas del pedido de origen.");
+      if (!sourceLine) throw new HttpError(409, "No se puede crear la factura sin líneas del pedido de origen.");
       sourceLineByInvoiceIndex.push(sourceLine);
 
       return {
@@ -402,7 +434,13 @@ export async function convertDeliveryToInvoice(input: {
     const issueDate = new Date();
     await assertFiscalPeriodOpen(input.companyId, issueDate, tx);
 
+    // Serie del ejercicio de la fecha de emisión (no del ejercicio activo de la sesión).
     const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_INVOICE", issueDate);
+    // Factura emitida desde el albarán: se congelan los datos fiscales de emisor y cliente.
+    const [issuerSnapshot, customerSnapshot] = await Promise.all([
+      loadIssuerSnapshot(tx, input.companyId),
+      loadCustomerSnapshot(tx, input.companyId, note.customerId),
+    ]);
     const [created] = await tx
       .insert(invoice)
       .values({
@@ -413,6 +451,9 @@ export async function convertDeliveryToInvoice(input: {
         dueDate: null,
         totalAmount: formatMoney(totals.totalAmount),
         status: "SENT",
+        issuedAt: issueDate,
+        issuerSnapshot,
+        customerSnapshot,
       })
       .returning();
 

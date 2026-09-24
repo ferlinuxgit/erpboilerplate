@@ -1,13 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { Button } from "@/components/ui/button";
-import { AccessibleField } from "@/components/ui/form";
+import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -43,6 +43,7 @@ export function EditCustomerForm({
   defaultStatus: "ACTIVE" | "INACTIVE";
 }) {
   const router = useRouter();
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -64,76 +65,72 @@ export function EditCustomerForm({
     },
   });
 
+  const onSubmit = handleSubmit(async (values) => {
+    setSubmitError(null);
+    try {
+      const response = await fetch(`/api/customers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+        body: JSON.stringify(values),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "No se pudo actualizar el cliente."));
+      }
+
+      toast.success("Cliente actualizado correctamente.");
+      router.push("/customers");
+      router.refresh();
+    } catch (error) {
+      const message = errorMessage(error, "No se pudo actualizar el cliente. Inténtalo de nuevo.");
+      setSubmitError(message);
+      toast.error(message);
+    }
+  });
+
   return (
-    <form
-      className="grid gap-4 md:grid-cols-6"
-      onSubmit={handleSubmit(async (values) => {
-        try {
-          const response = await fetch(`/api/customers/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-            body: JSON.stringify(values),
-          });
-
-          if (!response.ok) {
-            const payload = (await response.json()) as { message?: string };
-            throw new Error(payload.message ?? "No se pudo actualizar el cliente.");
-          }
-
-          toast.success("Cliente actualizado correctamente.");
-          router.push("/customers");
-          router.refresh();
-        } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Error inesperado.");
-        }
-      })}
-    >
+    <form className="grid gap-4 md:grid-cols-6" noValidate onSubmit={onSubmit}>
+      <RequiredFieldsNote className="md:col-span-6" />
       <AccessibleField id="customer-name" label="Nombre" required error={errors.name?.message}>
-        <Input id="customer-name" required aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "customer-name-error" : undefined} {...register("name")} />
+        <Input id="customer-name" {...register("name")} />
       </AccessibleField>
-      <AccessibleField id="customer-tax-id" label="CIF/NIF/VAT" required error={errors.taxId?.message}>
-        <Input id="customer-tax-id" required aria-invalid={Boolean(errors.taxId)} aria-describedby={errors.taxId ? "customer-tax-id-error" : undefined} {...register("taxId")} />
+      <AccessibleField id="customer-tax-id" label="CIF/NIF/VAT" required error={errors.taxId?.message} helperText="Se normaliza sin espacios ni guiones.">
+        <Input id="customer-tax-id" {...register("taxId")} />
       </AccessibleField>
       <AccessibleField id="customer-address" label="Dirección fiscal" required className="md:col-span-2" error={errors.address?.message}>
-        <Input id="customer-address" required aria-invalid={Boolean(errors.address)} aria-describedby={errors.address ? "customer-address-error" : undefined} {...register("address")} />
+        <Input autoComplete="street-address" id="customer-address" {...register("address")} />
       </AccessibleField>
       <AccessibleField id="customer-address-line-2" label="Dirección 2" className="md:col-span-2" error={errors.addressLine2?.message}>
-        <Input id="customer-address-line-2" aria-invalid={Boolean(errors.addressLine2)} aria-describedby={errors.addressLine2 ? "customer-address-line-2-error" : undefined} {...register("addressLine2")} />
+        <Input id="customer-address-line-2" {...register("addressLine2")} />
       </AccessibleField>
       <AccessibleField id="customer-postal-code" label="Código postal" required error={errors.postalCode?.message}>
-        <Input id="customer-postal-code" required aria-invalid={Boolean(errors.postalCode)} aria-describedby={errors.postalCode ? "customer-postal-code-error" : undefined} {...register("postalCode")} />
+        <Input autoComplete="postal-code" id="customer-postal-code" inputMode="numeric" {...register("postalCode")} />
       </AccessibleField>
       <AccessibleField id="customer-city" label="Ciudad" required error={errors.city?.message}>
-        <Input id="customer-city" required aria-invalid={Boolean(errors.city)} aria-describedby={errors.city ? "customer-city-error" : undefined} {...register("city")} />
+        <Input id="customer-city" {...register("city")} />
       </AccessibleField>
       <AccessibleField id="customer-province" label="Provincia" required error={errors.province?.message}>
-        <Input id="customer-province" required aria-invalid={Boolean(errors.province)} aria-describedby={errors.province ? "customer-province-error" : undefined} {...register("province")} />
+        <Input id="customer-province" {...register("province")} />
       </AccessibleField>
-      <AccessibleField id="customer-country-code" label="País" required error={errors.countryCode?.message}>
-        <Input id="customer-country-code" maxLength={2} required aria-invalid={Boolean(errors.countryCode)} aria-describedby={errors.countryCode ? "customer-country-code-error" : undefined} {...register("countryCode")} />
+      <AccessibleField id="customer-country-code" label="País" required error={errors.countryCode?.message} helperText="Código ISO de 2 letras (ES, FR…).">
+        <Input id="customer-country-code" maxLength={2} {...register("countryCode")} />
       </AccessibleField>
       <AccessibleField id="customer-email" label="Email" error={errors.email?.message}>
-        <Input id="customer-email" type="email" aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? "customer-email-error" : undefined} {...register("email")} />
+        <Input autoComplete="email" id="customer-email" type="email" {...register("email")} />
       </AccessibleField>
       <AccessibleField id="customer-phone" label="Teléfono" error={errors.phone?.message}>
-        <Input id="customer-phone" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? "customer-phone-error" : undefined} {...register("phone")} />
+        <Input autoComplete="tel" id="customer-phone" type="tel" {...register("phone")} />
       </AccessibleField>
       <AccessibleField id="customer-status" label="Estado" error={errors.status?.message}>
-        <Select
-          id="customer-status"
-          aria-invalid={Boolean(errors.status)}
-          aria-describedby={errors.status ? "customer-status-error" : undefined}
-          {...register("status")}
-        >
+        <Select id="customer-status" {...register("status")}>
           <option value="ACTIVE">Activo</option>
           <option value="INACTIVE">Inactivo</option>
         </Select>
       </AccessibleField>
-      <div className="self-end md:col-span-6">
-        <Button disabled={isSubmitting} type="submit">
-          {isSubmitting ? "Guardando..." : "Guardar cambios"}
-        </Button>
-      </div>
+      <FormErrorMessage className="md:col-span-6">{submitError}</FormErrorMessage>
+      <FormActions className="md:col-span-6">
+        <SubmitButton pending={isSubmitting}>Guardar cambios</SubmitButton>
+      </FormActions>
     </form>
   );
 }

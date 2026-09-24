@@ -6,6 +6,9 @@ import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { canManageSuppliers } from "@/lib/rbac";
 import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Nuevo proveedor" };
 
 export default async function NewSupplierPage() {
   await requireUserSession();
@@ -25,11 +28,13 @@ export default async function NewSupplierPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Proveedores"
         title="Nuevo proveedor"
         description={`Crea un proveedor activo para ${tenantContext.company.name}.`}
-        backHref="/suppliers"
-        backLabel="Volver a proveedores"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Proveedores", href: "/suppliers" },
+          { label: "Nuevo proveedor" },
+        ]}
       />
 
       <PageSection title="Datos del proveedor" description="Informa identidad fiscal, domicilio y contacto. El número de proveedor se asignará automáticamente.">

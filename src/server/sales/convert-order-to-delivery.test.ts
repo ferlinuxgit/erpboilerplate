@@ -128,8 +128,8 @@ describe("convertOrderToDelivery", () => {
       tenantId: "tenant-1",
       companyId: "company-1",
       actorUserId: "user-1",
-      entityName: "delivery_note",
-      action: "sales.delivery.create",
+      entityName: "deliveryNote",
+      action: "deliveryNote.create",
       entityId: "delivery-1",
     }), mocks.tx);
   });

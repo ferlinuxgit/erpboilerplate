@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ItemsList } from "@/components/inventory/items-list";
@@ -8,6 +9,8 @@ import { item, stockLocation } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { can } from "@/lib/rbac";
+
+export const metadata: Metadata = { title: "Artículos" };
 
 export default async function InventoryItemsPage() {
   const ctx = await requireContext("stock.read"); const [items, locations] = await Promise.all([db.select().from(item).where(eq(item.companyId, ctx.company.id)).orderBy(asc(item.name)), db.select({ itemId: stockLocation.itemId, quantity: stockLocation.currentQuantity }).from(stockLocation).where(eq(stockLocation.companyId, ctx.company.id))]);

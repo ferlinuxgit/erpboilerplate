@@ -1,4 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
@@ -11,6 +12,8 @@ import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
 import { formatSeriesNumber } from "@/lib/document-series-format";
 import { canManageCustomers, canManageInvoices } from "@/lib/rbac";
+
+export const metadata: Metadata = { title: "Nueva factura" };
 
 export default async function NewInvoicePage({ searchParams }: { searchParams: Promise<{ customerId?: string | string[] }> }) {
   await requireUserSession();
@@ -31,6 +34,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       taxId: partner.taxId,
       city: partner.city,
       province: partner.province,
+      countryCode: partner.countryCode,
     })
     .from(customer)
     .leftJoin(partner, eq(partner.id, customer.partnerId))
@@ -76,11 +80,13 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Facturas"
         title="Nueva factura"
         description={`Crea una factura para ${tenantContext.company.name}.`}
-        backHref="/invoices"
-        backLabel="Volver a facturas"
+        breadcrumbs={[
+          { label: "Comercial" },
+          { label: "Facturas", href: "/invoices" },
+          { label: "Nueva factura" },
+        ]}
       />
 
       <PageSection title="Datos de factura" description="Selecciona el cliente, informa fechas y añade las líneas del documento.">

@@ -11,6 +11,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", borderBottom: "1 solid #e5e7eb", paddingVertical: 5 },
   cell: { flex: 1 },
   cellRight: { flex: 1, textAlign: "right" },
+  cellBox: { width: 36 },
+  cellWide: { flex: 3 },
   warning: { marginBottom: 4, color: "#92400e" },
 });
 
@@ -57,8 +59,52 @@ export function FiscalReportPdfTemplate({
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.title}>{summary.modelName}</Text>
-        <Text style={styles.subtitle}>{companyName} · Periodo {summary.periodLabel} · Borrador interno</Text>
+        <Text style={styles.subtitle}>{companyName} · Periodo {summary.periodLabel} · Vence {date(summary.dueDate)} · Borrador interno</Text>
 
+        {summary.modelo130 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Casillas del modelo 130 (acumulado desde el 1 de enero)</Text>
+            {summary.modelo130.boxes.map((box) => (
+              <View style={styles.row} key={box.box}>
+                <Text style={styles.cellBox}>{box.box}</Text>
+                <Text style={styles.cellWide}>{box.label}</Text>
+                <Text style={styles.cellRight}>{money(box.amount)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {summary.modelo349 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Operadores intracomunitarios (modelo 349)</Text>
+            {summary.modelo349.operators.length === 0 && summary.modelo349.rectifications.length === 0 ? (
+              <Text>Sin operaciones intracomunitarias en el periodo.</Text>
+            ) : null}
+            {summary.modelo349.operators.map((operator) => (
+              <View style={styles.row} key={`${operator.key}-${operator.taxId}`}>
+                <Text style={styles.cellBox}>{operator.key}</Text>
+                <Text style={styles.cell}>{operator.taxId}</Text>
+                <Text style={styles.cell}>{operator.name}</Text>
+                <Text style={styles.cellRight}>{money(operator.amount)}</Text>
+              </View>
+            ))}
+            {summary.modelo349.rectifications.map((operator) => (
+              <View style={styles.row} key={`r-${operator.key}-${operator.taxId}-${operator.originalPeriod}`}>
+                <Text style={styles.cellBox}>{operator.key}</Text>
+                <Text style={styles.cell}>{operator.taxId}</Text>
+                <Text style={styles.cell}>{operator.name} (rectifica {operator.originalPeriod})</Text>
+                <Text style={styles.cellRight}>{money(operator.amount)}</Text>
+              </View>
+            ))}
+            <View style={styles.row}>
+              <Text style={styles.cellWide}>Total operadores: {summary.modelo349.operatorCount}</Text>
+              <Text style={styles.cellRight}>{money(summary.modelo349.totalAmount)}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {summary.modelo130 || summary.modelo349 ? null : (
+        <>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Resumen</Text>
           <View style={styles.row}>
@@ -157,6 +203,9 @@ export function FiscalReportPdfTemplate({
             )}
           </View>
         ) : null}
+
+        </>
+        )}
 
         <SourceDocumentRows documents={summary.sourceDocuments.salesInvoices} title="Origen IVA repercutido" />
         <SourceDocumentRows documents={summary.sourceDocuments.supplierInvoices} title="Origen IVA soportado" />

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -185,21 +186,26 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
   const selectedTokenName = selectedToken?.name ?? "Token no seleccionado";
   const example = useMemo(() => invoiceExample(effectiveToken), [effectiveToken]);
 
+  async function copyText(text: string, success: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(success);
+    } catch {
+      toast.error("No se pudo copiar al portapapeles. Selecciona el texto y cópialo manualmente.");
+    }
+  }
+
   async function copyFullDocumentation() {
-    await navigator.clipboard.writeText(buildDocumentationCopy(selectedTokenName, effectiveToken));
-    toast.success("Documentación API copiada.");
+    await copyText(buildDocumentationCopy(selectedTokenName, effectiveToken), "Documentación API copiada al portapapeles.");
   }
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 rounded-[2px] border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
+      <div className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
         <p className="text-xs text-muted-foreground md:col-span-3">
           Base URL para integraciones: <code>https://erp.comodore.es</code>. Configura los endpoints como rutas relativas, por ejemplo <code>/api/customers</code> o <code>/api/invoices</code>.
         </p>
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="api-doc-token">
-            Token seleccionado
-          </label>
+        <AccessibleField id="api-doc-token" label="Token seleccionado">
           <Select
             id="api-doc-token"
             onChange={(event) => setSelectedTokenId(event.target.value)}
@@ -212,11 +218,8 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
               </option>
             ))}
           </Select>
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="api-doc-token-secret">
-            Secreto para ejemplos
-          </label>
+        </AccessibleField>
+        <AccessibleField helperText="Opcional. No se guarda: solo se usa para rellenar los ejemplos." id="api-doc-token-secret" label="Secreto para ejemplos">
           <Input
             id="api-doc-token-secret"
             onChange={(event) => setManualToken(event.target.value)}
@@ -224,7 +227,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
             type="password"
             value={manualToken}
           />
-        </div>
+        </AccessibleField>
         <Button disabled={!selectedToken && !manualToken.trim()} onClick={copyFullDocumentation} type="button">
           <ClipboardCopy aria-hidden="true" />
           Copiar documentación
@@ -234,7 +237,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </p>
       </div>
 
-      <div className="overflow-x-auto rounded-[2px] border">
+      <div className="overflow-x-auto border border-window-dark-shadow">
         <Table>
           <TableHeader>
             <TableRow>
@@ -267,23 +270,20 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </Table>
       </div>
 
-      <div className="rounded-[2px] border bg-muted/30 p-3">
+      <div className="border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)]">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-sm font-medium">Ejemplo de creación de factura con PDF</p>
+          <h3 className="font-mono text-sm font-bold">Ejemplo de creación de factura con PDF</h3>
           <Button
-            onClick={async () => {
-              await navigator.clipboard.writeText(example);
-              toast.success("Ejemplo copiado.");
-            }}
+            onClick={() => void copyText(example, "Ejemplo copiado al portapapeles.")}
             size="sm"
             type="button"
             variant="outline"
           >
             <ClipboardCopy aria-hidden="true" />
-            Copiar
+            Copiar<span className="sr-only"> ejemplo</span>
           </Button>
         </div>
-        <pre className="overflow-x-auto rounded-md bg-background p-3 text-xs">
+        <pre className="overflow-x-auto border border-window-shadow bg-card p-3 font-mono text-xs">
           <code>{example}</code>
         </pre>
       </div>

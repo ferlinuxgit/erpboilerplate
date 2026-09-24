@@ -96,7 +96,13 @@ describe("convertQuoteToOrder", () => {
     mocks.selectResults.splice(0, mocks.selectResults.length, [quoteRow], quoteLines);
     mocks.insertResults.splice(0, mocks.insertResults.length, [{ id: "order-1", number: "PED-000012" }]);
 
-    const created = await convertQuoteToOrder({ companyId: "company-1", fiscalYearId: "fy-1", quoteId: "quote-1" });
+    const created = await convertQuoteToOrder({
+      tenantId: "tenant-1",
+      companyId: "company-1",
+      actorUserId: "user-1",
+      fiscalYearId: "fy-1",
+      quoteId: "quote-1",
+    });
 
     expect(created).toEqual({ id: "order-1", number: "PED-000012" });
     expect(mocks.insertedValues).toEqual(

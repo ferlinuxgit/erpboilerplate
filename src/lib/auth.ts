@@ -4,6 +4,8 @@ const encoder = new TextEncoder();
 
 export const AUTH_TOKEN_COOKIE = "erp_auth_token";
 export const AUTH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 8;
+/** Cabecera interna (fijada por `src/proxy.ts`) con la ruta solicitada, para `?next=`. */
+export const REQUEST_PATH_HEADER = "x-erp-request-path";
 
 export type JwtUser = {
   id: string;

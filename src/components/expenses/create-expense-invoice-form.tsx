@@ -8,15 +8,24 @@ import { toast } from "sonner";
 import { ExpenseBatchUpload } from "@/components/expenses/expense-batch-upload";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { formatMoney } from "@/lib/format";
+import {
+  isSelfAssessedTreatment,
+  resolveSupplierVatTreatment,
+  supplierVatTreatmentLabels,
+  type SupplierVatTreatment,
+} from "@/lib/fiscal-spain";
+import { formatMoney, parseDecimalInput } from "@/lib/format";
 
 type ExpenseAccount = { id: string; code: string; name: string };
-type Supplier = { id: string; number: string; name: string; taxId: string | null };
+type Supplier = { id: string; number: string; name: string; taxId: string | null; countryCode?: string | null };
+
+const supplierVatTreatmentOptions = Object.entries(supplierVatTreatmentLabels) as Array<[SupplierVatTreatment, string]>;
 type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
 type GoodsReceiptRelation = { id: string; number: string; purchaseOrderId: string; supplierPartnerId: string };
 
@@ -49,8 +58,12 @@ type CreateExpenseInvoiceFormProps = {
 };
 
 function todayInputValue() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
+
+const percent = (value: string) => parseDecimalInput(value) ?? Number.NaN;
+const money = (value: string) => parseDecimalInput(value, { maximumFractionDigits: 2 }) ?? Number.NaN;
 
 function toIsoDate(value: string) {
   return new Date(`${value}T12:00:00.000Z`).toISOString();
@@ -70,10 +83,10 @@ function newLine(expenseAccountId: string): ExpenseLineDraft {
 }
 
 function lineTotals(line: ExpenseLineDraft) {
-  const quantity = Number(line.quantity);
-  const unitPrice = Number(line.unitPrice);
-  const taxRate = Number(line.taxRate);
-  const retentionRate = Number(line.retentionRate);
+  const quantity = percent(line.quantity);
+  const unitPrice = money(line.unitPrice);
+  const taxRate = percent(line.taxRate);
+  const retentionRate = percent(line.retentionRate);
   const subtotal = Number.isFinite(quantity * unitPrice) ? quantity * unitPrice : 0;
   const tax = subtotal * (Number.isFinite(taxRate) ? taxRate : 0) / 100;
   const retention = subtotal * (Number.isFinite(retentionRate) ? retentionRate : 0) / 100;
@@ -111,8 +124,13 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   const [ocrJobId, setOcrJobId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const errorId = error ? "expense-invoice-error" : undefined;
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [vatTreatmentOverride, setVatTreatmentOverride] = useState<SupplierVatTreatment | null>(null);
   const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierPartnerId) ?? null;
+  const supplierCountryForVat = supplierMode === "existing" ? selectedSupplier?.countryCode : supplierCountryCode;
+  // Por defecto se deduce del país del proveedor; si el usuario lo cambia, prevalece su elección.
+  const vatTreatment = vatTreatmentOverride ?? resolveSupplierVatTreatment(null, supplierCountryForVat);
+  const selfAssessedVat = isSelfAssessedTreatment(vatTreatment);
   const availablePurchaseOrders = purchaseOrders.filter((order) => !supplierPartnerId || order.supplierPartnerId === supplierPartnerId);
   const availableGoodsReceipts = goodsReceipts.filter((receipt) => purchaseOrderId
     ? receipt.purchaseOrderId === purchaseOrderId
@@ -133,6 +151,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
     ),
     [lines],
   );
+  // En autorepercusión el proveedor no cobra el IVA: lo pagadero es base − retención.
+  const payable = (totals: { subtotal: number; retention: number; total: number }) => selfAssessedVat ? totals.subtotal - totals.retention : totals.total;
 
   const filteredSuppliers = useMemo(() => {
     const textQuery = supplierSearch.trim().toLocaleLowerCase();
@@ -222,20 +242,24 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
     setError(null);
     setIsLoading(true);
     try {
-      if (supplierMode === "existing" && !supplierPartnerId) throw new Error("Selecciona un proveedor.");
-      if (supplierMode === "new" && !supplierName.trim() && !supplierTaxId.trim()) throw new Error("Indica el proveedor o su CIF/NIF.");
-      if (lines.length === 0) throw new Error("Añade al menos una línea.");
-
+      const nextErrors: Record<string, string> = {};
+      if (supplierMode === "existing" && !supplierPartnerId) nextErrors.supplier = "Selecciona el proveedor de la factura.";
+      if (supplierMode === "new" && !supplierName.trim() && !supplierTaxId.trim()) nextErrors.supplier = "Indica el nombre o el CIF/NIF del proveedor.";
+      if (!issueDate) nextErrors.issueDate = "Indica la fecha de la factura.";
+      if (dueDate && issueDate && dueDate < issueDate) nextErrors.dueDate = "El vencimiento no puede ser anterior a la fecha de la factura.";
       const parsedLines = lines.map((line) => {
-        const quantity = Number(line.quantity);
-        const unitPrice = Number(line.unitPrice);
-        const taxRate = Number(line.taxRate);
-        const taxDeductiblePct = Number(line.taxDeductiblePct);
-        const retentionRate = Number(line.retentionRate);
-        if (!line.expenseAccountId) throw new Error("Selecciona una cuenta de gasto en todas las líneas.");
-        if (!line.description.trim()) throw new Error("Todas las líneas necesitan concepto.");
-        if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("La cantidad debe ser mayor que cero.");
-        if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("El importe no puede ser negativo.");
+        const quantity = percent(line.quantity);
+        const unitPrice = money(line.unitPrice);
+        const taxRate = percent(line.taxRate);
+        const taxDeductiblePct = percent(line.taxDeductiblePct);
+        const retentionRate = percent(line.retentionRate);
+        if (!line.expenseAccountId) nextErrors[`${line.id}-account`] = "Elige la cuenta de gasto.";
+        if (!line.description.trim()) nextErrors[`${line.id}-description`] = "Escribe el concepto.";
+        if (!Number.isFinite(quantity) || quantity <= 0) nextErrors[`${line.id}-quantity`] = "Debe ser mayor que cero.";
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) nextErrors[`${line.id}-price`] = "Indica una base igual o mayor que cero.";
+        for (const [key, value] of [["tax", taxRate], ["deductible", taxDeductiblePct], ["retention", retentionRate]] as const) {
+          if (!Number.isFinite(value) || value < 0 || value > 100) nextErrors[`${line.id}-${key}`] = "Entre 0 y 100 %.";
+        }
         return {
           expenseAccountId: line.expenseAccountId,
           description: line.description,
@@ -246,6 +270,13 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
           retentionRate,
         };
       });
+      setFieldErrors(nextErrors);
+      if (Object.keys(nextErrors).length > 0) {
+        const firstKey = Object.keys(nextErrors)[0];
+        const targetId = firstKey === "supplier" ? "expense-select-supplier" : firstKey === "issueDate" ? "expense-issue-date" : firstKey === "dueDate" ? "expense-due-date" : `expense-line-${firstKey.slice(firstKey.lastIndexOf("-") + 1)}-${firstKey.slice(0, firstKey.lastIndexOf("-"))}`;
+        requestAnimationFrame(() => document.getElementById(targetId)?.focus());
+        throw new Error("Revisa los campos marcados antes de registrar la factura.");
+      }
 
       const attachments = !ocrJobId && attachment.fileName.trim() && attachment.fileUrl.trim()
         ? [{ fileName: attachment.fileName, fileUrl: attachment.fileUrl }]
@@ -273,14 +304,12 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
           notes,
           ocrJobId: ocrJobId ?? undefined,
+          vatTreatment,
           attachments,
           lines: parsedLines,
         }),
       });
-      if (!response.ok) {
-        const payload = (await response.json()) as { message?: string };
-        throw new Error(payload.message ?? "No se pudo crear la factura de proveedor.");
-      }
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo registrar la factura de proveedor."));
       const created = (await response.json()) as { id?: string };
       setSupplierName("");
       setSupplierTaxId("");
@@ -292,6 +321,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
       setSupplierCity("");
       setSupplierProvince("");
       setSupplierCountryCode("ES");
+      setVatTreatmentOverride(null);
       setSupplierDocumentNumber("");
       setPurchaseOrderId("");
       setGoodsReceiptId("");
@@ -307,7 +337,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
       }
       router.refresh();
     } catch (submissionError) {
-      const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
+      const message = errorMessage(submissionError, "No se pudo registrar la factura de proveedor.");
       setError(message);
       toast.error(message);
     } finally {
@@ -316,25 +346,18 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   };
 
   if (!creationMode) {
+    const modeCard = "rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-left shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
     return (
-      <div className="grid gap-3 md:grid-cols-2">
-        <button
-          className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setCreationMode("ocr")}
-          type="button"
-        >
-          <Upload className="mb-3 h-5 w-5 text-primary" aria-hidden="true" />
-          <span className="block font-medium">Con OCR</span>
-          <span className="mt-1 block text-sm text-muted-foreground">Sube una factura y aplica el análisis antes de revisar y guardar.</span>
+      <div aria-label="Cómo quieres registrar la factura" className="grid gap-3 md:grid-cols-2" role="group">
+        <button autoFocus className={modeCard} onClick={() => setCreationMode("ocr")} type="button">
+          <Upload className="mb-2 size-5 text-primary" aria-hidden="true" />
+          <span className="block font-mono text-sm font-bold">Con OCR (recomendado)</span>
+          <span className="mt-1 block text-xs text-muted-foreground">Sube el PDF o la foto de la factura: leemos proveedor, fechas e importes para que solo tengas que revisar.</span>
         </button>
-        <button
-          className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setCreationMode("manual")}
-          type="button"
-        >
-          <FileText className="mb-3 h-5 w-5 text-primary" aria-hidden="true" />
-          <span className="block font-medium">Manual</span>
-          <span className="mt-1 block text-sm text-muted-foreground">Introduce proveedor, fechas e importes sin analizar un archivo.</span>
+        <button className={modeCard} onClick={() => setCreationMode("manual")} type="button">
+          <FileText className="mb-2 size-5 text-primary" aria-hidden="true" />
+          <span className="block font-mono text-sm font-bold">Manual</span>
+          <span className="mt-1 block text-xs text-muted-foreground">Introduce proveedor, fechas e importes a mano, sin analizar un archivo.</span>
         </button>
       </div>
     );
@@ -344,172 +367,189 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
     return <ExpenseBatchUpload baseCurrencyCode={baseCurrencyCode} expenseAccounts={expenseAccounts} goodsReceipts={goodsReceipts} onBack={() => setCreationMode(null)} purchaseOrders={purchaseOrders} suppliers={suppliers} />;
   }
 
+  const lineError = (line: ExpenseLineDraft, field: string) => fieldErrors[`${line.id}-${field}`];
+  const sectionClass = "space-y-3 rounded-[2px] border border-window-dark-shadow bg-card p-3";
+  const currencySymbol = baseCurrencyCode === "EUR" ? "€" : baseCurrencyCode;
+
   return (
     <>
-    <form className="space-y-3" onSubmit={onSubmit}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
+    <form className="space-y-3" noValidate onSubmit={onSubmit}>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-2">
         <div>
-          <p className="text-sm font-medium">Modo de registro: Manual</p>
-          <p className="text-sm text-muted-foreground">Completa los datos esenciales de la factura.</p>
+          <p className="font-mono text-xs font-bold">Modo de registro: manual</p>
+          <RequiredFieldsNote />
         </div>
-        <Button onClick={() => setCreationMode(null)} type="button" variant="outline">
+        <Button onClick={() => setCreationMode(null)} size="sm" type="button" variant="outline">
           Cambiar modo
         </Button>
       </div>
-      <section className="space-y-3 rounded-md border p-3" aria-labelledby="expense-supplier-title">
+      {expenseAccounts.length === 0 ? (
+        <FormErrorMessage>No hay cuentas de gasto activas. Crea al menos una en Contabilidad › Plan contable (grupo 6) antes de registrar gastos.</FormErrorMessage>
+      ) : null}
+      <section className={sectionClass} aria-labelledby="expense-supplier-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 className="text-sm font-medium" id="expense-supplier-title">Proveedor</h3>
-            <p className="text-sm text-muted-foreground">Busca un proveedor existente o crea uno nuevo desde el selector.</p>
+            <h2 className="font-mono text-sm font-bold" id="expense-supplier-title">Proveedor<span className="text-destructive" aria-hidden="true"> *</span><span className="sr-only"> (obligatorio)</span></h2>
+            <p className="text-xs text-muted-foreground">Busca un proveedor existente o crea uno nuevo desde el selector.</p>
           </div>
-          <Button onClick={() => openSupplierDialog()} type="button" variant="outline">
+          <Button aria-describedby={fieldErrors.supplier ? "expense-supplier-error" : undefined} aria-invalid={fieldErrors.supplier ? true : undefined} autoFocus id="expense-select-supplier" onClick={() => openSupplierDialog()} type="button" variant="outline">
             <Search aria-hidden="true" />
             Seleccionar proveedor
           </Button>
         </div>
         {supplierMode === "existing" && selectedSupplier ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="font-medium">{selectedSupplier.name}</p>
-            <p className="text-sm text-muted-foreground">{selectedSupplier.taxId ?? "Proveedor existente"}</p>
+          <div className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-2">
+            <p className="font-mono text-xs font-bold">{selectedSupplier.name}</p>
+            <p className="text-xs text-muted-foreground">{selectedSupplier.taxId ?? "Proveedor existente"}</p>
           </div>
         ) : supplierMode === "new" && (supplierName || supplierTaxId) ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="font-medium">{supplierName || `Proveedor ${supplierTaxId}`}</p>
-            <p className="text-sm text-muted-foreground">{supplierTaxId || "Proveedor nuevo"}</p>
+          <div className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-2">
+            <p className="font-mono text-xs font-bold">{supplierName || `Proveedor ${supplierTaxId}`}</p>
+            <p className="text-xs text-muted-foreground">{supplierTaxId || "Proveedor nuevo"} · se creará al registrar la factura</p>
           </div>
         ) : (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Pulsa Seleccionar proveedor para buscar o crear.</p>
+          <p className="border border-dashed border-window-dark-shadow p-2 text-xs text-muted-foreground">Pulsa «Seleccionar proveedor» para buscarlo o crearlo.</p>
         )}
+        {fieldErrors.supplier ? <p className="font-mono text-xs text-destructive" id="expense-supplier-error" role="alert">{fieldErrors.supplier}</p> : null}
+        <AccessibleField
+          className="md:max-w-sm"
+          helperText={selfAssessedVat
+            ? "El IVA se autorrepercute: no se paga al proveedor."
+            : "Se propone según el país del proveedor; cámbialo si la operación lo requiere."}
+          id="expense-vat-treatment"
+          label="Tratamiento de IVA"
+        >
+          <Select onChange={(event) => setVatTreatmentOverride(event.target.value as SupplierVatTreatment)} value={vatTreatment}>
+            {supplierVatTreatmentOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </Select>
+        </AccessibleField>
       </section>
 
-      <section className="space-y-3 rounded-md border p-3" aria-labelledby="supplier-invoice-relation-title">
+      <section className={sectionClass} aria-labelledby="supplier-invoice-relation-title">
         <div>
-          <h3 className="text-sm font-medium" id="supplier-invoice-relation-title">Relación con compras</h3>
-          <p className="text-sm text-muted-foreground">Opcional. Al elegir una recepción se completan automáticamente su pedido y proveedor.</p>
+          <h2 className="font-mono text-sm font-bold" id="supplier-invoice-relation-title">Relación con compras <span className="font-normal text-muted-foreground">(opcional)</span></h2>
+          <p className="text-xs text-muted-foreground">Al elegir una recepción se completan automáticamente su pedido y proveedor.</p>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="expense-purchase-order">Pedido de compra</Label>
-            <Select id="expense-purchase-order" onChange={(event) => selectPurchaseOrder(event.target.value)} value={purchaseOrderId}>
+          <AccessibleField id="expense-purchase-order" label="Pedido de compra">
+            <Select onChange={(event) => selectPurchaseOrder(event.target.value)} value={purchaseOrderId}>
               <option value="">Sin pedido relacionado</option>
               {availablePurchaseOrders.map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}
             </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-goods-receipt">Recepción de mercancía</Label>
-            <Select id="expense-goods-receipt" onChange={(event) => selectGoodsReceipt(event.target.value)} value={goodsReceiptId}>
+          </AccessibleField>
+          <AccessibleField id="expense-goods-receipt" label="Recepción de mercancía">
+            <Select onChange={(event) => selectGoodsReceipt(event.target.value)} value={goodsReceiptId}>
               <option value="">Sin recepción relacionada</option>
               {availableGoodsReceipts.map((receipt) => <option key={receipt.id} value={receipt.id}>{receipt.number}</option>)}
             </Select>
-          </div>
+          </AccessibleField>
         </div>
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <div className="space-y-2">
-          <Label htmlFor="expense-supplier-number">Factura proveedor</Label>
-          <Input aria-describedby={errorId} id="expense-supplier-number" onChange={(event) => setSupplierDocumentNumber(event.target.value)} placeholder="FRA-123" value={supplierDocumentNumber} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="expense-issue-date">Fecha</Label>
-          <Input aria-describedby={errorId} id="expense-issue-date" onChange={(event) => setIssueDate(event.target.value)} required type="date" value={issueDate} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="expense-due-date">Vence</Label>
-          <Input aria-describedby={errorId} id="expense-due-date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
-        </div>
-        <div className="space-y-2 lg:col-span-2">
-          {ocrJobId ? <p className="text-sm font-medium">Adjunto</p> : <Label htmlFor="expense-attachment-url">Adjunto</Label>}
+      <div className="grid gap-3 lg:grid-cols-4">
+        <AccessibleField helperText="El número que aparece en la factura recibida." id="expense-supplier-number" label="Factura proveedor">
+          <Input onChange={(event) => setSupplierDocumentNumber(event.target.value)} placeholder="FRA-123" value={supplierDocumentNumber} />
+        </AccessibleField>
+        <AccessibleField error={fieldErrors.issueDate} id="expense-issue-date" label="Fecha" required>
+          <Input onChange={(event) => setIssueDate(event.target.value)} required type="date" value={issueDate} />
+        </AccessibleField>
+        <AccessibleField error={fieldErrors.dueDate} helperText="Opcional: fecha límite de pago." id="expense-due-date" label="Vence">
+          <Input min={issueDate || undefined} onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
+        </AccessibleField>
+        <div className="space-y-1">
           {ocrJobId ? (
-            <div className="flex min-h-10 items-center justify-between gap-3 rounded-md border bg-primary/5 px-3 py-2 text-sm">
-              <span className="min-w-0"><span className="block truncate font-medium">{attachment.fileName}</span><span className="block text-xs text-muted-foreground">Original almacenado · se asociará automáticamente a la factura</span></span>
-              {attachment.fileUrl ? <a className="shrink-0 font-medium text-primary hover:underline" href={attachment.fileUrl} rel="noreferrer" target="_blank">Abrir</a> : null}
-            </div>
+            <>
+              <p className="font-mono text-[0.72rem] font-bold">Adjunto</p>
+              <div className="flex min-h-8 items-center justify-between gap-3 rounded-[2px] border border-window-dark-shadow bg-primary/5 px-2 py-1 text-xs">
+                <span className="min-w-0"><span className="block truncate font-bold">{attachment.fileName}</span><span className="block text-[0.68rem] text-muted-foreground">Original almacenado · se asociará automáticamente</span></span>
+                {attachment.fileUrl ? <a className="shrink-0 font-bold text-primary hover:underline" href={attachment.fileUrl} rel="noreferrer" target="_blank">Abrir</a> : null}
+              </div>
+            </>
           ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Input id="expense-attachment-name" onChange={(event) => setAttachment((current) => ({ ...current, fileName: event.target.value }))} placeholder="factura.pdf" value={attachment.fileName} />
-              <Input id="expense-attachment-url" onChange={(event) => setAttachment((current) => ({ ...current, fileUrl: event.target.value }))} placeholder="https://..." type="url" value={attachment.fileUrl} />
+            <div className="grid gap-2">
+              <AccessibleField id="expense-attachment-name" label="Adjunto: nombre">
+                <Input onChange={(event) => setAttachment((current) => ({ ...current, fileName: event.target.value }))} placeholder="factura.pdf" value={attachment.fileName} />
+              </AccessibleField>
+              <AccessibleField id="expense-attachment-url" label="Adjunto: enlace">
+                <Input onChange={(event) => setAttachment((current) => ({ ...current, fileUrl: event.target.value }))} placeholder="https://..." type="url" value={attachment.fileUrl} />
+              </AccessibleField>
             </div>
           )}
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium">Líneas</p>
+      <section aria-labelledby="expense-lines-title" className="space-y-2">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 className="font-mono text-sm font-bold" id="expense-lines-title">Líneas</h2>
+            <p className="text-xs text-muted-foreground">Base sin IVA. «Ded.» es el porcentaje de IVA deducible; «Ret.» la retención IRPF.</p>
+          </div>
           <Button onClick={addLine} size="sm" type="button" variant="outline">
             <Plus aria-hidden="true" />
             Añadir línea
           </Button>
         </div>
         {lines.map((line, index) => (
-          <div className="rounded-md border p-3" key={line.id}>
-            <div className="grid gap-3 lg:grid-cols-12">
-              <div className="space-y-2 lg:col-span-3">
-                <Label htmlFor={`expense-line-description-${line.id}`}>Concepto</Label>
-                <Input id={`expense-line-description-${line.id}`} onChange={(event) => updateLine(line.id, { description: event.target.value })} required value={line.description} />
-              </div>
-              <div className="space-y-2 lg:col-span-3">
-                <Label htmlFor={`expense-line-account-${line.id}`}>Cuenta</Label>
-                <Select id={`expense-line-account-${line.id}`} onChange={(event) => updateLine(line.id, { expenseAccountId: event.target.value })} required value={line.expenseAccountId}>
+          <fieldset className="rounded-[2px] border border-window-dark-shadow bg-card p-2" key={line.id}>
+            <legend className="sr-only">Línea {index + 1}</legend>
+            <div className="grid gap-2 lg:grid-cols-12">
+              <AccessibleField className="lg:col-span-3" error={lineError(line, "description")} id={`expense-line-description-${line.id}`} label="Concepto" required>
+                <Input onChange={(event) => updateLine(line.id, { description: event.target.value })} required value={line.description} />
+              </AccessibleField>
+              <AccessibleField className="lg:col-span-3" error={lineError(line, "account")} id={`expense-line-account-${line.id}`} label="Cuenta" required>
+                <Select onChange={(event) => updateLine(line.id, { expenseAccountId: event.target.value })} required value={line.expenseAccountId}>
                   {expenseAccounts.map((account) => (
                     <option key={account.id} value={account.id}>{account.code} - {account.name}</option>
                   ))}
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`expense-line-quantity-${line.id}`}>Cant.</Label>
-                <Input id={`expense-line-quantity-${line.id}`} min="0.001" onChange={(event) => updateLine(line.id, { quantity: event.target.value })} required step="0.001" type="number" value={line.quantity} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`expense-line-price-${line.id}`}>Base</Label>
-                <Input id={`expense-line-price-${line.id}`} min="0" onChange={(event) => updateLine(line.id, { unitPrice: event.target.value })} required step="0.01" type="number" value={line.unitPrice} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`expense-line-tax-${line.id}`}>IVA</Label>
-                <Input id={`expense-line-tax-${line.id}`} min="0" max="100" onChange={(event) => updateLine(line.id, { taxRate: event.target.value })} required step="0.001" type="number" value={line.taxRate} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`expense-line-deductible-${line.id}`}>Ded.</Label>
-                <Input id={`expense-line-deductible-${line.id}`} min="0" max="100" onChange={(event) => updateLine(line.id, { taxDeductiblePct: event.target.value })} required step="0.001" type="number" value={line.taxDeductiblePct} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`expense-line-retention-${line.id}`}>Ret.</Label>
-                <Input id={`expense-line-retention-${line.id}`} min="0" max="100" onChange={(event) => updateLine(line.id, { retentionRate: event.target.value })} required step="0.001" type="number" value={line.retentionRate} />
-              </div>
+              </AccessibleField>
+              <AccessibleField error={lineError(line, "quantity")} id={`expense-line-quantity-${line.id}`} label="Cant." required>
+                <QuantityInput onChange={(event) => updateLine(line.id, { quantity: event.target.value })} required value={line.quantity} />
+              </AccessibleField>
+              <AccessibleField error={lineError(line, "price")} id={`expense-line-price-${line.id}`} label="Base" required>
+                <MoneyInput currencySymbol={currencySymbol} onChange={(event) => updateLine(line.id, { unitPrice: event.target.value })} required value={line.unitPrice} />
+              </AccessibleField>
+              <AccessibleField error={lineError(line, "tax")} id={`expense-line-tax-${line.id}`} label="IVA" required>
+                <PercentInput onChange={(event) => updateLine(line.id, { taxRate: event.target.value })} required value={line.taxRate} />
+              </AccessibleField>
+              <AccessibleField error={lineError(line, "deductible")} id={`expense-line-deductible-${line.id}`} label="Ded." required>
+                <PercentInput onChange={(event) => updateLine(line.id, { taxDeductiblePct: event.target.value })} required value={line.taxDeductiblePct} />
+              </AccessibleField>
+              <AccessibleField error={lineError(line, "retention")} id={`expense-line-retention-${line.id}`} label="Ret." required>
+                <PercentInput onChange={(event) => updateLine(line.id, { retentionRate: event.target.value })} required value={line.retentionRate} />
+              </AccessibleField>
               <div className="flex items-end justify-between gap-2">
-                <p className="pb-2 text-sm font-medium">{formatMoney(lineTotals(line).total)}</p>
-                <Button aria-label={`Eliminar línea ${index + 1}`} disabled={lines.length === 1} onClick={() => removeLine(line.id)} size="icon" type="button" variant="ghost">
+                <p className="pb-2 font-mono text-xs font-bold tabular-nums">{formatMoney(payable(lineTotals(line)), baseCurrencyCode)}</p>
+                <Button aria-label={`Eliminar línea ${index + 1}`} disabled={lines.length === 1} onClick={() => removeLine(line.id)} size="icon" title="Eliminar línea" type="button" variant="ghost">
                   <Trash2 aria-hidden="true" />
                 </Button>
               </div>
             </div>
-          </div>
+          </fieldset>
         ))}
+      </section>
+
+      <div className="grid gap-3 lg:grid-cols-4">
+        <AccessibleField className="lg:col-span-3" helperText="Opcional; solo de uso interno." id="expense-notes" label="Notas">
+          <Textarea onChange={(event) => setNotes(event.target.value)} value={notes} />
+        </AccessibleField>
+        <aside aria-label="Total previsto" aria-live="polite" className="border-l-4 border-l-primary bg-window-panel p-3 font-mono text-xs tabular-nums">
+          <p className="font-bold uppercase tracking-[0.05em]">Total previsto</p>
+          <dl className="mt-1 space-y-0.5">
+            <div className="flex justify-between gap-3"><dt>Base</dt><dd>{formatMoney(preview.subtotal, baseCurrencyCode)}</dd></div>
+            <div className="flex justify-between gap-3 text-muted-foreground"><dt>{selfAssessedVat ? "IVA autorrepercutido" : "+ IVA"}</dt><dd>{formatMoney(preview.tax, baseCurrencyCode)}</dd></div>
+            <div className="flex justify-between gap-3 text-muted-foreground"><dt>− Retención</dt><dd>{formatMoney(preview.retention, baseCurrencyCode)}</dd></div>
+          </dl>
+          <p className="mt-1 border-t border-window-shadow pt-1 text-lg font-bold">{formatMoney(payable(preview), baseCurrencyCode)}</p>
+        </aside>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <div className="space-y-2 lg:col-span-3">
-          <Label htmlFor="expense-notes">Notas</Label>
-          <Textarea id="expense-notes" onChange={(event) => setNotes(event.target.value)} value={notes} />
-        </div>
-        <div className="rounded-md border bg-muted/20 p-3 text-sm">
-          <p className="font-medium">Total previsto</p>
-          <p className="text-muted-foreground">Base {formatMoney(preview.subtotal)}</p>
-          <p className="text-muted-foreground">IVA {formatMoney(preview.tax)}</p>
-          <p className="text-muted-foreground">Retención {formatMoney(preview.retention)}</p>
-          <p className="mt-1 text-lg font-semibold">{formatMoney(preview.total)}</p>
-        </div>
-      </div>
-
-      <Button disabled={isLoading || expenseAccounts.length === 0} type="submit">
-        {isLoading ? "Guardando..." : "Registrar factura"}
-      </Button>
-      {error ? (
-        <p className="text-sm text-destructive" id="expense-invoice-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+      <FormErrorMessage id="expense-invoice-error">{error}</FormErrorMessage>
+      <FormActions sticky>
+        <SubmitButton disabled={expenseAccounts.length === 0} pending={isLoading} pendingLabel="Registrando…">
+          Registrar factura
+        </SubmitButton>
+      </FormActions>
     </form>
     <Dialog
       description="Busca un proveedor existente o prepara uno nuevo para esta factura."
@@ -521,23 +561,23 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
     >
       {supplierDialogMode === "choice" ? (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Elige si quieres buscar un proveedor existente o crear uno nuevo para esta factura.</p>
+          <p className="text-xs text-muted-foreground">Elige si quieres buscar un proveedor existente o crear uno nuevo para esta factura.</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <button
-              className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-2 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               onClick={() => setSupplierDialogMode("search")}
               type="button"
             >
-              <span className="block font-medium">Buscar existente</span>
-              <span className="mt-1 block text-sm text-muted-foreground">Selecciona un proveedor ya registrado.</span>
+              <span className="block font-mono text-xs font-bold">Buscar existente</span>
+              <span className="mt-1 block text-xs text-muted-foreground">Selecciona un proveedor ya registrado.</span>
             </button>
             <button
-              className="rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-2 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               onClick={chooseNewSupplier}
               type="button"
             >
-              <span className="block font-medium">Crear nuevo</span>
-              <span className="mt-1 block text-sm text-muted-foreground">Añade los datos fiscales mínimos.</span>
+              <span className="block font-mono text-xs font-bold">Crear nuevo</span>
+              <span className="mt-1 block text-xs text-muted-foreground">Añade los datos fiscales mínimos.</span>
             </button>
           </div>
         </div>
@@ -546,28 +586,26 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
       {supplierDialogMode === "search" ? (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-search">Número o nombre del proveedor</Label>
-              <Input id="expense-supplier-search" onChange={(event) => setSupplierSearch(event.target.value)} value={supplierSearch} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="expense-supplier-tax-search">CIF/NIF</Label>
-              <Input id="expense-supplier-tax-search" onChange={(event) => setSupplierTaxSearch(event.target.value)} value={supplierTaxSearch} />
-            </div>
+            <AccessibleField id="expense-supplier-search" label="Número o nombre del proveedor">
+              <Input onChange={(event) => setSupplierSearch(event.target.value)} value={supplierSearch} />
+            </AccessibleField>
+            <AccessibleField id="expense-supplier-tax-search" label="CIF/NIF">
+              <Input onChange={(event) => setSupplierTaxSearch(event.target.value)} value={supplierTaxSearch} />
+            </AccessibleField>
           </div>
           <div className="max-h-80 space-y-2 overflow-y-auto">
             {filteredSuppliers.length === 0 ? (
-              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No hay proveedores que coincidan con la búsqueda.</p>
+              <p className="border border-dashed border-window-dark-shadow p-2 text-xs text-muted-foreground">No hay proveedores que coincidan con la búsqueda.</p>
             ) : (
               filteredSuppliers.map((supplier) => (
                 <button
-                  className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="w-full rounded-[2px] border border-window-dark-shadow bg-window-panel p-2 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                   key={supplier.id}
                   onClick={() => chooseExistingSupplier(supplier.id)}
                   type="button"
                 >
-                  <span className="block font-medium">{supplier.number} · {supplier.name}</span>
-                  <span className="block text-sm text-muted-foreground">{supplier.taxId ?? "Proveedor registrado"}</span>
+                  <span className="block font-mono text-xs font-bold">{supplier.number} · {supplier.name}</span>
+                  <span className="block text-xs text-muted-foreground">{supplier.taxId ?? "Proveedor registrado"}</span>
                 </button>
               ))
             )}
@@ -585,46 +623,36 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
 
       {supplierDialogMode === "new" ? (
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="expense-new-supplier-name">Nombre / razón social</Label>
-            <Input id="expense-new-supplier-name" onChange={(event) => setSupplierName(event.target.value)} value={supplierName} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-tax-id">CIF/NIF</Label>
-            <Input id="expense-new-supplier-tax-id" onChange={(event) => setSupplierTaxId(event.target.value)} placeholder="B12345674" value={supplierTaxId} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-country">País</Label>
-            <Input id="expense-new-supplier-country" maxLength={2} onChange={(event) => setSupplierCountryCode(event.target.value.toUpperCase())} value={supplierCountryCode} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-email">Email</Label>
-            <Input id="expense-new-supplier-email" onChange={(event) => setSupplierEmail(event.target.value)} type="email" value={supplierEmail} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-phone">Teléfono</Label>
-            <Input id="expense-new-supplier-phone" onChange={(event) => setSupplierPhone(event.target.value)} value={supplierPhone} />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="expense-new-supplier-address">Dirección fiscal</Label>
-            <Input id="expense-new-supplier-address" onChange={(event) => setSupplierAddress(event.target.value)} value={supplierAddress} />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="expense-new-supplier-address-2">Dirección 2</Label>
-            <Input id="expense-new-supplier-address-2" onChange={(event) => setSupplierAddressLine2(event.target.value)} value={supplierAddressLine2} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-postal-code">CP</Label>
-            <Input id="expense-new-supplier-postal-code" onChange={(event) => setSupplierPostalCode(event.target.value)} value={supplierPostalCode} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-city">Ciudad</Label>
-            <Input id="expense-new-supplier-city" onChange={(event) => setSupplierCity(event.target.value)} value={supplierCity} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="expense-new-supplier-province">Provincia</Label>
-            <Input id="expense-new-supplier-province" onChange={(event) => setSupplierProvince(event.target.value)} value={supplierProvince} />
-          </div>
+          <AccessibleField className="md:col-span-2" id="expense-new-supplier-name" label="Nombre / razón social">
+              <Input onChange={(event) => setSupplierName(event.target.value)} value={supplierName} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-tax-id" label="CIF/NIF">
+              <Input onChange={(event) => setSupplierTaxId(event.target.value)} placeholder="B12345674" value={supplierTaxId} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-country" label="País">
+              <Input maxLength={2} onChange={(event) => setSupplierCountryCode(event.target.value.toUpperCase())} value={supplierCountryCode} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-email" label="Email">
+              <Input onChange={(event) => setSupplierEmail(event.target.value)} type="email" value={supplierEmail} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-phone" label="Teléfono">
+              <Input onChange={(event) => setSupplierPhone(event.target.value)} value={supplierPhone} />
+            </AccessibleField>
+          <AccessibleField className="md:col-span-2" id="expense-new-supplier-address" label="Dirección fiscal">
+              <Input onChange={(event) => setSupplierAddress(event.target.value)} value={supplierAddress} />
+            </AccessibleField>
+          <AccessibleField className="md:col-span-2" id="expense-new-supplier-address-2" label="Dirección 2">
+              <Input onChange={(event) => setSupplierAddressLine2(event.target.value)} value={supplierAddressLine2} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-postal-code" label="CP">
+              <Input onChange={(event) => setSupplierPostalCode(event.target.value)} value={supplierPostalCode} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-city" label="Ciudad">
+              <Input onChange={(event) => setSupplierCity(event.target.value)} value={supplierCity} />
+            </AccessibleField>
+          <AccessibleField id="expense-new-supplier-province" label="Provincia">
+              <Input onChange={(event) => setSupplierProvince(event.target.value)} value={supplierProvince} />
+            </AccessibleField>
           <div className="flex items-end gap-2">
             <Button
               onClick={() => {

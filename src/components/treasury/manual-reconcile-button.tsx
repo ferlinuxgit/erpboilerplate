@@ -51,7 +51,9 @@ export function ManualReconcileButton({ currencyCode = "EUR", reconciled, transa
       });
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       if (!response.ok) throw new Error(payload?.message ?? "No se pudo actualizar la conciliación.");
-      toast.success(reconciled ? "Movimiento devuelto a pendientes." : "Movimiento conciliado manualmente.");
+      toast.success(reconciled ? "Movimiento devuelto a pendientes." : "Movimiento conciliado.", {
+        description: reconciled ? "Se ha vuelto a contabilizar contra la cuenta 555 (pendiente de aplicación)." : "Se ha anulado su apunte provisional: el banco solo refleja el cobro o pago.",
+      });
       setOpen(false);
       router.refresh();
     } catch (caught) {
@@ -67,7 +69,7 @@ export function ManualReconcileButton({ currencyCode = "EUR", reconciled, transa
     <>
       <Button onClick={() => void openDialog()} size="sm" type="button" variant="outline">{reconciled ? "Desconciliar" : "Conciliar"}</Button>
       <Dialog
-        description={reconciled ? "La contrapartida quedará libre y el movimiento volverá a pendientes para poder corregirlo." : "Selecciona un cobro o pago del mismo importe que todavía no esté conciliado."}
+        description={reconciled ? "La contrapartida quedará libre y el movimiento volverá a pendientes: se contabilizará de nuevo contra la cuenta 555 hasta que lo concilies otra vez." : "Selecciona el cobro o pago del mismo importe que corresponde a este movimiento. Al conciliar se anula el apunte provisional del movimiento para que el banco no cuente dos veces."}
         onClose={() => { if (!loading) setOpen(false); }}
         open={open}
         title={reconciled ? "Desconciliar movimiento" : "Conciliación manual"}

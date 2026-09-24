@@ -5,9 +5,10 @@ import { z } from "zod";
 import { companySettings } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
+import { recordAudit } from "@/server/audit";
 
 const payloadSchema = z.object({
   logoUrl: z.string().trim().optional().or(z.literal("")),
@@ -15,7 +16,11 @@ const payloadSchema = z.object({
   fiscalRegime: z.enum(["general", "recargo_equivalencia", "cash_accounting", "exempt"]).default("general"),
   taxPeriodicity: z.enum(["monthly", "quarterly"]).default("quarterly"),
   siiEnabled: z.boolean().default(false),
-  verifactuMode: z.enum(["pending", "verifactu", "non_verifactu"]).default("pending"),
+  // Se acepta por compatibilidad pero se ignora: el modo VERI*FACTU se cambia en /api/verifactu/settings
+  // (exige NIF válido, deja evento en el registro y no se puede desactivar una vez activo).
+  verifactuMode: z.enum(["pending", "verifactu", "non_verifactu"]).optional(),
+  // Sociedad (IS) o autónomo (IRPF, modelo 130). Si no se envía, no se modifica.
+  taxpayerType: z.enum(["company", "individual"]).optional(),
   prorrataPct: z.number().min(0).max(100).default(100),
   defaultCustomerAccountCode: z.string().trim().min(1),
   defaultSupplierAccountCode: z.string().trim().min(1),
@@ -51,35 +56,71 @@ export async function PUT(request: Request) {
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
 
-  const [existing] = await db
-    .select({ id: companySettings.id })
-    .from(companySettings)
-    .where(eq(companySettings.companyId, ctx.company.id))
-    .limit(1);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { verifactuMode: _ignoredVerifactuMode, taxpayerType, ...settingsData } = parsed.data;
   const settingsValues = {
-    ...parsed.data,
+    ...settingsData,
+    ...(taxpayerType ? { taxpayerType } : {}),
     prorrataPct: parsed.data.prorrataPct.toFixed(3),
     logoUrl: parsed.data.logoUrl || null,
   };
 
-  if (existing) {
-    const [updated] = await db
-      .update(companySettings)
-      .set({
-        ...settingsValues,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(companySettings.id, existing.id), eq(companySettings.companyId, ctx.company.id)))
-      .returning();
-    return NextResponse.json(updated);
-  }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: companySettings.id })
+        .from(companySettings)
+        .where(eq(companySettings.companyId, ctx.company.id))
+        .limit(1);
 
-  const [created] = await db
-    .insert(companySettings)
-    .values({
-      companyId: ctx.company.id,
-      ...settingsValues,
-    })
-    .returning();
-  return NextResponse.json(created, { status: 201 });
+      if (existing) {
+        const [updated] = await tx
+          .update(companySettings)
+          .set({
+            ...settingsValues,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(companySettings.id, existing.id), eq(companySettings.companyId, ctx.company.id)))
+          .returning();
+        await recordAudit(
+          {
+            tenantId: ctx.tenant.id,
+            companyId: ctx.company.id,
+            actorUserId: session.user.id,
+            action: "companySettings.update",
+            entityName: "companySettings",
+            entityId: updated.id,
+            payload: settingsValues,
+          },
+          tx,
+        );
+        return { row: updated, created: false };
+      }
+
+      const [created] = await tx
+        .insert(companySettings)
+        .values({
+          companyId: ctx.company.id,
+          ...settingsValues,
+        })
+        .returning();
+      await recordAudit(
+        {
+          tenantId: ctx.tenant.id,
+          companyId: ctx.company.id,
+          actorUserId: session.user.id,
+          action: "companySettings.create",
+          entityName: "companySettings",
+          entityId: created.id,
+          payload: settingsValues,
+        },
+        tx,
+      );
+      return { row: created, created: true };
+    });
+
+    return NextResponse.json(result.row, { status: result.created ? 201 : 200 });
+  } catch (error) {
+    return handleRouteError(error, "companySettings.update", "No se pudo guardar la configuración de la empresa.");
+  }
 }

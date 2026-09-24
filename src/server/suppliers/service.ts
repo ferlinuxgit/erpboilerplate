@@ -4,6 +4,7 @@ import { z } from "zod";
 import { purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment, partner } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { normalizeTaxIdentity } from "@/lib/expense-dedup";
+import { HttpError } from "@/lib/http";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { calculateSupplierBalance } from "@/lib/supplier-balance";
 import { reservePartnerNumber } from "@/server/partners/numbers";
@@ -203,7 +204,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
     .from(partner)
     .where(and(eq(partner.companyId, companyId), eq(partner.countryCode, values.countryCode), eq(partner.taxIdNormalized, values.taxIdNormalized), ne(partner.id, id)))
     .limit(1);
-  if (duplicate) throw new Error("Ya existe otro tercero con ese CIF/NIF.");
+  if (duplicate) throw new HttpError(400, "Ya existe otro tercero con ese CIF/NIF.");
 
   const [updated] = await dbClient
     .update(partner)

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FiscalSettingsFormValues } from "@/components/fiscal/fiscal-settings-form";
 import { companySettings } from "@/db/schema";
 import { db } from "@/lib/db";
+import { normalizeTaxpayerType } from "@/lib/fiscal-spain";
 
 export function defaultFiscalSettings(): FiscalSettingsFormValues {
   return {
@@ -13,6 +14,7 @@ export function defaultFiscalSettings(): FiscalSettingsFormValues {
     siiEnabled: false,
     verifactuMode: "pending",
     prorrataPct: 100,
+    taxpayerType: "company",
     defaultCustomerAccountCode: "4300",
     defaultSupplierAccountCode: "4100",
     defaultSalesAccountCode: "700",
@@ -41,6 +43,7 @@ export async function getFiscalSettings(
     verifactuMode:
       settings.verifactuMode as FiscalSettingsFormValues["verifactuMode"],
     prorrataPct: Number(settings.prorrataPct),
+    taxpayerType: normalizeTaxpayerType(settings.taxpayerType),
     defaultCustomerAccountCode: settings.defaultCustomerAccountCode,
     defaultSupplierAccountCode: settings.defaultSupplierAccountCode,
     defaultSalesAccountCode: settings.defaultSalesAccountCode,

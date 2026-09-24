@@ -1,9 +1,11 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
+import { BankLedgerAccountField, type LedgerAccountOption } from "@/components/treasury/bank-ledger-account-field";
 import { Button } from "@/components/ui/button";
-import { AccessibleField } from "@/components/ui/form";
+import { AccessibleField, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -12,12 +14,14 @@ type CreateBankAccountFormProps = {
   onCancel?: () => void;
   onSuccess?: () => void;
   redirectHref?: string;
+  ledgerAccounts?: LedgerAccountOption[];
 };
 
-export function CreateBankAccountForm({ onCancel, onSuccess, redirectHref }: CreateBankAccountFormProps = {}) {
+export function CreateBankAccountForm({ ledgerAccounts = [], onCancel, onSuccess, redirectHref }: CreateBankAccountFormProps = {}) {
   const router = useRouter();
   const [iban, setIban] = useState("");
   const [bankName, setBankName] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -31,11 +35,13 @@ export function CreateBankAccountForm({ onCancel, onSuccess, redirectHref }: Cre
           const res = await fetch("/api/bank-accounts", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-            body: JSON.stringify({ iban, bankName }),
+            body: JSON.stringify({ iban, bankName, accountId: accountId || null }),
           });
-          if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");
+          if (!res.ok) throw new Error(await readApiError(res, "No se pudo crear la cuenta bancaria."));
+          toast.success(`Cuenta ${bankName} creada.`, { description: "También se ha creado su forma de pago por transferencia." });
           setIban("");
           setBankName("");
+          setAccountId("");
           if (onSuccess) {
             onSuccess();
           } else if (redirectHref) {
@@ -44,7 +50,9 @@ export function CreateBankAccountForm({ onCancel, onSuccess, redirectHref }: Cre
             router.refresh();
           }
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Error inesperado.");
+          const message = errorMessage(e, "No se pudo crear la cuenta bancaria.");
+          setError(message);
+          toast.error(message);
         } finally {
           setLoading(false);
         }
@@ -56,11 +64,12 @@ export function CreateBankAccountForm({ onCancel, onSuccess, redirectHref }: Cre
       <AccessibleField id="bank-account-iban" label="IBAN" required>
         <Input id="bank-account-iban" value={iban} onChange={(e) => setIban(e.target.value)} placeholder="ES00 0000 0000 0000 0000 0000" required />
       </AccessibleField>
-      <div className="flex gap-2 self-end md:justify-end">
+      <BankLedgerAccountField id="bank-account-ledger" onChange={setAccountId} options={ledgerAccounts} value={accountId} />
+      <div className="flex gap-2 md:col-span-3 md:justify-end">
         {onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}
-        <Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear cuenta"}</Button>
+        <Button type="submit" disabled={loading} aria-busy={loading}>{loading ? "Guardando…" : "Crear cuenta"}</Button>
       </div>
-      {error ? <InlineAlert className="md:col-span-3" tone="danger">{error}</InlineAlert> : null}
+      {error ? <InlineAlert className="md:col-span-3" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

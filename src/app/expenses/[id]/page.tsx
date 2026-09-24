@@ -1,3 +1,5 @@
+import { and, eq } from "drizzle-orm";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -20,8 +22,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { supplierInvoice } from "@/db/schema";
 import { formatDate, formatMoney, formatPercent } from "@/lib/format";
 import { requireContext } from "@/lib/current-context";
+import { db } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import {
   invoicePaymentStatusLabels,
@@ -29,6 +33,21 @@ import {
   statusLabel,
 } from "@/lib/status-labels";
 import { getExpenseInvoice } from "@/server/supplier-invoices/service";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  try {
+    const ctx = await requireContext("expense.read");
+    const { id } = await params;
+    const [row] = await db
+      .select({ number: supplierInvoice.number, supplierDocumentNumber: supplierInvoice.supplierDocumentNumber })
+      .from(supplierInvoice)
+      .where(and(eq(supplierInvoice.id, id), eq(supplierInvoice.companyId, ctx.company.id)))
+      .limit(1);
+    return { title: row ? `Factura de proveedor ${row.supplierDocumentNumber || row.number}` : "Factura de proveedor" };
+  } catch {
+    return { title: "Factura de proveedor" };
+  }
+}
 
 // Attachment URLs are user-provided: only render same-origin paths or http(s).
 function isSafeAttachmentUrl(url: string) {
@@ -50,15 +69,18 @@ export default async function ExpenseDetailPage({
   const expense = await getExpenseInvoice(ctx.company.id, id);
   if (!expense) notFound();
   const canManage = can(ctx.membership.role, "purchase.write") || can(ctx.membership.role, "expense.write");
+  const currency = expense.currencyCode ?? ctx.company.baseCurrencyCode;
 
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Factura de proveedor"
+        breadcrumbs={[
+          { label: "Aprovisionamiento" },
+          { label: "Facturas de proveedor", href: "/expenses" },
+          { label: expense.supplierDocumentNumber || expense.number },
+        ]}
         title={expense.supplierDocumentNumber || expense.number}
         description={`${expense.supplierName} · ${formatDate(expense.issueDate)}`}
-        backHref="/expenses"
-        backLabel="Volver a facturas de proveedor"
         meta={
           <StatusBadge tone={invoicePaymentStatusTone(expense.paymentStatus)}>
             {statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}
@@ -112,15 +134,15 @@ export default async function ExpenseDetailPage({
       />
 
       <section className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Base" value={formatMoney(expense.subtotalAmount)} />
-        <MetricCard label="IVA" value={formatMoney(expense.taxAmount)} />
+        <MetricCard label="Base" value={formatMoney(expense.subtotalAmount, currency)} />
+        <MetricCard label="IVA" value={formatMoney(expense.taxAmount, currency)} />
         <MetricCard
           label="Retención"
-          value={formatMoney(expense.retentionAmount)}
+          value={formatMoney(expense.retentionAmount, currency)}
         />
         <MetricCard
           label="Pendiente"
-          value={formatMoney(expense.outstandingAmount)}
+          value={formatMoney(expense.outstandingAmount, currency)}
           tone={Number(expense.outstandingAmount) > 0 ? "warning" : "success"}
         />
       </section>
@@ -151,8 +173,8 @@ export default async function ExpenseDetailPage({
                       ? `${line.expenseAccountCode} - ${line.expenseAccountName}`
                       : "Cuenta por defecto"}
                   </TableCell>
-                  <TableCell className="text-right">
-                    {formatMoney(line.subtotalAmount)}
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatMoney(line.subtotalAmount, currency)}
                   </TableCell>
                   <TableCell className="text-right">
                     {formatPercent(line.taxRate)}
@@ -163,8 +185,8 @@ export default async function ExpenseDetailPage({
                   <TableCell className="text-right">
                     {formatPercent(line.retentionRate)}
                   </TableCell>
-                  <TableCell className="text-right">
-                    {formatMoney(line.lineTotal)}
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatMoney(line.lineTotal, currency)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -180,7 +202,11 @@ export default async function ExpenseDetailPage({
         {expense.payments.length === 0 ? (
           <EmptyState
             title="Sin pagos"
-            description="La factura conserva todo su saldo pendiente."
+            description={
+              canManage && Number(expense.outstandingAmount) > 0 && expense.paymentStatus !== "VOID"
+                ? "La factura conserva todo su saldo pendiente. Registra el pago desde la cabecera cuando se abone."
+                : "La factura conserva todo su saldo pendiente."
+            }
           />
         ) : (
           <div className="space-y-2">

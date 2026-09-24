@@ -18,6 +18,7 @@ import {
   assertManualPurchaseOrderTransition,
 } from "@/lib/document-pipelines";
 import { recordAudit } from "@/server/audit";
+import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 
@@ -157,6 +158,7 @@ export async function createPurchaseOrder(
       .returning({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status });
 
     if (payload.lines && payload.lines.length > 0) {
+      await assertItemsBelongToCompany(tx, companyId, payload.lines.map((line) => line.itemId));
       await tx.insert(purchaseOrderLine).values(
         payload.lines.map((line) => ({
           purchaseOrderId: createdOrder.id,
@@ -236,6 +238,7 @@ export async function updatePurchaseOrder(
 
     if (!updated) return null;
 
+    await assertItemsBelongToCompany(tx, companyId, payload.lines.map((line) => line.itemId));
     await tx.delete(purchaseOrderLine).where(eq(purchaseOrderLine.purchaseOrderId, id));
     await tx.insert(purchaseOrderLine).values(payload.lines.map((line) => ({
       purchaseOrderId: id,

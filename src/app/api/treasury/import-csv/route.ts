@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { importBankCsv } from "@/server/treasury/reconciliation";
@@ -22,14 +22,18 @@ export async function POST(request: Request) {
   if (!payload) return invalidJsonResponse();
 
   const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ message: "Elige una cuenta y pega el contenido del extracto." }, { status: 400 });
 
-  const imported = await importBankCsv({
-    companyId: ctx.company.id,
-    tenantId: ctx.tenant.id,
-    actorUserId: session.user.id,
-    bankAccountId: parsed.data.bankAccountId,
-    content: parsed.data.csv,
-  });
-  return NextResponse.json({ count: imported.length, rows: imported }, { status: 201 });
+  try {
+    const imported = await importBankCsv({
+      companyId: ctx.company.id,
+      tenantId: ctx.tenant.id,
+      actorUserId: session.user.id,
+      bankAccountId: parsed.data.bankAccountId,
+      content: parsed.data.csv,
+    });
+    return NextResponse.json({ count: imported.created.length, duplicates: imported.duplicates, rows: imported.created }, { status: 201 });
+  } catch (error) {
+    return handleRouteError(error, "treasury.import-csv", "No se pudo importar el extracto. Revisa el formato e inténtalo de nuevo.");
+  }
 }
