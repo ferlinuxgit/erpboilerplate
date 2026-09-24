@@ -38,7 +38,8 @@ test("crear ajuste desde inventario actualiza stock e historial filtrable", asyn
   await operationForm.getByLabel("Referencia").fill(`CNT-${runId}`);
   await operationForm.getByRole("button", { name: "Registrar movimiento" }).click();
 
-  await expect(page).toHaveURL(/\/inventory$/);
+  // The stock movement write plus the redirect can exceed 5s on cold CI dev compiles.
+  await expect(page).toHaveURL(/\/inventory$/, { timeout: 20_000 });
 
   const stockSection = page.getByRole("region", { name: "Stock por producto y almacén" });
   const stockRow = stockSection.getByRole("row").filter({ hasText: item.name }).filter({ hasText: warehouse.name });

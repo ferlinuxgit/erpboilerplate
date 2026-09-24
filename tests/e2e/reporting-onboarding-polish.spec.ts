@@ -19,7 +19,8 @@ test("reporting guides users through period, KPI context, export status, and sou
   await page.getByRole("button", { name: "Exportar KPIs a Excel" }).click();
   const exportResponse = await exportResponsePromise;
   expect(exportResponse.ok(), await exportResponse.text()).toBe(true);
-  await expect(page.getByRole("status")).toContainText(/Excel (listo|descargado)/i);
+  // The shell has its own (usually empty) live region for keyboard sequences: filter by text.
+  await expect(page.getByRole("status").filter({ hasText: /Excel (listo|descargado)/i })).toBeVisible();
 });
 
 test("onboarding only finishes from the final step and then points to concrete setup actions", async ({ page }) => {
@@ -44,7 +45,7 @@ test("onboarding only finishes from the final step and then points to concrete s
   const seedResponse = await seedResponsePromise;
   expect(seedResponse.ok(), await seedResponse.text()).toBe(true);
 
-  await expect(page.getByRole("status")).toContainText("Onboarding completado");
+  await expect(page.getByRole("status").filter({ hasText: "Onboarding completado" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Crear primer cliente" })).toHaveAttribute("href", "/customers/new");
   await expect(page.getByRole("link", { name: "Volver al dashboard" })).toHaveAttribute("href", "/dashboard");
 });
