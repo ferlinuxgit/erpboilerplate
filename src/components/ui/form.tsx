@@ -49,8 +49,12 @@ export function fieldDescriptionIds(id: string, { error, helperText }: { error?:
  */
 export function AccessibleField({ children, className, error, helperText, hideLabel, id, label, required }: AccessibleFieldProps) {
   const describedBy = fieldDescriptionIds(id, { error, helperText });
-  const control = React.Children.only(children);
-  const enhanced = React.isValidElement<FieldControlProps>(control)
+  // The first element child is the control that receives the ARIA wiring. Extra children
+  // (e.g. an inline hint or a conditional button) are rendered as-is instead of crashing.
+  const nodes = React.Children.toArray(children);
+  const controlIndex = nodes.findIndex((node) => React.isValidElement(node));
+  const control = controlIndex >= 0 ? nodes[controlIndex] : null;
+  const enhancedControl = React.isValidElement<FieldControlProps>(control)
     ? React.cloneElement(control, {
         id: control.props.id ?? id,
         "aria-invalid": control.props["aria-invalid"] ?? (error ? true : undefined),
@@ -63,6 +67,7 @@ export function AccessibleField({ children, className, error, helperText, hideLa
           .join(" ") || undefined,
       })
     : control;
+  const enhanced = controlIndex >= 0 ? nodes.map((node, index) => (index === controlIndex ? enhancedControl : node)) : nodes;
 
   return (
     <div className={cn("min-w-0 space-y-1", className)} data-slot="field">

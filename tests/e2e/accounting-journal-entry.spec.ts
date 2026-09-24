@@ -48,7 +48,7 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
   await page.getByLabel("Haber").nth(2).fill("19");
 
   await expect(page.getByText(/Desbalanceado/)).toBeVisible();
-  await expect(page.getByText(/Diferencia: 1\.00/)).toBeVisible();
+  await expect(page.getByText(/Diferencia: 1,00/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Crear asiento" })).toBeDisabled();
 
   await page.getByLabel("Haber").nth(2).fill("20");

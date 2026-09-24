@@ -49,8 +49,23 @@ export const RATE_LIMIT_RULES = {
 
 const RATE_LIMIT_EXEMPT_PATHS = new Set(["/api/billing/webhook", "/api/health", "/api/readyz"]);
 
+/**
+ * Multiplicador de límites (por defecto 1). Solo para entornos automatizados como el e2e,
+ * donde muchas pruebas registran usuarios desde la misma IP; nunca por debajo de 1.
+ */
+export function rateLimitMultiplier(value = process.env.RATE_LIMIT_MULTIPLIER) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 1;
+}
+
 /** Bucket aplicable a una petición `/api/*`, o `null` si está exenta. */
 export function resolveRateLimitRule(pathname: string, method: string): RateLimitRule | null {
+  const rule = resolveBaseRateLimitRule(pathname, method);
+  const multiplier = rateLimitMultiplier();
+  return rule && multiplier > 1 ? { ...rule, limit: rule.limit * multiplier } : rule;
+}
+
+function resolveBaseRateLimitRule(pathname: string, method: string): RateLimitRule | null {
   if (RATE_LIMIT_EXEMPT_PATHS.has(pathname)) return null;
   if (method === "POST") {
     if (pathname === "/api/auth/login") return RATE_LIMIT_RULES.login;

@@ -27,6 +27,8 @@ const child = spawn("npm", ["run", "dev", "--", "--hostname", "127.0.0.1", "--po
     APP_URL: appUrl,
     NEXT_TELEMETRY_DISABLED: "1",
     PGSSLMODE: "disable",
+    // Every spec registers users from 127.0.0.1; keep rate limiting active but roomy.
+    RATE_LIMIT_MULTIPLIER: process.env.RATE_LIMIT_MULTIPLIER ?? "100",
   },
   stdio: "inherit",
 });

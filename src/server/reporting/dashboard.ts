@@ -38,6 +38,12 @@ import {
   upcomingFiscalDeadlines,
   type FinancePeriod,
 } from "@/server/reporting/dashboard-model";
+
+/**
+ * `GROUP BY 1`: grouping by an expression that embeds bound parameters (dates) fails in
+ * Postgres because the SELECT and GROUP BY copies get different placeholders.
+ */
+const groupByFirstColumn = sql`1`;
 import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
 
 /*
@@ -226,7 +232,9 @@ async function receivables(companyId: string, now: Date) {
       .leftJoin(paidByInvoice, eq(paidByInvoice.invoiceId, invoice.id))
       .leftJoin(creditedByInvoice, eq(creditedByInvoice.invoiceId, invoice.id))
       .where(open)
-      .groupBy(bucket),
+      // Group by position: the bucket expression carries bound date parameters, and Postgres
+      // treats `$1` in SELECT and `$17` in GROUP BY as different expressions.
+      .groupBy(groupByFirstColumn),
     db
       .select({ id: invoice.id, number: invoice.number, customerName: customer.name, dueDate: invoice.dueDate, outstanding })
       .from(invoice)
@@ -345,7 +353,7 @@ async function bankBalances(companyId: string, months: ReturnType<typeof lastMon
     .from(journalLine)
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
     .where(and(eq(journalEntry.companyId, companyId), inArray(journalLine.accountId, ledgerAccounts)))
-    .groupBy(monthKey);
+    .groupBy(groupByFirstColumn);
 
   const opening = number(rows.find((row) => row.month === "opening")?.value);
   const monthly = fillMonthlySeries(months, rows.filter((row) => row.month !== "opening"));
@@ -364,12 +372,12 @@ async function monthlySalesAndExpenses(companyId: string, months: ReturnType<typ
       .from(invoice)
       .innerJoin(invoiceLine, eq(invoiceLine.invoiceId, invoice.id))
       .where(issuedInvoiceIn(companyId, start, end))
-      .groupBy(salesMonth),
+      .groupBy(groupByFirstColumn),
     db
       .select({ month: expenseMonth, value: sql<string>`sum(${supplierInvoice.subtotalAmount})` })
       .from(supplierInvoice)
       .where(receivedInvoiceIn(companyId, start, end))
-      .groupBy(expenseMonth),
+      .groupBy(groupByFirstColumn),
   ]);
   return { sales: fillMonthlySeries(months, salesRows), expenses: fillMonthlySeries(months, expenseRows) };
 }

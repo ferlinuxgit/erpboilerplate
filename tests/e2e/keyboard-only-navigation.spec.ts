@@ -43,7 +43,8 @@ test.describe("keyboard-only application operation", () => {
     await expect(commandSearch).toBeFocused();
     await commandSearch.fill("inventario");
     await commandSearch.press("ArrowDown");
-    const activeOption = page.getByRole("option", { selected: true });
+    // Scope to the palette: native <select> options (theme, company) are also role=option.
+    const activeOption = page.locator("[data-command-item][aria-selected='true']");
     await expect(activeOption).toContainText("Inventario");
     await expect(commandSearch).toHaveAttribute("aria-activedescendant", (await activeOption.getAttribute("id")) ?? "");
     await page.keyboard.press("Enter");

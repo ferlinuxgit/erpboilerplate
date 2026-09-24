@@ -427,6 +427,13 @@ export function ResourceList<TItem>({
       )
     : "";
   const lastSearchRef = useRef<string | null>(null);
+  // Pending debounced URL update. It is cancelled when the user opens a record (link click or
+  // Enter on a row): otherwise the late `router.replace` would drag them back to the list.
+  const pendingSearchTimerRef = useRef<number | null>(null);
+  const cancelPendingSearch = () => {
+    if (pendingSearchTimerRef.current !== null) window.clearTimeout(pendingSearchTimerRef.current);
+    pendingSearchTimerRef.current = null;
+  };
   useEffect(() => {
     if (!isServerMode) return;
     const managedKeys = new Set<string>([
@@ -442,6 +449,9 @@ export function ResourceList<TItem>({
     }
     const onlyQueryChanged = isSearchOnlyChange(lastSearchRef.current ?? managedCurrent.toString(), serverSearch);
     const timer = window.setTimeout(() => {
+      pendingSearchTimerRef.current = null;
+      // The user already left the list (e.g. opened a record): never pull them back.
+      if (window.location.pathname !== pathname) return;
       const next = new URLSearchParams([...current].filter(([key]) => !managedKeys.has(key)));
       for (const [key, value] of new URLSearchParams(serverSearch)) next.set(key, value);
       const query = next.toString();
@@ -450,7 +460,11 @@ export function ResourceList<TItem>({
         router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
       });
     }, onlyQueryChanged ? SEARCH_DEBOUNCE_MS : 0);
-    return () => window.clearTimeout(timer);
+    pendingSearchTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (pendingSearchTimerRef.current === timer) pendingSearchTimerRef.current = null;
+    };
   }, [filterKeysKey, isServerMode, pathname, router, serverSearch]);
 
   // Server mode: adopt URL changes made outside the list (links, back/forward, server clamping the page).
@@ -719,12 +733,15 @@ export function ResourceList<TItem>({
       className="min-w-0 space-y-2"
       data-loading={isNavigating || undefined}
       data-testid={testId}
-      aria-labelledby={`${listId}-title`}
+      // Named region instead of a hidden heading: pages already render the same text as
+      // their <h1>/<h2>, and a duplicate heading confuses screen readers and locators.
+      aria-label={title}
+      onClickCapture={(event) => {
+        const anchor = (event.target as HTMLElement).closest("a[href]");
+        if (anchor && !anchor.getAttribute("href")?.startsWith("?")) cancelPendingSearch();
+      }}
       ref={sectionRef}
     >
-      <h3 className="sr-only" id={`${listId}-title`}>
-        {title}
-      </h3>
       <p className="sr-only" id={`${listId}-keyboard-help`}>
         Pulsa Alt F para buscar. En las filas usa flecha arriba y abajo para moverte, Enter para abrir, Espacio para seleccionar y Av Pág o Re Pág para cambiar de página.
       </p>
