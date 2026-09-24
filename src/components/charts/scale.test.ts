@@ -55,5 +55,6 @@ describe("chart scales", () => {
   it("formats compact euros for axes", () => {
     expect(formatCompactMoney(12000)).toMatch(/12\s?mil\s?€/);
     expect(formatCompactMoney(0)).toMatch(/0\s?€/);
+    expect(formatCompactMoney(1_250_000)).toMatch(/1,3\s?M\s?€/);
   });
 });

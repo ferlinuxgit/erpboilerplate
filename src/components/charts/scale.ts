@@ -68,7 +68,9 @@ const compactFormatters = new Map<string, Intl.NumberFormat>();
 export function formatCompactMoney(value: number, currencyCode = "EUR") {
   let formatter = compactFormatters.get(currencyCode);
   if (!formatter) {
-    formatter = new Intl.NumberFormat("es-ES", { style: "currency", currency: currencyCode, notation: "compact", maximumFractionDigits: 1 });
+    // minimumFractionDigits must be explicit: older ICU builds (Node 22) otherwise
+    // keep the currency minimum and render "12,0 mil €" instead of "12 mil €".
+    formatter = new Intl.NumberFormat("es-ES", { style: "currency", currency: currencyCode, notation: "compact", minimumFractionDigits: 0, maximumFractionDigits: 1 });
     compactFormatters.set(currencyCode, formatter);
   }
   return formatter.format(value);
