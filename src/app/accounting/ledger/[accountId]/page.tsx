@@ -42,14 +42,12 @@ export default async function LedgerPage({ params }: LedgerParams) {
   const currency = ctx.company.baseCurrencyCode;
 
   // Running balance (debe − haber) in chronological order, shown newest first.
-  let balanceCents = 0;
-  const withBalance = [...rows]
-    .reverse()
-    .map((row) => {
-      balanceCents += Math.round(Number(row.debit) * 100) - Math.round(Number(row.credit) * 100);
-      return { ...row, balance: balanceCents / 100 };
-    })
+  const chronological = [...rows].reverse();
+  const netCents = chronological.map((row) => Math.round(Number(row.debit) * 100) - Math.round(Number(row.credit) * 100));
+  const withBalance = chronological
+    .map((row, index) => ({ ...row, balance: netCents.slice(0, index + 1).reduce((sum, cents) => sum + cents, 0) / 100 }))
     .reverse();
+  const balanceCents = netCents.reduce((sum, cents) => sum + cents, 0);
   const totalDebit = rows.reduce((total, row) => total + Math.round(Number(row.debit) * 100), 0) / 100;
   const totalCredit = rows.reduce((total, row) => total + Math.round(Number(row.credit) * 100), 0) / 100;
 
