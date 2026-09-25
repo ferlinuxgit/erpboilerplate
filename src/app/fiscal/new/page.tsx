@@ -23,13 +23,13 @@ export default async function NewFiscalReportPage({ searchParams }: { searchPara
         backLabel="Volver a fiscalidad"
       />
 
-      <PageSection title="Datos del modelo" description="Selecciona modelo, periodo y estado inicial del borrador.">
+      <PageSection title="Datos del modelo" description="Elige el modelo y el periodo. Se crea como borrador y se abre su ficha para revisarlo.">
         {canWrite ? (
           <CreateFiscalReportForm
             initialCode={query.code}
             initialPeriod={query.period}
             models={spanishFiscalModelsFor(settings.taxpayerType)}
-            redirectHref="/fiscal"
+            periodicity={settings.taxPeriodicity}
           />
         ) : (
           <EmptyState title="Solo lectura" description="Necesitas permisos de escritura para crear modelos fiscales." />

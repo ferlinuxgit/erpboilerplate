@@ -17,7 +17,7 @@ export default async function BillingPage() {
       <PageHeader
         eyebrow="Administración"
         title="Suscripción"
-        description="Planes, límites y operación SaaS del tenant activo."
+        description="Tu plan, sus límites y la renovación del espacio de trabajo."
         backHref="/dashboard"
         backLabel="Volver al panel"
         meta={<StatusBadge tone="info">{billing.subscription.statusLabel}</StatusBadge>}
@@ -30,7 +30,7 @@ export default async function BillingPage() {
       </section>
       <PageSection
         title="Gestión de facturación"
-        description="Abre checkout o portal de cliente según el estado actual de la suscripción."
+        description="Contrata un plan o gestiona el pago y las facturas de tu suscripción."
       >
         <BillingActions checkout={billing.checkout} portal={billing.portal} />
       </PageSection>

@@ -6,7 +6,7 @@ import type { UseFormRegisterReturn } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MoneyInput, QuantityInput } from "@/components/ui/number-input";
+import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
 import { formatMoney, formatPercent } from "@/lib/format";
 import type { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
@@ -34,8 +34,25 @@ export type InvoiceEditorLine = {
   description?: string;
   quantity?: number;
   unitPrice?: number;
+  discountPct?: number;
   taxIds?: string[];
 };
+
+/** Descuento vacío = 0 % (nunca NaN): "10" o "10,5". */
+export const discountRegisterOptions = {
+  setValueAs: (value: unknown) => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    const text = typeof value === "string" ? value.trim().replace(",", ".") : "";
+    if (!text) return 0;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  },
+} as const;
+
+/** Nombre accesible del selector de impuestos: incluye los impuestos elegidos. */
+export function taxPickerLabel(lineNumber: number, selectedNames: string[]) {
+  return `Impuestos línea ${lineNumber}: ${selectedNames.length ? selectedNames.join(", ") : "sin impuestos"}`;
+}
 
 type InvoiceTotals = ReturnType<typeof calculateInvoiceTotals>;
 
@@ -43,6 +60,8 @@ type LineBindings = {
   description: UseFormRegisterReturn;
   quantity: UseFormRegisterReturn;
   unitPrice: UseFormRegisterReturn;
+  /** Descuento % de la línea (opcional). */
+  discountPct?: UseFormRegisterReturn;
   taxIds: () => UseFormRegisterReturn;
 };
 
@@ -50,8 +69,11 @@ type LineError = {
   description?: string;
   quantity?: string;
   unitPrice?: string;
+  discountPct?: string;
   taxIds?: string;
 };
+
+const LINE_GRID = "lg:grid-cols-[minmax(13rem,1fr)_5.5rem_7rem_5rem_minmax(10rem,.7fr)_7rem_7.5rem]";
 
 export function InvoicePaymentMethodsField({
   error,
@@ -148,8 +170,8 @@ export function InvoiceLinesEditor({
       </div>
 
       <div className="overflow-visible rounded-[2px] border border-window-dark-shadow bg-window-surface">
-        <div className="hidden grid-cols-[minmax(13rem,1fr)_5.5rem_7rem_minmax(10rem,.7fr)_7rem_7.5rem] gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid">
-          {['Concepto', 'Cantidad', 'Precio', 'Impuestos', 'Total', 'Acciones'].map((label) => (
+        <div className={cn("hidden gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid", LINE_GRID)}>
+          {['Concepto', 'Cantidad', 'Precio', 'Dto.', 'Impuestos', 'Total', 'Acciones'].map((label) => (
             <div className="bg-window-panel px-2 py-1.5 font-mono text-[0.67rem] font-bold uppercase tracking-[0.04em]" key={label}>{label}</div>
           ))}
         </div>
@@ -159,13 +181,14 @@ export function InvoiceLinesEditor({
             const descriptionId = `invoice-line-${lineNumber}-description`;
             const quantityId = `invoice-line-${lineNumber}-quantity`;
             const unitPriceId = `invoice-line-${lineNumber}-unit-price`;
+            const discountId = `invoice-line-${lineNumber}-discount`;
             const bindings = getBindings(index);
             const line = lines[index] ?? {};
             const lineError = errors[index] ?? {};
             const lineTotal = totals.lines[index];
             const selectedTaxes = taxes.filter((tax) => line.taxIds?.includes(tax.id));
             return (
-              <article className="grid gap-2 bg-card p-2 lg:grid-cols-[minmax(13rem,1fr)_5.5rem_7rem_minmax(10rem,.7fr)_7rem_7.5rem] lg:items-start lg:gap-1" data-testid={`invoice-line-${lineNumber}`} key={field.id}>
+              <article className={cn("grid gap-2 bg-card p-2 lg:items-start lg:gap-1", LINE_GRID)} data-testid={`invoice-line-${lineNumber}`} key={field.id}>
                 <div className="space-y-1">
                   <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={descriptionId}>Concepto</label>
                   <div className="flex items-center gap-1">
@@ -213,9 +236,26 @@ export function InvoiceLinesEditor({
                   {lineError.unitPrice ? <p className="text-xs text-destructive" id={`${unitPriceId}-error`} role="alert">{lineError.unitPrice}</p> : null}
                 </div>
                 <div className="space-y-1">
+                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={discountId}>Descuento</label>
+                  {bindings.discountPct ? (
+                    <PercentInput
+                      className="h-9"
+                      data-testid={discountId}
+                      id={discountId}
+                      aria-label={`Descuento línea ${lineNumber} (%)`}
+                      aria-invalid={Boolean(lineError.discountPct)}
+                      aria-describedby={lineError.discountPct ? `${discountId}-error` : undefined}
+                      placeholder="0"
+                      onKeyDown={(event) => handlePriceEnter(event, index)}
+                      {...bindings.discountPct}
+                    />
+                  ) : <span className="block h-9" />}
+                  {lineError.discountPct ? <p className="text-xs text-destructive" id={`${discountId}-error`} role="alert">{lineError.discountPct}</p> : null}
+                </div>
+                <div className="space-y-1">
                   <span className="font-mono text-[0.67rem] font-bold lg:sr-only">Impuestos</span>
                   <details className="group relative" data-testid={`invoice-line-${lineNumber}-taxes`}>
-                    <summary aria-label={`Impuestos línea ${lineNumber}`} className="flex h-9 cursor-pointer list-none items-center justify-between gap-1 rounded-[1px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-[0.7rem] outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+                    <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((tax) => `${tax.name} ${tax.operation === "SUBTRACT" ? "−" : ""}${formatPercent(tax.rate)}`))} className="flex h-9 cursor-pointer list-none items-center justify-between gap-1 rounded-[1px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-[0.7rem] outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
                       <span className="truncate">{selectedTaxes.length ? selectedTaxes.map((tax) => tax.name).join(" · ") : "Sin impuestos"}</span>
                       <CaretDown className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>

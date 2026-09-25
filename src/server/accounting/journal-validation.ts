@@ -72,7 +72,7 @@ export function validateJournalLines(lines: JournalLineInput[]): JournalLineVali
 
   const differenceCents = totalDebitCents - totalCreditCents;
   if (totalDebitCents <= 0 || totalCreditCents <= 0 || differenceCents !== 0) {
-    throw new JournalValidationError("El asiento debe estar balanceado (debe = haber).");
+    throw new JournalValidationError("El asiento está descuadrado: el total del debe tiene que ser igual al del haber.");
   }
 
   return {

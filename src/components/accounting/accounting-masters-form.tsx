@@ -61,7 +61,7 @@ export function AccountingMastersForm({
 
   if (catalogAccounts.length === 0 && catalogJournals.length === 0) {
     return (
-      <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+      <p className="rounded-[2px] border bg-muted/30 p-3 text-sm text-muted-foreground">
         No hay un catálogo contable automático para el país de esta empresa.
       </p>
     );
@@ -112,7 +112,7 @@ export function AccountingMastersForm({
   return (
     <div className="space-y-4">
       {!hasMissingMasters ? (
-        <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">El plan contable y los diarios de la plantilla están creados.</p>
+        <p className="rounded-[2px] border bg-muted/30 p-3 text-sm text-muted-foreground">El plan contable y los diarios de la plantilla están creados.</p>
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
@@ -148,7 +148,7 @@ export function AccountingMastersForm({
           ["Cierre contable", "Añade cuenta de resultado y diario de cierre para cierre anual."],
           ["Diarios operativos", "Crea diarios separados para ventas, compras, bancos, general y cierre."],
         ].map(([title, description]) => (
-          <div className="rounded-md border bg-muted/20 p-3" key={title}>
+          <div className="rounded-[2px] border bg-muted/20 p-3" key={title}>
             <p className="text-sm font-medium">{title}</p>
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           </div>
@@ -177,7 +177,7 @@ export function AccountingMastersForm({
               const isMissing = missingAccountCodes.has(account.code);
               const checked = selectedAccountCodes.has(account.code);
               return (
-                <label className="flex gap-3 rounded-md border p-3 text-sm" key={account.code}>
+                <label className="flex gap-3 rounded-[2px] border p-3 text-sm" key={account.code}>
                   <input
                     checked={!isMissing || checked}
                     disabled={!isMissing}
@@ -227,7 +227,7 @@ export function AccountingMastersForm({
               const isMissing = missingJournalCodes.has(journal.code);
               const checked = selectedJournalCodes.has(journal.code);
               return (
-                <label className="flex gap-3 rounded-md border p-3 text-sm" key={journal.code}>
+                <label className="flex gap-3 rounded-[2px] border p-3 text-sm" key={journal.code}>
                   <input
                     checked={!isMissing || checked}
                     disabled={!isMissing}

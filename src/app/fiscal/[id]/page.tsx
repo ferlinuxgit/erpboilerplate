@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { FiscalBoxesTable } from "@/components/fiscal/fiscal-boxes-table";
 import { FiscalReportRowActions } from "@/components/fiscal/fiscal-report-row-actions";
+import { MarkFiscalReportFiledButton } from "@/components/fiscal/mark-fiscal-report-filed-button";
+import { HelpTerm } from "@/components/help/help-term";
+import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,6 +13,7 @@ import { requireContext } from "@/lib/current-context";
 import { fiscalStatusLabels, getSpanishFiscalModel } from "@/lib/fiscal-spain";
 import { modelo349KeyLabels } from "@/server/fiscal/spain-calc";
 import { formatDate, formatMoney } from "@/lib/format";
+import { describeDaysUntil } from "@/lib/pluralize";
 import { can } from "@/lib/rbac";
 import { listFiscalReportsWithSummary } from "@/server/fiscal/service";
 
@@ -25,7 +30,8 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
   const currency = ctx.company.baseCurrencyCode;
   const model = getSpanishFiscalModel(report.code);
   const box130 = (code: string) => summary?.modelo130?.boxes.find((box) => box.box === code)?.amount ?? 0;
-  const dueHelper = summary?.daysUntilDue === null || summary?.daysUntilDue === undefined ? "No aplicable" : summary.daysUntilDue < 0 ? `${Math.abs(summary.daysUntilDue)} días vencido` : `${summary.daysUntilDue} días restantes`;
+  const dueHelper = report.status === "FILED" ? "Presentado" : summary?.daysUntilDue === null || summary?.daysUntilDue === undefined ? "No aplicable" : describeDaysUntil(summary.daysUntilDue);
+  const glossaryTerm = (["303", "390", "347", "349", "111", "115", "130"] as const).find((term) => term === report.code);
   const dueTone = summary?.dueStatus === "overdue" ? "danger" as const : summary?.dueStatus === "due-soon" ? "warning" as const : "neutral" as const;
 
   return (
@@ -37,10 +43,40 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
         backHref="/fiscal"
         backLabel="Volver a fiscalidad"
         meta={<StatusBadge tone={statusTone[report.status]}>{fiscalStatusLabels[report.status]}</StatusBadge>}
-        actions={<FiscalReportRowActions canWrite={canWrite} hideView report={report} />}
+        actions={
+          <>
+            {canWrite && report.status !== "FILED" ? (
+              <MarkFiscalReportFiledButton
+                hasPayment={(summary?.amountDue ?? 0) > 0}
+                modelName={model?.name ?? `Modelo ${report.code}`}
+                periodLabel={summary?.periodLabel ?? report.period}
+                reportId={report.id}
+              />
+            ) : null}
+            {model ? (
+              <a className={buttonVariants({ variant: "outline" })} href={model.aeatUrl} rel="noopener noreferrer" target="_blank">
+                Presentar en la sede de la AEAT<span className="sr-only"> (se abre en otra pestaña)</span>
+              </a>
+            ) : null}
+            <FiscalReportRowActions canWrite={canWrite} hideView report={report} />
+          </>
+        }
       />
 
-      {model ? <p className="text-sm text-muted-foreground">{model.plainHelp}</p> : null}
+      {model ? (
+        <p className="text-sm text-muted-foreground">
+          {model.plainHelp}{" "}
+          {glossaryTerm ? <HelpTerm term={glossaryTerm}>Más información</HelpTerm> : null}
+        </p>
+      ) : null}
+
+      {report.status === "FILED" ? (
+        <InlineAlert title="Presentado" tone="success">
+          {report.filedAt ? `Presentado el ${formatDate(report.filedAt)}` : "Marcado como presentado"}
+          {report.filingReceiptNumber ? ` · Justificante ${report.filingReceiptNumber}` : ""}
+          {report.paymentNrc ? ` · NRC ${report.paymentNrc}` : ""}. El periodo está bloqueado: para cambiar algo, edita el modelo y reábrelo indicando el motivo.
+        </InlineAlert>
+      ) : null}
 
       {summary?.modelo130 ? (
         <section className="grid gap-3 md:grid-cols-4">
@@ -61,7 +97,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
         <MetricCard label="IVA devengado (27)" value={formatMoney(summary?.outputTaxAmount ?? 0, ctx.company.baseCurrencyCode)} helper={`${summary?.salesInvoiceCount ?? 0} facturas emitidas · incluye recargo y autorepercusiones`} />
         <MetricCard label="IVA deducible (45)" value={formatMoney(summary?.deductibleInputTaxAmount ?? 0, ctx.company.baseCurrencyCode)} helper={`${summary?.supplierInvoiceCount ?? 0} facturas recibidas`} />
         <MetricCard label="Resultado (46)" value={formatMoney(summary?.settlementAmount ?? 0, ctx.company.baseCurrencyCode)} helper={(summary?.settlementAmount ?? 0) >= 0 ? "A ingresar" : "A compensar"} tone={(summary?.settlementAmount ?? 0) > 0 ? "warning" : "success"} />
-        <MetricCard label="Vencimiento" value={summary?.dueDate ? formatDate(summary.dueDate) : "Sin fecha"} helper={summary?.daysUntilDue === null || summary?.daysUntilDue === undefined ? "No aplicable" : summary.daysUntilDue < 0 ? `${Math.abs(summary.daysUntilDue)} días vencido` : `${summary.daysUntilDue} días restantes`} tone={summary?.dueStatus === "overdue" ? "danger" : summary?.dueStatus === "due-soon" ? "warning" : "neutral"} />
+        <MetricCard label="Vencimiento" value={summary?.dueDate ? formatDate(summary.dueDate) : "Sin fecha"} helper={dueHelper} tone={summary?.dueStatus === "overdue" ? "danger" : summary?.dueStatus === "due-soon" ? "warning" : "neutral"} />
       </section>
       )}
 
@@ -69,20 +105,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
 
       {summary?.modelo130 ? (
         <PageSection title="Casillas del modelo 130" description="Cálculo acumulado desde el 1 de enero. Copia estos importes en la sede electrónica de la AEAT.">
-          <div className="overflow-x-auto rounded-[2px] border">
-            <Table>
-              <TableHeader><TableRow><TableHead>Casilla</TableHead><TableHead>Concepto</TableHead><TableHead className="text-right">Importe</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {summary.modelo130.boxes.map((box) => (
-                  <TableRow key={box.box}>
-                    <TableCell className="font-mono">{box.box}</TableCell>
-                    <TableCell className={box.kind === "settlement" ? "font-semibold" : undefined}>{box.label}</TableCell>
-                    <TableCell className="text-right font-mono">{formatMoney(box.amount, currency)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <FiscalBoxesTable boxes={summary.modelo130.boxes} caption="Casillas del modelo 130" currencyCode={currency} />
         </PageSection>
       ) : null}
 
@@ -153,20 +176,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
 
       {summary && summary.code === "303" ? (
         <PageSection title="Casillas del modelo 303" description="Borrador por casillas según el diseño vigente de la AEAT. Revísalas antes de copiarlas en la sede electrónica.">
-          <div className="overflow-x-auto rounded-[2px] border">
-            <Table>
-              <TableHeader><TableRow><TableHead>Casilla</TableHead><TableHead>Concepto</TableHead><TableHead className="text-right">Importe</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {summary.modelo303Boxes.map((box) => (
-                  <TableRow key={`${box.box}-${box.label}`}>
-                    <TableCell className="font-mono">{box.box === "REV" || box.box === "EXE" ? "Revisar" : box.box}</TableCell>
-                    <TableCell className={box.kind === "settlement" ? "font-semibold" : undefined}>{box.label}</TableCell>
-                    <TableCell className="text-right font-mono">{formatMoney(box.amount, ctx.company.baseCurrencyCode)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <FiscalBoxesTable boxes={summary.modelo303Boxes} caption="Casillas del modelo 303" currencyCode={currency} reviewBoxes={["REV", "EXE"]} />
         </PageSection>
       ) : null}
 

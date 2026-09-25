@@ -50,24 +50,39 @@ describe("importBankCsv", () => {
     mocks.recordBankTransaction.mockClear();
   });
 
-  it("checks duplicates with one query for the whole file and skips repeated rows", async () => {
+  it("checks duplicates with one query for the whole file and keeps legit identical same-day charges", async () => {
     mocks.state.selectResults.push(
       [{ id: "bank-1", isActive: true }],
-      // Already imported earlier: the first row.
-      [{ postedAt: new Date("2026-07-18"), amount: "1250.50", description: "Cobro F-1042" }],
+      // Ya importado antes: la primera fila.
+      [{ postedAt: new Date("2026-07-18"), amount: "1250.50", description: "Cobro F-1042", balanceAfter: null }],
     );
 
     const result = await importBankCsv({ ...actor, bankAccountId: "bank-1", content: csv });
 
-    // Ownership check + a single duplicate lookup (not one per row).
+    // Comprobación de la cuenta + una sola consulta de duplicados (no una por fila).
     expect(mocks.state.selectCount).toBe(2);
-    expect(result.duplicates).toBe(2);
+    expect(result.duplicates).toBe(1);
+    // Las dos comisiones idénticas del mismo día son dos cargos reales: se importan ambas.
     expect(mocks.recordBankTransaction.mock.calls.map((call) => call[3])).toEqual([
+      { bankAccountId: "bank-1", postedAt: new Date("2026-07-19"), amount: "-80.25", description: "Comisión bancaria" },
       { bankAccountId: "bank-1", postedAt: new Date("2026-07-19"), amount: "-80.25", description: "Comisión bancaria" },
       { bankAccountId: "bank-1", postedAt: new Date("2026-07-20"), amount: "99.00", description: "Cobro F-1043" },
     ]);
-    // Every row is still recorded (and fiscal-lock checked) inside the same transaction.
+    // Cada fila se registra (y se comprueba el bloqueo fiscal) dentro de la misma transacción.
     expect(mocks.recordBankTransaction.mock.calls.every((call) => call[4] === mocks.tx)).toBe(true);
+  });
+
+  it("re-importing an overlapping file only skips the rows already stored", async () => {
+    mocks.state.selectResults.push(
+      [{ id: "bank-1", isActive: true }],
+      [
+        { postedAt: new Date("2026-07-18"), amount: "1250.50", description: "Cobro F-1042", balanceAfter: null },
+        { postedAt: new Date("2026-07-19"), amount: "-80.25", description: "Comisión bancaria", balanceAfter: null },
+      ],
+    );
+    const result = await importBankCsv({ ...actor, bankAccountId: "bank-1", content: csv });
+    expect(result.duplicates).toBe(2);
+    expect(mocks.recordBankTransaction).toHaveBeenCalledTimes(2);
   });
 
   it("normalises amounts in the duplicate key", () => {

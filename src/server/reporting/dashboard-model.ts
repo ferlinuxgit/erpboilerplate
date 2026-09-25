@@ -194,6 +194,31 @@ export function upcomingFiscalDeadlines(input: {
     .sort((left, right) => left.dueDate.getTime() - right.dueDate.getTime());
 }
 
+/**
+ * Next VAT return (303) of the running quarter, even months ahead, so a brand-new company
+ * sees its first tax deadline from day one. `null` if it is already filed.
+ */
+export function nextQuarterlyVatDeadline(input: { now?: Date; reports: Array<{ code: string; period: string; status: string }> }): FiscalDeadline | null {
+  const now = input.now ?? new Date();
+  const year = now.getUTCFullYear();
+  const quarter = Math.floor(now.getUTCMonth() / 3) + 1;
+  const period = `${year}-Q${quarter}`;
+  if (input.reports.some((report) => report.code === "303" && report.period === period && report.status === "FILED")) return null;
+  const dueDate = getSpanishFiscalDueDate(period, "303");
+  if (!dueDate) return null;
+  const daysUntil = getDaysUntilDue(dueDate, now);
+  const model = spanishFiscalModels.find((entry) => entry.code === "303");
+  return {
+    code: "303",
+    name: model?.shortName ?? "Modelo 303",
+    period,
+    periodLabel: `${quarter}T ${year}`,
+    dueDate,
+    daysUntil,
+    status: daysUntil < 0 ? "overdue" : daysUntil <= 7 ? "due-soon" : "upcoming",
+  };
+}
+
 /** Whole days an open document is past due (0 when not due yet or without due date). */
 export function daysPastDue(dueDate: Date | string | null, now = new Date()) {
   if (!dueDate) return 0;

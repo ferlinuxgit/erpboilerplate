@@ -104,4 +104,15 @@ describe("expense invoice AI analysis mapping", () => {
       taxRate: 21,
     });
   });
+
+  it("caps confidence to medium when no expense account was suggested", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ lines: [], taxes: [{ tax_type: "VAT", tax_name: null, rate: 21, base_amount: 100, tax_amount: 21, deductible_pct: 100 }], suggested_expense_account_code: null }));
+    expect(draft.confidence).toBe("medium");
+  });
+
+  it("keeps high confidence when the account and VAT rate were read", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ lines: [], taxes: [{ tax_type: "VAT", tax_name: null, rate: 21, base_amount: 100, tax_amount: 21, deductible_pct: 100 }], suggested_expense_account_code: "628" }));
+    expect(draft.confidence).toBe("high");
+    expect(draft.lines[0].suggestedExpenseAccountCode).toBe("628");
+  });
 });

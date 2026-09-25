@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 
 import {
+  companySettings,
   customer,
   invoice,
   invoiceLine,
@@ -10,6 +11,7 @@ import {
   invoicePayment,
   invoicePaymentMethod,
   partner,
+  paymentMethod,
   tax,
 } from "@/db/schema";
 import { getCompanyTemplate } from "@/lib/company-templates";
@@ -23,8 +25,9 @@ import { createCustomerWithPartner } from "@/server/customers/service";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
+import { computeDueDate, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
 import {
-  defaultSalesVatTreatment,
+  customerDefaultVatTreatment,
   derivePaymentStatus,
   invoiceLifecycle,
   outstandingCents,
@@ -33,6 +36,7 @@ import {
   type RectificationReason,
   type RectificationType,
   type SalesVatTreatmentCode,
+  verifactuSalesVatTreatment,
 } from "@/server/invoices/lifecycle";
 import { buildInvoiceLineInsertValues, buildInvoiceLineTaxInsertValues, type InvoiceLineInput } from "@/server/invoices/line-values";
 import {
@@ -320,9 +324,52 @@ export function assertVatTreatmentConsistency(input: {
       "Con este tratamiento de IVA la factura no puede repercutir IVA ni recargo de equivalencia. Quita esos impuestos de las líneas o cambia el tratamiento a Nacional.",
     );
   }
-  if ((input.vatTreatment === "INTRA_EU" || input.vatTreatment === "REVERSE_CHARGE") && !input.customerTaxId?.trim()) {
+  if (["INTRA_EU", "INTRA_EU_SERVICES", "REVERSE_CHARGE"].includes(input.vatTreatment) && !input.customerTaxId?.trim()) {
     throw new HttpError(422, "Para una operación intracomunitaria o con inversión del sujeto pasivo el cliente debe tener NIF / NIF-IVA en su ficha.");
   }
+}
+
+export type CustomerBillingDefaults = {
+  countryCode: string;
+  termsDays: number;
+  vatTreatment: SalesVatTreatmentCode;
+  retentionRate: number | null;
+  equivalenceSurcharge: boolean;
+  /** Forma de pago preferida del cliente (si tiene) o las predeterminadas de la empresa. */
+  paymentMethodIds: string[];
+};
+
+/** Condiciones de facturación de un cliente: días de pago, tratamiento de IVA, retención y formas de pago. */
+export async function resolveCustomerBillingDefaults(client: DbClient, companyId: string, customerId: string): Promise<CustomerBillingDefaults> {
+  const [[row], [settings], defaultMethods] = await Promise.all([
+    client
+      .select({
+        countryCode: partner.countryCode,
+        paymentTermsDays: partner.paymentTermsDays,
+        paymentMethodId: partner.paymentMethodId,
+        defaultVatTreatment: customer.defaultVatTreatment,
+        defaultRetentionRate: customer.defaultRetentionRate,
+        equivalenceSurcharge: customer.equivalenceSurcharge,
+      })
+      .from(customer)
+      .leftJoin(partner, eq(partner.id, customer.partnerId))
+      .where(and(eq(customer.id, customerId), eq(customer.companyId, companyId)))
+      .limit(1),
+    client.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1),
+    client
+      .select({ id: paymentMethod.id })
+      .from(paymentMethod)
+      .where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.isDefault, true))),
+  ]);
+  const retention = row?.defaultRetentionRate === null || row?.defaultRetentionRate === undefined ? null : Number(row.defaultRetentionRate);
+  return {
+    countryCode: row?.countryCode ?? "ES",
+    termsDays: effectivePaymentTermsDays(row?.paymentTermsDays, settings?.paymentTermsDays),
+    vatTreatment: customerDefaultVatTreatment(row),
+    retentionRate: retention && retention > 0 ? retention : null,
+    equivalenceSurcharge: Boolean(row?.equivalenceSurcharge),
+    paymentMethodIds: row?.paymentMethodId ? [row.paymentMethodId] : defaultMethods.map((method) => method.id),
+  };
 }
 
 type IssueResult = { id: string; number: string; status: string; invoiceType: string; totalAmount: string };
@@ -352,8 +399,13 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     loadCustomerSnapshot(tx, actor.companyId, row.customerId),
   ]);
   if (!issuer || !customerSnapshot) throw new HttpError(404, "Cliente o empresa no encontrados.");
-  const vatTreatment = (row.vatTreatment as SalesVatTreatmentCode | null) ?? defaultSalesVatTreatment(customerSnapshot.countryCode);
+  const billing = !isCreditNote && (!row.dueDate || !row.vatTreatment)
+    ? await resolveCustomerBillingDefaults(tx, actor.companyId, row.customerId)
+    : null;
+  const vatTreatment = (row.vatTreatment as SalesVatTreatmentCode | null) ?? billing?.vatTreatment ?? customerDefaultVatTreatment({ countryCode: customerSnapshot.countryCode });
   assertVatTreatmentConsistency({ vatTreatment, customerTaxId: customerSnapshot.taxId, totals });
+  // Sin vencimiento: fecha de emisión + días de pago del cliente (o de la empresa).
+  const dueDate = row.dueDate ?? (billing ? computeDueDate(row.issueDate, billing.termsDays) : null);
 
   let original: InvoiceRow | null = null;
   if (isCreditNote) {
@@ -391,6 +443,7 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
       paymentStatus: isCreditNote ? "PAID" : "PENDING",
       issuedAt,
       vatTreatment,
+      dueDate,
       issuerSnapshot: issuer,
       customerSnapshot,
       totalAmount: money(totals.totalAmount),
@@ -427,7 +480,7 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     invoiceType: row.invoiceType,
     rectificationReason: row.rectificationReason,
     rectificationDescription: row.rectificationDescription,
-    vatTreatment,
+    vatTreatment: verifactuSalesVatTreatment(vatTreatment),
     issuer,
     customer: customerSnapshot,
     totals,
@@ -459,6 +512,70 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
 export async function issueInvoice(actor: InvoiceActor, invoiceId: string) {
   await ensureCompanyDefaults(actor);
   return db.transaction((tx) => issueInvoiceInTransaction(tx, actor, invoiceId));
+}
+
+export type DraftInvoiceInput = {
+  customerId: string;
+  issueDate: Date;
+  dueDate: Date | null;
+  paymentMethods: InvoicePaymentMethodSnapshot[];
+  lines: CalculatedLine[];
+  vatTreatment: SalesVatTreatmentCode | null;
+  notes?: string | null;
+  source?: { salesQuoteId?: string | null; salesOrderId?: string | null; deliveryNoteId?: string | null };
+  auditPayload?: Record<string, unknown>;
+};
+
+/**
+ * Crea un borrador (número provisional, sin asiento) dentro de la transacción. Es el único punto de
+ * alta de facturas ordinarias: formulario, API, duplicados y conversiones desde presupuesto, pedido
+ * o albarán. Para emitir, llamar después a `issueInvoiceInTransaction`.
+ */
+export async function createDraftInvoiceInTransaction(tx: DbClient, actor: InvoiceActor, input: DraftInvoiceInput) {
+  const totals = calculateInvoiceTotals(input.lines);
+  if (totals.totalAmount <= 0) throw new HttpError(400, "El importe de la factura debe ser mayor que 0.");
+  if (input.dueDate && input.dueDate < input.issueDate) throw new HttpError(400, "El vencimiento no puede ser anterior a la fecha de emisión.");
+  const id = randomUUID();
+  const [created] = await tx
+    .insert(invoice)
+    .values({
+      id,
+      companyId: actor.companyId,
+      customerId: input.customerId,
+      ...paymentMethodColumns(input.paymentMethods),
+      number: provisionalDraftNumber(id),
+      issueDate: input.issueDate,
+      dueDate: input.dueDate,
+      totalAmount: money(totals.totalAmount),
+      status: "DRAFT",
+      vatTreatment: input.vatTreatment,
+      notes: input.notes?.trim() || null,
+      salesQuoteId: input.source?.salesQuoteId ?? null,
+      salesOrderId: input.source?.salesOrderId ?? null,
+      deliveryNoteId: input.source?.deliveryNoteId ?? null,
+    })
+    .returning({ id: invoice.id, number: invoice.number, status: invoice.status });
+  await replaceInvoicePaymentMethods(tx, created.id, input.paymentMethods);
+  await writeLines(tx, created.id, input.lines, false);
+  await recordAudit({
+    tenantId: actor.tenantId,
+    companyId: actor.companyId,
+    actorUserId: actor.actorUserId,
+    action: "invoice.create",
+    entityName: "invoice",
+    entityId: created.id,
+    payload: {
+      ...input.auditPayload,
+      customerId: input.customerId,
+      issueDate: input.issueDate.toISOString(),
+      dueDate: input.dueDate?.toISOString() ?? null,
+      totalAmount: totals.totalAmount,
+      lineCount: input.lines.length,
+      vatTreatment: input.vatTreatment,
+      ...(input.source ? { source: input.source } : {}),
+    },
+  }, tx);
+  return created;
 }
 
 export type CreatedInvoice = {
@@ -509,42 +626,16 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
     }
     customerId = createdCustomer?.id ?? customerId;
 
-    const id = randomUUID();
-    const [created] = await tx
-      .insert(invoice)
-      .values({
-        id,
-        companyId: actor.companyId,
-        customerId,
-        ...paymentMethodColumns(paymentMethods),
-        number: provisionalDraftNumber(id),
-        issueDate,
-        dueDate,
-        totalAmount: money(totals.totalAmount),
-        status: "DRAFT",
-        vatTreatment: input.vatTreatment ?? null,
-        notes: input.notes?.trim() || null,
-      })
-      .returning({ id: invoice.id, number: invoice.number, status: invoice.status });
-    await replaceInvoicePaymentMethods(tx, created.id, paymentMethods);
-    await writeLines(tx, created.id, lines, false);
-    await recordAudit({
-      tenantId: actor.tenantId,
-      companyId: actor.companyId,
-      actorUserId: actor.actorUserId,
-      action: "invoice.create",
-      entityName: "invoice",
-      entityId: created.id,
-      payload: {
-        mode,
-        customerId,
-        issueDate: issueDate.toISOString(),
-        dueDate: dueDate?.toISOString() ?? null,
-        totalAmount: totals.totalAmount,
-        lineCount: lines.length,
-        vatTreatment: input.vatTreatment ?? null,
-      },
-    }, tx);
+    const created = await createDraftInvoiceInTransaction(tx, actor, {
+      customerId,
+      issueDate,
+      dueDate,
+      paymentMethods,
+      lines,
+      vatTreatment: input.vatTreatment ?? null,
+      notes: input.notes,
+      auditPayload: { mode },
+    });
 
     const result = mode === "issue" ? await issueInvoiceInTransaction(tx, actor, created.id) : created;
     return {
@@ -714,6 +805,67 @@ function negateLine(line: CalculatedLine): CalculatedLine {
   return { ...line, quantity: -line.quantity };
 }
 
+/** Líneas de una rectificativa (siempre en negativo lo que se abona) según tipo y alcance. */
+async function buildCreditNoteLines(tx: DbClient, originalId: string, input: CreateCreditNoteInput, extraLines: CalculatedLine[]) {
+  const originalLines = await loadStoredLines(tx, originalId);
+  if (input.type === "SUBSTITUTION") return [...originalLines.map(negateLine), ...extraLines];
+  return input.scope === "FULL" ? originalLines.map(negateLine) : extraLines.map(negateLine);
+}
+
+/**
+ * Edita un borrador de rectificativa: se reconstruye con las mismas reglas que al crearla (causa,
+ * tipo, alcance, motivo, fecha y líneas) y, si se pide, se emite en la misma operación.
+ */
+export async function updateCreditNoteDraft(actor: InvoiceActor, creditNoteId: string, input: CreateCreditNoteInput) {
+  const issueDate = parseDate(input.issueDate, "La fecha de la rectificativa no es válida.");
+  const shouldIssue = input.issue === true;
+  if (input.lines) await assertItemsBelongToCompany(db, actor.companyId, input.lines.map((line) => line.itemId));
+  const extraLines = input.lines ? await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: false }) : [];
+  if (shouldIssue) await ensureCompanyDefaults(actor);
+
+  return db.transaction(async (tx) => {
+    const row = await lockInvoice(tx, actor.companyId, creditNoteId);
+    if (!row) return null;
+    if (row.invoiceType !== "CREDIT_NOTE") throw new HttpError(409, "Este documento no es una rectificativa.");
+    if (invoiceLifecycle(row) !== "DRAFT") throw new HttpError(409, ISSUED_EDIT_MESSAGE);
+    if (!row.rectifiedInvoiceId) throw new HttpError(422, "La rectificativa debe indicar la factura que rectifica.");
+    const original = await lockInvoice(tx, actor.companyId, row.rectifiedInvoiceId);
+    if (!original) throw new HttpError(404, "Factura original no encontrada.");
+    const nextIssueDate = issueDate ?? row.issueDate;
+    if (nextIssueDate < original.issueDate) throw new HttpError(400, "La rectificativa no puede tener fecha anterior a la factura original.");
+
+    const lines = await buildCreditNoteLines(tx, original.id, input, extraLines);
+    const totals = calculateInvoiceTotals(lines, { allowNegative: true });
+    if (totals.totalAmount === 0) throw new HttpError(400, "La rectificativa no puede tener importe cero.");
+    const description = input.description.trim();
+    await tx
+      .update(invoice)
+      .set({
+        issueDate: nextIssueDate,
+        totalAmount: money(totals.totalAmount),
+        rectificationReason: input.reason as RectificationReason,
+        rectificationType: input.type as RectificationType,
+        rectificationDescription: description,
+        notes: `Rectifica la factura ${original.number}. ${description}`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(invoice.id, row.id), eq(invoice.companyId, actor.companyId)));
+    await tx.delete(invoiceLine).where(eq(invoiceLine.invoiceId, row.id));
+    await writeLines(tx, row.id, lines, true);
+    await recordAudit({
+      tenantId: actor.tenantId,
+      companyId: actor.companyId,
+      actorUserId: actor.actorUserId,
+      action: "invoice.update",
+      entityName: "invoice",
+      entityId: row.id,
+      payload: { lifecycle: "DRAFT", invoiceType: "CREDIT_NOTE", reason: input.reason, type: input.type, scope: input.scope, totalAmount: totals.totalAmount },
+    }, tx);
+    const result = shouldIssue ? await issueInvoiceInTransaction(tx, actor, row.id) : { id: row.id, number: row.number, status: row.status };
+    return { id: result.id, number: result.number, status: result.status, totalAmount: totals.totalAmount, rectifiedInvoiceId: original.id };
+  });
+}
+
 /**
  * Crea (y por defecto emite) una factura rectificativa de una factura emitida.
  * - FULL + DIFFERENCES: anula íntegramente (líneas de la original en negativo).
@@ -736,14 +888,8 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
     }
     if (issueDate < original.issueDate) throw new HttpError(400, "La rectificativa no puede tener fecha anterior a la factura original.");
 
-    const originalLines = await loadStoredLines(tx, original.id);
     const type = input.type as RectificationType;
-    const lines: CalculatedLine[] =
-      type === "SUBSTITUTION"
-        ? [...originalLines.map(negateLine), ...extraLines]
-        : input.scope === "FULL"
-          ? originalLines.map(negateLine)
-          : extraLines.map(negateLine);
+    const lines = await buildCreditNoteLines(tx, original.id, input, extraLines);
     const totals = calculateInvoiceTotals(lines, { allowNegative: true });
     if (totals.totalAmount === 0) throw new HttpError(400, "La rectificativa no puede tener importe cero.");
 

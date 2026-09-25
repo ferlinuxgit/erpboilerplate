@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -11,18 +11,26 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
+import { DueDateHint } from "@/components/invoices/due-date-hint";
 import {
   InvoiceLinesEditor,
   InvoicePaymentMethodsField,
   InvoiceTotalsSummary,
+  discountRegisterOptions,
   type InvoicePaymentMethodOption,
   type InvoiceTaxOption,
 } from "@/components/invoices/invoice-form-controls";
+import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
+import { countriesForSelect } from "@/lib/countries";
+import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { defaultSalesVatTreatment } from "@/server/invoices/lifecycle";
+import { defaultLineTaxIds } from "@/server/invoices/default-taxes";
+import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
+import { customerDefaultVatTreatment } from "@/server/invoices/lifecycle";
 import { createInvoiceSchema } from "@/server/invoices/schemas";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
@@ -36,7 +44,25 @@ export type CustomerOption = {
   city?: string | null;
   province?: string | null;
   countryCode?: string | null;
+  /** Condiciones de facturación de la ficha del cliente. */
+  paymentTermsDays?: number | null;
+  defaultRetentionRate?: number | null;
+  defaultVatTreatment?: string | null;
+  equivalenceSurcharge?: boolean | null;
 };
+
+const COUNTRY_OPTIONS = countriesForSelect();
+
+/** Impuestos que se proponen para un cliente (IVA por defecto solo en operaciones nacionales). */
+export function customerLineTaxIds(taxes: InvoiceTaxOption[], customer: CustomerOption | null | undefined) {
+  return defaultLineTaxIds(taxes, customer, { withVat: customerDefaultVatTreatment(customer) === "DOMESTIC" });
+}
+
+function sameIds(left: string[] | undefined, right: string[]) {
+  const a = [...(left ?? [])].sort();
+  const b = [...right].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
 
 type CreateInvoicePayload = z.infer<typeof createInvoiceSchema>;
 type CreateCustomerPayload = z.infer<typeof createCustomerSchema>;
@@ -52,6 +78,7 @@ type SubmitMode = "draft" | "issue";
 
 export function CreateInvoiceForm({
   canCreateCustomer,
+  companyPaymentTermsDays,
   customers,
   defaultIssueDate,
   initialCustomerId,
@@ -60,6 +87,8 @@ export function CreateInvoiceForm({
   taxes,
 }: {
   canCreateCustomer: boolean;
+  /** Días de pago de la empresa (si el cliente no tiene los suyos). */
+  companyPaymentTermsDays?: number | null;
   customers: CustomerOption[];
   defaultIssueDate: string;
   initialCustomerId?: string;
@@ -79,7 +108,12 @@ export function CreateInvoiceForm({
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
   const [vatTreatmentTouched, setVatTreatmentTouched] = useState(false);
   const [submitMode, setSubmitMode] = useState<SubmitMode | null>(null);
-  const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
+  const [dueDateTouched, setDueDateTouched] = useState(false);
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [pendingIssueValues, setPendingIssueValues] = useState<CreateInvoicePayload | null>(null);
+  const initialCustomer = customers.find((customer) => customer.id === initialCustomerId) ?? null;
+  const termsFor = (customer: CustomerOption | null | undefined) => effectivePaymentTermsDays(customer?.paymentTermsDays, companyPaymentTermsDays);
   const defaultPaymentMethodIds = useMemo(() => paymentMethods.filter((method) => method.isDefault).map((method) => method.id), [paymentMethods]);
   const {
     control,
@@ -91,14 +125,15 @@ export function CreateInvoiceForm({
     resolver: zodResolver(createInvoiceSchema),
     shouldUnregister: true,
     defaultValues: {
-      customerId: customers.some((customer) => customer.id === initialCustomerId) ? initialCustomerId : "",
-      vatTreatment: defaultSalesVatTreatment(customers.find((customer) => customer.id === initialCustomerId)?.countryCode),
+      customerId: initialCustomer ? initialCustomer.id : "",
+      vatTreatment: customerDefaultVatTreatment(initialCustomer),
       issueDate: defaultIssueDate,
-      dueDate: "",
+      // Vencimiento automático: emisión + días de pago del cliente (o de la empresa).
+      dueDate: defaultDueDateInput(defaultIssueDate, termsFor(initialCustomer)),
       totalAmount: 0,
       notes: "",
       paymentMethodIds: defaultPaymentMethodIds,
-      lines: [{ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds }],
+      lines: [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(taxes, initialCustomer) }],
     },
   });
   const {
@@ -126,12 +161,18 @@ export function CreateInvoiceForm({
   const selectedPaymentMethodIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
   const selectedCustomerId = useWatch({ control, name: "customerId" });
   const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
+  const watchedIssueDate = useWatch({ control, name: "issueDate" });
+  const watchedDueDate = useWatch({ control, name: "dueDate" });
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
   }));
   const totals = calculateInvoiceTotals(calculatedLines);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
+  const defaultTaxIds = useMemo(() => customerLineTaxIds(taxes, selectedCustomer), [selectedCustomer, taxes]);
+  const previousDefaultTaxIds = useRef(defaultTaxIds);
+  const termsDays = termsFor(selectedCustomer);
+  const termsSource = typeof selectedCustomer?.paymentTermsDays === "number" ? "customer" : "company";
   const filteredCustomers = useMemo(() => {
     const textQuery = customerSearch.trim().toLocaleLowerCase();
     const locationQuery = customerLocationSearch.trim().toLocaleLowerCase();
@@ -153,11 +194,29 @@ export function CreateInvoiceForm({
     setValue("totalAmount", totals.totalAmount, { shouldValidate: true });
   }, [setValue, totals.totalAmount]);
 
-  // El tratamiento de IVA sigue al país del cliente mientras el usuario no lo cambie a mano.
+  // El tratamiento de IVA sigue al cliente (su tratamiento habitual o su país) mientras no se cambie a mano.
   useEffect(() => {
     if (vatTreatmentTouched || !selectedCustomer) return;
-    setValue("vatTreatment", defaultSalesVatTreatment(selectedCustomer.countryCode));
+    setValue("vatTreatment", customerDefaultVatTreatment(selectedCustomer));
   }, [selectedCustomer, setValue, vatTreatmentTouched]);
+
+  // Vencimiento = emisión + días de pago, mientras el usuario no lo fije a mano.
+  useEffect(() => {
+    if (dueDateTouched || !watchedIssueDate) return;
+    setValue("dueDate", defaultDueDateInput(watchedIssueDate, termsDays));
+  }, [dueDateTouched, setValue, termsDays, watchedIssueDate]);
+
+  // Al cambiar de cliente, las líneas que conservan los impuestos propuestos (IVA, recargo, IRPF
+  // habitual) pasan a los del nuevo cliente; las que el usuario ha tocado no se cambian.
+  useEffect(() => {
+    const previous = previousDefaultTaxIds.current;
+    previousDefaultTaxIds.current = defaultTaxIds;
+    if (sameIds(previous, defaultTaxIds)) return;
+    (watchedLines ?? []).forEach((line, index) => {
+      if (sameIds(line?.taxIds, previous)) setValue(`lines.${index}.taxIds`, [...defaultTaxIds]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar los impuestos propuestos
+  }, [defaultTaxIds]);
 
   useEffect(() => {
     if (pendingFocusLineIndex === null) return;
@@ -190,7 +249,7 @@ export function CreateInvoiceForm({
   };
 
   const addLineAndFocus = () => {
-    append({ description: "", quantity: 1, unitPrice: 0, taxRate: 0, retentionRate: 0, taxIds: defaultTaxIds });
+    append({ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: [...defaultTaxIds] });
     setPendingFocusLineIndex(fields.length);
   };
 
@@ -232,6 +291,7 @@ export function CreateInvoiceForm({
 
   const submitInvoice = async (values: CreateInvoicePayload, mode: SubmitMode) => {
     setSubmitError(null);
+    setIssueError(null);
     setSubmitMode(mode);
     try {
       const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
@@ -252,6 +312,7 @@ export function CreateInvoiceForm({
       }
 
       const created = (await response.json()) as CreatedInvoicePayload;
+      setIssueDialogOpen(false);
       toast.success(mode === "draft"
         ? "Borrador guardado. Puedes seguir editándolo y emitirlo cuando esté listo."
         : `Factura ${created.number} emitida correctamente.`);
@@ -260,15 +321,26 @@ export function CreateInvoiceForm({
     } catch (submissionError) {
       const message = errorMessage(submissionError, "No se pudo guardar la factura. Inténtalo de nuevo.");
       setSubmitError(message);
+      if (mode === "issue") setIssueError(message);
       toast.error(message);
     } finally {
       setSubmitMode(null);
     }
   };
 
-  /** Enviar el formulario (botón principal o Ctrl/Cmd + Enter) emite la factura. */
-  const onSubmit = handleSubmit((values) => submitInvoice(values, "issue"));
-  const onSaveDraft = handleSubmit((values) => submitInvoice(values, "draft"));
+  /**
+   * Enviar el formulario (Enter o Ctrl/Cmd + Enter) solo guarda un BORRADOR. Emitir es irreversible:
+   * el botón "Emitir factura" valida y abre siempre la confirmación.
+   */
+  const onSubmit = handleSubmit((values) => submitInvoice(values, "draft"));
+  const onRequestIssue = handleSubmit((values) => {
+    setPendingIssueValues(values);
+    setIssueError(null);
+    setIssueDialogOpen(true);
+  });
+  const confirmIssue = () => {
+    if (pendingIssueValues) void submitInvoice(pendingIssueValues, "issue");
+  };
 
   const onCreateCustomer = handleCustomerSubmit(async (values) => {
     setCustomerSubmitError(null);
@@ -376,15 +448,20 @@ export function CreateInvoiceForm({
           {...register("issueDate")}
         />
       </AccessibleField>
-      <AccessibleField id="invoice-due-date" label="Fecha vencimiento" error={errors.dueDate?.message}>
+      <AccessibleField
+        id="invoice-due-date"
+        label="Fecha vencimiento"
+        error={errors.dueDate?.message}
+        helperText={<DueDateHint dueDate={watchedDueDate} termsDays={termsDays} termsSource={termsSource} />}
+      >
         <Input
           data-testid="invoice-due-date-input"
           id="invoice-due-date"
+          min={watchedIssueDate || undefined}
           type="date"
           aria-label="Fecha de vencimiento"
           aria-invalid={Boolean(errors.dueDate)}
-          aria-describedby={errors.dueDate ? "invoice-due-date-error" : undefined}
-          {...register("dueDate")}
+          {...register("dueDate", { onChange: () => setDueDateTouched(true) })}
         />
       </AccessibleField>
       <div className="md:col-span-3">
@@ -395,6 +472,7 @@ export function CreateInvoiceForm({
               description: lineError?.description?.message,
               quantity: lineError?.quantity?.message,
               unitPrice: lineError?.unitPrice?.message,
+              discountPct: lineError?.discountPct?.message,
               taxIds: lineError?.taxIds?.message,
             };
           })}
@@ -403,6 +481,7 @@ export function CreateInvoiceForm({
             description: register(`lines.${index}.description`),
             quantity: register(`lines.${index}.quantity`, decimalRegisterOptions),
             unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
+            discountPct: register(`lines.${index}.discountPct`, discountRegisterOptions),
             taxIds: () => register(`lines.${index}.taxIds`),
           })}
           lines={watchedLines ?? []}
@@ -448,31 +527,45 @@ export function CreateInvoiceForm({
       <FormErrorMessage className="md:col-span-3">{submitError}</FormErrorMessage>
       <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)] md:col-span-3">
         <p className="hidden text-xs text-muted-foreground sm:block">
-          Guarda un borrador para revisarlo más tarde o emítela ya: al emitir se asigna el número y deja de ser editable.
+          Enter o Ctrl/Cmd + Enter guardan un borrador. «Emitir factura» te pide confirmación: al emitir se asigna el número y deja de ser editable.
         </p>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button
-            data-testid="invoice-save-draft"
-            disabled={isSubmitting}
-            onClick={() => void onSaveDraft()}
-            type="button"
-            variant="outline"
-          >
-            {submitMode === "draft" ? "Guardando…" : "Guardar borrador"}
-          </Button>
           <SubmitButton
             aria-keyshortcuts="Control+Enter Meta+Enter"
+            data-testid="invoice-save-draft"
+            pending={isSubmitting && submitMode === "draft"}
+            pendingLabel="Guardando…"
+            title="Ctrl/Cmd + Enter"
+            variant="outline"
+          >
+            Guardar borrador
+          </SubmitButton>
+          <Button
             className="min-w-36"
             data-testid="invoice-create-submit"
-            pending={isSubmitting && submitMode === "issue"}
-            pendingLabel="Emitiendo…"
-            title="Ctrl/Cmd + Enter"
+            disabled={isSubmitting}
+            onClick={() => void onRequestIssue()}
+            type="button"
           >
-            Emitir factura
-          </SubmitButton>
+            {isSubmitting && submitMode === "issue" ? "Emitiendo…" : "Emitir factura"}
+          </Button>
         </div>
       </div>
     </form>
+    <IssueConfirmDialog
+      error={issueError}
+      onClose={() => setIssueDialogOpen(false)}
+      onConfirm={confirmIssue}
+      open={issueDialogOpen}
+      pending={isSubmitting && submitMode === "issue"}
+      summary={
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <dt className="text-muted-foreground">Cliente</dt><dd className="font-medium">{selectedCustomer?.name ?? "—"}</dd>
+          <dt className="text-muted-foreground">Total</dt><dd className="font-mono font-bold">{formatMoney(totals.totalAmount)}</dd>
+          <dt className="text-muted-foreground">Vence</dt><dd>{watchedDueDate ? formatDate(`${watchedDueDate}T12:00:00`) : "Sin vencimiento"}</dd>
+        </dl>
+      }
+    />
     <Dialog
       description="Busca por nombre o identificación fiscal y selecciona el cliente de la factura."
       initialFocusId="invoice-customer-search"
@@ -578,16 +671,16 @@ export function CreateInvoiceForm({
           />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-country" label="País" required error={customerErrors.countryCode?.message}>
-          <Input
+          <Select
             data-testid="invoice-new-customer-country-input"
             id="invoice-new-customer-country"
-            maxLength={2}
             required
             aria-label="País del cliente nuevo"
             aria-invalid={Boolean(customerErrors.countryCode)}
-            aria-describedby={customerErrors.countryCode ? "invoice-new-customer-country-error" : undefined}
             {...registerCustomer("countryCode")}
-          />
+          >
+            {COUNTRY_OPTIONS.map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+          </Select>
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-address" label="Dirección fiscal" required className="md:col-span-2" error={customerErrors.address?.message}>
           <Input

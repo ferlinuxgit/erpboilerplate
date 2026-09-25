@@ -11,9 +11,12 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { customer, deliveryNote, deliveryNoteLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
-import { getDeliveryNoteTransition } from "@/lib/document-pipelines";
+import { getDeliveryNoteTransition, type SalesDocumentStatus } from "@/lib/document-pipelines";
 import { formatDate } from "@/lib/format";
-import { salesDocumentStatusLabels, salesDocumentStatusTone, statusLabel } from "@/lib/status-labels";
+import { salesStatusLabel, salesStatusTone } from "@/components/sales/sales-status";
+import { can } from "@/lib/rbac";
+import { paymentTermsLabel } from "@/server/invoices/due-dates";
+import { resolveCustomerBillingDefaults } from "@/server/invoices/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -50,7 +53,9 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
   if (!record) notFound();
 
   const lines = await db.select().from(deliveryNoteLine).where(eq(deliveryNoteLine.deliveryNoteId, id));
-  const transition = getDeliveryNoteTransition(record.status);
+  const transition = getDeliveryNoteTransition(record.status as SalesDocumentStatus);
+  const canInvoice = transition.allowed && can(ctx.membership.role, "invoice.create");
+  const billing = canInvoice ? await resolveCustomerBillingDefaults(db, ctx.company.id, record.customerId) : null;
 
   return (
     <PageShell>
@@ -62,13 +67,24 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
         ]}
         title={record.number}
         description={`${record.customerName} · Entregado el ${formatDate(record.issuedAt)}`}
-        meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
+        meta={<StatusBadge tone={salesStatusTone(record.status)}>{salesStatusLabel(record.status, "delivery")}</StatusBadge>}
         actions={
           <>
             <a className={buttonVariants({ variant: "outline" })} href={`/api/delivery-notes/${record.id}/pdf`} rel="noreferrer" target="_blank">PDF</a>
             <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.customerId}`}>Ver cliente</Link>
             {record.salesOrderId ? <Link className={buttonVariants({ variant: "outline" })} href={`/sales/orders/${record.salesOrderId}`}>Ver pedido</Link> : null}
-            {transition.allowed ? <SalesTransitionButton label={transition.actionLabel ?? "Generar factura"} targetBasePath="/invoices" url={`/api/delivery-notes/${record.id}/to-invoice`} /> : null}
+            {canInvoice && billing ? (
+              <SalesTransitionButton
+                confirmDescription={`Se emitirá ya la factura definitiva a ${record.customerName} con los productos de este albarán y los precios del pedido: tendrá el siguiente número de la serie, se contabilizará y quedará registrada en VERI*FACTU. Vencimiento: ${paymentTermsLabel(billing.termsDays)}. Después no se podrá modificar; para corregirla habrá que hacer una rectificativa.`}
+                confirmLabel="Emitir la factura"
+                confirmTitle="¿Emitir la factura de este albarán?"
+                label={transition.allowed ? transition.actionLabel : "Generar factura"}
+                successMessage="Factura {number} emitida correctamente."
+                targetBasePath="/invoices"
+                testId="delivery-to-invoice"
+                url={`/api/delivery-notes/${record.id}/to-invoice`}
+              />
+            ) : null}
           </>
         }
       />
@@ -78,7 +94,7 @@ export default async function DeliveryNoteDetailPage({ params }: { params: Promi
       <PageSection title="Datos del albarán" description="Origen y situación del documento." contentClassName="grid gap-3 text-sm sm:grid-cols-3">
         <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Fecha</p><p className="mt-1 font-medium">{formatDate(record.issuedAt)}</p></div>
         <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Líneas</p><p className="mt-1 font-medium">{lines.length}</p></div>
-        <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Estado</p><p className="mt-1 font-medium">{statusLabel(salesDocumentStatusLabels, record.status)}</p></div>
+        <div className="rounded-[2px] bg-muted/35 p-3"><p className="text-muted-foreground">Estado</p><p className="mt-1 font-medium">{salesStatusLabel(record.status, "delivery")}</p></div>
       </PageSection>
     </PageShell>
   );

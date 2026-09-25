@@ -11,15 +11,11 @@ export function FiscalReportRowActions({ canWrite = true, hideView = false, repo
       {canWrite ? <Link href={`/fiscal/${report.id}/edit`} className={buttonVariants({ variant: "outline", size: "sm" })}>Editar</Link> : null}
       <Link href={`/api/fiscal-reports/${report.id}/pdf`} className={buttonVariants({ variant: "outline", size: "sm" })}>
         <Download aria-hidden="true" />
-        PDF
+        PDF<span className="sr-only"> del modelo {report.code}</span>
       </Link>
       <Link href={`/api/fiscal-reports/${report.id}/export?format=csv`} className={buttonVariants({ variant: "outline", size: "sm" })}>
         <Download aria-hidden="true" />
-        CSV
-      </Link>
-      <Link href={`/api/fiscal-reports/${report.id}/export`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-        <Download aria-hidden="true" />
-        JSON
+        Excel (CSV)<span className="sr-only"> del modelo {report.code}</span>
       </Link>
       {canWrite && report.status !== "FILED" ? <DeleteButton url={`/api/fiscal-reports/${report.id}`} redirectTo={hideView ? "/fiscal" : undefined} /> : null}
     </div>

@@ -9,7 +9,7 @@ import {
   supplierInvoicePayment,
   supplierPayment,
 } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 import {
   assertSalesTransitionAllowed,
   getGoodsReceiptInvoiceTransition,
@@ -20,7 +20,6 @@ import {
 import { recordAudit } from "@/server/audit";
 import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
 import { reserveSeriesNumber } from "@/server/documents/series";
-import { reservePartnerNumber } from "@/server/partners/numbers";
 
 export function assertPurchaseOrderCanReceive(input: { status: string; hasReceipt: boolean; hasLines: boolean }) {
   assertSalesTransitionAllowed(getPurchaseOrderReceiptTransition(input));
@@ -113,12 +112,42 @@ export async function getPurchaseOrder(companyId: string, id: string) {
   return rows[0] ?? null;
 }
 
-type PurchasePayload = {
-  supplierName: string;
+type PurchaseSupplierRef = {
+  /** Proveedor elegido en el buscador (camino normal de la interfaz). */
+  supplierPartnerId?: string;
+  /** Compatibilidad API: nombre exacto de un proveedor existente. Nunca crea uno nuevo. */
+  supplierName?: string;
+};
+
+type PurchasePayload = PurchaseSupplierRef & {
   number?: string;
   fiscalYearId: string;
   lines?: Array<{ description: string; itemId?: string; quantity: number; unitPrice: number }>;
 };
+
+export const PURCHASE_SUPPLIER_NOT_FOUND = "PURCHASE_SUPPLIER_NOT_FOUND";
+
+/**
+ * Proveedor de un pedido: debe existir. Escribir un nombre ya no da de alta proveedores
+ * (evita duplicados como "Suministros Norte" y "Suministros Norte S.L."): se crean de
+ * forma explícita desde el buscador o la ficha de proveedores.
+ */
+async function resolvePurchaseSupplier(tx: DbClient, companyId: string, ref: PurchaseSupplierRef) {
+  const supplierPartnerId = ref.supplierPartnerId?.trim();
+  const supplierName = ref.supplierName?.trim();
+  if (!supplierPartnerId && !supplierName) throw new Error(PURCHASE_SUPPLIER_NOT_FOUND);
+  const [supplier] = await tx
+    .select({ id: partner.id })
+    .from(partner)
+    .where(and(
+      eq(partner.companyId, companyId),
+      inArray(partner.type, ["SUPPLIER", "BOTH"]),
+      supplierPartnerId ? eq(partner.id, supplierPartnerId) : eq(partner.name, supplierName ?? ""),
+    ))
+    .limit(1);
+  if (!supplier) throw new Error(PURCHASE_SUPPLIER_NOT_FOUND);
+  return supplier.id;
+}
 
 export async function createPurchaseOrder(
   companyId: string,
@@ -127,20 +156,7 @@ export async function createPurchaseOrder(
   payload: PurchasePayload,
 ) {
   return db.transaction(async (tx) => {
-    const existingSupplier = await tx
-      .select({ id: partner.id })
-      .from(partner)
-      .where(and(eq(partner.companyId, companyId), eq(partner.type, "SUPPLIER"), eq(partner.name, payload.supplierName)))
-      .limit(1);
-
-    const supplierId =
-      existingSupplier[0]?.id ??
-      (
-        await tx
-          .insert(partner)
-          .values({ companyId, number: await reservePartnerNumber(tx, companyId, "SUPPLIER"), type: "SUPPLIER", name: payload.supplierName })
-          .returning({ id: partner.id })
-      )[0].id;
+    const supplierId = await resolvePurchaseSupplier(tx, companyId, payload);
 
     const [createdOrder] = await tx
       .insert(purchaseOrder)
@@ -193,7 +209,7 @@ export async function updatePurchaseOrder(
   tenantId: string,
   actorUserId: string,
   id: string,
-  payload: { number: string; status: string; supplierName: string; lines: Array<{ description: string; itemId?: string; quantity: number; unitPrice: number }> },
+  payload: PurchaseSupplierRef & { number: string; status: string; lines: Array<{ description: string; itemId?: string; quantity: number; unitPrice: number }> },
 ) {
   return db.transaction(async (tx) => {
     const [dependentReceipt, dependentInvoice] = await Promise.all([
@@ -221,14 +237,7 @@ export async function updatePurchaseOrder(
     if (!current) return null;
     assertManualPurchaseOrderTransition(current.status, payload.status);
 
-    const [existingSupplier] = await tx
-      .select({ id: partner.id })
-      .from(partner)
-      .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"]), eq(partner.name, payload.supplierName)))
-      .limit(1);
-    const supplierId = existingSupplier?.id ?? (
-      await tx.insert(partner).values({ companyId, number: await reservePartnerNumber(tx, companyId, "SUPPLIER"), type: "SUPPLIER", name: payload.supplierName }).returning({ id: partner.id })
-    )[0].id;
+    const supplierId = await resolvePurchaseSupplier(tx, companyId, payload);
 
     const [updated] = await tx
       .update(purchaseOrder)

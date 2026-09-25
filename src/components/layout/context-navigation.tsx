@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { getContextGroup, isActiveRoute } from "@/components/layout/navigation-config";
+import { filterContextLinks, getContextGroup, isActiveRoute } from "@/components/layout/navigation-config";
 import { cn } from "@/lib/utils";
 
 function isLinkActive(pathname: string, href: string, exact?: boolean) {
@@ -11,10 +11,11 @@ function isLinkActive(pathname: string, href: string, exact?: boolean) {
   return isActiveRoute(pathname, href);
 }
 
-export function ContextNavigation() {
+export function ContextNavigation({ businessType, keyboardMode = false }: { businessType?: string | null; keyboardMode?: boolean }) {
   const pathname = usePathname();
   const group = getContextGroup(pathname);
   if (!group) return null;
+  const links = filterContextLinks(group, { businessType });
 
   return (
     <div
@@ -23,7 +24,7 @@ export function ContextNavigation() {
     >
       <div className="flex h-9 min-w-0 items-stretch overflow-x-auto [scrollbar-width:thin] lg:h-8">
         <p className="hidden shrink-0 items-center border-r border-window-shadow bg-window-panel px-3 font-mono text-[0.65rem] font-bold uppercase tracking-[0.08em] text-window-muted lg:flex">
-          {group.code} · {group.label}
+          {keyboardMode ? `${group.code} · ${group.label}` : group.label}
         </p>
         <nav
           aria-label={`Secciones de ${group.label}`}
@@ -46,7 +47,7 @@ export function ContextNavigation() {
           }}
         >
           <span className="sr-only">Desplaza horizontalmente para ver todas las secciones.</span>
-          {group.links.map((link) => {
+          {links.map((link) => {
             const active = isLinkActive(pathname, link.href, link.exact);
             return (
               <Link

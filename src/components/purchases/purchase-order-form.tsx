@@ -14,6 +14,9 @@ import {
   type DocumentLineErrors,
 } from "@/components/invoices/document-lines-editor";
 import { InvoiceTotalsSummary } from "@/components/invoices/invoice-form-controls";
+import { CreateSupplierForm } from "@/components/suppliers/create-supplier-form";
+import { SupplierPicker } from "@/components/suppliers/supplier-picker";
+import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -22,17 +25,17 @@ import { getManualPurchaseOrderStatuses } from "@/lib/document-pipelines";
 import { purchaseOrderStatusLabels, statusLabel } from "@/lib/status-labels";
 
 export type PurchaseItemOption = { id: string; sku: string; name: string; costPrice: string };
-export type PurchaseSupplierOption = { id: string; number: string; name: string };
+export type PurchaseSupplierOption = { id: string; number: string; name: string; taxId?: string | null; isActive?: boolean };
 export type PurchaseOrderInitialLine = { id?: string; itemId: string | null; description: string; quantity: string; unitPrice: string };
 
-type HeaderErrors = Partial<Record<"supplierName" | "number", string>>;
+type HeaderErrors = Partial<Record<"supplier" | "number", string>>;
 
 /** Purchase order editor shared by the create and edit pages. */
 export function PurchaseOrderForm({
   currencyCode = "EUR",
   defaultNumber = "",
   defaultStatus,
-  defaultSupplierName = "",
+  defaultSupplierId = "",
   initialLines,
   items = [],
   orderId,
@@ -42,7 +45,7 @@ export function PurchaseOrderForm({
   currencyCode?: string;
   defaultNumber?: string;
   defaultStatus?: string;
-  defaultSupplierName?: string;
+  defaultSupplierId?: string;
   initialLines?: PurchaseOrderInitialLine[];
   items?: PurchaseItemOption[];
   orderId?: string;
@@ -51,7 +54,9 @@ export function PurchaseOrderForm({
 }) {
   const router = useRouter();
   const isEdit = Boolean(orderId);
-  const [supplierName, setSupplierName] = useState(defaultSupplierName);
+  const [supplierOptions, setSupplierOptions] = useState<PurchaseSupplierOption[]>(suppliers);
+  const [supplierPartnerId, setSupplierPartnerId] = useState(suppliers.some((supplier) => supplier.id === defaultSupplierId) ? defaultSupplierId : "");
+  const [createSupplierOpen, setCreateSupplierOpen] = useState(false);
   const [number, setNumber] = useState(defaultNumber);
   const [status, setStatus] = useState(defaultStatus ?? "");
   const [lines, setLines] = useState<DocumentLineDraft[]>(() =>
@@ -70,7 +75,7 @@ export function PurchaseOrderForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextHeaderErrors: HeaderErrors = {};
-    if (!supplierName.trim()) nextHeaderErrors.supplierName = "Indica el proveedor: elige uno de la lista o escribe uno nuevo.";
+    if (!supplierPartnerId) nextHeaderErrors.supplier = "Elige el proveedor: búscalo por nombre o NIF, o créalo desde el propio buscador.";
     if (isEdit && !number.trim()) nextHeaderErrors.number = "El número del pedido no puede quedar vacío.";
     const validation = validateDocumentLines(lines, { withTax: false });
     setHeaderErrors(nextHeaderErrors);
@@ -78,8 +83,8 @@ export function PurchaseOrderForm({
     if (Object.keys(nextHeaderErrors).length > 0 || !validation.isValid) {
       setFormError("Revisa los campos marcados antes de guardar.");
       const firstLine = validation.errors.findIndex((errors) => Object.keys(errors).length > 0);
-      const targetId = nextHeaderErrors.supplierName
-        ? "po-supplier-name"
+      const targetId = nextHeaderErrors.supplier
+        ? "po-supplier"
         : nextHeaderErrors.number
           ? "po-number"
           : firstLine >= 0
@@ -97,7 +102,7 @@ export function PurchaseOrderForm({
         method: orderId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
         body: JSON.stringify({
-          supplierName: supplierName.trim(),
+          supplierPartnerId,
           number,
           ...(isEdit ? { status } : {}),
           lines: documentLinesPayload(lines, { withItem: true, withTax: false }),
@@ -119,31 +124,28 @@ export function PurchaseOrderForm({
   };
 
   return (
+    <>
     <form className="space-y-3" data-testid="purchase-order-form" noValidate onSubmit={submit}>
       <RequiredFieldsNote />
       <div className={isEdit ? "grid gap-3 md:grid-cols-3" : "grid gap-3 md:grid-cols-2"}>
         <AccessibleField
-          error={headerErrors.supplierName}
-          helperText={suppliers.length ? "Empieza a escribir para ver tus proveedores; si no existe se creará." : "Escribe el nombre; el proveedor se creará al guardar."}
-          id="po-supplier-name"
+          error={headerErrors.supplier}
+          helperText="Busca por nombre o NIF. Si es nuevo, elige «Crear proveedor» en la lista."
+          id="po-supplier"
           label="Proveedor"
           required
         >
-          <Input
-            autoComplete="organization"
-            autoFocus={!isEdit}
-            list="purchase-order-suppliers"
-            onChange={(event) => setSupplierName(event.target.value)}
-            placeholder="Busca o escribe un proveedor"
-            required
-            value={supplierName}
+          <SupplierPicker
+            id="po-supplier"
+            onChange={(supplierId) => {
+              setSupplierPartnerId(supplierId);
+              if (headerErrors.supplier) setHeaderErrors((current) => ({ ...current, supplier: undefined }));
+            }}
+            onCreateRequested={() => setCreateSupplierOpen(true)}
+            suppliers={supplierOptions}
+            value={supplierPartnerId}
           />
         </AccessibleField>
-        <datalist id="purchase-order-suppliers">
-          {suppliers.map((supplier) => (
-            <option key={supplier.id} label={`${supplier.number} · ${supplier.name}`} value={supplier.name} />
-          ))}
-        </datalist>
         <AccessibleField
           error={headerErrors.number}
           helperText={isEdit ? undefined : "Déjalo vacío para usar la serie configurada."}
@@ -191,5 +193,22 @@ export function PurchaseOrderForm({
         </SubmitButton>
       </FormActions>
     </form>
+    {/* Fuera del <form>: los eventos del portal no deben llegar al envío del pedido. */}
+    <Dialog
+      description="Da de alta el proveedor con sus datos fiscales; quedará elegido en el pedido."
+      onClose={() => setCreateSupplierOpen(false)}
+      open={createSupplierOpen}
+      size="xl"
+      title="Crear proveedor"
+    >
+      <CreateSupplierForm
+        onCreated={(created) => {
+          setSupplierOptions((current) => (current.some((supplier) => supplier.id === created.id) ? current : [...current, created]));
+          setSupplierPartnerId(created.id);
+          setCreateSupplierOpen(false);
+        }}
+      />
+    </Dialog>
+    </>
   );
 }

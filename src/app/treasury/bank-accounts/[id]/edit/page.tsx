@@ -23,6 +23,7 @@ export default async function EditBankAccountPage({ params }: { params: Promise<
           defaultAccountId={account.accountId}
           defaultBankName={account.bankName}
           defaultIban={account.iban}
+          defaultBic={account.bic}
           id={account.id}
           ledgerAccounts={ledgerAccounts}
         />

@@ -6,9 +6,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { expenseIngestionBatch, expenseOcrJob } from "@/db/schema";
+import { suggestAccountCodeFromText } from "@/lib/account-aliases";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
@@ -190,7 +191,8 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   const totalAmount = normalizeMoney(firstMatch(cleanText, [
     /(?:total factura|importe total|total a pagar|total)\s*:?\s*([-+]?\d[\d.,]*)/i,
   ]));
-  const taxRate = Number(firstMatch(cleanText, [/(?:iva|vat)\s*(\d{1,2}(?:[,.]\d+)?)\s*%/i])?.replace(",", ".") ?? 21);
+  const detectedTaxRate = firstMatch(cleanText, [/(?:iva|vat)\s*(\d{1,2}(?:[,.]\d+)?)\s*%/i]);
+  const taxRate = Number(detectedTaxRate?.replace(",", ".") ?? 21);
   const retentionRate = Number(firstMatch(cleanText, [/(?:retenci[oó]n|irpf)\s*(\d{1,2}(?:[,.]\d+)?)\s*%/i])?.replace(",", ".") ?? 0);
   const computedSubtotal = subtotalAmount ?? (totalAmount !== undefined && taxAmount !== undefined ? totalAmount - taxAmount + retentionAmount : undefined);
   const warnings: string[] = [];
@@ -203,7 +205,14 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   if (!supplierDocumentNumber) warnings.push("No se pudo identificar el numero de factura proveedor.");
   if (!totalAmount) warnings.push("No se pudo identificar el total con confianza.");
 
-  const confidence = warnings.length === 0 ? "high" : warnings.length <= 2 ? "medium" : "low";
+  const readingConfidence = warnings.length === 0 ? "high" : warnings.length <= 2 ? "medium" : "low";
+  // Cuenta e IVA supuestos (no leídos) nunca dan confianza alta: la factura se revisa antes
+  // de poder registrarse en bloque.
+  const suggestedExpenseAccountCode = suggestAccountCodeFromText(cleanText);
+  const taxRateAssumed = !detectedTaxRate || !Number.isFinite(taxRate);
+  if (taxRateAssumed) warnings.push("No se ha leído el tipo de IVA: se ha supuesto el 21 %. Compruébalo.");
+  if (!suggestedExpenseAccountCode) warnings.push("No se ha podido deducir la cuenta de gasto: elígela antes de registrar.");
+  const confidence = readingConfidence === "high" && (taxRateAssumed || !suggestedExpenseAccountCode) ? "medium" : readingConfidence;
   return {
     supplierName,
     supplierTaxId,
@@ -230,6 +239,7 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
         taxRate: Number.isFinite(taxRate) ? taxRate : 21,
         taxDeductiblePct: 100,
         retentionRate: Number.isFinite(retentionRate) ? retentionRate : 0,
+        suggestedExpenseAccountCode,
       },
     ],
     confidence,
@@ -320,7 +330,8 @@ export async function createExpenseOcrJob(input: {
   fileName: string;
   contentType: string;
   buffer: Buffer;
-  initialStatus?: "PENDING" | "PROCESSING";
+  /** DONE = solo almacenar (adjunto de una factura manual): no se analiza. */
+  initialStatus?: "PENDING" | "PROCESSING" | "DONE";
   batchId?: string;
   extractionProvider?: string;
   extractionModel?: string;
@@ -356,6 +367,7 @@ export async function createExpenseOcrJob(input: {
       documentSha256,
       attempts: input.initialStatus === "PROCESSING" ? 1 : 0,
       startedAt: input.initialStatus === "PROCESSING" ? new Date() : null,
+      finishedAt: input.initialStatus === "DONE" ? new Date() : null,
       leaseExpiresAt: input.initialStatus === "PROCESSING" ? new Date(Date.now() + jobLeaseMs) : null,
       extractionProvider: input.extractionProvider ?? null,
       extractionModel: input.extractionModel ?? null,
@@ -625,4 +637,125 @@ export async function getExpenseOcrBatch(companyId: string, batchId: string) {
       extracted: job.extractedJson ? JSON.parse(job.extractedJson) as ExpenseOcrDraft : null,
     })),
   };
+}
+
+/** Proveedor de extracción de los ficheros subidos solo como adjunto (no forman parte de la bandeja). */
+export const ATTACHMENT_ONLY_PROVIDER = "attachment";
+const INBOX_RETENTION_DAYS = 30;
+
+export type ExpenseInboxJob = {
+  id: string;
+  batchId: string | null;
+  status: string;
+  fileName: string;
+  fileUrl: string | null;
+  contentType: string;
+  sizeBytes: number | null;
+  documentSha256: string | null;
+  extractionProvider: string | null;
+  errorMessage: string | null;
+  createdAt: Date;
+  extracted: ExpenseOcrDraft | null;
+};
+
+/**
+ * Bandeja pendiente: documentos analizados (o en análisis) que todavía no se han registrado
+ * como factura. Sobrevive a cerrar la página: el usuario retoma la revisión cuando quiera.
+ */
+export async function listExpenseInbox(companyId: string, limit = 100): Promise<ExpenseInboxJob[]> {
+  const since = new Date(Date.now() - INBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      id: expenseOcrJob.id,
+      batchId: expenseOcrJob.batchId,
+      status: expenseOcrJob.status,
+      fileName: expenseOcrJob.fileName,
+      fileUrl: expenseOcrJob.fileUrl,
+      contentType: expenseOcrJob.contentType,
+      sizeBytes: expenseOcrJob.sizeBytes,
+      documentSha256: expenseOcrJob.documentSha256,
+      extractionProvider: expenseOcrJob.extractionProvider,
+      errorMessage: expenseOcrJob.errorMessage,
+      createdAt: expenseOcrJob.createdAt,
+      extractedJson: expenseOcrJob.extractedJson,
+    })
+    .from(expenseOcrJob)
+    .where(and(
+      eq(expenseOcrJob.companyId, companyId),
+      isNull(expenseOcrJob.supplierInvoiceId),
+      gte(expenseOcrJob.createdAt, since),
+      or(isNull(expenseOcrJob.extractionProvider), ne(expenseOcrJob.extractionProvider, ATTACHMENT_ONLY_PROVIDER)),
+    ))
+    .orderBy(asc(expenseOcrJob.createdAt), asc(expenseOcrJob.id))
+    .limit(limit);
+  return rows.map(({ extractedJson, ...row }) => ({
+    ...row,
+    extracted: extractedJson ? JSON.parse(extractedJson) as ExpenseOcrDraft : null,
+  }));
+}
+
+/** Lotes recientes con su progreso, para "Bandeja pendiente". */
+export async function listExpenseOcrBatches(companyId: string, limit = 20) {
+  const batches = await db
+    .select({ id: expenseIngestionBatch.id, status: expenseIngestionBatch.status, expectedFiles: expenseIngestionBatch.expectedFiles, createdAt: expenseIngestionBatch.createdAt })
+    .from(expenseIngestionBatch)
+    .where(eq(expenseIngestionBatch.companyId, companyId))
+    .orderBy(desc(expenseIngestionBatch.createdAt))
+    .limit(limit);
+  if (batches.length === 0) return [];
+  const counts = await db
+    .select({
+      batchId: expenseOcrJob.batchId,
+      uploaded: sql<number>`count(*)::int`,
+      posted: sql<number>`count(${expenseOcrJob.supplierInvoiceId})::int`,
+      failed: sql<number>`count(*) filter (where ${expenseOcrJob.status} = 'FAILED')::int`,
+      processing: sql<number>`count(*) filter (where ${expenseOcrJob.status} in ('PENDING', 'PROCESSING'))::int`,
+    })
+    .from(expenseOcrJob)
+    .where(and(eq(expenseOcrJob.companyId, companyId), inArray(expenseOcrJob.batchId, batches.map((batch) => batch.id))))
+    .groupBy(expenseOcrJob.batchId);
+  const byBatch = new Map(counts.map((row) => [row.batchId, row]));
+  return batches.map((batch) => {
+    const row = byBatch.get(batch.id);
+    const uploaded = Number(row?.uploaded ?? 0);
+    const posted = Number(row?.posted ?? 0);
+    return {
+      ...batch,
+      counts: { uploaded, posted, failed: Number(row?.failed ?? 0), processing: Number(row?.processing ?? 0), pending: Math.max(uploaded - posted, 0) },
+    };
+  });
+}
+
+/** Descarta de la bandeja un documento no registrado (borra también el archivo). */
+export async function discardExpenseOcrJob(companyId: string, id: string) {
+  const [job] = await db
+    .select({ id: expenseOcrJob.id, filePath: expenseOcrJob.filePath, storageKey: expenseOcrJob.storageKey, supplierInvoiceId: expenseOcrJob.supplierInvoiceId })
+    .from(expenseOcrJob)
+    .where(and(eq(expenseOcrJob.companyId, companyId), eq(expenseOcrJob.id, id)))
+    .limit(1);
+  if (!job) return null;
+  if (job.supplierInvoiceId) throw new Error("El documento ya está registrado como factura; anúlala desde su ficha si es necesario.");
+  const [deleted] = await db
+    .delete(expenseOcrJob)
+    .where(and(eq(expenseOcrJob.companyId, companyId), eq(expenseOcrJob.id, id), isNull(expenseOcrJob.supplierInvoiceId)))
+    .returning({ id: expenseOcrJob.id, fileName: expenseOcrJob.fileName });
+  if (!deleted) return null;
+  await rm(job.filePath, { force: true }).catch(() => undefined);
+  if (job.storageKey?.startsWith("s3:")) await deletePrivateObject(job.storageKey.slice(3)).catch(() => undefined);
+  return deleted;
+}
+
+/** Número de documentos de la bandeja pendiente (para avisos y accesos directos). */
+export async function countExpenseInbox(companyId: string) {
+  const since = new Date(Date.now() - INBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(expenseOcrJob)
+    .where(and(
+      eq(expenseOcrJob.companyId, companyId),
+      isNull(expenseOcrJob.supplierInvoiceId),
+      gte(expenseOcrJob.createdAt, since),
+      or(isNull(expenseOcrJob.extractionProvider), ne(expenseOcrJob.extractionProvider, ATTACHMENT_ONLY_PROVIDER)),
+    ));
+  return Number(row?.count ?? 0);
 }

@@ -11,6 +11,7 @@ import {
   getSpanishFiscalModel,
   normalizeTaxpayerType,
   parseSpanishFiscalPeriod,
+  isIntraEuSalesTreatment,
   resolveSalesVatTreatment,
   resolveSupplierVatTreatment,
   type SpanishFiscalModelCode,
@@ -359,7 +360,8 @@ async function fetchModelo349(companyId: string, start: Date, endExclusive: Date
 
   const entries: Modelo349Entry[] = [];
   for (const line of salesLines) {
-    if (resolveSalesVatTreatment(line.vatTreatment, line.countryCode) !== "INTRA_EU") continue;
+    const treatment = resolveSalesVatTreatment(line.vatTreatment, line.countryCode);
+    if (!isIntraEuSalesTreatment(treatment)) continue;
     const baseCents = lineBaseCents(
       { quantity: toNumber(line.quantity), unitPrice: toNumber(line.unitPrice), discountPct: toNumber(line.discountPct) },
       { allowNegative: true },
@@ -367,7 +369,8 @@ async function fetchModelo349(companyId: string, start: Date, endExclusive: Date
     const originalOutside = line.invoiceType === "CREDIT_NOTE" && line.originalIssueDate
       && (line.originalIssueDate < start || line.originalIssueDate >= endExclusive);
     entries.push({
-      key: modelo349Key("sale", line.hasItem ? Boolean(line.isService) : true),
+      // Servicios a empresas de la UE → clave S siempre; entregas → según el artículo (sin artículo, servicio).
+      key: modelo349Key("sale", treatment === "INTRA_EU_SERVICES" || (line.hasItem ? Boolean(line.isService) : true)),
       operatorName: line.partnerName ?? line.customerName,
       operatorTaxId: line.taxId,
       countryCode: line.countryCode,
@@ -863,5 +866,83 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
       salesWithholdings: salesWithholdingReconciliation,
       balanced: accountingBalanced,
     },
+  };
+}
+
+export type VatRegisterRow = {
+  id: string;
+  issueDate: string;
+  number: string;
+  /** Número de factura del proveedor (solo recibidas). */
+  supplierNumber: string | null;
+  counterpartyName: string;
+  counterpartyTaxId: string | null;
+  vatTreatment: string | null;
+  taxBase: number;
+  taxAmount: number;
+  withholdingAmount: number;
+  totalAmount: number;
+};
+
+/**
+ * Libros registro de IVA (facturas expedidas y recibidas) del periodo, con los mismos filtros y
+ * los mismos importes que el modelo 303 (sin anuladas ni borradores del ciclo de emisión).
+ */
+export async function loadVatRegisters(companyId: string, start: Date, endExclusive: Date): Promise<{ issued: VatRegisterRow[]; received: VatRegisterRow[] }> {
+  const profile = await fetchFiscalAutomationProfile(companyId);
+  const [issued, supplier] = await Promise.all([
+    fetchIssuedInvoiceVat(companyId, start, endExclusive),
+    fetchSupplierInvoiceVat(companyId, start, endExclusive, profile.prorrataPct),
+  ]);
+  const issuedIds = issued.documents.map((document) => document.id);
+  const receivedIds = supplier.documents.map((document) => document.id);
+  const [customers, suppliers] = await Promise.all([
+    issuedIds.length
+      ? db
+          .select({ id: invoice.id, name: sql<string>`coalesce(${partner.name}, ${customer.name})`, taxId: partner.taxId })
+          .from(invoice)
+          .innerJoin(customer, eq(customer.id, invoice.customerId))
+          .leftJoin(partner, eq(partner.id, customer.partnerId))
+          .where(and(eq(invoice.companyId, companyId), inArray(invoice.id, issuedIds)))
+      : Promise.resolve([]),
+    receivedIds.length
+      ? db
+          .select({ id: supplierInvoice.id, name: partner.name, taxId: partner.taxId, supplierNumber: supplierInvoice.supplierDocumentNumber })
+          .from(supplierInvoice)
+          .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+          .where(and(eq(supplierInvoice.companyId, companyId), inArray(supplierInvoice.id, receivedIds)))
+      : Promise.resolve([]),
+  ]);
+  const customerById = new Map(customers.map((row) => [row.id, row]));
+  const supplierById = new Map(suppliers.map((row) => [row.id, row]));
+  const byDate = (left: VatRegisterRow, right: VatRegisterRow) => left.issueDate.localeCompare(right.issueDate) || left.number.localeCompare(right.number);
+
+  return {
+    issued: issued.documents.map((document) => ({
+      id: document.id,
+      issueDate: document.issueDate,
+      number: document.number,
+      supplierNumber: null,
+      counterpartyName: customerById.get(document.id)?.name ?? "",
+      counterpartyTaxId: customerById.get(document.id)?.taxId ?? null,
+      vatTreatment: document.vatTreatment ?? null,
+      taxBase: document.taxBase,
+      taxAmount: document.taxAmount,
+      withholdingAmount: document.withholdingAmount ?? 0,
+      totalAmount: document.totalAmount,
+    })).sort(byDate),
+    received: supplier.documents.map((document) => ({
+      id: document.id,
+      issueDate: document.issueDate,
+      number: document.number,
+      supplierNumber: supplierById.get(document.id)?.supplierNumber ?? null,
+      counterpartyName: supplierById.get(document.id)?.name ?? "",
+      counterpartyTaxId: supplierById.get(document.id)?.taxId ?? null,
+      vatTreatment: document.vatTreatment ?? null,
+      taxBase: document.taxBase,
+      taxAmount: document.taxAmount,
+      withholdingAmount: document.withholdingAmount ?? 0,
+      totalAmount: document.totalAmount,
+    })).sort(byDate),
   };
 }

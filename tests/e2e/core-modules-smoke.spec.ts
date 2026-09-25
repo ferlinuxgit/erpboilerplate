@@ -26,7 +26,7 @@ const coreModules: ModuleSmokeCase[] = [
     path: "/invoices",
     navLabel: "Facturas",
     heading: "Facturas",
-    evidence: "Facturas emitidas",
+    evidence: /Emitidas y rectificativas/
   },
   {
     path: "/purchases/orders",
@@ -54,15 +54,15 @@ const coreModules: ModuleSmokeCase[] = [
   },
   {
     path: "/fiscal",
-    navLabel: "Fiscal",
+    navLabel: "Fiscalidad",
     heading: "Fiscalidad España",
     evidence: /Modelos 303, 390, 347, 349, 111, 115 y 130/i,
   },
   {
     path: "/reporting",
     navLabel: "Informes",
-    heading: "Informes y BI",
-    evidence: /KPIs/i,
+    heading: "Informes",
+    evidence: /Indicadores del periodo/i,
   },
   {
     path: "/settings/security",
@@ -94,20 +94,20 @@ test.describe("core product module smoke coverage", () => {
       await expect(page.getByTestId(navTestId).and(page.locator("[aria-current='page']"))).toBeVisible();
 
       if (moduleCase.path === "/dashboard") {
-        const primaryActions = page.getByTestId("dashboard-primary-actions");
-        const emptyStates = page.getByTestId("dashboard-empty-states");
+        // Fresh account (no setup yet): fiscal-data banner, then the single setup checklist first.
+        const checklist = page.getByTestId("dashboard-setup-checklist");
 
         await expect(page.getByTestId("dashboard-metrics")).toBeVisible();
-        await expect(primaryActions).toBeVisible();
-        await expect(primaryActions).toContainText("Crea tu primer cliente");
-        await expect(primaryActions).toContainText("Prepara una oferta o pedido");
-        await expect(primaryActions).toContainText("Revisa inventario y servicios");
-        await expect(emptyStates).toBeVisible();
-        await expect(emptyStates).toContainText("Sin clientes todavía");
-        await expect(emptyStates).toContainText("Sin documentos de venta");
-        await expect(surface).toContainText("Ruta operativa");
-        await expect(page.getByTestId("dashboard-guided-demo")).toContainText("Crear cliente");
-        await expect(page.getByTestId("dashboard-guided-demo")).toContainText("Crear presupuesto/pedido");
+        await expect(page.getByTestId("dashboard-fiscal-banner")).toContainText("Completa tus datos fiscales");
+        await expect(checklist).toBeVisible();
+        await expect(checklist).toContainText("Puesta en marcha");
+        await expect(checklist).toContainText(/de 5 pasos completados/);
+        await expect(checklist.getByRole("link", { name: "Completar datos fiscales" })).toHaveAttribute("href", "/settings/company");
+        await expect(checklist.getByRole("link", { name: "Crear cliente" })).toHaveAttribute("href", "/customers/new");
+        await expect(checklist.getByRole("link", { name: "Crear factura" })).toHaveAttribute("href", "/invoices/new");
+        // Fiscal deadlines and "Qué hacer hoy" are visible from day one.
+        await expect(page.getByTestId("dashboard-today")).toBeVisible();
+        await expect(page.getByTestId("dashboard-empty-states")).toHaveCount(0);
       }
     });
   }
@@ -157,7 +157,9 @@ test("customers and invoices create flows work after prerequisite onboarding and
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
     { timeout: 30_000 },
   );
+  // Emitir siempre pasa por la confirmación (Enter solo guarda borradores).
   await page.getByTestId("invoice-create-submit").click();
+  await page.getByTestId("invoice-issue-confirm").click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok(), await invoiceResponse.text()).toBe(true);
   const createdInvoice = (await invoiceResponse.json()) as { number: string };

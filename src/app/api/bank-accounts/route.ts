@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   if (!can(ctx.membership.role, "treasury.write")) {
     return NextResponse.json({ message: "Sin permisos de tesoreria." }, { status: 403 });
   }
-  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string; accountId?: string | null } | null;
+  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string; accountId?: string | null; bic?: string | null } | null;
   if (!payload) return invalidJsonResponse();
 
   if (!payload.iban?.trim() || !payload.bankName?.trim()) {
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
       iban: payload.iban.trim(),
       bankName: payload.bankName.trim(),
       accountId: payload.accountId?.trim() || null,
+      bic: typeof payload.bic === "string" ? payload.bic : null,
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

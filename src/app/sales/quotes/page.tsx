@@ -108,11 +108,11 @@ export default async function SalesQuotesPage({ searchParams }: { searchParams: 
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard label="Presupuestos" value={metrics?.count ?? 0} helper="Documentos registrados" />
         <MetricCard label="Borradores" value={drafts} helper="Pendientes de completar" tone={drafts > 0 ? "warning" : "neutral"} />
-        <MetricCard label="Confirmados" value={confirmed} helper="Aceptados o convertidos" tone={confirmed > 0 ? "success" : "neutral"} />
+        <MetricCard label="Aceptados" value={confirmed} helper="Aceptados o convertidos" tone={confirmed > 0 ? "success" : "neutral"} />
         <MetricCard label="Importe propuesto" value={formatMoney(amount, ctx.company.baseCurrencyCode)} helper="Excluye anulados" />
       </section>
       <PageSection title="Listado de presupuestos" description="Busca, ordena, configura columnas, guarda vistas y exporta el resultado.">
-        <SalesDocumentsList
+        <SalesDocumentsList kind="quote"
           basePath="/sales/quotes"
           currencyCode={ctx.company.baseCurrencyCode}
           dateLabel="Emisión"

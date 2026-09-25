@@ -7,6 +7,7 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { listPostingAccounts } from "@/server/accounting/service";
+import { countExpenseInbox } from "@/server/ocr/expense-ocr";
 import { listSupplierInvoiceRelations, listSupplierPartners } from "@/server/supplier-invoices/service";
 
 export const metadata: Metadata = { title: "Nueva factura de proveedor" };
@@ -15,10 +16,11 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
   const ctx = await requireContext("expense.write");
   const query = await searchParams;
   const initialSupplierId = Array.isArray(query?.supplierId) ? query.supplierId[0] : query?.supplierId;
-  const [accounts, suppliers, relations] = await Promise.all([
+  const [accounts, suppliers, relations, pendingInboxCount] = await Promise.all([
     listPostingAccounts(ctx.company.id),
     listSupplierPartners(ctx.company.id),
     listSupplierInvoiceRelations(ctx.company.id),
+    countExpenseInbox(ctx.company.id),
   ]);
   const expenseAccounts = accounts
     .filter((account) => account.type === "EXPENSE")
@@ -37,7 +39,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
         ]}
       />
 
-      <PageSection title="Datos de la factura" description="Elige OCR o entrada manual, revisa el proveedor y relaciona el documento con un pedido o recepción si corresponde.">
+      <PageSection title="Datos de la factura" description="Súbela o hazle una foto para que se lea sola, o escríbela a mano.">
         {!canWriteExpenses ? (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite registrar facturas de proveedor." />
         ) : expenseAccounts.length === 0 ? (
@@ -56,6 +58,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
             expenseAccounts={expenseAccounts}
             goodsReceipts={relations.receipts}
             initialSupplierId={initialSupplierId}
+            pendingInboxCount={pendingInboxCount}
             purchaseOrders={relations.orders}
             suppliers={suppliers}
           />

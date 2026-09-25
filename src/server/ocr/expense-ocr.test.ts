@@ -57,4 +57,35 @@ describe("expense OCR parser", () => {
     `);
     expect(draft.issueDate).toBeUndefined();
   });
+
+  it("never reports high confidence when the expense account cannot be deduced", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Comercial Pérez SL
+      CIF: B12345674
+      Factura: F-2026-010
+      Fecha factura: 03/06/2026
+      Base imponible: 100,00
+      IVA 21%: 21,00
+      Total factura: 121,00
+    `);
+    expect(draft.confidence).toBe("medium");
+    expect(draft.lines[0].suggestedExpenseAccountCode).toBeUndefined();
+    expect(draft.warnings.join(" ")).toMatch(/cuenta de gasto/);
+  });
+
+  it("never reports high confidence when the VAT rate was assumed", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Gasolinera Repsol Norte SL
+      CIF: B12345674
+      Factura: T-889
+      Fecha factura: 03/06/2026
+      Base imponible: 50,00
+      IVA: 10,50
+      Total factura: 60,50
+      Gasolina 95
+    `);
+    expect(draft.lines[0].suggestedExpenseAccountCode).toBe("628");
+    expect(draft.confidence).toBe("medium");
+    expect(draft.warnings.join(" ")).toMatch(/tipo de IVA/);
+  });
 });

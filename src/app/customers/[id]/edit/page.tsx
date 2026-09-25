@@ -44,6 +44,15 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
       city: partner.city,
       province: partner.province,
       countryCode: partner.countryCode,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultRetentionRate: customer.defaultRetentionRate,
+      defaultVatTreatment: customer.defaultVatTreatment,
+      invoiceEmail: customer.invoiceEmail,
+      iban: customer.iban,
+      equivalenceSurcharge: customer.equivalenceSurcharge,
+      viesStatus: customer.viesStatus,
+      viesName: customer.viesName,
+      viesCheckedAt: customer.viesCheckedAt,
     })
     .from(customer)
     .leftJoin(partner, eq(partner.id, customer.partnerId))
@@ -64,20 +73,29 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
           { label: "Editar" },
         ]}
       />
-      <PageSection title="Datos del cliente" description="Actualiza identidad, contacto y estado comercial.">
+      <PageSection title="Datos del cliente" description="Actualiza identidad fiscal, contacto y condiciones de facturación.">
         <EditCustomerForm
           id={data.id}
-          defaultName={data.name}
-          defaultTaxId={data.taxId ?? ""}
-          defaultAddress={data.address ?? ""}
-          defaultAddressLine2={data.addressLine2}
-          defaultPostalCode={data.postalCode ?? ""}
-          defaultCity={data.city ?? ""}
-          defaultProvince={data.province ?? ""}
-          defaultCountryCode={data.countryCode ?? "ES"}
-          defaultEmail={data.email}
-          defaultPhone={data.phone}
-          defaultStatus={data.status}
+          defaults={{
+            name: data.name,
+            taxId: data.taxId ?? "",
+            address: data.address ?? "",
+            addressLine2: data.addressLine2,
+            postalCode: data.postalCode ?? "",
+            city: data.city ?? "",
+            province: data.province ?? "",
+            countryCode: data.countryCode ?? "ES",
+            email: data.email,
+            phone: data.phone,
+            status: data.status,
+            paymentTermsDays: data.paymentTermsDays ?? null,
+            defaultRetentionRate: data.defaultRetentionRate === null ? null : Number(data.defaultRetentionRate),
+            defaultVatTreatment: data.defaultVatTreatment,
+            invoiceEmail: data.invoiceEmail,
+            iban: data.iban,
+            equivalenceSurcharge: data.equivalenceSurcharge,
+          }}
+          vies={{ status: data.viesStatus, name: data.viesName, checkedAt: data.viesCheckedAt }}
         />
       </PageSection>
     </PageShell>

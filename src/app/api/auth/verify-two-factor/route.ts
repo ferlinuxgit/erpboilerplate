@@ -2,14 +2,13 @@ import * as argon2 from "argon2";
 import { and, eq, gt, like } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { session, user, verification } from "@/db/schema";
-import { AUTH_TOKEN_COOKIE, createAuthToken, getAuthCookieOptions, hashAuthToken } from "@/lib/auth";
+import { user, verification } from "@/db/schema";
 import { db } from "@/lib/db";
-import { getClientIp } from "@/lib/ip-policy";
 import { readJsonBody } from "@/lib/http";
+import { resolvePostAuthDestination, respondWithNewSession } from "@/server/auth/session";
 
 export async function POST(request: Request) {
-  const body = await readJsonBody(request) as { challengeId?: unknown; code?: unknown } | null;
+  const body = await readJsonBody(request) as { challengeId?: unknown; code?: unknown; next?: unknown } | null;
   const challengeId = typeof body?.challengeId === "string" ? body.challengeId : "";
   const code = typeof body?.code === "string" ? body.code.trim() : "";
   if (!/^[0-9]{6}$/.test(code) || !/^[0-9a-f-]{36}$/i.test(challengeId)) {
@@ -32,14 +31,5 @@ export async function POST(request: Request) {
   const [consumed] = await db.delete(verification).where(eq(verification.id, record.id)).returning({ id: verification.id });
   if (!consumed) return NextResponse.json({ error: "El código ya fue utilizado." }, { status: 401 });
 
-  const token = createAuthToken(authUser);
-  await db.insert(session).values({
-    id: crypto.randomUUID(), token: hashAuthToken(token), userId: authUser.id,
-    expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
-    ipAddress: getClientIp(request.headers),
-    userAgent: request.headers.get("user-agent"),
-  });
-  const response = NextResponse.json({ user: authUser });
-  response.cookies.set(AUTH_TOKEN_COOKIE, token, getAuthCookieOptions());
-  return response;
+  return respondWithNewSession(authUser, request, await resolvePostAuthDestination(authUser.id, body?.next));
 }

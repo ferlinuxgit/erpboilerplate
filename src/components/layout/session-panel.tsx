@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { openKeyboardHelp } from "@/components/layout/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
-import { loadActiveContext, type ActiveContextPayload } from "@/lib/active-context-client";
+import { invalidateActiveContext, loadActiveContext, type ActiveContextPayload } from "@/lib/active-context-client";
 import { authClient } from "@/lib/auth-client";
 import { roleLabels, statusLabel } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,7 @@ export function SessionPanel({ className, onNavigate }: { className?: string; on
   const onSignOut = async () => {
     setSigningOut(true);
     await authClient.signOut();
+    invalidateActiveContext();
     onNavigate?.();
     router.push("/auth/login");
     router.refresh();

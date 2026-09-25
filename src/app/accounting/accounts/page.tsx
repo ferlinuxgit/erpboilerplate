@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AccountsList } from "@/components/accounting/accounts-list";
+import { HelpTerm } from "@/components/help/help-term";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
@@ -31,6 +32,7 @@ export default async function AccountsPage() {
       <PageSection
         title="Cuentas"
         description="Consulta saldos, abre el libro mayor y administra las cuentas manuales."
+        actions={<HelpTerm term="deudor-acreedor">¿Saldo deudor o acreedor?</HelpTerm>}
       >
         <AccountsList canManage={canManage} rows={accounts} />
       </PageSection>

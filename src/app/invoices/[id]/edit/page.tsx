@@ -4,16 +4,18 @@ import { notFound } from "next/navigation";
 
 import Link from "next/link";
 
+import { CreditNoteForm } from "@/components/invoices/credit-note-form";
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
 import { IssuedInvoiceEditForm } from "@/components/invoices/issued-invoice-edit-form";
 import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, invoice, invoiceLine, invoiceLineTax, invoicePaymentMethod, partner, paymentMethod, tax } from "@/db/schema";
+import { companySettings, customer, invoice, invoiceLine, invoiceLineTax, invoicePaymentMethod, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
 import { canManageCustomers } from "@/lib/rbac";
-import { invoiceLifecycle, isSalesVatTreatment } from "@/server/invoices/lifecycle";
+import { invoiceLifecycle, isSalesVatTreatment, type RectificationReason, type RectificationType } from "@/server/invoices/lifecycle";
+import { getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -49,7 +51,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, data.id));
-  const [lineTaxRows, taxes, paymentMethods, customers, selectedPaymentMethods] = await Promise.all([
+  const [lineTaxRows, taxes, paymentMethods, customers, selectedPaymentMethods, [settings]] = await Promise.all([
     lines.length > 0
       ? db.select({ invoiceLineId: invoiceLineTax.invoiceLineId, taxId: invoiceLineTax.taxId }).from(invoiceLineTax).where(inArray(invoiceLineTax.invoiceLineId, lines.map((line) => line.id)))
       : Promise.resolve([]),
@@ -79,6 +81,10 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       city: partner.city,
       province: partner.province,
       countryCode: partner.countryCode,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultRetentionRate: customer.defaultRetentionRate,
+      defaultVatTreatment: customer.defaultVatTreatment,
+      equivalenceSurcharge: customer.equivalenceSurcharge,
     }).from(customer)
       .leftJoin(partner, eq(partner.id, customer.partnerId))
       .where(and(eq(customer.companyId, ctx.company.id), eq(customer.status, "ACTIVE")))
@@ -87,6 +93,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       .from(invoicePaymentMethod)
       .where(eq(invoicePaymentMethod.invoiceId, data.id))
       .orderBy(asc(invoicePaymentMethod.position)),
+    db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
   ]);
   const lineTaxIds = new Map<string, string[]>();
   for (const row of lineTaxRows) {
@@ -110,6 +117,9 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
 
   const lifecycle = invoiceLifecycle(data);
   const isCreditNote = data.invoiceType === "CREDIT_NOTE";
+  const creditNoteDraft = isCreditNote && lifecycle === "DRAFT" && data.rectifiedInvoiceId
+    ? await loadCreditNoteDraft(ctx.company.id, data.rectifiedInvoiceId, data)
+    : null;
 
   return (
     <PageShell>
@@ -157,20 +167,38 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
           </PageSection>
         </>
       ) : isCreditNote ? (
-        <PageSection title="Borrador de rectificativa">
-          <InlineAlert data-testid="invoice-edit-locked" title="Las rectificativas en borrador no se editan línea a línea" tone="info">
-            Emítela desde su ficha o anúlala y crea otra rectificativa desde la factura original con los importes correctos.
-            <p className="mt-2">
-              <Link className={buttonVariants({ size: "sm", variant: "outline" })} href={`/invoices/${data.id}`}>Volver a la rectificativa</Link>
-            </p>
-          </InlineAlert>
-        </PageSection>
+        creditNoteDraft ? (
+          <PageSection
+            title="Borrador de rectificativa"
+            description={`Rectifica la factura ${creditNoteDraft.original.number}. Queda por rectificar lo indicado abajo; al emitirla se numera en su propia serie.`}
+          >
+            <CreditNoteForm
+              currencyCode={ctx.company.baseCurrencyCode}
+              defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
+              draft={creditNoteDraft.draft}
+              invoiceId={creditNoteDraft.original.id}
+              invoiceNumber={creditNoteDraft.original.number}
+              lines={creditNoteDraft.originalLines}
+              pendingToRectify={creditNoteDraft.pendingToRectify}
+            />
+          </PageSection>
+        ) : (
+          <PageSection title="Rectificativa no editable">
+            <InlineAlert data-testid="invoice-edit-locked" title="No se encuentra la factura original" tone="warning">
+              Anula este borrador y crea la rectificativa de nuevo desde la factura original.
+              <p className="mt-2">
+                <Link className={buttonVariants({ size: "sm", variant: "outline" })} href={`/invoices/${data.id}`}>Volver a la rectificativa</Link>
+              </p>
+            </InlineAlert>
+          </PageSection>
+        )
       ) : (
-        <PageSection title="Datos del borrador" description="Actualiza cliente, fechas, formas de pago, líneas, impuestos, tratamiento de IVA y notas. Cuando esté listo, emítelo desde la ficha.">
+        <PageSection title="Datos del borrador" description="Es un borrador: puedes cambiarlo todo. Cuando esté listo pulsa «Guardar y emitir».">
           <EditInvoiceForm
             id={data.id}
             canCreateCustomer={canManageCustomers(ctx.membership.role)}
-            customers={customers}
+            companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
+            customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultCustomerId={data.customerId}
             invoiceNumber={data.number}
             defaultLines={defaultLines}
@@ -191,4 +219,53 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       )}
     </PageShell>
   );
+}
+
+type CreditNoteSource = Awaited<ReturnType<typeof loadStoredLines>>[number];
+
+function toSourceLine(line: CreditNoteSource, sign: 1 | -1) {
+  return {
+    description: line.description,
+    quantity: sign * line.quantity,
+    unitPrice: line.unitPrice,
+    discountPct: line.discountPct ?? 0,
+    taxRate: line.taxRate ?? 0,
+    retentionRate: line.retentionRate ?? 0,
+    taxes: (line.taxes ?? []).map((selectedTax) => ({ ...selectedTax, id: selectedTax.id ?? null })),
+  };
+}
+
+/** Reconstruye el formulario de rectificativa a partir de un borrador guardado. */
+async function loadCreditNoteDraft(
+  companyId: string,
+  originalId: string,
+  draft: { id: string; totalAmount: string; rectificationReason: string | null; rectificationType: string | null; rectificationDescription: string | null },
+) {
+  const [original] = await db.select().from(invoice).where(and(eq(invoice.id, originalId), eq(invoice.companyId, companyId))).limit(1);
+  if (!original) return null;
+  const [originalLines, draftLines, balance] = await Promise.all([
+    loadStoredLines(db, original.id),
+    loadStoredLines(db, draft.id),
+    getInvoiceBalance(db, companyId, original.id, original.totalAmount),
+  ]);
+  const type: RectificationType = draft.rectificationType === "SUBSTITUTION" ? "SUBSTITUTION" : "DIFFERENCES";
+  const isFull = type === "DIFFERENCES" && Math.abs(Number(draft.totalAmount) + Number(original.totalAmount)) < 0.005 && draftLines.length === originalLines.length;
+  const editableLines = type === "SUBSTITUTION"
+    ? draftLines.filter((line) => line.quantity > 0).map((line) => toSourceLine(line, 1))
+    : draftLines.map((line) => toSourceLine(line, -1));
+  // Lo que queda por rectificar sin contar este borrador (aún no emitido).
+  const pendingToRectify = Math.max(balance.totalCents + balance.creditedCents, 0) / 100;
+  return {
+    original: { id: original.id, number: original.number },
+    originalLines: originalLines.map((line) => toSourceLine(line, 1)),
+    pendingToRectify,
+    draft: {
+      creditNoteId: draft.id,
+      reason: (["R1", "R2", "R3", "R4", "R5"].includes(draft.rectificationReason ?? "") ? draft.rectificationReason : "R4") as RectificationReason,
+      type,
+      scope: (isFull ? "FULL" : "PARTIAL") as "FULL" | "PARTIAL",
+      description: draft.rectificationDescription ?? "",
+      lines: editableLines,
+    },
+  };
 }

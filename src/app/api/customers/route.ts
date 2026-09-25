@@ -7,7 +7,7 @@ import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http"
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
 import { createCustomerWithPartner } from "@/server/customers/service";
-import { createCustomerSchema } from "@/server/schemas/forms";
+import { customerFormSchema } from "@/server/customers/schemas";
 
 export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
@@ -33,6 +33,14 @@ export async function GET(request: Request) {
       city: partner.city,
       province: partner.province,
       countryCode: partner.countryCode,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultRetentionRate: customer.defaultRetentionRate,
+      defaultVatTreatment: customer.defaultVatTreatment,
+      invoiceEmail: customer.invoiceEmail,
+      iban: customer.iban,
+      equivalenceSurcharge: customer.equivalenceSurcharge,
+      viesStatus: customer.viesStatus,
+      viesCheckedAt: customer.viesCheckedAt,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
     })
@@ -58,7 +66,7 @@ export async function POST(request: Request) {
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
 
-  const parsedPayload = createCustomerSchema.safeParse(payload);
+  const parsedPayload = customerFormSchema.safeParse(payload);
   if (!parsedPayload.success) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
@@ -81,7 +89,21 @@ export async function POST(request: Request) {
       return created;
     });
 
-    return NextResponse.json(createdCustomer, { status: 201 });
+    const values = parsedPayload.data;
+    return NextResponse.json(
+      {
+        ...createdCustomer,
+        taxId: values.taxId,
+        city: values.city,
+        province: values.province,
+        countryCode: values.countryCode.toUpperCase(),
+        paymentTermsDays: values.paymentTermsDays ?? null,
+        defaultRetentionRate: values.defaultRetentionRate ?? null,
+        defaultVatTreatment: values.defaultVatTreatment || null,
+        equivalenceSurcharge: values.equivalenceSurcharge ?? false,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     return handleRouteError(error, "customer.create", "No se pudo crear el cliente. Revisa si el CIF/NIF ya existe o si hay migraciones pendientes.");
   }

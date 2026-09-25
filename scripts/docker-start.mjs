@@ -107,8 +107,15 @@ async function runStartupMigrations() {
 
 function startNext() {
   const children = [];
-  if (process.env.OCR_WORKER_ENABLED === "true") {
-    const worker = spawn("npm", ["run", "ocr:worker"], {
+  // Background workers, each opt-in so a deployment can run them in a separate container.
+  const workers = [
+    ["OCR_WORKER_ENABLED", "ocr:worker"],
+    ["RECURRING_WORKER_ENABLED", "recurring:worker"],
+    ["VERIFACTU_WORKER_ENABLED", "verifactu:worker"],
+  ];
+  for (const [flag, script] of workers) {
+    if (process.env[flag] !== "true") continue;
+    const worker = spawn("npm", ["run", script], {
       stdio: "inherit",
       shell: false,
     });

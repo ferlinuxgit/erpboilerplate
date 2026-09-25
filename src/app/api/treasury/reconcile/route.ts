@@ -9,7 +9,8 @@ import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http"
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
-import { autoReconcileBankTransactions, reconcileBankTransaction, unreconcileBankTransaction } from "@/server/treasury/reconciliation";
+import { reconcileBankTransaction } from "@/server/treasury/reconciliation";
+import { acceptSafeSuggestions, undoReconciliationInTx } from "@/server/treasury/workbench";
 
 const manualSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("match"), transactionId: z.string().min(1), kind: z.enum(["customer", "supplier"]), matchId: z.string().min(1) }),
@@ -56,7 +57,9 @@ export async function POST() {
   if (!can(ctx.membership.role, "treasury.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
 
   try {
-    const result = await autoReconcileBankTransactions(ctx.company.id, { tenantId: ctx.tenant.id, actorUserId: session.user.id });
+    // Solo propuestas seguras (confianza alta y sin rival); el resto se revisa en la mesa de conciliación.
+    const safe = await acceptSafeSuggestions({ companyId: ctx.company.id, tenantId: ctx.tenant.id, actorUserId: session.user.id, activeFiscalYearId: ctx.fiscalYear.id });
+    const result = { reconciled: safe.applied.length, skipped: safe.skipped.length, applied: safe.applied, failures: safe.skipped };
     await recordAudit({
       tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
@@ -84,8 +87,8 @@ export async function PATCH(request: Request) {
 
   const actor = { companyId: ctx.company.id, tenantId: ctx.tenant.id, actorUserId: session.user.id };
   try {
-    const result = await db.transaction((tx) => parsed.data.action === "unmatch"
-      ? unreconcileBankTransaction(tx, { ...actor, transactionId: parsed.data.transactionId })
+    const result = await db.transaction<unknown>((tx) => parsed.data.action === "unmatch"
+      ? undoReconciliationInTx(tx, actor, parsed.data.transactionId)
       : reconcileBankTransaction(tx, { ...actor, transactionId: parsed.data.transactionId, kind: parsed.data.kind, matchId: parsed.data.matchId }));
     return NextResponse.json(result);
   } catch (error) {

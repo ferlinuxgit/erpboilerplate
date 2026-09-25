@@ -74,6 +74,14 @@ describe("applyEsSeeds", () => {
     expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "4300" && entry.values.isPostable === true)).toBe(true);
     expect(inserts.some((entry) => entry.table === journal && entry.values.code === "VEN")).toBe(true);
     expect(inserts.some((entry) => entry.table === tax)).toBe(true);
+    // Withholdings subtract (IRPF), surcharges add, and 21 % VAT is the default.
+    const taxes = inserts.filter((entry) => entry.table === tax).map((entry) => entry.values);
+    expect(taxes.filter((value) => String(value.name).startsWith("Retencion"))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Retencion IRPF 15%", kind: "WITHHOLDING", operation: "SUBTRACT" })]),
+    );
+    expect(taxes.filter((value) => String(value.name).startsWith("Retencion")).every((value) => value.kind === "WITHHOLDING" && value.operation === "SUBTRACT")).toBe(true);
+    expect(taxes.filter((value) => value.kind === "SURCHARGE").map((value) => value.rate)).toEqual(["5.200", "1.400", "0.500"]);
+    expect(taxes.find((value) => value.isDefault)).toMatchObject({ name: "IVA general 21%", kind: "VAT", operation: "ADD" });
     expect(inserts.some((entry) => entry.table === documentSeries && entry.values.type === "SALES_INVOICE")).toBe(true);
     expect(inserts.some((entry) => entry.table === documentSeries && entry.values.type === "SALES_QUOTE")).toBe(true);
     expect(recordAuditMock).toHaveBeenCalledWith(

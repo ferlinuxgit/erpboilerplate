@@ -26,15 +26,13 @@ import {
   item,
   partner,
   purchaseOrder,
-  purchaseOrderLine,
-  supplierInvoice,
-  tax,
   warehouse,
 } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { getPurchaseInvoiceContext } from "@/server/purchases/invoice-context";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -84,52 +82,24 @@ export default async function PurchaseReceiptDetailPage({
     )
     .limit(1);
   if (!record) notFound();
-  const [receiptLines, orderLines, linkedInvoices] = await Promise.all([
+  const [receiptLines, invoiceContext] = await Promise.all([
     db
       .select({
         id: goodsReceiptLine.id,
-        itemId: goodsReceiptLine.itemId,
         itemName: item.name,
-        taxRate: tax.rate,
         quantity: goodsReceiptLine.quantity,
       })
       .from(goodsReceiptLine)
       .leftJoin(item, eq(item.id, goodsReceiptLine.itemId))
-      .leftJoin(tax, eq(tax.id, item.defaultTaxId))
       .where(eq(goodsReceiptLine.goodsReceiptId, id)),
-    db
-      .select()
-      .from(purchaseOrderLine)
-      .where(eq(purchaseOrderLine.purchaseOrderId, record.orderId)),
-    db
-      .select({ id: supplierInvoice.id, number: supplierInvoice.number })
-      .from(supplierInvoice)
-      .where(
-        and(
-          eq(supplierInvoice.companyId, ctx.company.id),
-          eq(supplierInvoice.goodsReceiptId, id),
-        ),
-      ),
+    getPurchaseInvoiceContext(ctx.company.id, record.orderId),
   ]);
   const totalQuantity = receiptLines.reduce(
     (total, line) => total + Number(line.quantity),
     0,
   );
-  const orderLineByItem = new Map(
-    orderLines
-      .filter((line) => line.itemId)
-      .map((line) => [line.itemId as string, line]),
-  );
-  const invoicePayloadLines = receiptLines.map((line) => {
-    const source = line.itemId ? orderLineByItem.get(line.itemId) : undefined;
-    return {
-      itemId: line.itemId ?? undefined,
-      description: source?.description ?? line.itemName ?? "Mercancía recibida",
-      quantity: Number(line.quantity),
-      unitPrice: Number(source?.unitPrice ?? 0),
-      taxRate: Number(line.taxRate ?? 0),
-    };
-  });
+  const thisReceipt = invoiceContext?.receipts.find((receipt) => receipt.id === id);
+  const linkedInvoice = thisReceipt?.invoiceId ? { id: thisReceipt.invoiceId, number: thisReceipt.invoiceNumber } : null;
   const canWrite = can(ctx.membership.role, "purchase.write");
   return (
     <PageShell>
@@ -142,8 +112,8 @@ export default async function PurchaseReceiptDetailPage({
         title={record.number}
         description={`${record.supplierName} · ${formatDate(record.receivedAt)}`}
         meta={
-          <StatusBadge tone={linkedInvoices.length > 0 ? "success" : "warning"}>
-            {linkedInvoices.length > 0 ? "Facturada" : "Pendiente de factura"}
+          <StatusBadge tone={linkedInvoice ? "success" : "warning"}>
+            {linkedInvoice ? `Facturada (${linkedInvoice.number})` : "Pendiente de factura"}
           </StatusBadge>
         }
         actions={
@@ -154,21 +124,18 @@ export default async function PurchaseReceiptDetailPage({
             >
               Ver pedido
             </Link>
-            {linkedInvoices[0] ? (
+            {linkedInvoice ? (
               <Link
                 className={buttonVariants()}
-                href={`/expenses/${linkedInvoices[0].id}`}
+                href={`/expenses/${linkedInvoice.id}`}
               >
                 Ver factura
               </Link>
-            ) : canWrite ? (
+            ) : canWrite && invoiceContext ? (
               <CreateSupplierInvoiceFromReceiptButton
-                payload={{
-                  supplierPartnerId: record.supplierPartnerId,
-                  purchaseOrderId: record.orderId,
-                  goodsReceiptId: record.id,
-                  lines: invoicePayloadLines,
-                }}
+                context={invoiceContext}
+                currencyCode={ctx.company.baseCurrencyCode}
+                initialReceiptIds={[record.id]}
               />
             ) : null}
           </>

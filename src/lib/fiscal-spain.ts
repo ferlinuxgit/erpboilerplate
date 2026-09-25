@@ -17,6 +17,8 @@ export type SpanishFiscalModel = {
   plainHelp: string;
   /** Solo para autónomos (personas físicas en IRPF). */
   individualsOnly?: boolean;
+  /** Ficha del trámite en la sede electrónica de la AEAT (presentación y ayuda). */
+  aeatUrl: string;
 };
 
 export type TaxpayerType = "company" | "individual";
@@ -72,6 +74,7 @@ type WithholdingLine = {
 export const spanishFiscalModels: SpanishFiscalModel[] = [
   {
     code: "303",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/G414.shtml",
     name: "Modelo 303",
     shortName: "IVA autoliquidación",
     description: "Borrador de IVA devengado y deducible del periodo por casillas (tipos, recargo, intracomunitarias e ISP).",
@@ -81,6 +84,7 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
   {
     code: "390",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/G412.shtml",
     name: "Modelo 390",
     shortName: "Resumen anual IVA",
     description: "Resumen anual de IVA a partir de facturas emitidas y recibidas.",
@@ -90,6 +94,7 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
   {
     code: "347",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GI27.shtml",
     name: "Modelo 347",
     shortName: "Operaciones con terceros",
     description: "Operaciones anuales con clientes y proveedores españoles por encima de 3.005,06 EUR.",
@@ -99,6 +104,7 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
   {
     code: "111",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GH01.shtml",
     name: "Modelo 111",
     shortName: "Retenciones profesionales",
     description: "Retenciones IRPF que practicas en facturas recibidas de profesionales (cuenta 4751).",
@@ -108,6 +114,7 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
   {
     code: "115",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GH02.shtml",
     name: "Modelo 115",
     shortName: "Retenciones alquileres",
     description: "Retenciones que practicas en facturas de alquiler de locales (gastos en cuenta 621).",
@@ -117,6 +124,7 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
   {
     code: "349",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GI28.shtml",
     name: "Modelo 349",
     shortName: "Operaciones intracomunitarias",
     description: "Declaración recapitulativa de ventas y compras de bienes y servicios con empresas de otros países de la UE, por NIF-IVA y clave.",
@@ -126,6 +134,7 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
   {
     code: "130",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/G601.shtml",
     name: "Modelo 130",
     shortName: "Pago fraccionado IRPF",
     description: "Pago a cuenta del IRPF de autónomos en estimación directa: 20 % del rendimiento neto acumulado del año, menos retenciones y pagos anteriores.",
@@ -197,6 +206,34 @@ export function parseSpanishFiscalPeriod(period: string, modelCode: SpanishFisca
   }
 
   return null;
+}
+
+export type FiscalPeriodPart = { value: string; label: string };
+
+const MONTH_LABELS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+/**
+ * Opciones del selector de periodo según la cadencia del modelo: anual (sin subperiodo),
+ * trimestral (T1–T4) o mensual/trimestral (T1–T4 y meses). Evita escribir "2026-Q1" a mano.
+ */
+export function fiscalPeriodPartsFor(modelCode: SpanishFiscalModelCode): FiscalPeriodPart[] {
+  const model = getSpanishFiscalModel(modelCode);
+  if (!model || model.cadence === "annual") return [];
+  const quarters = [1, 2, 3, 4].map((quarter) => ({ value: `Q${quarter}`, label: `${quarter}.º trimestre` }));
+  if (model.cadence === "quarterly") return quarters;
+  return [...quarters, ...MONTH_LABELS.map((label, index) => ({ value: String(index + 1).padStart(2, "0"), label }))];
+}
+
+/** Compone el periodo normalizado ("2026", "2026-Q1", "2026-04") a partir de año y subperiodo. */
+export function composeFiscalPeriod(year: number | string, part: string | null | undefined) {
+  return part ? `${year}-${part}` : String(year);
+}
+
+/** Separa un periodo normalizado en año y subperiodo (inverso de `composeFiscalPeriod`). */
+export function splitFiscalPeriod(period: string | null | undefined): { year: number | null; part: string | null } {
+  const match = /^(20\d{2})(?:-(Q[1-4]|0[1-9]|1[0-2]))?$/.exec((period ?? "").trim().toUpperCase());
+  if (!match) return { year: null, part: null };
+  return { year: Number(match[1]), part: match[2] ?? null };
 }
 
 export function normalizeSpanishFiscalPeriod(period: string, modelCode: SpanishFiscalModelCode) {
@@ -325,15 +362,21 @@ export const EU_COUNTRY_CODES = new Set([
   "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK",
 ]);
 
-export type SalesVatTreatment = "DOMESTIC" | "INTRA_EU" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
+/**
+ * INTRA_EU: entrega intracomunitaria de bienes (exenta, art. 25 LIVA).
+ * INTRA_EU_SERVICES: servicio a empresa de otro país de la UE, no sujeto por reglas de localización
+ * (arts. 69.Uno.1º y 84.Uno.2º LIVA). Ambos van en la casilla 59 del 303 y en el 349 (claves E y S).
+ */
+export type SalesVatTreatment = "DOMESTIC" | "INTRA_EU" | "INTRA_EU_SERVICES" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
 export type SupplierVatTreatment = "DOMESTIC" | "INTRA_EU" | "REVERSE_CHARGE" | "IMPORT" | "NOT_SUBJECT";
 
-const salesVatTreatments = new Set<SalesVatTreatment>(["DOMESTIC", "INTRA_EU", "EXPORT", "EXEMPT", "REVERSE_CHARGE", "NOT_SUBJECT"]);
+const salesVatTreatments = new Set<SalesVatTreatment>(["DOMESTIC", "INTRA_EU", "INTRA_EU_SERVICES", "EXPORT", "EXEMPT", "REVERSE_CHARGE", "NOT_SUBJECT"]);
 const supplierVatTreatments = new Set<SupplierVatTreatment>(["DOMESTIC", "INTRA_EU", "REVERSE_CHARGE", "IMPORT", "NOT_SUBJECT"]);
 
 export const salesVatTreatmentLabels: Record<SalesVatTreatment, string> = {
   DOMESTIC: "Nacional",
   INTRA_EU: "Entrega intracomunitaria",
+  INTRA_EU_SERVICES: "Servicios a empresa de la UE",
   EXPORT: "Exportación",
   EXEMPT: "Exenta",
   REVERSE_CHARGE: "Inversión del sujeto pasivo",
@@ -370,6 +413,11 @@ export function resolveSupplierVatTreatment(explicit: string | null | undefined,
   const country = normalizeCountry(supplierCountryCode);
   if (country === "ES") return "DOMESTIC";
   return EU_COUNTRY_CODES.has(country) ? "INTRA_EU" : "IMPORT";
+}
+
+/** Venta a empresa de otro país de la UE (bienes o servicios): casilla 59 del 303 y modelo 349. */
+export function isIntraEuSalesTreatment(treatment: SalesVatTreatment) {
+  return treatment === "INTRA_EU" || treatment === "INTRA_EU_SERVICES";
 }
 
 export function isSelfAssessedTreatment(treatment: SupplierVatTreatment) {

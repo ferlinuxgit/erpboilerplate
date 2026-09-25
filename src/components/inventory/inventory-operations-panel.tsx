@@ -113,14 +113,20 @@ const movementLabels = {
   TRANSFER: "Transferencia",
 } as const;
 
-const movementHelp: Record<keyof typeof movementLabels, string> = {
-  IN: "Entrada de mercancía en el almacén (por ejemplo, compra a proveedor).",
-  OUT: "Salida de mercancía del almacén.",
-  ADJUSTMENT: "Corrige el stock tras un conteo físico o una incidencia.",
+type MovementType = keyof typeof movementLabels;
+
+function parseMovementType(value: string): MovementType | "" {
+  return value === "IN" || value === "OUT" || value === "ADJUSTMENT" || value === "TRANSFER" ? value : "";
+}
+
+const movementHelp: Record<MovementType, string> = {
+  IN: "Entrada de mercancía en el almacén (por ejemplo, compra a proveedor sin pedido).",
+  OUT: "Salida de mercancía del almacén (rotura, consumo interno, muestra…).",
+  ADJUSTMENT: "Corrige el stock de un artículo sumando o restando la diferencia. Para contar un almacén entero usa «Recuento».",
   TRANSFER: "Mueve mercancía de un almacén a otro.",
 };
 
-type MovementFieldErrors = Partial<Record<"itemId" | "warehouseId" | "destinationWarehouseId" | "quantity" | "movedAt" | "reason" | "reference", string>>;
+type MovementFieldErrors = Partial<Record<"movementType" | "itemId" | "warehouseId" | "destinationWarehouseId" | "quantity" | "movedAt" | "reason" | "reference", string>>;
 
 function nowForDateTimeInput() {
   const now = new Date();
@@ -155,11 +161,12 @@ export function InventoryOperationsPanel({
   const pathname = usePathname();
   const [isHistoryNavigating, startHistoryNavigation] = useTransition();
   const isServerHistory = Boolean(movementHistory);
-  const [movementType, setMovementType] = useState<keyof typeof movementLabels>("ADJUSTMENT");
-  const [itemId, setItemId] = useState(items.some((item) => item.id === initialMovementItemId) ? initialMovementItemId ?? "" : items[0]?.id ?? "");
-  const [warehouseId, setWarehouseId] = useState(warehouses.some((warehouse) => warehouse.id === initialMovementWarehouseId) ? initialMovementWarehouseId ?? "" : warehouses[0]?.id ?? "");
-  const [destinationWarehouseId, setDestinationWarehouseId] = useState(warehouses[1]?.id ?? "");
-  const [quantity, setQuantity] = useState("1");
+  // Sin valores por defecto que muevan stock sin querer: tipo, producto y cantidad se eligen.
+  const [movementType, setMovementType] = useState<MovementType | "">("");
+  const [itemId, setItemId] = useState(items.some((item) => item.id === initialMovementItemId) ? initialMovementItemId ?? "" : items.length === 1 ? items[0].id : "");
+  const [warehouseId, setWarehouseId] = useState(warehouses.some((warehouse) => warehouse.id === initialMovementWarehouseId) ? initialMovementWarehouseId ?? "" : warehouses.length === 1 ? warehouses[0].id : "");
+  const [destinationWarehouseId, setDestinationWarehouseId] = useState("");
+  const [quantity, setQuantity] = useState("");
   const [movedAt, setMovedAt] = useState(nowForDateTimeInput());
   const [reason, setReason] = useState("");
   const [reference, setReference] = useState("");
@@ -256,9 +263,21 @@ export function InventoryOperationsPanel({
     });
   }, [historyItemFilter, historySearch, historyTypeFilter, historyWarehouseFilter, isServerHistory, movements]);
 
+  // Stock del producto en el almacén de origen (según el resumen recibido del servidor).
+  const currentStock = itemId && warehouseId && stock.length > 0
+    ? stock.filter((row) => row.itemId === itemId && row.warehouseId === warehouseId).reduce((total, row) => total + Number(row.quantity), 0)
+    : null;
+  const parsedPreviewQuantity = parseDecimalInput(quantity);
+  const projectedStock = currentStock === null || parsedPreviewQuantity === null || !movementType
+    ? null
+    : movementType === "IN" ? currentStock + Math.abs(parsedPreviewQuantity)
+      : movementType === "ADJUSTMENT" ? currentStock + parsedPreviewQuantity
+        : currentStock - Math.abs(parsedPreviewQuantity);
+
   function validateMovement() {
     const next: MovementFieldErrors = {};
     const parsedQuantity = parseDecimalInput(quantity);
+    if (!movementType) next.movementType = "Elige qué operación quieres registrar.";
     if (!itemId) next.itemId = "Selecciona el producto.";
     if (!warehouseId) next.warehouseId = "Selecciona el almacén de origen.";
     if (movementType === "TRANSFER") {
@@ -267,6 +286,8 @@ export function InventoryOperationsPanel({
     }
     if (parsedQuantity === null) next.quantity = "Introduce una cantidad válida, por ejemplo 7,5.";
     else if (parsedQuantity === 0) next.quantity = "La cantidad no puede ser cero.";
+    else if (movementType !== "ADJUSTMENT" && parsedQuantity < 0) next.quantity = "Usa una cantidad positiva; el tipo de operación ya indica si entra o sale.";
+    else if ((movementType === "OUT" || movementType === "TRANSFER" || (movementType === "ADJUSTMENT" && parsedQuantity < 0)) && currentStock !== null && currentStock - Math.abs(parsedQuantity) < -0.0005) next.quantity = `No hay stock suficiente: en este almacén hay ${formatQuantity(String(currentStock))}.`;
     if (!movedAt) next.movedAt = "Indica la fecha y hora del movimiento.";
     if (!reason.trim()) next.reason = "Explica brevemente el motivo (por ejemplo, conteo físico).";
     if (!reference.trim()) next.reference = "Indica una referencia (albarán, lote o ticket).";
@@ -306,7 +327,7 @@ export function InventoryOperationsPanel({
       setErrorMessage(null);
       setReason("");
       setReference("");
-      toast.success(`Movimiento registrado: ${movementLabels[movementType].toLocaleLowerCase("es-ES")}.`);
+      toast.success(`Movimiento registrado: ${movementType ? movementLabels[movementType].toLocaleLowerCase("es-ES") : "stock"}.`);
       if (redirectAfterSubmit) router.push(redirectAfterSubmit);
       router.refresh();
     } catch (error) {
@@ -332,16 +353,18 @@ export function InventoryOperationsPanel({
         </div>
         <form className="grid gap-2 md:grid-cols-2 xl:grid-cols-3" noValidate onSubmit={submitMovement}>
           <RequiredFieldsNote className="md:col-span-2 xl:col-span-3" />
-          <AccessibleField helperText={movementHelp[movementType]} id="stock-movement-type" label="Tipo de operación" required>
-            <Select id="stock-movement-type" autoFocus value={movementType} onChange={(event) => setMovementType(event.target.value as keyof typeof movementLabels)} required>
-              <option value="IN">Recepción</option>
-              <option value="ADJUSTMENT">Ajuste / conteo</option>
-              <option value="TRANSFER">Transferencia</option>
+          <AccessibleField error={fieldErrors.movementType} helperText={movementType ? movementHelp[movementType] : "Entrada, salida, ajuste o traspaso entre almacenes."} id="stock-movement-type" label="Tipo de operación" required>
+            <Select id="stock-movement-type" autoFocus value={movementType} onChange={(event) => setMovementType(parseMovementType(event.target.value))} required>
+              <option value="">Elige qué quieres hacer</option>
+              <option value="IN">Recepción (entra mercancía)</option>
+              <option value="OUT">Salida (sale mercancía)</option>
+              <option value="ADJUSTMENT">Ajuste / conteo (corregir diferencia)</option>
+              <option value="TRANSFER">Transferencia entre almacenes</option>
             </Select>
           </AccessibleField>
           <AccessibleField error={fieldErrors.itemId} id="stock-movement-item" label="Producto" required>
             <Select id="stock-movement-item" value={itemId} onChange={(event) => setItemId(event.target.value)} required disabled={items.length === 0}>
-              {items.length === 0 ? <option value="">Sin productos</option> : null}
+              <option value="">{items.length === 0 ? "Sin productos" : "Elige un producto"}</option>
               {items.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.sku} · {item.name}
@@ -351,7 +374,7 @@ export function InventoryOperationsPanel({
           </AccessibleField>
           <AccessibleField error={fieldErrors.warehouseId} id="stock-movement-warehouse" label="Almacén / ubicación origen" required>
             <Select id="stock-movement-warehouse" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} required disabled={warehouses.length === 0}>
-              {warehouses.length === 0 ? <option value="">Sin almacenes</option> : null}
+              <option value="">{warehouses.length === 0 ? "Sin almacenes" : "Elige un almacén"}</option>
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>
                   {warehouse.code} · {warehouse.name}
@@ -363,7 +386,7 @@ export function InventoryOperationsPanel({
             <AccessibleField error={fieldErrors.destinationWarehouseId} id="stock-movement-destination" label="Almacén destino" required>
               <Select id="stock-movement-destination" value={destinationWarehouseId} onChange={(event) => setDestinationWarehouseId(event.target.value)} required>
                 <option value="">Selecciona destino</option>
-                {warehouses.map((warehouse) => (
+                {warehouses.filter((warehouse) => warehouse.id !== warehouseId).map((warehouse) => (
                   <option key={warehouse.id} value={warehouse.id}>
                     {warehouse.code} · {warehouse.name}
                   </option>
@@ -373,13 +396,24 @@ export function InventoryOperationsPanel({
           ) : null}
           <AccessibleField
             error={fieldErrors.quantity}
-            helperText={movementType === "ADJUSTMENT" ? "Usa un número negativo para restar stock (por ejemplo, -2)." : "Admite hasta 3 decimales, por ejemplo 7,5."}
+            helperText={movementType === "ADJUSTMENT" ? "Diferencia a sumar; en negativo para restar (por ejemplo, -2)." : "Admite hasta 3 decimales, por ejemplo 7,5."}
             id="stock-movement-quantity"
             label="Cantidad"
             required
           >
-            <QuantityInput id="stock-movement-quantity" value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
+            <QuantityInput id="stock-movement-quantity" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" required />
           </AccessibleField>
+          <div aria-live="polite" className="self-start border border-window-shadow bg-window-panel p-2 font-mono text-xs" data-testid="stock-movement-current">
+            {currentStock === null ? (
+              <p className="text-muted-foreground">Elige producto y almacén para ver su stock actual.</p>
+            ) : (
+              <>
+                <p>Stock actual en este almacén: <strong className="tabular-nums">{formatQuantity(String(currentStock))}</strong></p>
+                {projectedStock !== null ? <p className={projectedStock < 0 ? "text-danger-text" : "text-muted-foreground"}>Después del movimiento: <strong className="tabular-nums">{formatQuantity(String(projectedStock))}</strong></p> : null}
+                {movementType === "ADJUSTMENT" ? <p className="mt-1 font-sans text-muted-foreground">¿Has contado todo el almacén? Usa la <Link className="font-bold text-primary underline" href="/inventory/count">hoja de recuento</Link>.</p> : null}
+              </>
+            )}
+          </div>
           <AccessibleField error={fieldErrors.movedAt} id="stock-movement-date" label="Fecha" required>
             <Input id="stock-movement-date" type="datetime-local" value={movedAt} onChange={(event) => setMovedAt(event.target.value)} required />
           </AccessibleField>

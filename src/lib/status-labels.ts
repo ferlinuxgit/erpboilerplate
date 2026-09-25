@@ -35,6 +35,7 @@ export const salesDocumentStatusLabels: Record<string, string> = {
   DELIVERED: "Entregado",
   INVOICED: "Facturado",
   PAID: "Pagado",
+  REJECTED: "Rechazado",
   VOID: "Anulado",
 };
 
@@ -56,6 +57,8 @@ export const roleLabels: Record<string, string> = {
   OWNER: "Propietario",
   ADMIN: "Administrador",
   MEMBER: "Miembro",
+  ACCOUNTANT: "Gestor/asesor",
+  VIEWER: "Solo lectura",
 };
 
 export const stockMovementTypeLabels: Record<string, string> = {
@@ -155,10 +158,13 @@ export const auditActionLabels: Record<string, string> = {
   "accounting.fiscalYear.open": "Ejercicio abierto",
   "accounting.fiscalYear.close": "Ejercicio cerrado",
   "accounting.fiscalYear.reopen": "Ejercicio reabierto",
+  "accounting.fiscalYear.closeOverride": "Ejercicio cerrado con comprobaciones pendientes",
   "fiscal.create": "Modelo fiscal creado",
   "fiscal.update": "Modelo fiscal modificado",
   "fiscal.delete": "Modelo fiscal eliminado",
   "fiscal.reopen": "Modelo fiscal reabierto",
+  "fiscal.file": "Modelo marcado como presentado",
+  "fiscal.gestorPackage": "Paquete para el gestor descargado",
   // Tesorería
   "treasury.account.create": "Cuenta bancaria creada",
   "treasury.account.update": "Cuenta bancaria modificada",
@@ -178,6 +184,12 @@ export const auditActionLabels: Record<string, string> = {
   "team.member.role.update": "Rol de miembro modificado",
   "invitation.create": "Invitación enviada",
   "invitation.accept": "Invitación aceptada",
+  "invitation.resend": "Invitación reenviada",
+  "invitation.cancel": "Invitación cancelada",
+  "tenant.rename": "Espacio de trabajo renombrado",
+  "onboarding.update": "Datos de puesta en marcha guardados",
+  "onboarding.complete": "Puesta en marcha completada",
+  "onboarding.dismiss": "Puesta en marcha pospuesta",
   "apiKey.create": "Clave API creada",
   "apiKey.update": "Clave API modificada",
   "apiKey.revoke": "Clave API revocada",
@@ -277,6 +289,45 @@ export function purchaseOrderStatusTone(status: string): StatusTone {
 export function salesDocumentStatusTone(status: string): StatusTone {
   if (status === "DELIVERED" || status === "INVOICED" || status === "PAID") return "success";
   if (status === "SENT" || status === "CONFIRMED") return "info";
-  if (status === "VOID") return "danger";
+  if (status === "VOID" || status === "REJECTED") return "danger";
   return "neutral";
+}
+
+/** Régimen de IVA de la empresa (`companySettings.fiscalRegime`). */
+export const fiscalRegimeLabels: Record<string, string> = {
+  general: "General",
+  recargo_equivalencia: "Recargo de equivalencia",
+  cash_accounting: "Criterio de caja",
+  exempt: "Exento de IVA",
+};
+
+export const taxPeriodicityLabels: Record<string, string> = {
+  monthly: "Mensual",
+  quarterly: "Trimestral",
+};
+
+export const verifactuModeLabels: Record<string, string> = {
+  pending: "Sin activar",
+  verifactu: "VERI*FACTU",
+  non_verifactu: "NO VERI*FACTU",
+};
+
+/** Origen de un asiento (`journalEntry.sourceType`). */
+export const journalSourceLabels: Record<string, string> = {
+  invoice: "Factura emitida",
+  supplierInvoice: "Factura recibida",
+  payment: "Cobro",
+  supplierPayment: "Pago",
+  bankTransaction: "Movimiento bancario",
+  fiscalYearRegularization: "Regularización",
+  fiscalYearClosing: "Cierre",
+  fiscalYearOpening: "Apertura",
+  journalEntryReversal: "Reversión",
+};
+
+/** Etiqueta del origen de un asiento: manual, automático (según documento) o reversión. */
+export function journalEntryOriginLabel(entry: { isAutomatic?: boolean | null; sourceType?: string | null; reversesEntryId?: string | null }) {
+  if (entry.reversesEntryId) return "Reversión";
+  if (entry.isAutomatic) return journalSourceLabels[entry.sourceType ?? ""] ?? "Automático";
+  return "Manual";
 }

@@ -27,6 +27,13 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  /* Texto sobre fondos tintados (StatusBadge, InlineAlert): ≥ 4,5:1 en todos los temas. */
+  --color-success-text: var(--success-text);
+  --color-warning-text: var(--warning-text);
+  --color-danger-text: var(--danger-text);
+  --color-info-text: var(--info-text);
+  /* Enlaces de texto: en los temas oscuros --primary es un color de fondo de botón. */
+  --color-link: var(--link);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -123,6 +130,11 @@
   --window-text: #101410;
   --window-muted: #414741;
   --focus-accent: #000000;
+  --success-text: #004725;
+  --warning-text: #5a3400;
+  --danger-text: #790000;
+  --info-text: #004456;
+  --link: #000080;
 }
 
 :root[data-theme="mono-white"] {
@@ -177,6 +189,11 @@
   --window-text: #090909;
   --window-muted: #494949;
   --focus-accent: #0067d8;
+  --success-text: #185932;
+  --warning-text: #6a4800;
+  --danger-text: #8c1d18;
+  --info-text: #21546b;
+  --link: #111111;
 }
 
 :root[data-theme="paper-light"] {
@@ -227,7 +244,12 @@
   --window-dark-shadow: #30291e;
   --window-text: #211d15;
   --window-muted: #514836;
-  --focus-accent: #15a4a4;
+  --focus-accent: #0b5f5f;
+  --success-text: #274931;
+  --warning-text: #5c3c00;
+  --danger-text: #7e1a12;
+  --info-text: #28464d;
+  --link: #673500;
 }
 
 :root[data-theme="os2-light"] {
@@ -279,6 +301,11 @@
   --window-text: #142029;
   --window-muted: #40535d;
   --focus-accent: #0b1a24;
+  --success-text: #1e4e37;
+  --warning-text: #5d3e00;
+  --danger-text: #801f2b;
+  --info-text: #204b56;
+  --link: #234c70;
 }
 
 .dark {
@@ -334,6 +361,11 @@
   --chrome-active-foreground: #ffffff;
   --chrome-inactive: #34423b;
   --focus-accent: #ffd85a;
+  --success-text: #68d391;
+  --warning-text: #f0bd62;
+  --danger-text: #ff8f8f;
+  --info-text: #71c7db;
+  --link: #9aabff;
 }
 
 :root[data-theme="mono-black"] {
@@ -388,6 +420,11 @@
   --window-text: #ffffff;
   --window-muted: #b8b8b8;
   --focus-accent: #00e5ff;
+  --success-text: #7cdda5;
+  --warning-text: #ffd078;
+  --danger-text: #ff8c84;
+  --info-text: #91dced;
+  --link: #f2f2f2;
 }
 
 :root[data-theme="dos-green"] {
@@ -444,6 +481,11 @@
   --window-text: #c9f2d0;
   --window-muted: #8cb798;
   --focus-accent: #b7ff61;
+  --success-text: #73dc8b;
+  --warning-text: #d8bd63;
+  --danger-text: #f28a81;
+  --info-text: #65c9bb;
+  --link: #8fe6a3;
 }
 
 :root[data-theme="amber-dark"] {
@@ -499,6 +541,11 @@
   --window-text: #ffe2a6;
   --window-muted: #c2a56c;
   --focus-accent: #ffe15c;
+  --success-text: #9bcb78;
+  --warning-text: #ffc05c;
+  --danger-text: #ff8a80;
+  --info-text: #78c3bd;
+  --link: #ffc56b;
 }
 
 @layer base {
@@ -519,7 +566,20 @@
   }
   html {
     @apply font-sans;
-    scroll-behavior: smooth;
+  }
+  /* Desplazamiento suave solo si el usuario no ha pedido reducir el movimiento (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pulse,
+    .animate-spin,
+    .animate-bounce,
+    .animate-ping {
+      animation: none;
+    }
   }
   button,
   input,
@@ -570,6 +630,19 @@
       linear-gradient(-45deg, color-mix(in srgb, var(--window-shadow) 12%, transparent) 25%, transparent 25%);
     background-position: 0 0, 3px 3px;
     background-size: 6px 6px;
+  }
+  /* Enlace de texto con contraste ≥ 4,5:1 en los 8 temas. */
+  .link {
+    color: var(--link);
+    font-weight: 700;
+    text-underline-offset: 2px;
+  }
+  .link:hover {
+    text-decoration-line: underline;
+  }
+  /* Compatibilidad: los enlaces que aún usan text-primary heredan el color de enlace del tema. */
+  a.text-primary {
+    color: var(--link);
   }
   .theme-preview {
     background-color: var(--chrome-active);

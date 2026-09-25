@@ -3,6 +3,8 @@
 import Link from "next/link";
 
 import { DeleteButton } from "@/components/delete-button";
+import { SendInvoiceEmailDialog } from "@/components/invoice-email/send-invoice-email-dialog";
+import { DuplicateInvoiceButton, IssueInvoiceButton } from "@/components/invoices/invoice-lifecycle-actions";
 import { RegisterInvoicePaymentDialog } from "@/components/invoices/register-invoice-payment-dialog";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -26,11 +28,14 @@ type InvoiceRowActionsProps = {
    */
   lifecycle?: "DRAFT" | "ISSUED" | "VOID";
   invoiceType?: "INVOICE" | "CREDIT_NOTE" | string;
+  /** Vencida con importe pendiente: ofrece "Recordar cobro". */
+  isOverdue?: boolean;
 };
 
 export function InvoiceRowActions({
   id,
   invoiceType = "INVOICE",
+  isOverdue = false,
   lifecycle,
   number,
   outstandingAmount,
@@ -60,6 +65,15 @@ export function InvoiceRowActions({
         {!isVoided ? (
           <DropdownMenuLinkItem data-testid={`invoice-edit-${id}`} href={`/invoices/${id}/edit`}>
             {isIssued ? "Editar notas" : "Editar"}
+          </DropdownMenuLinkItem>
+        ) : null}
+        {isDraft ? <IssueInvoiceButton asMenuItem invoiceId={id} isCreditNote={isCreditNote} summary={<p>{number} · Total <strong className="font-mono">{totalAmountLabel}</strong></p>} /> : null}
+        {isIssued ? <SendInvoiceEmailDialog asMenuItem invoiceId={id} number={number} /> : null}
+        {isIssued && !isCreditNote && isOverdue ? <SendInvoiceEmailDialog asMenuItem invoiceId={id} kind="REMINDER" number={number} /> : null}
+        {!isCreditNote ? <DuplicateInvoiceButton asMenuItem invoiceId={id} /> : null}
+        {!isCreditNote && !isVoided ? (
+          <DropdownMenuLinkItem data-testid={`invoice-recurring-${id}`} href={`/invoices/recurring/new?invoiceId=${id}`}>
+            Hacer recurrente
           </DropdownMenuLinkItem>
         ) : null}
         {isIssued && !isCreditNote ? (

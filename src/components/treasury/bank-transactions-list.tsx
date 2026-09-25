@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
-import { reconciliationStatusLabels, statusLabel } from "@/lib/status-labels";
+import { movementStatusDescriptions, movementStatusKey, movementStatusLabels, movementStatusTone } from "@/components/treasury/movement-status";
 
 type BankTransactionRow = {
   id: string;
@@ -21,7 +21,22 @@ type BankTransactionRow = {
   description: string;
   postedAt: Date | string;
   reconciliationStatus: string;
+  resolution?: string | null;
+  reference?: string | null;
 };
+
+function statusOf(row: BankTransactionRow) {
+  return movementStatusKey(row.reconciliationStatus, row.resolution);
+}
+
+function MovementStatusBadge({ row, className }: { row: BankTransactionRow; className?: string }) {
+  const key = statusOf(row);
+  return (
+    <span title={movementStatusDescriptions[key]}>
+      <StatusBadge className={className} tone={movementStatusTone(key)}>{movementStatusLabels[key]}</StatusBadge>
+    </span>
+  );
+}
 
 type BankTransactionsListProps = {
   accounts: { id: string; bankName: string; iban: string }[];
@@ -71,16 +86,9 @@ const columns = (
     sortKey: "postedAt",
   },
   {
-    header: "Conciliación",
-    cell: (row) => (
-      <StatusBadge
-        tone={row.reconciliationStatus === "RECONCILED" ? "success" : "warning"}
-      >
-        {statusLabel(reconciliationStatusLabels, row.reconciliationStatus)}
-      </StatusBadge>
-    ),
-    exportValue: (row) =>
-      statusLabel(reconciliationStatusLabels, row.reconciliationStatus),
+    header: "Estado",
+    cell: (row) => <MovementStatusBadge row={row} />,
+    exportValue: (row) => movementStatusLabels[statusOf(row)],
     sortValue: (row) => row.reconciliationStatus,
     sortKey: "status",
   },
@@ -119,7 +127,7 @@ export function BankTransactionsList({
           row.description,
           row.amount,
           row.reconciliationStatus,
-          statusLabel(reconciliationStatusLabels, row.reconciliationStatus),
+          movementStatusLabels[statusOf(row)],
           formatDate(row.postedAt),
         ].join(" ")
       }
@@ -140,19 +148,7 @@ export function BankTransactionsList({
               {formatDate(row.postedAt)} ·{" "}
               {formatMoney(row.amount, currencyCode)}
             </p>
-            <StatusBadge
-              className="mt-2"
-              tone={
-                row.reconciliationStatus === "RECONCILED"
-                  ? "success"
-                  : "warning"
-              }
-            >
-              {statusLabel(
-                reconciliationStatusLabels,
-                row.reconciliationStatus,
-              )}
-            </StatusBadge>
+            <MovementStatusBadge className="mt-2" row={row} />
           </div>
           {canManage ? <BankTransactionRowActions currencyCode={currencyCode} transaction={row} /> : null}
         </div>
@@ -173,12 +169,12 @@ export function BankTransactionsList({
         },
         {
           key: "reconciliation" as const,
-          label: "Conciliación",
+          label: "Estado",
           allLabel: "Todos los estados",
-          options: Object.entries(reconciliationStatusLabels).map(
+          options: Object.entries(movementStatusLabels).map(
             ([value, label]) => ({ value, label }),
           ),
-          getValue: (row: BankTransactionRow) => row.reconciliationStatus,
+          getValue: (row: BankTransactionRow) => statusOf(row),
         },
       ].filter((filter) => !hiddenFilters?.includes(filter.key))}
     />

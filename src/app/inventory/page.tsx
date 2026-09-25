@@ -63,7 +63,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         eyebrow="Operación"
         title="Control de stock"
         description="Recibe mercancía, registra conteos y ajustes, transfiere entre almacenes y revisa el histórico con contexto por producto y ubicación."
-        actions={<><Link className={buttonVariants({ variant: "outline" })} href="/inventory/items">Artículos</Link><Link className={buttonVariants({ variant: "outline" })} href="/inventory/warehouses">Almacenes</Link><Link className={buttonVariants()} href="/inventory/movements/new">Nuevo movimiento</Link></>}
+        actions={<><Link className={buttonVariants({ variant: "outline" })} href="/inventory/items">Artículos</Link><Link className={buttonVariants({ variant: "outline" })} href="/inventory/warehouses">Almacenes</Link><Link className={buttonVariants({ variant: "outline" })} href="/inventory/count">Recuento</Link><Link className={buttonVariants()} href="/inventory/movements/new">Nuevo movimiento</Link></>}
       />
 
       <Suspense fallback={<div className="rounded-[2px] border p-3 text-sm text-muted-foreground">Cargando inventario...</div>}>

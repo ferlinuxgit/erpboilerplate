@@ -5,13 +5,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { errorMessage, readApiError } from "@/components/ui/form";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { formatCount } from "@/lib/pluralize";
 
 type Anomaly = { sequence: number | null; code: string; message: string };
 type VerifyResult = { ok: boolean; recordCount: number; eventCount: number; anomalies: Anomaly[] };
 
-/** Botones "Verificar integridad", "Enviar ahora" y descargas de la pantalla VeriFactu. */
+/** Botones "Verificar integridad", "Enviar ahora" y descargas de la pantalla VERI*FACTU. */
 export function VerifactuActions({ canWrite, transportEnabled, pendingCount }: { canWrite: boolean; transportEnabled: boolean; pendingCount: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"verify" | "send" | null>(null);
@@ -21,14 +23,14 @@ export function VerifactuActions({ canWrite, transportEnabled, pendingCount }: {
     setBusy("verify");
     try {
       const response = await fetch("/api/verifactu/verify", { method: "POST", headers: { ...getCsrfHeader() } });
-      const body = (await response.json()) as VerifyResult & { message?: string };
-      if (!response.ok) throw new Error(body.message ?? "No se pudo verificar la cadena.");
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo verificar la cadena."));
+      const body = (await response.json()) as VerifyResult;
       setResult(body);
-      if (body.ok) toast.success(`Cadena íntegra: ${body.recordCount} registro(s) comprobados.`);
-      else toast.error(`Se han detectado ${body.anomalies.length} anomalía(s).`);
+      if (body.ok) toast.success(`Cadena íntegra: ${formatCount(body.recordCount, "registro comprobado", "registros comprobados")}.`);
+      else toast.error(`Se han detectado ${formatCount(body.anomalies.length, "anomalía")}.`);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error inesperado.");
+      toast.error(errorMessage(error, "No se pudo completar la operación."));
     } finally {
       setBusy(null);
     }
@@ -38,13 +40,13 @@ export function VerifactuActions({ canWrite, transportEnabled, pendingCount }: {
     setBusy("send");
     try {
       const response = await fetch("/api/verifactu/send", { method: "POST", headers: { ...getCsrfHeader() } });
-      const body = (await response.json()) as { message?: string; summaries?: Array<{ accepted: number; rejected: number; failed: number }> };
-      if (!response.ok) throw new Error(body.message ?? "No se pudo enviar.");
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo enviar a la AEAT."));
+      const body = (await response.json()) as { summaries?: Array<{ accepted: number; rejected: number; failed: number }> };
       const totals = (body.summaries ?? []).reduce((acc, row) => ({ accepted: acc.accepted + row.accepted, rejected: acc.rejected + row.rejected, failed: acc.failed + row.failed }), { accepted: 0, rejected: 0, failed: 0 });
-      toast.success(`Envío terminado: ${totals.accepted} aceptado(s), ${totals.rejected} rechazado(s), ${totals.failed} pendiente(s) de reintento.`);
+      toast.success(`Envío terminado: ${formatCount(totals.accepted, "aceptado")}, ${formatCount(totals.rejected, "rechazado")} y ${formatCount(totals.failed, "pendiente")} de reintento.`);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error inesperado.");
+      toast.error(errorMessage(error, "No se pudo completar la operación."));
     } finally {
       setBusy(null);
     }
@@ -63,13 +65,13 @@ export function VerifactuActions({ canWrite, transportEnabled, pendingCount }: {
             {busy === "send" ? "Enviando…" : `Enviar ahora (${pendingCount})`}
           </Button>
         ) : null}
-        <a className={buttonVariants({ variant: "outline" })} href="/api/verifactu/export?format=csv">Descargar CSV</a>
-        <a className={buttonVariants({ variant: "outline" })} href="/api/verifactu/export?format=xml">Descargar XML</a>
+        <a className={buttonVariants({ variant: "outline" })} href="/api/verifactu/export?format=csv">Descargar registros (CSV)</a>
+        <a className={buttonVariants({ variant: "outline" })} href="/api/verifactu/export?format=xml">Descargar registros (XML)</a>
       </div>
       {result ? (
         result.ok ? (
           <InlineAlert tone="success" title="Todo correcto">
-            Se han recalculado las huellas de {result.recordCount} registro(s) y {result.eventCount} evento(s): ninguno ha sido alterado y la cadena no tiene huecos.
+            Se han recalculado las huellas de {formatCount(result.recordCount, "registro")} y {formatCount(result.eventCount, "evento")}: ninguno ha sido alterado y la cadena no tiene huecos.
           </InlineAlert>
         ) : (
           <InlineAlert tone="danger" title="Se han detectado anomalías">

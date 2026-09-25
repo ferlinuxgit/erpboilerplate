@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { boolean, check, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
-export const membershipRoleEnum = pgEnum("membership_role", ["OWNER", "ADMIN", "MEMBER"]);
+// ACCOUNTANT = gestor/asesor externo; VIEWER = solo lectura (ver `src/lib/rbac.ts`).
+export const membershipRoleEnum = pgEnum("membership_role", ["OWNER", "ADMIN", "MEMBER", "ACCOUNTANT", "VIEWER"]);
 export const customerStatusEnum = pgEnum("customer_status", ["ACTIVE", "INACTIVE"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["DRAFT", "SENT", "PAID", "OVERDUE", "VOID"]);
 export const partnerTypeEnum = pgEnum("partner_type", ["CUSTOMER", "SUPPLIER", "BOTH"]);
@@ -24,7 +25,8 @@ export const reconciliationStatusEnum = pgEnum("reconciliation_status", ["PENDIN
 export const accountTypeEnum = pgEnum("account_type", ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "MIXED"]);
 export const fiscalReportStatusEnum = pgEnum("fiscal_report_status", ["DRAFT", "READY", "FILED"]);
 export const paymentMethodTypeEnum = pgEnum("payment_method_type", ["BANK_TRANSFER", "CARD", "CASH", "DIRECT_DEBIT"]);
-export const salesDocumentStatusEnum = pgEnum("sales_document_status", ["DRAFT", "SENT", "CONFIRMED", "DELIVERED", "INVOICED", "PAID", "VOID"]);
+// REJECTED: presupuesto rechazado por el cliente (solo presupuestos).
+export const salesDocumentStatusEnum = pgEnum("sales_document_status", ["DRAFT", "SENT", "CONFIRMED", "DELIVERED", "INVOICED", "PAID", "VOID", "REJECTED"]);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -248,7 +250,31 @@ export const bankAccount = pgTable("bank_account", {
   accountId: text("accountId").references((): AnyPgColumn => accountChart.id, { onDelete: "set null" }),
   isActive: boolean("isActive").notNull().default(true),
   archivedAt: timestamp("archivedAt", { withTimezone: true, mode: "date" }),
+  // BIC/SWIFT de la entidad (ordenante de las remesas SEPA). Opcional: SEPA permite omitirlo.
+  bic: text("bic"),
+  // Mapeo de columnas del último extracto CSV/Excel importado en esta cuenta (se propone la próxima vez).
+  importMapping: jsonb("importMapping").$type<BankImportMappingSnapshot>(),
 }, (table) => [unique("bank_account_company_iban_unique").on(table.companyId, table.iban)]);
+
+/** Columnas (índice base 0) y formatos de un extracto CSV/Excel de un banco concreto. */
+export type BankImportMappingSnapshot = {
+  headerRow: number;
+  dateColumn: number;
+  valueDateColumn?: number | null;
+  /** Importe con signo en una sola columna… */
+  amountColumn?: number | null;
+  /** …o cargos y abonos en columnas separadas. */
+  debitColumn?: number | null;
+  creditColumn?: number | null;
+  descriptionColumns: number[];
+  balanceColumn?: number | null;
+  referenceColumn?: number | null;
+  dateFormat: "DMY" | "MDY" | "YMD";
+  decimalSeparator: "," | ".";
+  /** Algunos bancos exportan los cargos en positivo: invierte el signo del importe. */
+  invertSign?: boolean;
+  headers?: string[];
+};
 
 export const paymentMethod = pgTable("payment_method", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -302,6 +328,11 @@ export const companySettings = pgTable("company_settings", {
   pdfShowCustomerNumber: boolean("pdfShowCustomerNumber").notNull().default(true),
   pdfShowPaymentMethod: boolean("pdfShowPaymentMethod").notNull().default(true),
   pdfShowTaxBreakdown: boolean("pdfShowTaxBreakdown").notNull().default(true),
+  // Qué vende la empresa: "products", "services" o "both". Adapta navegación y avisos del panel.
+  businessType: text("businessType").notNull().default("both"),
+  // Puesta en marcha: completada con el asistente o pospuesta por el usuario (no se vuelve a redirigir).
+  onboardingCompletedAt: timestamp("onboardingCompletedAt", { withTimezone: true, mode: "date" }),
+  onboardingDismissedAt: timestamp("onboardingDismissedAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -325,11 +356,21 @@ export const partner = pgTable("partner", {
   paymentTermsDays: integer("paymentTermsDays"),
   paymentMethodId: text("paymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
   defaultAccountId: text("defaultAccountId").references(() => accountChart.id, { onDelete: "set null" }),
+  // Valores por defecto de las facturas recibidas de este proveedor (OCR y alta manual).
+  // Cuenta de gasto habitual (grupo 6/2). null = el usuario la elige en cada factura.
+  defaultExpenseAccountId: text("defaultExpenseAccountId").references((): AnyPgColumn => accountChart.id, { onDelete: "set null" }),
+  // Retención IRPF habitual (%), p. ej. 15 para un profesional o 19 para un alquiler. null = sin retención.
+  defaultRetentionRate: numeric("defaultRetentionRate", { precision: 6, scale: 3 }),
+  // Porcentaje de IVA deducible habitual (p. ej. 50 para un vehículo de uso mixto). null = 100 %.
+  defaultTaxDeductiblePct: numeric("defaultTaxDeductiblePct", { precision: 6, scale: 3 }),
+  // Tratamiento de IVA habitual de sus facturas. null = automático según el país.
+  defaultVatTreatment: text("defaultVatTreatment"),
   currencyCode: text("currencyCode").notNull().default("EUR"),
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
+  check("partner_default_vat_treatment_valid", sql`${table.defaultVatTreatment} IS NULL OR ${table.defaultVatTreatment} IN ('DOMESTIC', 'INTRA_EU', 'REVERSE_CHARGE', 'IMPORT', 'NOT_SUBJECT')`),
   unique("partner_company_number_unique").on(table.companyId, table.number),
   index("partner_company_name_idx").on(table.companyId, table.name),
   index("partner_company_tax_id_idx").on(table.companyId, table.taxId),
@@ -358,9 +399,29 @@ export const customer = pgTable("customer", {
   email: text("email"),
   phone: text("phone"),
   status: customerStatusEnum("status").notNull().default("ACTIVE"),
+  // Condiciones de facturación por defecto (los días de pago viven en partner.paymentTermsDays).
+  // Retención IRPF habitual (%) que se propone en las líneas nuevas. null = sin retención.
+  defaultRetentionRate: numeric("defaultRetentionRate", { precision: 6, scale: 3 }),
+  // Tratamiento de IVA habitual. null = automático según el país.
+  defaultVatTreatment: text("defaultVatTreatment"),
+  // Correo donde el cliente recibe las facturas (si es distinto del de contacto).
+  invoiceEmail: text("invoiceEmail"),
+  // IBAN del cliente (domiciliaciones). Opcional.
+  iban: text("iban"),
+  // Cliente en recargo de equivalencia (comerciante minorista).
+  equivalenceSurcharge: boolean("equivalenceSurcharge").notNull().default(false),
+  // Última comprobación del NIF-IVA en VIES (UE): VALID | INVALID | UNAVAILABLE.
+  viesStatus: text("viesStatus"),
+  viesName: text("viesName"),
+  viesCheckedAt: timestamp("viesCheckedAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [index("customer_company_status_idx").on(table.companyId, table.status), index("customer_partner_idx").on(table.partnerId)]);
+}, (table) => [
+  index("customer_company_status_idx").on(table.companyId, table.status),
+  index("customer_partner_idx").on(table.partnerId),
+  check("customer_default_vat_treatment_valid", sql`${table.defaultVatTreatment} IS NULL OR ${table.defaultVatTreatment} IN ('DOMESTIC', 'INTRA_EU', 'INTRA_EU_SERVICES', 'EXPORT', 'EXEMPT', 'REVERSE_CHARGE', 'NOT_SUBJECT')`),
+  check("customer_vies_status_valid", sql`${table.viesStatus} IS NULL OR ${table.viesStatus} IN ('VALID', 'INVALID', 'UNAVAILABLE')`),
+]);
 
 export const item = pgTable("item", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -456,6 +517,10 @@ export const invoice = pgTable(
     // Datos fiscales de emisor y receptor congelados al emitir (el PDF se genera desde aquí).
     issuerSnapshot: jsonb("issuerSnapshot").$type<InvoicePartySnapshot>(),
     customerSnapshot: jsonb("customerSnapshot").$type<InvoicePartySnapshot>(),
+    // Documento comercial de origen (presupuesto, pedido o albarán), si la factura se generó desde él.
+    salesQuoteId: text("salesQuoteId").references((): AnyPgColumn => salesQuote.id, { onDelete: "set null" }),
+    salesOrderId: text("salesOrderId").references((): AnyPgColumn => salesOrder.id, { onDelete: "set null" }),
+    deliveryNoteId: text("deliveryNoteId").references((): AnyPgColumn => deliveryNote.id, { onDelete: "set null" }),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
@@ -467,7 +532,8 @@ export const invoice = pgTable(
     // Filtro de estado de cobro y cartera pendiente del panel.
     index("invoice_company_payment_status_idx").on(table.companyId, table.paymentStatus),
     index("invoice_rectified_invoice_idx").on(table.rectifiedInvoiceId),
-    check("invoice_vat_treatment_valid", sql`${table.vatTreatment} IS NULL OR ${table.vatTreatment} IN ('DOMESTIC', 'INTRA_EU', 'EXPORT', 'EXEMPT', 'REVERSE_CHARGE', 'NOT_SUBJECT')`),
+    index("invoice_delivery_note_idx").on(table.deliveryNoteId),
+    check("invoice_vat_treatment_valid", sql`${table.vatTreatment} IS NULL OR ${table.vatTreatment} IN ('DOMESTIC', 'INTRA_EU', 'INTRA_EU_SERVICES', 'EXPORT', 'EXEMPT', 'REVERSE_CHARGE', 'NOT_SUBJECT')`),
     check("invoice_type_valid", sql`${table.invoiceType} IN ('INVOICE', 'CREDIT_NOTE')`),
     check("invoice_credit_note_link", sql`${table.invoiceType} = 'INVOICE' OR ${table.rectifiedInvoiceId} IS NOT NULL`),
     check("invoice_negative_only_credit_note", sql`${table.invoiceType} = 'CREDIT_NOTE' OR ${table.totalAmount} >= 0`),
@@ -723,6 +789,10 @@ export const supplierInvoiceLine = pgTable("supplier_invoice_line", {
   supplierInvoiceId: text("supplierInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "cascade" }),
   itemId: text("itemId").references(() => item.id, { onDelete: "set null" }),
   expenseAccountId: text("expenseAccountId").references(() => accountChart.id, { onDelete: "set null" }),
+  // Trazabilidad compra → recepción → factura por línea (no por artículo): permite facturar
+  // varias recepciones y repetir un artículo en varias líneas del pedido.
+  purchaseOrderLineId: text("purchaseOrderLineId").references(() => purchaseOrderLine.id, { onDelete: "set null" }),
+  goodsReceiptLineId: text("goodsReceiptLineId").references(() => goodsReceiptLine.id, { onDelete: "set null" }),
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
@@ -733,7 +803,24 @@ export const supplierInvoiceLine = pgTable("supplier_invoice_line", {
   taxAmount: numeric("taxAmount", { precision: 12, scale: 2 }).notNull().default("0"),
   retentionAmount: numeric("retentionAmount", { precision: 12, scale: 2 }).notNull().default("0"),
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
-}, (table) => [index("supplier_invoice_line_invoice_idx").on(table.supplierInvoiceId)]);
+}, (table) => [
+  index("supplier_invoice_line_invoice_idx").on(table.supplierInvoiceId),
+  index("supplier_invoice_line_po_line_idx").on(table.purchaseOrderLineId),
+  index("supplier_invoice_line_receipt_line_idx").on(table.goodsReceiptLineId),
+]);
+
+// Recepciones cubiertas por una factura de proveedor (una factura puede agrupar varias
+// entregas del mismo pedido). `supplier_invoice.goodsReceiptId` conserva la primera por compatibilidad.
+export const supplierInvoiceGoodsReceipt = pgTable("supplier_invoice_goods_receipt", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  supplierInvoiceId: text("supplierInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  goodsReceiptId: text("goodsReceiptId").notNull().references(() => goodsReceipt.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("supplier_invoice_goods_receipt_unique").on(table.supplierInvoiceId, table.goodsReceiptId),
+  index("supplier_invoice_goods_receipt_receipt_idx").on(table.companyId, table.goodsReceiptId),
+]);
 
 export const supplierInvoiceAttachment = pgTable("supplier_invoice_attachment", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -790,6 +877,18 @@ export const expenseOcrJob = pgTable("expense_ocr_job", {
   index("expense_ocr_job_batch_idx").on(table.batchId, table.createdAt),
   index("expense_ocr_job_lease_idx").on(table.status, table.leaseExpiresAt),
 ]);
+
+// Preferencias de lectura automática de facturas por empresa. Sin fila = valores por defecto
+// (análisis externo permitido si el servidor tiene OPENAI_API_KEY).
+export const expenseOcrSetting = pgTable("expense_ocr_setting", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),
+  // false = nunca se envían documentos a proveedores externos de IA (solo OCR local).
+  externalAiEnabled: boolean("externalAiEnabled").notNull().default(true),
+  updatedByUserId: text("updatedByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
 
 export const journal = pgTable("journal", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -866,10 +965,20 @@ export const bankTransaction = pgTable("bank_transaction", {
   matchedInvoicePaymentId: text("matchedInvoicePaymentId").references(() => invoicePayment.id, { onDelete: "set null" }),
   matchedSupplierPaymentId: text("matchedSupplierPaymentId").references(() => supplierInvoicePayment.id, { onDelete: "set null" }),
   reconciledAt: timestamp("reconciledAt", { withTimezone: true, mode: "date" }),
+  // Datos del extracto (importación CSV/Excel/Norma 43): fecha valor, saldo tras el movimiento y referencia.
+  valueDate: timestamp("valueDate", { withTimezone: true, mode: "date" }),
+  balanceAfter: numeric("balanceAfter", { precision: 14, scale: 2 }),
+  reference: text("reference"),
+  // MANUAL | CSV | XLSX | NORMA43 (null = registros anteriores a la importación con asistente).
+  importSource: text("importSource"),
+  // Cómo se resolvió al conciliar: PAYMENT (cobros/pagos), ACCOUNT (asignado a cuenta) o MIXED.
+  resolution: text("resolution"),
 }, (table) => [
   index("bank_transaction_account_date_idx").on(table.bankAccountId, table.postedAt),
   // Movimientos pendientes de conciliar (panel "Qué hacer hoy", filtro de la lista, auto-conciliación).
   index("bank_transaction_account_status_idx").on(table.bankAccountId, table.reconciliationStatus),
+  check("bank_transaction_resolution_valid", sql`${table.resolution} IS NULL OR ${table.resolution} IN ('PAYMENT', 'ACCOUNT', 'MIXED')`),
+  check("bank_transaction_import_source_valid", sql`${table.importSource} IS NULL OR ${table.importSource} IN ('MANUAL', 'CSV', 'XLSX', 'NORMA43')`),
 ]);
 
 export const tax = pgTable("tax", {
@@ -900,6 +1009,9 @@ export const fiscalReport = pgTable(
     period: text("period").notNull(),
     status: fiscalReportStatusEnum("status").notNull().default("DRAFT"),
     filedAt: timestamp("filedAt", { withTimezone: true, mode: "date" }),
+    // Presentación en la sede de la AEAT: número de justificante (13 dígitos) y, si hubo pago, NRC del banco.
+    filingReceiptNumber: text("filingReceiptNumber"),
+    paymentNrc: text("paymentNrc"),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
@@ -974,6 +1086,8 @@ export const invitation = pgTable("invitation", {
   email: text("email").notNull(),
   role: membershipRoleEnum("role").notNull().default("MEMBER"),
   token: text("token").notNull().unique(),
+  // Quién invitó (se muestra en el email y en la página de aceptación).
+  invitedByUserId: text("invitedByUserId").references(() => user.id, { onDelete: "set null" }),
   expiresAt: timestamp("expiresAt", { withTimezone: true, mode: "date" }).notNull(),
   acceptedAt: timestamp("acceptedAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -1122,4 +1236,269 @@ export const verifactuEvent = pgTable("verifactu_event", {
   unique("verifactu_event_company_sequence_unique").on(table.companyId, table.sequence),
   index("verifactu_event_company_created_idx").on(table.companyId, table.createdAt),
   check("verifactu_event_hash_format", sql`${table.hash} ~ '^[0-9A-F]{64}$'`),
+]);
+
+/**
+ * Tesorería · conciliación: cómo se ha aplicado un movimiento bancario. Un movimiento puede
+ * repartirse entre varios cobros/pagos (existentes o creados desde la mesa de conciliación) y
+ * cuentas contables ("Asignar a cuenta"). `amount` va en el sentido del movimiento: positivo
+ * suma al movimiento; negativo resta (p. ej. una comisión descontada de un cobro).
+ */
+export const bankTransactionAllocation = pgTable("bank_transaction_allocation", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  bankTransactionId: text("bankTransactionId").notNull().references(() => bankTransaction.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  invoicePaymentId: text("invoicePaymentId").references(() => invoicePayment.id, { onDelete: "set null" }),
+  paymentId: text("paymentId").references(() => payment.id, { onDelete: "set null" }),
+  supplierInvoicePaymentId: text("supplierInvoicePaymentId").references(() => supplierInvoicePayment.id, { onDelete: "set null" }),
+  supplierPaymentId: text("supplierPaymentId").references(() => supplierPayment.id, { onDelete: "set null" }),
+  accountId: text("accountId").references(() => accountChart.id, { onDelete: "restrict" }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  // El cobro/pago se creó al conciliar: deshacer lo elimina (si no, solo se desvincula).
+  createdPayment: boolean("createdPayment").notNull().default(false),
+  ruleId: text("ruleId").references((): AnyPgColumn => bankReconciliationRule.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("bank_transaction_allocation_transaction_idx").on(table.bankTransactionId),
+  index("bank_transaction_allocation_invoice_payment_idx").on(table.companyId, table.invoicePaymentId),
+  index("bank_transaction_allocation_supplier_payment_idx").on(table.companyId, table.supplierInvoicePaymentId),
+  check("bank_transaction_allocation_kind_valid", sql`${table.kind} IN ('CUSTOMER_PAYMENT', 'SUPPLIER_PAYMENT', 'ACCOUNT')`),
+  check("bank_transaction_allocation_amount_nonzero", sql`${table.amount} <> 0`),
+]);
+
+/** Reglas de conciliación: "concepto contiene X [e importe entre A y B] → cuenta / contrapartida". */
+export const bankReconciliationRule = pgTable("bank_reconciliation_rule", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  conceptContains: text("conceptContains").notNull(),
+  // ANY | IN (solo ingresos) | OUT (solo cargos).
+  direction: text("direction").notNull().default("ANY"),
+  minAmount: numeric("minAmount", { precision: 12, scale: 2 }),
+  maxAmount: numeric("maxAmount", { precision: 12, scale: 2 }),
+  accountId: text("accountId").references(() => accountChart.id, { onDelete: "cascade" }),
+  partnerId: text("partnerId").references(() => partner.id, { onDelete: "cascade" }),
+  // Aplicar sin preguntar al importar extractos (solo reglas de cuenta).
+  autoApply: boolean("autoApply").notNull().default(false),
+  isActive: boolean("isActive").notNull().default(true),
+  timesApplied: integer("timesApplied").notNull().default(0),
+  lastAppliedAt: timestamp("lastAppliedAt", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("bank_reconciliation_rule_company_idx").on(table.companyId, table.isActive),
+  check("bank_reconciliation_rule_direction_valid", sql`${table.direction} IN ('ANY', 'IN', 'OUT')`),
+  check("bank_reconciliation_rule_target", sql`${table.accountId} IS NOT NULL OR ${table.partnerId} IS NOT NULL`),
+]);
+
+/** Cuentas bancarias de clientes/proveedores (IBAN del beneficiario de las remesas SEPA). */
+export const partnerBankAccount = pgTable("partner_bank_account", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  partnerId: text("partnerId").notNull().references(() => partner.id, { onDelete: "cascade" }),
+  iban: text("iban").notNull(),
+  bic: text("bic"),
+  isDefault: boolean("isDefault").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("partner_bank_account_company_partner_iban_unique").on(table.companyId, table.partnerId, table.iban),
+  index("partner_bank_account_partner_idx").on(table.companyId, table.partnerId),
+]);
+
+/** Remesa SEPA de transferencias (pain.001.001.03) para pagar varias facturas de proveedor. */
+export const sepaRemittance = pgTable("sepa_remittance", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  bankAccountId: text("bankAccountId").notNull().references(() => bankAccount.id, { onDelete: "restrict" }),
+  // Identificador del mensaje (MsgId, máx. 35 caracteres).
+  number: text("number").notNull(),
+  // GENERATED (fichero creado) | CONFIRMED (enviada/cargada: pagos registrados) | CANCELLED.
+  status: text("status").notNull().default("GENERATED"),
+  executionDate: timestamp("executionDate", { withTimezone: true, mode: "date" }).notNull(),
+  totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull(),
+  itemCount: integer("itemCount").notNull(),
+  xml: text("xml").notNull(),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  confirmedAt: timestamp("confirmedAt", { withTimezone: true, mode: "date" }),
+  cancelledAt: timestamp("cancelledAt", { withTimezone: true, mode: "date" }),
+}, (table) => [
+  unique("sepa_remittance_company_number_unique").on(table.companyId, table.number),
+  index("sepa_remittance_company_status_idx").on(table.companyId, table.status),
+  check("sepa_remittance_status_valid", sql`${table.status} IN ('GENERATED', 'CONFIRMED', 'CANCELLED')`),
+]);
+
+export const sepaRemittanceItem = pgTable("sepa_remittance_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  remittanceId: text("remittanceId").notNull().references(() => sepaRemittance.id, { onDelete: "cascade" }),
+  supplierInvoiceId: text("supplierInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "restrict" }),
+  supplierPartnerId: text("supplierPartnerId").notNull().references(() => partner.id, { onDelete: "restrict" }),
+  creditorName: text("creditorName").notNull(),
+  creditorIban: text("creditorIban").notNull(),
+  creditorBic: text("creditorBic"),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  endToEndId: text("endToEndId").notNull(),
+  remittanceInformation: text("remittanceInformation").notNull(),
+  supplierPaymentId: text("supplierPaymentId").references(() => supplierPayment.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("sepa_remittance_item_remittance_idx").on(table.remittanceId),
+  index("sepa_remittance_item_invoice_idx").on(table.companyId, table.supplierInvoiceId),
+  check("sepa_remittance_item_amount_positive", sql`${table.amount} > 0`),
+]);
+
+// ─── Envío de facturas por email, recordatorios de cobro y documentos recurrentes ───
+
+/** Cada envío de una factura (o recordatorio de cobro) por email, con su resultado. */
+export const invoiceEmailLog = pgTable("invoice_email_log", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  // INVOICE = envío de la factura; REMINDER = recordatorio de cobro (reminderLevel 1–3).
+  kind: text("kind").notNull().default("INVOICE"),
+  reminderLevel: integer("reminderLevel"),
+  // Destinatarios separados por comas.
+  toEmails: text("toEmails").notNull(),
+  ccEmails: text("ccEmails"),
+  subject: text("subject").notNull(),
+  // SENT | FAILED
+  status: text("status").notNull(),
+  messageId: text("messageId"),
+  error: text("error"),
+  // MANUAL (desde la aplicación) | AUTOMATIC (worker: recurrencias o recordatorios programados).
+  trigger: text("trigger").notNull().default("MANUAL"),
+  userId: text("userId").references(() => user.id, { onDelete: "set null" }),
+  sentAt: timestamp("sentAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("invoice_email_log_company_invoice_idx").on(table.companyId, table.invoiceId, table.sentAt),
+  check("invoice_email_log_kind_valid", sql`${table.kind} IN ('INVOICE', 'REMINDER')`),
+  check("invoice_email_log_status_valid", sql`${table.status} IN ('SENT', 'FAILED')`),
+  check("invoice_email_log_trigger_valid", sql`${table.trigger} IN ('MANUAL', 'AUTOMATIC')`),
+  check("invoice_email_log_reminder_level_valid", sql`${table.reminderLevel} IS NULL OR ${table.reminderLevel} BETWEEN 1 AND 3`),
+]);
+
+/**
+ * Plantillas de email de facturas y recordatorios, y calendario automático de recordatorios.
+ * Sin fila (o campo null) = plantillas por defecto de `src/server/invoice-email/templates.ts`.
+ */
+export const invoiceEmailSetting = pgTable("invoice_email_setting", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),
+  invoiceSubject: text("invoiceSubject"),
+  invoiceBody: text("invoiceBody"),
+  reminder1Subject: text("reminder1Subject"),
+  reminder1Body: text("reminder1Body"),
+  reminder2Subject: text("reminder2Subject"),
+  reminder2Body: text("reminder2Body"),
+  reminder3Subject: text("reminder3Subject"),
+  reminder3Body: text("reminder3Body"),
+  // Propone "enviarme una copia" marcado por defecto.
+  copyToSelfDefault: boolean("copyToSelfDefault").notNull().default(false),
+  // Recordatorios automáticos: el primero N días después del vencimiento, luego cada M días, máximo K.
+  dunningEnabled: boolean("dunningEnabled").notNull().default(false),
+  dunningFirstDelayDays: integer("dunningFirstDelayDays").notNull().default(3),
+  dunningIntervalDays: integer("dunningIntervalDays").notNull().default(7),
+  dunningMaxReminders: integer("dunningMaxReminders").notNull().default(3),
+  updatedByUserId: text("updatedByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  check("invoice_email_setting_dunning_first_delay_valid", sql`${table.dunningFirstDelayDays} BETWEEN 0 AND 365`),
+  check("invoice_email_setting_dunning_interval_valid", sql`${table.dunningIntervalDays} BETWEEN 1 AND 365`),
+  check("invoice_email_setting_dunning_max_valid", sql`${table.dunningMaxReminders} BETWEEN 1 AND 3`),
+]);
+
+/** Clientes a los que nunca se envían recordatorios de cobro (ni en bloque ni automáticos). */
+export const dunningCustomerOptOut = pgTable("dunning_customer_opt_out", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  customerId: text("customerId").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("dunning_customer_opt_out_company_customer_unique").on(table.companyId, table.customerId)]);
+
+/** Línea de una plantilla recurrente. Las descripciones admiten variables ({mes}, {trimestre}…). */
+export type RecurringTemplateLine = {
+  itemId?: string | null;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  discountPct?: number;
+  taxRate: number;
+  retentionRate: number;
+  /** Solo gastos: cuenta de gasto y % de IVA deducible. */
+  expenseAccountId?: string | null;
+  taxDeductiblePct?: number;
+};
+
+/** Plantilla de documento recurrente: factura de venta o gasto (factura de proveedor). */
+export const recurringTemplate = pgTable("recurring_template", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // SALES_INVOICE | EXPENSE
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  // ACTIVE | PAUSED | FINISHED
+  status: text("status").notNull().default("ACTIVE"),
+  customerId: text("customerId").references(() => customer.id, { onDelete: "restrict" }),
+  supplierPartnerId: text("supplierPartnerId").references(() => partner.id, { onDelete: "restrict" }),
+  // MONTHLY | QUARTERLY | YEARLY | EVERY_N_MONTHS (intervalMonths guarda los meses efectivos).
+  frequency: text("frequency").notNull(),
+  intervalMonths: integer("intervalMonths").notNull().default(1),
+  // Fechas de calendario (YYYY-MM-DD, zona de la empresa). dayOfMonth 29–31 se ajusta al último día del mes.
+  startDate: text("startDate").notNull(),
+  endDate: text("endDate"),
+  dayOfMonth: integer("dayOfMonth").notNull(),
+  maxOccurrences: integer("maxOccurrences"),
+  // Facturas: DRAFT | ISSUE | ISSUE_AND_EMAIL. Gastos: DRAFT (pendiente de revisar) | POST (registrar).
+  issueMode: text("issueMode").notNull().default("DRAFT"),
+  lines: jsonb("lines").$type<RecurringTemplateLine[]>().notNull(),
+  notes: text("notes"),
+  vatTreatment: text("vatTreatment"),
+  sourceInvoiceId: text("sourceInvoiceId").references(() => invoice.id, { onDelete: "set null" }),
+  // Próxima fecha a generar (null = terminada). occurrencesGenerated cuenta los periodos ya generados.
+  nextRunDate: text("nextRunDate"),
+  occurrencesGenerated: integer("occurrencesGenerated").notNull().default(0),
+  lastRunAt: timestamp("lastRunAt", { withTimezone: true, mode: "date" }),
+  lastError: text("lastError"),
+  // Usuario en cuyo nombre actúa el worker (auditoría, series y contabilidad).
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("recurring_template_company_kind_idx").on(table.companyId, table.kind),
+  index("recurring_template_due_idx").on(table.status, table.nextRunDate),
+  check("recurring_template_kind_valid", sql`${table.kind} IN ('SALES_INVOICE', 'EXPENSE')`),
+  check("recurring_template_status_valid", sql`${table.status} IN ('ACTIVE', 'PAUSED', 'FINISHED')`),
+  check("recurring_template_frequency_valid", sql`${table.frequency} IN ('MONTHLY', 'QUARTERLY', 'YEARLY', 'EVERY_N_MONTHS')`),
+  check("recurring_template_interval_valid", sql`${table.intervalMonths} BETWEEN 1 AND 60`),
+  check("recurring_template_day_valid", sql`${table.dayOfMonth} BETWEEN 1 AND 31`),
+  check("recurring_template_issue_mode_valid", sql`${table.issueMode} IN ('DRAFT', 'ISSUE', 'ISSUE_AND_EMAIL', 'POST')`),
+  check("recurring_template_party_valid", sql`(${table.kind} = 'SALES_INVOICE' AND ${table.customerId} IS NOT NULL) OR (${table.kind} = 'EXPENSE' AND ${table.supplierPartnerId} IS NOT NULL)`),
+]);
+
+/** Cada periodo generado por una plantilla. Único por plantilla + periodo: el worker es idempotente. */
+export const recurringRun = pgTable("recurring_run", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  templateId: text("templateId").notNull().references(() => recurringTemplate.id, { onDelete: "cascade" }),
+  // Fecha programada del periodo (YYYY-MM-DD); es también la clave de idempotencia.
+  periodDate: text("periodDate").notNull(),
+  // GENERATED | PENDING_REVIEW (gasto a confirmar) | DISCARDED
+  status: text("status").notNull(),
+  invoiceId: text("invoiceId").references(() => invoice.id, { onDelete: "set null" }),
+  supplierInvoiceId: text("supplierInvoiceId").references(() => supplierInvoice.id, { onDelete: "set null" }),
+  // Gastos pendientes de revisar: líneas ya renderizadas para registrarlas al confirmar.
+  payload: jsonb("payload").$type<{ lines: RecurringTemplateLine[]; notes: string | null }>(),
+  // Aviso no bloqueante (p. ej. "no se pudo emitir: queda en borrador" o fallo del email).
+  message: text("message"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("recurring_run_template_period_unique").on(table.templateId, table.periodDate),
+  index("recurring_run_company_status_idx").on(table.companyId, table.status),
+  check("recurring_run_status_valid", sql`${table.status} IN ('GENERATED', 'PENDING_REVIEW', 'DISCARDED')`),
 ]);

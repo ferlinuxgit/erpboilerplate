@@ -19,7 +19,7 @@ function stateCopy(state: ExportState) {
     case "error":
       return EXPORT_FAILURE;
     default:
-      return "Exporta los KPIs visibles en un Excel para compartir con dirección.";
+      return "Descarga estos indicadores en un Excel para compartirlos.";
   }
 }
 
@@ -41,7 +41,7 @@ export function ReportingExportButton({ period = "month" }: { period?: "month" |
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `kpis-${period}.xlsx`;
+      link.download = `indicadores-${period}.xlsx`;
       document.body.append(link);
       link.click();
       link.remove();
@@ -56,7 +56,7 @@ export function ReportingExportButton({ period = "month" }: { period?: "month" |
   return (
     <div className="space-y-2">
       <Button aria-busy={state === "loading" || undefined} disabled={state === "loading"} onClick={handleExport} type="button" variant="secondary">
-        {state === "loading" ? "Preparando Excel…" : "Exportar KPIs a Excel"}
+        {state === "loading" ? "Preparando Excel…" : "Exportar indicadores a Excel"}
       </Button>
       <p
         aria-live="polite"

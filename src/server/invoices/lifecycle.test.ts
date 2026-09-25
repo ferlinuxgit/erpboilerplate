@@ -35,3 +35,23 @@ describe("invoice lifecycle helpers", () => {
     expect(defaultSalesVatTreatment(null)).toBe("DOMESTIC");
   });
 });
+
+describe("servicios intracomunitarios", async () => {
+  const { customerDefaultVatTreatment, isSalesVatTreatment, vatTreatmentLegalNotes, verifactuSalesVatTreatment } = await import("@/server/invoices/lifecycle");
+
+  it("distingue bienes (art. 25) y servicios B2B (inversión del sujeto pasivo)", () => {
+    expect(isSalesVatTreatment("INTRA_EU_SERVICES")).toBe(true);
+    expect(vatTreatmentLegalNotes.INTRA_EU).toContain("art. 25");
+    expect(vatTreatmentLegalNotes.INTRA_EU_SERVICES).toContain("Inversión del sujeto pasivo");
+    expect(vatTreatmentLegalNotes.INTRA_EU_SERVICES).toContain("art. 69");
+    // VERI*FACTU: servicios intracomunitarios = no sujeta por reglas de localización (N2).
+    expect(verifactuSalesVatTreatment("INTRA_EU_SERVICES")).toBe("NOT_SUBJECT");
+    expect(verifactuSalesVatTreatment("INTRA_EU")).toBe("INTRA_EU");
+  });
+
+  it("usa el tratamiento habitual del cliente antes que el de su país", () => {
+    expect(customerDefaultVatTreatment({ countryCode: "FR", defaultVatTreatment: "INTRA_EU_SERVICES" })).toBe("INTRA_EU_SERVICES");
+    expect(customerDefaultVatTreatment({ countryCode: "FR", defaultVatTreatment: null })).toBe("INTRA_EU");
+    expect(customerDefaultVatTreatment(null)).toBe("DOMESTIC");
+  });
+});

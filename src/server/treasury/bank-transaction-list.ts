@@ -20,11 +20,21 @@ export function bankTransactionListConfig(accountIds: readonly string[]): ListPa
     sortKeys: bankTransactionSortKeys,
     // Latest movement first (id breaks ties).
     defaultSort: { key: "postedAt", dir: "desc" },
-    filters: { account: accountIds, reconciliation: reconciliationStatusEnum.enumValues },
+    filters: { account: accountIds, reconciliation: movementStatusFilterValues },
   };
 }
 
 type ReconciliationStatus = (typeof reconciliationStatusEnum.enumValues)[number];
+
+/** Filtro de estado en lenguaje llano: ASSIGNED = conciliado asignándolo directamente a una cuenta. */
+export const movementStatusFilterValues = ["PENDING", "RECONCILED", "ASSIGNED"] as const;
+
+function movementStatusCondition(value: string | undefined) {
+  if (value === "PENDING") return eq(bankTransaction.reconciliationStatus, "PENDING");
+  if (value === "ASSIGNED") return and(eq(bankTransaction.reconciliationStatus, "RECONCILED"), eq(bankTransaction.resolution, "ACCOUNT"));
+  if (value === "RECONCILED") return and(eq(bankTransaction.reconciliationStatus, "RECONCILED"), sql`${bankTransaction.resolution} is distinct from 'ACCOUNT'`);
+  return undefined;
+}
 
 /**
  * Fixed scope of a page that embeds the list (e.g. only pending movements in reconciliation,
@@ -54,9 +64,7 @@ export async function listBankTransactionsPage(
     dateRange: { column: bankTransaction.postedAt, from: params.from, to: params.to },
     filters: [
       params.filters.account ? eq(bankTransaction.bankAccountId, params.filters.account) : undefined,
-      params.filters.reconciliation
-        ? eq(bankTransaction.reconciliationStatus, params.filters.reconciliation as (typeof reconciliationStatusEnum.enumValues)[number])
-        : undefined,
+      movementStatusCondition(params.filters.reconciliation),
     ],
   });
   const sortColumns: Record<BankTransactionSortKey, AnyColumn | SQL> = {
@@ -80,6 +88,8 @@ export async function listBankTransactionsPage(
           description: bankTransaction.description,
           postedAt: bankTransaction.postedAt,
           reconciliationStatus: bankTransaction.reconciliationStatus,
+          resolution: bankTransaction.resolution,
+          reference: bankTransaction.reference,
           total: windowCount(),
         })
         .from(bankTransaction)
@@ -120,6 +130,8 @@ export async function listBankTransactionsPage(
       description: row.description,
       postedAt: row.postedAt,
       reconciliationStatus: row.reconciliationStatus,
+      resolution: row.resolution,
+      reference: row.reference,
     })),
   };
 }
@@ -133,6 +145,8 @@ export async function bankTransactionStats(companyId: string, scope: BankTransac
     .select({
       total: count(),
       pending: sql<number>`count(*) filter (where ${bankTransaction.reconciliationStatus} = 'PENDING')`.mapWith(Number),
+      assigned: sql<number>`count(*) filter (where ${bankTransaction.reconciliationStatus} = 'RECONCILED' and ${bankTransaction.resolution} = 'ACCOUNT')`.mapWith(Number),
+      pendingAmount: sql<string>`coalesce(sum(${bankTransaction.amount}) filter (where ${bankTransaction.reconciliationStatus} = 'PENDING'), 0)`,
       balance: sql<string>`coalesce(sum(${bankTransaction.amount}), 0)`,
       income: sql<string>`coalesce(sum(${bankTransaction.amount}) filter (where ${bankTransaction.amount} > 0), 0)`,
       outflow: sql<string>`coalesce(sum(${bankTransaction.amount}) filter (where ${bankTransaction.amount} < 0), 0)`,
@@ -146,6 +160,9 @@ export async function bankTransactionStats(companyId: string, scope: BankTransac
     total,
     pending,
     reconciled: total - pending,
+    assigned: Number(row?.assigned ?? 0),
+    /** Suma con signo de lo que sigue en 555 (pendiente de identificar). */
+    pendingAmount: Number(row?.pendingAmount ?? 0),
     balance: Number(row?.balance ?? 0),
     income: Number(row?.income ?? 0),
     outflow: Number(row?.outflow ?? 0),
@@ -164,6 +181,8 @@ export async function recentBankTransactions(companyId: string, scope: BankTrans
       description: bankTransaction.description,
       postedAt: bankTransaction.postedAt,
       reconciliationStatus: bankTransaction.reconciliationStatus,
+      resolution: bankTransaction.resolution,
+      reference: bankTransaction.reference,
     })
     .from(bankTransaction)
     .innerJoin(bankAccount, eq(bankTransaction.bankAccountId, bankAccount.id))

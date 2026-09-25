@@ -18,7 +18,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;
   const report = await getFiscalReport(ctx.company.id, id);
-  if (!report) return NextResponse.json({ message: "Reporte no encontrado." }, { status: 404 });
+  if (!report) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
   return NextResponse.json(report);
 }
 
@@ -33,7 +33,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   try {
     const updated = await updateFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, id, payload.data);
-    if (!updated) return NextResponse.json({ message: "Reporte no encontrado." }, { status: 404 });
+    if (!updated) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
     return NextResponse.json(updated);
   } catch (error) {
     return handleRouteError(error, "fiscal-reports.save", "No se pudo guardar el modelo. Inténtalo de nuevo.");
@@ -46,7 +46,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   try {
     const deleted = await deleteFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, id);
-    if (!deleted) return NextResponse.json({ message: "Reporte no encontrado." }, { status: 404 });
+    if (!deleted) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return handleRouteError(error, "fiscal-reports.delete", "No se pudo eliminar el modelo. Inténtalo de nuevo.");

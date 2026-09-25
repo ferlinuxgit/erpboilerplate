@@ -32,7 +32,7 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
           accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))}
           defaultPostedAt={entry.postedAt.toISOString().slice(0, 10)}
           defaultReference={entry.reference ?? ""}
-          defaultLines={entry.lines.map((line) => ({ accountId: line.accountId, debit: line.debit.toString(), credit: line.credit.toString() }))}
+          defaultLines={entry.lines.map((line) => ({ accountId: line.accountId, debit: Number(line.debit) ? line.debit.toString() : "", credit: Number(line.credit) ? line.credit.toString() : "" }))}
         />
       </PageSection>
       )}

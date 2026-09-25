@@ -24,7 +24,7 @@ describe("journal line balance validation", () => {
     expect(() => validateJournalLines([
       { accountId: "cash", debit: "100", credit: "" },
       { accountId: "sales", debit: "", credit: "99.99" },
-    ])).toThrow("balanceado");
+    ])).toThrow("descuadrado");
   });
 
   it("rejects unsafe lines with both sides, missing account, negative or non numeric amounts", () => {

@@ -1,14 +1,19 @@
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import {
+  company,
   invitation,
   membership,
+  tenant,
   tenantSecurityPolicy,
   user,
 } from "@/db/schema";
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/http";
+import { assignableRoles, canManageMemberWithRole, type AppRole } from "@/lib/rbac";
 import { recordAudit } from "@/server/audit";
+
+export const INVITATION_LIFETIME_MS = 1000 * 60 * 60 * 24 * 7;
 
 export async function listTeamMembers(tenantId: string) {
   return db
@@ -28,8 +33,8 @@ export async function updateTeamMemberRole(input: {
   tenantId: string;
   membershipId: string;
   actorUserId: string;
-  actorRole: "OWNER" | "ADMIN" | "MEMBER";
-  role: "OWNER" | "ADMIN" | "MEMBER";
+  actorRole: AppRole;
+  role: AppRole;
 }) {
   const [target] = await db
     .select()
@@ -42,10 +47,7 @@ export async function updateTeamMemberRole(input: {
     )
     .limit(1);
   if (!target) return null;
-  if (
-    input.actorRole !== "OWNER" &&
-    (target.role !== "MEMBER" || input.role === "OWNER")
-  )
+  if (!canManageMemberWithRole(input.actorRole, target.role) || !assignableRoles(input.actorRole).includes(input.role))
     throw new HttpError(
       403,
       "Solo un propietario puede gestionar administradores y propietarios.",
@@ -89,7 +91,7 @@ export async function removeTeamMember(input: {
   tenantId: string;
   membershipId: string;
   actorUserId: string;
-  actorRole: "OWNER" | "ADMIN" | "MEMBER";
+  actorRole: AppRole;
 }) {
   const [target] = await db
     .select()
@@ -102,7 +104,7 @@ export async function removeTeamMember(input: {
     )
     .limit(1);
   if (!target) return false;
-  if (input.actorRole !== "OWNER" && target.role !== "MEMBER")
+  if (!canManageMemberWithRole(input.actorRole, target.role))
     throw new HttpError(
       403,
       "Solo un propietario puede eliminar administradores o propietarios.",
@@ -143,7 +145,7 @@ export async function removeTeamMember(input: {
 export async function createInvitation(
   tenantId: string,
   actorUserId: string,
-  payload: { email: string; role: "OWNER" | "ADMIN" | "MEMBER" },
+  payload: { email: string; role: AppRole },
 ) {
   const normalizedEmail = payload.email.trim().toLowerCase();
   const [policy] = await db
@@ -164,25 +166,128 @@ export async function createInvitation(
       422,
       "El dominio del email no está permitido por la política de seguridad.",
     );
-  const [created] = await db
-    .insert(invitation)
-    .values({
-      tenantId,
-      email: normalizedEmail,
-      role: payload.role,
-      token: crypto.randomUUID(),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
-    })
-    .returning();
-  await recordAudit({
-    tenantId,
-    actorUserId,
-    action: "invitation.create",
-    entityName: "invitation",
-    entityId: created.id,
-    payload,
+  const [existingMember] = await db
+    .select({ id: membership.id })
+    .from(membership)
+    .innerJoin(user, eq(user.id, membership.userId))
+    .where(and(eq(membership.tenantId, tenantId), sql`lower(${user.email}) = ${normalizedEmail}`))
+    .limit(1);
+  if (existingMember) throw new HttpError(409, "Esa persona ya forma parte del equipo.");
+  const created = await db.transaction(async (tx) => {
+    // Una sola invitación pendiente por email: la nueva sustituye a la anterior (rol y enlace nuevos).
+    await tx
+      .delete(invitation)
+      .where(and(eq(invitation.tenantId, tenantId), eq(invitation.email, normalizedEmail), isNull(invitation.acceptedAt)));
+    const [row] = await tx
+      .insert(invitation)
+      .values({
+        tenantId,
+        email: normalizedEmail,
+        role: payload.role,
+        token: crypto.randomUUID(),
+        invitedByUserId: actorUserId,
+        expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
+      })
+      .returning();
+    await recordAudit(
+      {
+        tenantId,
+        actorUserId,
+        action: "invitation.create",
+        entityName: "invitation",
+        entityId: row.id,
+        payload: { email: normalizedEmail, role: payload.role },
+      },
+      tx,
+    );
+    return row;
   });
   return created;
+}
+
+/** Invitaciones sin aceptar (incluidas las caducadas, para poder reenviarlas). */
+export async function listPendingInvitations(tenantId: string) {
+  return db
+    .select({
+      id: invitation.id,
+      email: invitation.email,
+      role: invitation.role,
+      token: invitation.token,
+      expiresAt: invitation.expiresAt,
+      createdAt: invitation.createdAt,
+      invitedByName: user.name,
+    })
+    .from(invitation)
+    .leftJoin(user, eq(user.id, invitation.invitedByUserId))
+    .where(and(eq(invitation.tenantId, tenantId), isNull(invitation.acceptedAt)))
+    .orderBy(asc(invitation.createdAt));
+}
+
+/** Renueva la caducidad (7 días desde hoy) de una invitación pendiente; conserva el enlace. */
+export async function renewInvitation(tenantId: string, actorUserId: string, invitationId: string) {
+  return db.transaction(async (tx) => {
+    const [renewed] = await tx
+      .update(invitation)
+      .set({ expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS) })
+      .where(and(eq(invitation.id, invitationId), eq(invitation.tenantId, tenantId), isNull(invitation.acceptedAt)))
+      .returning();
+    if (!renewed) return null;
+    await recordAudit({ tenantId, actorUserId, action: "invitation.resend", entityName: "invitation", entityId: renewed.id, payload: { email: renewed.email } }, tx);
+    return renewed;
+  });
+}
+
+export async function cancelInvitation(tenantId: string, actorUserId: string, invitationId: string) {
+  return db.transaction(async (tx) => {
+    const [removed] = await tx
+      .delete(invitation)
+      .where(and(eq(invitation.id, invitationId), eq(invitation.tenantId, tenantId), isNull(invitation.acceptedAt)))
+      .returning({ id: invitation.id, email: invitation.email });
+    if (!removed) return false;
+    await recordAudit({ tenantId, actorUserId, action: "invitation.cancel", entityName: "invitation", entityId: removed.id, payload: { email: removed.email } }, tx);
+    return true;
+  });
+}
+
+/**
+ * Datos públicos de una invitación para la página de aceptación: espacio, empresa,
+ * quién invita y rol. `null` si el enlace no existe.
+ */
+export async function getInvitationPreview(token: string) {
+  const [row] = await db
+    .select({
+      email: invitation.email,
+      role: invitation.role,
+      expiresAt: invitation.expiresAt,
+      acceptedAt: invitation.acceptedAt,
+      workspaceName: tenant.name,
+      inviterName: user.name,
+    })
+    .from(invitation)
+    .innerJoin(tenant, eq(tenant.id, invitation.tenantId))
+    .leftJoin(user, eq(user.id, invitation.invitedByUserId))
+    .where(eq(invitation.token, token))
+    .limit(1);
+  if (!row) return null;
+  const [firstCompany] = await db
+    .select({ name: company.name })
+    .from(company)
+    .innerJoin(tenant, eq(tenant.id, company.tenantId))
+    .innerJoin(invitation, and(eq(invitation.tenantId, tenant.id), eq(invitation.token, token)))
+    .orderBy(asc(company.createdAt))
+    .limit(1);
+  return { ...row, companyName: firstCompany?.name ?? row.workspaceName, expired: row.expiresAt.getTime() <= Date.now() };
+}
+
+/** Nombre del espacio de trabajo (visible en invitaciones y en el selector de espacios). */
+export async function renameTenant(tenantId: string, actorUserId: string, name: string) {
+  const trimmed = name.trim();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(tenant).set({ name: trimmed, updatedAt: new Date() }).where(eq(tenant.id, tenantId)).returning({ id: tenant.id, name: tenant.name });
+    if (!updated) return null;
+    await recordAudit({ tenantId, actorUserId, action: "tenant.rename", entityName: "tenant", entityId: tenantId, payload: { name: trimmed } }, tx);
+    return updated;
+  });
 }
 
 /**

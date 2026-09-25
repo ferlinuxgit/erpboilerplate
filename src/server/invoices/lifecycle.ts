@@ -23,7 +23,7 @@ export type InvoiceLifecycle = "DRAFT" | "ISSUED" | "VOID";
 export type InvoiceType = "INVOICE" | "CREDIT_NOTE";
 export type RectificationReason = "R1" | "R2" | "R3" | "R4" | "R5";
 export type RectificationType = "DIFFERENCES" | "SUBSTITUTION";
-export type SalesVatTreatmentCode = "DOMESTIC" | "INTRA_EU" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
+export type SalesVatTreatmentCode = "DOMESTIC" | "INTRA_EU" | "INTRA_EU_SERVICES" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
 
 export const RECTIFICATION_REASONS: RectificationReason[] = ["R1", "R2", "R3", "R4", "R5"];
 export const RECTIFICATION_TYPES: RectificationType[] = ["DIFFERENCES", "SUBSTITUTION"];
@@ -43,17 +43,19 @@ export const rectificationTypeLabels: Record<RectificationType, string> = {
 };
 
 export const salesVatTreatmentOptions: Array<{ value: SalesVatTreatmentCode; label: string; help: string }> = [
-  { value: "DOMESTIC", label: "Nacional", help: "Operación en España con IVA." },
-  { value: "INTRA_EU", label: "Intracomunitaria", help: "Entrega a empresa de otro país de la UE con NIF-IVA: sin IVA (art. 25 LIVA)." },
-  { value: "EXPORT", label: "Exportación", help: "Cliente fuera de la UE: sin IVA (art. 21 LIVA)." },
-  { value: "EXEMPT", label: "Exenta", help: "Operación exenta de IVA (art. 20 LIVA): sanidad, educación, seguros…" },
-  { value: "REVERSE_CHARGE", label: "Inversión del sujeto pasivo", help: "El cliente liquida el IVA (art. 84.Uno.2º LIVA): obras, chatarra, etc." },
-  { value: "NOT_SUBJECT", label: "No sujeta", help: "Operación no sujeta a IVA (p. ej. servicios localizados fuera de España)." },
+  { value: "DOMESTIC", label: "Nacional (con IVA)", help: "Venta en España: la factura lleva IVA." },
+  { value: "INTRA_EU", label: "Venta de productos a empresa de la UE", help: "Envías mercancía a una empresa de otro país de la UE con NIF-IVA válido: la factura va sin IVA (art. 25 LIVA)." },
+  { value: "INTRA_EU_SERVICES", label: "Servicios a empresa de la UE", help: "Prestas un servicio a una empresa de otro país de la UE con NIF-IVA válido: sin IVA español, el cliente declara el IVA en su país (inversión del sujeto pasivo, arts. 69 y 84.Uno.2º LIVA)." },
+  { value: "EXPORT", label: "Exportación (fuera de la UE)", help: "Cliente fuera de la UE: la factura va sin IVA (art. 21 LIVA)." },
+  { value: "EXEMPT", label: "Exenta de IVA", help: "Actividades exentas (art. 20 LIVA): sanidad, educación, seguros…" },
+  { value: "REVERSE_CHARGE", label: "Inversión del sujeto pasivo (España)", help: "El cliente español declara el IVA en tu lugar (art. 84.Uno.2º LIVA): obras de construcción, chatarra, etc." },
+  { value: "NOT_SUBJECT", label: "No sujeta a IVA", help: "Operaciones que no tributan en España (p. ej. servicios a particulares fuera de la UE)." },
 ];
 
 /** Mención legal obligatoria en la factura según el tratamiento de IVA. */
 export const vatTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, string>> = {
   INTRA_EU: "Entrega intracomunitaria de bienes exenta de IVA (art. 25 Ley 37/1992 del IVA).",
+  INTRA_EU_SERVICES: "Prestación de servicios intracomunitaria no sujeta al IVA español (art. 69.Uno.1º Ley 37/1992 del IVA). Inversión del sujeto pasivo (art. 84.Uno.2º Ley 37/1992 y art. 196 Directiva 2006/112/CE).",
   EXPORT: "Exportación exenta de IVA (art. 21 Ley 37/1992 del IVA).",
   EXEMPT: "Operación exenta de IVA (art. 20 Ley 37/1992 del IVA).",
   REVERSE_CHARGE: "Inversión del sujeto pasivo (art. 84.Uno.2º Ley 37/1992 del IVA).",
@@ -70,6 +72,26 @@ export function defaultSalesVatTreatment(countryCode: string | null | undefined)
   const country = (countryCode ?? "ES").trim().toUpperCase() || "ES";
   if (country === "ES") return "DOMESTIC";
   return EU_COUNTRIES.has(country) ? "INTRA_EU" : "EXPORT";
+}
+
+/** Tratamiento por defecto de un cliente: el habitual de su ficha o, si no tiene, el de su país. */
+export function customerDefaultVatTreatment(customer: { countryCode?: string | null; defaultVatTreatment?: string | null } | null | undefined): SalesVatTreatmentCode {
+  if (customer && isSalesVatTreatment(customer.defaultVatTreatment)) return customer.defaultVatTreatment;
+  return defaultSalesVatTreatment(customer?.countryCode);
+}
+
+/** Tratamientos intracomunitarios (el cliente necesita NIF-IVA válido en VIES). */
+export function isIntraEuTreatment(value: string | null | undefined) {
+  return value === "INTRA_EU" || value === "INTRA_EU_SERVICES";
+}
+
+/**
+ * Tratamiento que se comunica a VERI*FACTU: los servicios intracomunitarios B2B se declaran como
+ * operación no sujeta por reglas de localización (clave N2). En los modelos 303/349 cuentan como
+ * operaciones intracomunitarias (casilla 59), igual que las entregas de bienes.
+ */
+export function verifactuSalesVatTreatment(value: SalesVatTreatmentCode): Exclude<SalesVatTreatmentCode, "INTRA_EU_SERVICES"> {
+  return value === "INTRA_EU_SERVICES" ? "NOT_SUBJECT" : value;
 }
 
 export function isSalesVatTreatment(value: unknown): value is SalesVatTreatmentCode {

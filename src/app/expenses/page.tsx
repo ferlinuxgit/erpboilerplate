@@ -10,6 +10,7 @@ import { parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { toServerListState } from "@/server/lists/paginate";
+import { countExpenseInbox } from "@/server/ocr/expense-ocr";
 import { expenseInvoiceListConfig, listExpenseInvoicesPage, summarizeExpenseInvoices } from "@/server/supplier-invoices/list";
 
 export const metadata: Metadata = { title: "Facturas de proveedor" };
@@ -17,9 +18,10 @@ export const metadata: Metadata = { title: "Facturas de proveedor" };
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const ctx = await requireContext("expense.read");
   const params = parseListParams(await searchParams, expenseInvoiceListConfig);
-  const [result, summary] = await Promise.all([
+  const [result, summary, pendingInboxCount] = await Promise.all([
     listExpenseInvoicesPage(ctx.company.id, params),
     summarizeExpenseInvoices(ctx.company.id),
+    countExpenseInbox(ctx.company.id),
   ]);
   const canWriteExpenses = can(ctx.membership.role, "expense.write");
 
@@ -34,9 +36,14 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         meta={<StatusBadge tone={canWriteExpenses ? "success" : "warning"}>{canWriteExpenses ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
         actions={
           canWriteExpenses ? (
-            <Link className={buttonVariants()} href="/expenses/new">
-              Nueva factura
-            </Link>
+            <>
+              <Link className={buttonVariants({ variant: pendingInboxCount > 0 ? "secondary" : "outline" })} href="/expenses/inbox">
+                Bandeja pendiente{pendingInboxCount > 0 ? ` (${pendingInboxCount})` : ""}
+              </Link>
+              <Link className={buttonVariants()} href="/expenses/new">
+                Nueva factura
+              </Link>
+            </>
           ) : null
         }
       />

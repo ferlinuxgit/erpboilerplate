@@ -25,28 +25,44 @@ import {
   paidByInvoiceSubquery,
 } from "@/server/invoices/sql";
 import { bankTransactionStats } from "@/server/treasury/bank-transaction-list";
+import { getCurrentBankBalances } from "@/server/treasury/forecast";
 import { listBankAccounts } from "@/server/treasury/service";
 
 const areas = [
   {
-    href: "/treasury/bank-accounts",
-    title: "Cuentas bancarias",
-    description: "Bancos e IBAN operativos.",
-  },
-  {
-    href: "/treasury/bank-transactions",
-    title: "Movimientos",
-    description: "Extractos y transacciones.",
+    href: "/treasury/import",
+    title: "Importar extracto",
+    description: "CSV, Excel o Norma 43 de tu banco.",
   },
   {
     href: "/treasury/reconciliation",
     title: "Conciliación",
-    description: "Cruce de cobros y pagos.",
+    description: "Di a qué corresponde cada movimiento.",
   },
   {
     href: "/treasury/forecast",
     title: "Previsión",
-    description: "Calendario de caja futura.",
+    description: "¿Cuánto dinero tendré en 30, 60 o 90 días?",
+  },
+  {
+    href: "/treasury/remittances",
+    title: "Remesas SEPA",
+    description: "Paga varias facturas de proveedor a la vez.",
+  },
+  {
+    href: "/treasury/bank-accounts",
+    title: "Cuentas bancarias",
+    description: "Bancos, IBAN y saldos.",
+  },
+  {
+    href: "/treasury/bank-transactions",
+    title: "Movimientos",
+    description: "Histórico del banco con su estado.",
+  },
+  {
+    href: "/treasury/rules",
+    title: "Reglas de conciliación",
+    description: "«Si el concepto dice COMISION → 626».",
   },
 ];
 
@@ -59,7 +75,7 @@ export default async function TreasuryPage() {
   const creditedByInvoice = creditedByInvoiceSubquery(companyId);
   const outstanding = netOutstandingSql(paidByInvoice, creditedByInvoice);
   const trackedInvoice = and(eq(invoice.companyId, companyId), invoiceIsIssuedSql, eq(invoice.invoiceType, "INVOICE"));
-  const [accounts, stats, [invoiceCounts], [selected], methods, lifecycle] = await Promise.all([
+  const [accounts, stats, [invoiceCounts], [selected], methods, lifecycle, balances] = await Promise.all([
     listBankAccounts(companyId),
     bankTransactionStats(companyId),
     db
@@ -95,13 +111,14 @@ export default async function TreasuryPage() {
       .where(eq(paymentMethod.companyId, companyId))
       .orderBy(paymentMethod.name),
     getFiscalYearLifecycle(companyId, ctx.fiscalYear.id),
+    getCurrentBankBalances(companyId),
   ]);
   const canWrite = can(ctx.membership.role, "treasury.write");
   const pending = stats.pending;
   const paidInvoices = invoiceCounts?.paid ?? 0;
   const trackedInvoices = invoiceCounts?.total ?? 0;
   const openInvoices = invoiceCounts?.open ?? 0;
-  const balance = stats.balance;
+  const balance = balances.reduce((sum, account) => sum + account.balance, 0);
 
   return (
     <PageShell>
@@ -132,9 +149,10 @@ export default async function TreasuryPage() {
       ) : null}
       <section className="grid gap-3 md:grid-cols-4">
         <MetricCard
-          label="Saldo registrado"
+          href="/treasury/forecast"
+          label="Saldo en bancos"
           value={formatMoney(balance, ctx.company.baseCurrencyCode)}
-          helper={`Suma de movimientos de ${accounts.filter((account) => account.isActive).length} cuentas activas`}
+          helper={`${accounts.filter((account) => account.isActive).length} cuentas activas · ver previsión`}
         />
         <MetricCard
           label="Movimientos"
@@ -143,9 +161,9 @@ export default async function TreasuryPage() {
         />
         <MetricCard
           href="/treasury/reconciliation"
-          label="Por conciliar"
+          label="Pendientes de conciliar"
           value={pending}
-          helper="Movimientos pendientes"
+          helper={pending ? `${formatMoney(stats.pendingAmount, ctx.company.baseCurrencyCode)} pendientes de identificar` : "Todo identificado"}
           tone={pending ? "warning" : "success"}
         />
         <MetricCard
@@ -162,7 +180,7 @@ export default async function TreasuryPage() {
         title="Áreas de tesorería"
         description="Accede al espacio de trabajo correspondiente."
       >
-        <div className="grid gap-px overflow-hidden border bg-border sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-px overflow-hidden border bg-border sm:grid-cols-2 xl:grid-cols-4" data-testid="treasury-areas">
           {areas.map((area) => (
             <Link
               className="bg-background p-3 hover:bg-muted/40"

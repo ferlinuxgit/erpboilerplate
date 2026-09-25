@@ -7,6 +7,7 @@ import {
   getFiscalDueStatus,
   getSpanishFiscalDueDate,
   getSpanishFiscalModel,
+  isIntraEuSalesTreatment,
   normalizeTaxpayerType,
   parseSpanishFiscalPeriod,
   resolveSalesVatTreatment,
@@ -95,7 +96,7 @@ async function periodActivity(companyId: string, start: Date, endExclusive: Date
       .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
       .where(supplierInvoiceFiscalFilter(companyId, start, endExclusive)),
   ]);
-  const intraEu = salesTreatments.some((row) => resolveSalesVatTreatment(row.vatTreatment, row.countryCode) === "INTRA_EU")
+  const intraEu = salesTreatments.some((row) => isIntraEuSalesTreatment(resolveSalesVatTreatment(row.vatTreatment, row.countryCode)))
     || purchaseTreatments.some((row) => resolveSupplierVatTreatment(row.vatTreatment, row.countryCode) === "INTRA_EU");
   return {
     rentWithholding: Number(withholdings[0]?.rent ?? 0),

@@ -14,9 +14,11 @@ import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { canManageInvoices } from "@/lib/rbac";
+import { todayDateInput } from "@/server/invoices/due-dates";
 import {
   creditedByInvoiceSubquery,
   invoiceIsDraftSql,
+  invoiceIsIssuedSql,
   invoiceLifecycleSql,
   netOutstandingSql,
   paidByInvoiceSubquery,
@@ -53,8 +55,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
   const creditedByInvoice = creditedByInvoiceSubquery(companyId);
   const outstanding = netOutstandingSql(paidByInvoice, creditedByInvoice);
   const isVoided = sql`(${invoice.paymentStatus} = 'VOID' or ${invoice.status} = 'VOID')`;
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  // "Hoy" en la zona horaria de la empresa (España), no la del servidor.
+  const startOfToday = new Date(`${todayDateInput(tenantContext.company.timezone || undefined)}T00:00:00.000Z`);
   const isOverdue = sql`(not ${isVoided} and ${outstanding} > 0 and ${invoice.dueDate} < ${startOfToday})`;
 
   const where = listWhere({
@@ -100,7 +102,13 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
             isOverdue: sql<boolean>`coalesce(${isOverdue}, false)`,
             customerName: customer.name,
             total: windowCount(),
-            ...windowTotals({ sumTotal: invoice.totalAmount, sumOutstanding: outstanding }),
+            // Totales del pie: solo facturas con validez fiscal (sin borradores ni anuladas); los borradores aparte.
+            ...windowTotals({
+              sumTotal: sql`case when ${invoiceIsIssuedSql} then ${invoice.totalAmount} else 0 end`,
+              sumOutstanding: outstanding,
+              sumDrafts: sql`case when ${invoiceIsDraftSql} and ${invoice.status} <> 'VOID' then ${invoice.totalAmount} else 0 end`,
+              draftCount: sql`case when ${invoiceIsDraftSql} and ${invoice.status} <> 'VOID' then 1 else 0 end`,
+            }),
           })
           .from(invoice)
           .innerJoin(customer, eq(invoice.customerId, customer.id))
@@ -143,23 +151,35 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
         description={`Emisión y seguimiento de facturas de ${tenantContext.company.name}.`}
         meta={<StatusBadge tone="neutral">Rol: {statusLabel(roleLabels, tenantContext.membership.role)}</StatusBadge>}
         actions={
-          canCreateInvoice ? (
-            <Link className={buttonVariants()} href="/invoices/new">
-              Nueva factura
+          <>
+            <Link className={buttonVariants({ variant: "outline" })} href="/invoices/collections">
+              Cobros pendientes
             </Link>
-          ) : null
+            <Link className={buttonVariants({ variant: "outline" })} href="/invoices/recurring">
+              Recurrentes
+            </Link>
+            {canCreateInvoice ? (
+              <Link className={buttonVariants()} href="/invoices/new">
+                Nueva factura
+              </Link>
+            ) : null}
+          </>
         }
       />
 
       <PageSection
-        title="Facturas emitidas"
-        description="Abre una factura para revisar sus datos, líneas, PDF o cobros."
+        title="Facturas"
+        description={
+          (firstRow?.draftCount ?? 0) > 0
+            ? `Emitidas, rectificativas y borradores. Los totales solo suman facturas emitidas; hay ${firstRow?.draftCount} ${firstRow?.draftCount === 1 ? "borrador" : "borradores"} por ${formatMoney(firstRow?.sumDrafts ?? 0, currencyCode)} sin emitir.`
+            : "Emitidas y rectificativas. Abre una factura para ver sus datos, el PDF o registrar un cobro."
+        }
       >
         <InvoicesList
           currencyCode={currencyCode}
           paymentMethods={paymentMethods}
           server={toServerListState(params, result, recordCount)}
-          totals={{ totalAmount: firstRow?.sumTotal ?? 0, outstandingAmount: firstRow?.sumOutstanding ?? 0 }}
+          totals={{ totalAmount: firstRow?.sumTotal ?? 0, outstandingAmount: firstRow?.sumOutstanding ?? 0, draftAmount: firstRow?.sumDrafts ?? 0, draftCount: firstRow?.draftCount ?? 0 }}
           rows={result.rows.map((row) => {
             const outstandingAmount = Math.round(row.outstandingAmount * 100) / 100;
             return {

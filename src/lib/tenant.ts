@@ -4,6 +4,10 @@ import { cache } from "react";
 import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getActiveContextCookies, getActiveTenantCookie } from "@/lib/active-context";
+import type { AppRole } from "@/lib/rbac";
+
+/** Nombre provisional de la empresa y del espacio hasta que el usuario lo indique en la puesta en marcha. */
+export const DEFAULT_COMPANY_NAME = "Mi empresa";
 
 type UserTenantContext = {
   tenant: {
@@ -23,7 +27,7 @@ type UserTenantContext = {
   };
   membership: {
     id: string;
-    role: "OWNER" | "ADMIN" | "MEMBER";
+    role: AppRole;
   };
 };
 
@@ -194,7 +198,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }, pref
     };
   }
 
-  const uniqueSlug = await createUniqueSlug(`${user.name}-${user.id.slice(0, 8)}-tenant`);
+  const uniqueSlug = await createUniqueSlug(`${user.name}-${user.id.slice(0, 8)}`);
 
   const createdTenant = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`tenant-provision:${user.id}`}))`);
@@ -230,7 +234,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }, pref
     const createdTenants = await tx
       .insert(tenant)
       .values({
-        name: `${user.name} Tenant`,
+        name: DEFAULT_COMPANY_NAME,
         slug: uniqueSlug,
         ownerId: user.id,
       })
@@ -258,7 +262,7 @@ async function ensureUserTenantInternal(user: { id: string; name: string }, pref
       .insert(company)
       .values({
         tenantId: createdTenantRow.id,
-        name: `${user.name} Company`,
+        name: DEFAULT_COMPANY_NAME,
       })
       .returning({
         id: company.id,

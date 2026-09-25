@@ -1,61 +1,64 @@
-"use client";
+import type { Metadata } from "next";
 
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
-
-import { Button, buttonVariants } from "@/components/ui/button";
 import { AuthPageShell } from "@/components/auth-page-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { invalidateActiveContext } from "@/lib/active-context-client";
-import { loginPathWithNext } from "@/lib/auth-client";
-import { getCsrfHeader } from "@/lib/csrf-client";
+import { getUserSession } from "@/lib/current-user";
+import { formatDate } from "@/lib/format";
+import { isAppRole, roleDescriptions } from "@/lib/rbac";
+import { roleLabels, statusLabel } from "@/lib/status-labels";
+import { getInvitationPreview } from "@/server/team/service";
 
-export default function AcceptInvitationPage() {
-  const { token } = useParams<{ token: string }>();
-  const router = useRouter();
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
-  const invitationPath = `/invitations/${encodeURIComponent(token)}`;
-  const loginHref = loginPathWithNext(invitationPath);
+import { AcceptInvitation } from "./accept-invitation";
 
-  async function accept() {
-    setPending(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/invitations/${encodeURIComponent(token)}/accept`, { method: "POST", headers: getCsrfHeader() });
-      const payload = await response.json().catch(() => null);
-      if (response.ok) {
-        // El servidor ya ha activado el espacio invitado: recarga completa del contexto.
-        invalidateActiveContext();
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.assign("/dashboard");
-        return;
-      }
-      if (response.status === 401) {
-        router.push(loginHref);
-        return;
-      }
-      setError(payload?.message ?? "No se pudo aceptar la invitación.");
-    } catch {
-      setError("No se pudo conectar con el servidor. Revisa tu conexión.");
-    }
-    setPending(false);
+export const metadata: Metadata = { title: "Invitación" };
+
+export default async function InvitationPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  const [preview, session] = await Promise.all([getInvitationPreview(token), getUserSession()]);
+
+  if (!preview) {
+    return (
+      <AuthPageShell>
+        <Card className="w-full border-0 bg-transparent shadow-none">
+          <CardHeader>
+            <CardTitle aria-level={1} role="heading">Invitación no encontrada</CardTitle>
+            <CardDescription>El enlace no es válido o la invitación se ha cancelado. Pide a quien te invitó que te envíe una nueva.</CardDescription>
+          </CardHeader>
+        </Card>
+      </AuthPageShell>
+    );
   }
+
+  const roleLabel = statusLabel(roleLabels, preview.role);
+  const roleDescription = isAppRole(preview.role) ? roleDescriptions[preview.role] : "";
+  const signedInEmail = session?.user.email ?? null;
 
   return (
     <AuthPageShell>
       <Card className="w-full border-0 bg-transparent shadow-none">
         <CardHeader>
-          <CardTitle aria-level={1} role="heading">Aceptar invitación</CardTitle>
-          <CardDescription>Debes iniciar sesión con el mismo email al que se envió la invitación. Al aceptarla pasarás a trabajar en ese espacio.</CardDescription>
+          <CardTitle aria-level={1} role="heading">Te han invitado a {preview.workspaceName}</CardTitle>
+          <CardDescription>
+            {preview.inviterName ? <><strong>{preview.inviterName}</strong> te invita a trabajar en </> : "Te invitan a trabajar en "}
+            <strong>{preview.companyName}</strong> con el rol <strong>{roleLabel}</strong>.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
-          <Button aria-busy={pending || undefined} disabled={pending} onClick={() => void accept()} type="button">
-            {pending ? "Aceptando…" : "Aceptar invitación"}
-          </Button>
-          <Link className={buttonVariants({ variant: "outline" })} href={loginHref}>Iniciar sesión</Link>
-          {error ? <p role="alert" className="w-full text-sm text-destructive">{error}</p> : null}
+        <CardContent className="space-y-4">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border border-window-dark-shadow bg-window-panel p-2 text-sm">
+            <dt className="text-muted-foreground">Rol</dt>
+            <dd><strong>{roleLabel}</strong>{roleDescription ? <span className="block text-muted-foreground">{roleDescription}</span> : null}</dd>
+            <dt className="text-muted-foreground">Para</dt>
+            <dd className="break-all">{preview.email}</dd>
+            <dt className="text-muted-foreground">Caduca</dt>
+            <dd>{formatDate(preview.expiresAt)}</dd>
+          </dl>
+          <AcceptInvitation
+            accepted={Boolean(preview.acceptedAt)}
+            expired={preview.expired}
+            invitedEmail={preview.email}
+            signedInEmail={signedInEmail}
+            token={token}
+          />
         </CardContent>
       </Card>
     </AuthPageShell>

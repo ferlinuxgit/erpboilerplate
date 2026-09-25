@@ -23,8 +23,9 @@ import { EmptyState } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatPercent, parseDecimalInput } from "@/lib/format";
+import { addDaysToDateInput, todayDateInput } from "@/server/invoices/due-dates";
 
-export type SalesCustomerOption = { id: string; number?: string | null; name: string };
+export type SalesCustomerOption = { id: string; number?: string | null; name: string; defaultRetentionRate?: number | null };
 
 export type SalesDocumentLineValues = {
   description: string;
@@ -68,11 +69,9 @@ const copy = {
   },
 } satisfies Record<SalesDocumentKind, Record<string, string>>;
 
+/** Hoy (o dentro de N días) en la zona horaria del usuario (Europe/Madrid), nunca en UTC. */
 function todayInputValue(offsetDays = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() + offsetDays);
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 10);
+  return addDaysToDateInput(todayDateInput(), offsetDays);
 }
 
 type HeaderErrors = Partial<Record<"customerId" | "issueDate" | "validUntil", string>>;
@@ -109,8 +108,12 @@ export function SalesDocumentForm({
   const [number, setNumber] = useState(initialValues?.number ?? "");
   const [issueDate, setIssueDate] = useState(initialValues?.issueDate ?? todayInputValue());
   const [validUntil, setValidUntil] = useState(initialValues?.validUntil ?? (kind === "quote" ? todayInputValue(30) : ""));
-  const initialRetention = parseDecimalInput(initialValues?.lines.find((line) => line.retentionRate)?.retentionRate ?? null) ?? 0;
+  const customerRetention = (id: string) => Number(customers.find((customer) => customer.id === id)?.defaultRetentionRate ?? 0) || 0;
+  const initialRetention = initialValues
+    ? parseDecimalInput(initialValues.lines.find((line) => line.retentionRate)?.retentionRate ?? null) ?? 0
+    : customerRetention(customerId);
   const [retentionRate, setRetentionRate] = useState(initialRetention);
+  const [retentionTouched, setRetentionTouched] = useState(Boolean(initialValues));
   const [lines, setLines] = useState<DocumentLineDraft[]>(() =>
     initialValues?.lines.length
       ? initialValues.lines.map((line) =>
@@ -183,8 +186,10 @@ export function SalesDocumentForm({
       if (!response.ok) throw new Error(await readApiError(response, fallback));
       const payload = (await response.json().catch(() => null)) as { id?: string } | null;
       toast.success(isEdit ? text.updated : text.created);
-      if (kind === "quote") router.push(documentId ? `/sales/quotes/${documentId}` : "/sales/quotes");
-      else router.push(`/sales/orders/${documentId ?? payload?.id ?? ""}`);
+      // Tras crear o guardar se abre el documento para seguir con él (enviarlo, convertirlo…).
+      const targetId = documentId ?? payload?.id;
+      const basePath = kind === "quote" ? "/sales/quotes" : "/sales/orders";
+      router.push(targetId ? `${basePath}/${targetId}` : basePath);
       router.refresh();
     } catch (error) {
       const message = errorMessage(error, fallback);
@@ -200,7 +205,16 @@ export function SalesDocumentForm({
       <RequiredFieldsNote />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <AccessibleField className="md:col-span-2" error={headerErrors.customerId} id={`${idPrefix}-customer`} label="Cliente" required>
-          <Select autoFocus={!isEdit} onChange={(event) => setCustomerId(event.target.value)} required value={customerId}>
+          <Select
+            autoFocus={!isEdit}
+            onChange={(event) => {
+              setCustomerId(event.target.value);
+              // La retención habitual del cliente se aplica mientras no se cambie a mano.
+              if (!retentionTouched) setRetentionRate(customerRetention(event.target.value));
+            }}
+            required
+            value={customerId}
+          >
             <option value="">Selecciona un cliente…</option>
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>
@@ -209,11 +223,13 @@ export function SalesDocumentForm({
             ))}
           </Select>
         </AccessibleField>
-        <AccessibleField helperText="Déjalo vacío para usar la numeración automática." id={`${idPrefix}-number`} label="Número">
-          <Input autoComplete="off" onChange={(event) => setNumber(event.target.value)} placeholder="Automático" value={number} />
-        </AccessibleField>
-        <AccessibleField helperText="Se aplica a todas las líneas (profesionales)." id={`${idPrefix}-retention`} label="Retención IRPF">
-          <Select onChange={(event) => setRetentionRate(Number(event.target.value))} value={String(retentionRate)}>
+        {kind === "quote" ? (
+          <AccessibleField helperText="Déjalo vacío para usar la numeración automática." id={`${idPrefix}-number`} label="Número">
+            <Input autoComplete="off" onChange={(event) => setNumber(event.target.value)} placeholder="Automático" value={number} />
+          </AccessibleField>
+        ) : null}
+        <AccessibleField helperText="Si el cliente es una empresa y tú eres profesional, normalmente 15 %. Se aplica a todas las líneas." id={`${idPrefix}-retention`} label="Retención IRPF">
+          <Select onChange={(event) => { setRetentionTouched(true); setRetentionRate(Number(event.target.value)); }} value={String(retentionRate)}>
             {retentionOptions.map((rate) => (
               <option key={rate} value={String(rate)}>{rate === 0 ? "Sin retención" : formatPercent(rate)}</option>
             ))}

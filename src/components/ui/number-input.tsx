@@ -113,7 +113,7 @@ export function DecimalInput({
       {adornment ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[0.72rem] text-window-muted"
+          className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-xs text-window-muted"
         >
           {adornment}
         </span>

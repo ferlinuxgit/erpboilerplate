@@ -22,7 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "treasury.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string; accountId?: string | null; archived?: boolean } | null;
+  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string; accountId?: string | null; archived?: boolean; bic?: string | null } | null;
   if (!payload) return invalidJsonResponse();
   const { id } = await params;
 
@@ -38,6 +38,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       iban: payload.iban.trim(),
       bankName: payload.bankName.trim(),
       ...(payload.accountId === undefined ? {} : { accountId: payload.accountId?.trim() || null }),
+      ...(payload.bic === undefined ? {} : { bic: typeof payload.bic === "string" ? payload.bic : null }),
     });
     if (!updated) return NextResponse.json({ message: "Cuenta no encontrada." }, { status: 404 });
     return NextResponse.json(updated);

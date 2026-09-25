@@ -4,9 +4,12 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { HelpTerm } from "@/components/help/help-term";
 import { Button } from "@/components/ui/button";
+import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { PercentInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -50,6 +53,10 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!Number.isFinite(values.prorrataPct) || values.prorrataPct < 0 || values.prorrataPct > 100) {
+      setError("La prorrata tiene que estar entre 0 y 100 %.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -115,8 +122,8 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
           </Select>
         </AccessibleField>
 
-        <AccessibleField id="fiscal-prorrata" label="Prorrata deducible (%)" helperText="100 % salvo que tengas actividades exentas de IVA (formación, sanidad…).">
-          <Input inputMode="decimal" min={0} max={100} step="0.001" type="number" value={values.prorrataPct} onChange={(event) => setValue("prorrataPct", Number(event.target.value))} />
+        <AccessibleField id="fiscal-prorrata" label="Prorrata deducible (%)" helperText={<>100 % salvo que tengas actividades exentas de IVA (formación, sanidad…). <HelpTerm term="prorrata">¿Qué es la prorrata?</HelpTerm></>}>
+          <PercentInput value={values.prorrataPct} onValueChange={(value) => setValue("prorrataPct", value ?? Number.NaN)} />
         </AccessibleField>
 
         <label className="flex items-center gap-2 self-end rounded-[2px] border px-3 py-2 text-sm" htmlFor="fiscal-sii">
@@ -146,11 +153,13 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
   const [since, setSince] = useState(initialSince);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const enabled = mode === "verifactu";
   const locked = initialMode !== "pending";
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const activating = initialMode === "pending" && mode !== "pending";
+
+  const save = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -160,7 +169,8 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
         body: JSON.stringify({ mode, since: since || null }),
       });
       if (!response.ok) throw new Error(await readError(response, "No se pudo guardar el modo VERI*FACTU."));
-      toast.success(mode === "verifactu" ? "Modo VERI*FACTU activado." : "Configuración VeriFactu guardada.");
+      setConfirmOpen(false);
+      toast.success(mode === "verifactu" ? "Modo VERI*FACTU activado." : "Configuración de VERI*FACTU guardada.");
       router.refresh();
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : "Error inesperado.";
@@ -169,6 +179,17 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
     } finally {
       setLoading(false);
     }
+  };
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    // Activar el registro de facturas es irreversible: se confirma siempre antes de guardar.
+    if (activating) {
+      setError(null);
+      setConfirmOpen(true);
+      return;
+    }
+    void save();
   };
 
   return (
@@ -232,12 +253,24 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
       {locked ? (
         <p className="text-xs text-muted-foreground">Una vez activado, el registro de facturas no se puede desactivar; solo puedes cambiar entre VERI*FACTU y NO VERI*FACTU.</p>
       ) : null}
-      {error ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
+      {error && !confirmOpen ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
       <div className="flex justify-end">
         <Button disabled={loading || (mode === initialMode && since === initialSince)} type="submit">
-          {loading ? "Guardando…" : "Guardar modo VERI*FACTU"}
+          {loading ? "Guardando…" : activating ? "Activar el registro de facturas…" : "Guardar modo VERI*FACTU"}
         </Button>
       </div>
+      <DestructiveActionDialog
+        confirmLabel={mode === "verifactu" ? "Sí, activar VERI*FACTU" : "Sí, activar NO VERI*FACTU"}
+        description={`${mode === "verifactu"
+          ? "Desde la fecha indicada, cada factura que emitas se registrará con una huella encadenada, se enviará automáticamente a la AEAT y llevará el código QR."
+          : "Desde la fecha indicada, cada factura que emitas se registrará con una huella encadenada que tendrás que firmar y custodiar."} Esta decisión es irreversible: el registro de facturas no se puede desactivar después; solo podrás cambiar entre VERI*FACTU y NO VERI*FACTU.`}
+        errorMessage={error}
+        isSubmitting={loading}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={save}
+        open={confirmOpen}
+        title="¿Activar el registro de facturas?"
+      />
     </form>
   );
 }

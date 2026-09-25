@@ -13,7 +13,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const { id } = await params;
   const report = await getFiscalReport(ctx.company.id, id);
-  if (!report) return NextResponse.json({ message: "Reporte no encontrado." }, { status: 404 });
+  if (!report) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
   if (!isSpanishFiscalModelCode(report.code)) return NextResponse.json({ message: "Modelo fiscal no soportado." }, { status: 400 });
 
   const summary = await calculateSpanishFiscalSummary(ctx.company.id, report.code, report.period);

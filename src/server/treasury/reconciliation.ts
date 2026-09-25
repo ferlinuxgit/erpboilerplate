@@ -1,7 +1,8 @@
 import { and, eq, gte, lte } from "drizzle-orm";
 
-import { bankAccount, bankTransaction, invoice, invoicePayment, payment, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
+import { bankAccount, bankTransaction, bankTransactionAllocation, invoice, invoicePayment, payment, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
+import { planImport } from "@/lib/bank-import/dedupe";
 import { parseBankCsv } from "@/lib/bank-csv";
 import { postBankTransaction, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError, isAccountingRuleError } from "@/server/accounting/errors";
@@ -84,6 +85,12 @@ export async function reconcileBankTransaction(
       .where(and(eq(bankAccount.companyId, input.companyId), eq(bankTransaction.matchedInvoicePaymentId, candidate.id)))
       .limit(1);
     if (alreadyUsed) throw new AccountingRuleError(409, "MATCH_USED", "Ese cobro ya está conciliado con otro movimiento.");
+    const [allocated] = await client
+      .select({ id: bankTransactionAllocation.id })
+      .from(bankTransactionAllocation)
+      .where(and(eq(bankTransactionAllocation.companyId, input.companyId), eq(bankTransactionAllocation.invoicePaymentId, candidate.id)))
+      .limit(1);
+    if (allocated) throw new AccountingRuleError(409, "MATCH_USED", "Ese cobro ya está conciliado con otro movimiento.");
     matchedInvoicePaymentId = candidate.id;
   } else {
     const [candidate] = await client
@@ -99,6 +106,12 @@ export async function reconcileBankTransaction(
       .where(and(eq(bankAccount.companyId, input.companyId), eq(bankTransaction.matchedSupplierPaymentId, candidate.id)))
       .limit(1);
     if (alreadyUsed) throw new AccountingRuleError(409, "MATCH_USED", "Ese pago ya está conciliado con otro movimiento.");
+    const [allocated] = await client
+      .select({ id: bankTransactionAllocation.id })
+      .from(bankTransactionAllocation)
+      .where(and(eq(bankTransactionAllocation.companyId, input.companyId), eq(bankTransactionAllocation.supplierInvoicePaymentId, candidate.id)))
+      .limit(1);
+    if (allocated) throw new AccountingRuleError(409, "MATCH_USED", "Ese pago ya está conciliado con otro movimiento.");
     matchedSupplierPaymentId = candidate.id;
   }
 
@@ -118,7 +131,7 @@ export async function reconcileBankTransaction(
 
   const [updated] = await client
     .update(bankTransaction)
-    .set({ reconciliationStatus: "RECONCILED", matchedInvoicePaymentId, matchedSupplierPaymentId, reconciledAt: now })
+    .set({ reconciliationStatus: "RECONCILED", matchedInvoicePaymentId, matchedSupplierPaymentId, reconciledAt: now, resolution: "PAYMENT" })
     .where(eq(bankTransaction.id, row.id))
     .returning();
   await recordAudit({
@@ -154,7 +167,7 @@ export async function unreconcileBankTransaction(client: DbClient, input: Actor 
   });
   const [updated] = await client
     .update(bankTransaction)
-    .set({ reconciliationStatus: "PENDING", matchedInvoicePaymentId: null, matchedSupplierPaymentId: null, reconciledAt: null })
+    .set({ reconciliationStatus: "PENDING", matchedInvoicePaymentId: null, matchedSupplierPaymentId: null, reconciledAt: null, resolution: null })
     .where(eq(bankTransaction.id, row.id))
     .returning();
   await recordAudit({
@@ -174,20 +187,23 @@ export function bankTransactionKey(postedAt: Date, amount: string | number, desc
   return `${postedAt.getTime()}|${Number(amount).toFixed(2)}|${description}`;
 }
 
-async function existingBankTransactionKeys(client: DbClient, bankAccountId: string, dates: Date[]) {
+async function existingBankTransactions(client: DbClient, bankAccountId: string, dates: Date[]) {
   const times = dates.map((date) => date.getTime()).filter(Number.isFinite);
-  if (times.length === 0) return new Set<string>();
-  const rows = await client
-    .select({ postedAt: bankTransaction.postedAt, amount: bankTransaction.amount, description: bankTransaction.description })
+  if (times.length === 0) return [];
+  return client
+    .select({ postedAt: bankTransaction.postedAt, amount: bankTransaction.amount, description: bankTransaction.description, balanceAfter: bankTransaction.balanceAfter })
     .from(bankTransaction)
     .where(and(
       eq(bankTransaction.bankAccountId, bankAccountId),
       gte(bankTransaction.postedAt, new Date(Math.min(...times))),
       lte(bankTransaction.postedAt, new Date(Math.max(...times))),
     ));
-  return new Set(rows.map((row) => bankTransactionKey(row.postedAt, row.amount, row.description)));
 }
 
+/**
+ * Importación rápida de un CSV "fecha;importe;concepto" (API). El asistente de la interfaz usa
+ * `commitBankImport` (CSV/Excel con mapeo de columnas y Norma 43).
+ */
 export async function importBankCsv(input: Actor & { bankAccountId: string; content: string }) {
   const [ownedAccount] = await db
     .select({ id: bankAccount.id, isActive: bankAccount.isActive })
@@ -202,30 +218,21 @@ export async function importBankCsv(input: Actor & { bankAccountId: string; cont
 
   return db.transaction(async (tx) => {
     const created = [];
-    let duplicates = 0;
-    // Duplicados: una sola consulta por el rango de fechas del fichero en vez de una por fila.
-    // Las filas insertadas se añaden al conjunto, así una fila repetida dentro del mismo CSV
-    // también cuenta como duplicada (igual que antes, cuando cada fila veía las anteriores).
-    // Las cuentas contables se resuelven una vez por transacción (memo de auto-post) y el
-    // bloqueo fiscal se sigue comprobando fila a fila en `recordBankTransaction`.
-    const seen = await existingBankTransactionKeys(tx, input.bankAccountId, rows.map((row) => row.postedAt));
-    for (const row of rows) {
-      const amount = row.amount.toFixed(2);
-      const key = bankTransactionKey(row.postedAt, amount, row.description);
-      if (seen.has(key)) {
-        duplicates += 1;
-        continue;
-      }
-      seen.add(key);
+    // Duplicados: una sola consulta por el rango de fechas del fichero. Se cuentan ocurrencias
+    // (ver `planImport`): dos cargos idénticos del mismo día en el fichero son dos movimientos
+    // reales; solo se omiten los que ya estaban guardados.
+    const existing = await existingBankTransactions(tx, input.bankAccountId, rows.map((row) => row.postedAt));
+    const plan = planImport(existing, rows.map((row, index) => ({ ...row, line: index + 2, valueDate: null, reference: null, balanceAfter: null })));
+    for (const row of plan.toInsert) {
       const transaction = await recordBankTransaction(input.companyId, input.tenantId, input.actorUserId, {
         bankAccountId: input.bankAccountId,
         postedAt: row.postedAt,
-        amount,
+        amount: row.amount.toFixed(2),
         description: row.description,
       }, tx);
       created.push(transaction);
     }
-    return { created, duplicates };
+    return { created, duplicates: plan.duplicates.length };
   });
 }
 

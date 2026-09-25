@@ -1,276 +1,278 @@
 "use client";
 
-import { ArrowLeft, CheckCircle, FileText, SpinnerGap, UploadSimple, WarningCircle, XCircle } from "@phosphor-icons/react";
-import { useMemo, useRef, useState } from "react";
+import { ArrowLeft, Camera, CheckCircle, FileText, SpinnerGap, Trash, UploadSimple, WarningCircle, XCircle } from "@phosphor-icons/react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
+import { Dialog, DialogFooter } from "@/components/ui/dialog";
+import { AccessibleField, errorMessage, readApiError } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
+import { StatusBadge } from "@/components/ui/status-badge";
+import type { AccountOption } from "@/lib/account-aliases";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { formatAmount, formatMoney, parseDecimalInput } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type ExpenseAccount = { id: string; code: string; name: string };
-type Supplier = { id: string; number: string; name: string; taxId: string | null };
-type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
-type GoodsReceiptRelation = { id: string; number: string; purchaseOrderId: string; supplierPartnerId: string };
-type DuplicateAssessment = {
-  level: "none" | "possible" | "exact";
-  matches: Array<{ invoiceId: string; number: string; reason: "file" | "supplier-number" | "date-total" }>;
-};
-type DraftLine = {
-  id: string;
-  description: string;
-  expenseAccountId: string;
-  quantity: string;
-  unitPrice: string;
-  taxRate: string;
-  taxDeductiblePct: string;
-  retentionRate: string;
-};
-type OcrDraft = {
-  supplierName?: string;
-  supplierTaxId?: string;
-  supplierCountryCode?: string;
-  supplierDocumentNumber?: string;
-  currencyCode?: string;
-  issueDate?: string;
-  dueDate?: string;
-  totalAmount?: number;
-  lines: Array<{ description: string; quantity: number; unitPrice: number; taxRate: number; taxDeductiblePct: number; retentionRate: number; suggestedExpenseAccountCode?: string }>;
-  confidence: "high" | "medium" | "low";
-  warnings: string[];
-};
-type BatchItem = {
-  localId: string;
-  file: File;
-  jobId?: string;
-  status: "WAITING" | "UPLOADING" | "PENDING" | "PROCESSING" | "DONE" | "FAILED" | "POSTING" | "POSTED";
-  error?: string;
-  draft?: OcrDraft;
-  hydrated: boolean;
-  supplierPartnerId: string;
-  purchaseOrderId: string;
-  goodsReceiptId: string;
-  supplierName: string;
-  supplierTaxId: string;
-  supplierCountryCode: string;
-  supplierDocumentNumber: string;
-  issueDate: string;
-  dueDate: string;
-  currencyCode: string;
-  lines: DraftLine[];
-  duplicate: DuplicateAssessment;
-  acknowledgePossible: boolean;
-  acknowledgeBlocking: boolean;
-  createdExpenseId?: string;
-};
+import { ExpenseBatchItemReview, type GoodsReceiptRelation, type PurchaseOrderRelation } from "./expense-batch-item-review";
+import {
+  emptyDuplicate,
+  itemFromInboxJob,
+  mergeJobProgress,
+  newBatchItem,
+  PROCESSING_STATUSES,
+  type BatchItem,
+  type BatchSupplier,
+  type DuplicateAssessment,
+  type InboxJob,
+} from "./expense-batch-model";
+import { assessReadiness, reviewReasonLabels, selectSafeToPost, type ReviewItem } from "./expense-review";
+import { useLeaveWarning } from "./use-leave-warning";
+
+export type ExpenseAiSettings = { externalAiEnabled: boolean; externalAiConfigured: boolean };
 
 type Props = {
   baseCurrencyCode: string;
-  expenseAccounts: ExpenseAccount[];
+  expenseAccounts: AccountOption[];
   goodsReceipts: GoodsReceiptRelation[];
   purchaseOrders: PurchaseOrderRelation[];
-  suppliers: Supplier[];
-  onBack: () => void;
+  suppliers: BatchSupplier[];
+  /** Documentos pendientes guardados en el servidor (bandeja restaurada). */
+  initialJobs?: InboxJob[];
+  aiSettings: ExpenseAiSettings;
+  canManageAiSettings?: boolean;
+  onBack?: () => void;
+  backHref?: string;
 };
 
-const emptyDuplicate: DuplicateAssessment = { level: "none", matches: [] };
-const confidenceLabels: Record<OcrDraft["confidence"], string> = { high: "alta", medium: "media", low: "baja" };
+const MAX_FILES = 50;
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const MAX_BATCH_BYTES = 120 * 1024 * 1024;
+const POLL_STALL_MS = 4 * 60 * 1000;
+const MAX_POLL_FAILURES = 5;
+const ACCEPTED_TYPES = "application/pdf,image/png,image/jpeg,image/webp";
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
+type PollState = "idle" | "polling" | "stalled";
 
 function isoDate(value: string) {
   return new Date(`${value}T12:00:00.000Z`).toISOString();
-}
-
-/** Drafts keep the Spanish decimal comma so OCR values such as 1.125 are never read as thousands. */
-function decimalDraft(value: number | string) {
-  return String(value).trim().replace(".", ",");
 }
 
 const parseQuantity = (raw: string) => parseDecimalInput(raw) ?? Number.NaN;
 const parseMoney = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? Number.NaN;
 const parsePercent = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? Number.NaN;
 
-function lineTotal(line: DraftLine) {
-  const subtotal = parseQuantity(line.quantity) * parseMoney(line.unitPrice);
-  const tax = subtotal * parsePercent(line.taxRate) / 100;
-  const retention = subtotal * parsePercent(line.retentionRate) / 100;
-  return Number.isFinite(subtotal + tax - retention) ? subtotal + tax - retention : 0;
-}
-
-const lineNumberFields = [
-  { field: "quantity", label: "Cantidad", kind: "quantity" },
-  { field: "unitPrice", label: "Base", kind: "money" },
-  { field: "taxRate", label: "IVA", kind: "percent" },
-  { field: "taxDeductiblePct", label: "Deducible", kind: "percent" },
-  { field: "retentionRate", label: "Retención", kind: "percent" },
-] as const;
-
 function statusLabel(status: BatchItem["status"]) {
   return {
     WAITING: "En cola",
     UPLOADING: "Subiendo",
-    PENDING: "Pendiente",
+    PENDING: "Pendiente de análisis",
     PROCESSING: "Analizando",
-    DONE: "Revisar",
+    DONE: "Por revisar",
     FAILED: "Error",
-    POSTING: "Contabilizando",
-    POSTED: "Registrado",
+    POSTING: "Registrando",
+    POSTED: "Registrada",
   }[status];
 }
 
-export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, goodsReceipts, purchaseOrders, suppliers, onBack }: Props) {
-  const [items, setItems] = useState<BatchItem[]>([]);
-  const [batchId, setBatchId] = useState<string | null>(null);
+function toReviewItem(item: BatchItem): ReviewItem {
+  return {
+    status: item.status,
+    confidence: item.draft?.confidence,
+    warnings: item.draft?.warnings ?? [],
+    // Una coincidencia por fecha e importe confirmada como factura distinta ya no bloquea.
+    duplicateLevel: item.duplicate.level === "possible" && item.acknowledgePossible ? "none" : item.duplicate.level,
+    acknowledgeBlocking: item.acknowledgeBlocking,
+    reviewed: item.reviewed,
+    supplierPartnerId: item.supplierPartnerId,
+    supplierName: item.supplierName,
+    supplierTaxId: item.supplierTaxId,
+    supplierDocumentNumber: item.supplierDocumentNumber,
+    issueDate: item.issueDate,
+    currencyCode: item.currencyCode,
+    extractedTotal: item.draft?.totalAmount,
+    lines: item.lines,
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type JobProgress = Pick<InboxJob, "status" | "errorMessage" | "extracted" | "duplicateAssessment" | "supplierInvoiceId" | "extractionProvider"> & { id: string };
+
+export function ExpenseBatchUpload({
+  aiSettings: initialAiSettings,
+  backHref,
+  baseCurrencyCode,
+  canManageAiSettings = false,
+  expenseAccounts,
+  goodsReceipts,
+  initialJobs = [],
+  onBack,
+  purchaseOrders,
+  suppliers,
+}: Props) {
+  const context = useMemo(() => ({ expenseAccounts, suppliers }), [expenseAccounts, suppliers]);
+  const [items, setItems] = useState<BatchItem[]>(() => initialJobs.map((job) => itemFromInboxJob(job, { expenseAccounts, suppliers })));
+  const [openItemId, setOpenItemId] = useState<string | null>(null);
+  const [aiSettings, setAiSettings] = useState(initialAiSettings);
+  const aiAvailable = aiSettings.externalAiEnabled && aiSettings.externalAiConfigured;
   const [engine, setEngine] = useState<"local" | "openai">("local");
+  const effectiveEngine = aiAvailable ? engine : "local";
   const [isStarting, setIsStarting] = useState(false);
+  const [pollState, setPollState] = useState<PollState>("idle");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bulkPosting, setBulkPosting] = useState(false);
+  const [discardTarget, setDiscardTarget] = useState<BatchItem | null>(null);
+  const [discarding, setDiscarding] = useState(false);
+  const [shots, setShots] = useState<File[]>([]);
   const pollingGeneration = useRef(0);
+  const itemsRef = useRef(items);
 
-  const counts = useMemo(() => ({
-    total: items.length,
-    processing: items.filter((item) => ["WAITING", "UPLOADING", "PENDING", "PROCESSING"].includes(item.status)).length,
-    review: items.filter((item) => item.status === "DONE").length,
-    posted: items.filter((item) => item.status === "POSTED").length,
-    failed: items.filter((item) => item.status === "FAILED").length,
-  }), [items]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
-  function patchItem(localId: string, patch: Partial<BatchItem>) {
-    setItems((current) => current.map((item) => item.localId === localId ? { ...item, ...patch } : item));
-  }
-
-  function patchLine(localId: string, lineId: string, patch: Partial<DraftLine>) {
-    setItems((current) => current.map((item) => item.localId !== localId ? item : {
-      ...item,
-      lines: item.lines.map((line) => line.id === lineId ? { ...line, ...patch } : line),
-    }));
-  }
-
-  function selectItemSupplier(item: BatchItem, supplierPartnerId: string) {
-    const linkedOrder = purchaseOrders.find((order) => order.id === item.purchaseOrderId);
-    patchItem(item.localId, {
-      supplierPartnerId,
-      purchaseOrderId: linkedOrder && linkedOrder.supplierPartnerId !== supplierPartnerId ? "" : item.purchaseOrderId,
-      goodsReceiptId: linkedOrder && linkedOrder.supplierPartnerId !== supplierPartnerId ? "" : item.goodsReceiptId,
-      duplicate: emptyDuplicate,
-    });
-  }
-
-  function selectItemPurchaseOrder(item: BatchItem, purchaseOrderId: string) {
-    const order = purchaseOrders.find((candidate) => candidate.id === purchaseOrderId);
-    const receiptBelongsToOrder = goodsReceipts.find((receipt) => receipt.id === item.goodsReceiptId)?.purchaseOrderId === purchaseOrderId;
-    patchItem(item.localId, {
-      purchaseOrderId,
-      goodsReceiptId: receiptBelongsToOrder ? item.goodsReceiptId : "",
-      supplierPartnerId: order?.supplierPartnerId ?? item.supplierPartnerId,
-      supplierName: order ? "" : item.supplierName,
-      supplierTaxId: order ? "" : item.supplierTaxId,
-      duplicate: emptyDuplicate,
-    });
-  }
-
-  function selectItemGoodsReceipt(item: BatchItem, goodsReceiptId: string) {
-    const receipt = goodsReceipts.find((candidate) => candidate.id === goodsReceiptId);
-    patchItem(item.localId, {
-      goodsReceiptId,
-      purchaseOrderId: receipt?.purchaseOrderId ?? item.purchaseOrderId,
-      supplierPartnerId: receipt?.supplierPartnerId ?? item.supplierPartnerId,
-      supplierName: receipt ? "" : item.supplierName,
-      supplierTaxId: receipt ? "" : item.supplierTaxId,
-      duplicate: emptyDuplicate,
-    });
-  }
-
-  function hydrateItem(item: BatchItem, draft: OcrDraft, duplicate: DuplicateAssessment): BatchItem {
-    if (item.hydrated) return { ...item, status: item.status === "POSTED" ? "POSTED" : "DONE", duplicate };
-    const normalizedTaxId = normalizeTaxIdentity(draft.supplierTaxId, draft.supplierCountryCode ?? "ES");
-    const matched = normalizedTaxId
-      ? suppliers.find((supplier) => normalizeTaxIdentity(supplier.taxId, draft.supplierCountryCode ?? "ES") === normalizedTaxId)
-      : undefined;
+  const counts = useMemo(() => {
+    const readiness = items.map((item) => (item.status === "DONE" ? assessReadiness(toReviewItem(item), baseCurrencyCode) : null));
     return {
-      ...item,
-      status: "DONE",
-      draft,
-      hydrated: true,
-      supplierPartnerId: matched?.id ?? "",
-      supplierName: matched ? "" : draft.supplierName ?? "",
-      supplierTaxId: matched ? "" : draft.supplierTaxId ?? "",
-      supplierCountryCode: draft.supplierCountryCode ?? "ES",
-      supplierDocumentNumber: draft.supplierDocumentNumber ?? "",
-      issueDate: draft.issueDate?.slice(0, 10) ?? today(),
-      dueDate: draft.dueDate?.slice(0, 10) ?? "",
-      currencyCode: (draft.currencyCode ?? "EUR").slice(0, 3).toUpperCase(),
-      lines: draft.lines.map((line) => ({
-        id: crypto.randomUUID(),
-        description: line.description,
-        expenseAccountId: expenseAccounts.find((account) => account.code === line.suggestedExpenseAccountCode)?.id ?? expenseAccounts[0]?.id ?? "",
-        quantity: decimalDraft(line.quantity),
-        unitPrice: decimalDraft(line.unitPrice),
-        taxRate: decimalDraft(line.taxRate),
-        taxDeductiblePct: decimalDraft(line.taxDeductiblePct),
-        retentionRate: decimalDraft(line.retentionRate),
-      })),
-      duplicate,
+      total: items.length,
+      uploading: items.filter((item) => item.status === "WAITING" || item.status === "UPLOADING").length,
+      processing: items.filter((item) => PROCESSING_STATUSES.includes(item.status)).length,
+      review: items.filter((item) => item.status === "DONE").length,
+      ready: readiness.filter((entry) => entry?.ready).length,
+      posting: items.filter((item) => item.status === "POSTING").length,
+      posted: items.filter((item) => item.status === "POSTED").length,
+      failed: items.filter((item) => item.status === "FAILED").length,
     };
+  }, [baseCurrencyCode, items]);
+  const safeToPost = useMemo(() => selectSafeToPost(items.map((item) => ({ ...toReviewItem(item), source: item })), baseCurrencyCode), [baseCurrencyCode, items]);
+
+  useLeaveWarning(
+    counts.uploading > 0 || counts.posting > 0 || bulkPosting,
+    "Hay facturas subiéndose o registrándose. Si sales ahora se interrumpirá el proceso.",
+  );
+  useLeaveWarning(
+    counts.uploading === 0 && counts.posting === 0 && !bulkPosting && counts.processing > 0,
+    "Hay documentos analizándose. Seguirán en el servidor y podrás revisarlos luego en «Bandeja pendiente». ¿Salir?",
+  );
+
+  function patchItem(localId: string, patch: Partial<BatchItem> | ((item: BatchItem) => BatchItem)) {
+    setItems((current) => current.map((item) => (item.localId !== localId ? item : typeof patch === "function" ? patch(item) : { ...item, ...patch })));
   }
 
-  async function pollBatch(id: string, generation: number) {
-    for (let attempt = 0; attempt < 120 && pollingGeneration.current === generation; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, attempt < 4 ? 900 : 1800));
-      const response = await fetch(`/api/expenses/ocr/batches/${id}`, { cache: "no-store" });
-      if (!response.ok) continue;
-      const payload = await response.json() as { jobs: Array<{ id: string; status: string; errorMessage?: string; extracted?: OcrDraft; duplicateAssessment: DuplicateAssessment; supplierInvoiceId?: string }> };
-      setItems((current) => current.map((item) => {
-        const job = payload.jobs.find((candidate) => candidate.id === item.jobId);
-        if (!job || item.status === "POSTED" || item.status === "POSTING") return item;
-        if (job.supplierInvoiceId) return { ...item, status: "POSTED", createdExpenseId: job.supplierInvoiceId };
-        if (job.status === "FAILED") return { ...item, status: "FAILED", error: job.errorMessage ?? "No se pudo analizar el archivo." };
-        if (job.status === "DONE" && job.extracted) return hydrateItem(item, job.extracted, job.duplicateAssessment);
-        return { ...item, status: job.status === "PROCESSING" ? "PROCESSING" : "PENDING" };
-      }));
-      if (payload.jobs.length > 0 && payload.jobs.every((job) => job.status === "DONE" || job.status === "FAILED" || Boolean(job.supplierInvoiceId))) return;
+  async function fetchProgress(pending: BatchItem[]) {
+    const progress = new Map<string, JobProgress>();
+    const batchIds = [...new Set(pending.flatMap((item) => (item.batchId ? [item.batchId] : [])))];
+    for (const batchId of batchIds) {
+      const response = await fetch(`/api/expenses/ocr/batches/${batchId}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo consultar el análisis."));
+      const payload = (await response.json()) as { jobs: JobProgress[] };
+      for (const job of payload.jobs) progress.set(job.id, job);
+    }
+    for (const item of pending.filter((candidate) => !candidate.batchId && candidate.jobId)) {
+      const response = await fetch(`/api/expenses/ocr/${item.jobId}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo consultar el análisis."));
+      const job = (await response.json()) as Omit<JobProgress, "duplicateAssessment">;
+      progress.set(job.id, { ...job, duplicateAssessment: emptyDuplicate });
+    }
+    return progress;
+  }
+
+  /**
+   * Consulta el progreso mientras quede algo en análisis. No se detiene en silencio: si tarda
+   * demasiado o el servidor no responde, pasa a "stalled" y se ofrece reintentar.
+   */
+  async function poll() {
+    pollingGeneration.current += 1;
+    const generation = pollingGeneration.current;
+    setPollState("polling");
+    const startedAt = Date.now();
+    let failures = 0;
+    for (let attempt = 0; pollingGeneration.current === generation; attempt += 1) {
+      await sleep(attempt < 4 ? 1000 : 2500);
+      if (pollingGeneration.current !== generation) return;
+      const pending = itemsRef.current.filter((item) => item.jobId && (item.status === "PENDING" || item.status === "PROCESSING"));
+      if (pending.length === 0) {
+        setPollState("idle");
+        return;
+      }
+      if (Date.now() - startedAt > POLL_STALL_MS || failures >= MAX_POLL_FAILURES) {
+        setPollState("stalled");
+        return;
+      }
+      try {
+        const progress = await fetchProgress(pending);
+        failures = 0;
+        setItems((current) => current.map((item) => {
+          const job = item.jobId ? progress.get(item.jobId) : undefined;
+          return job ? mergeJobProgress(item, job, context) : item;
+        }));
+      } catch {
+        failures += 1;
+      }
     }
   }
 
-  async function uploadOne(item: BatchItem, id: string) {
+  // Bandeja restaurada con documentos aún en análisis: retoma el seguimiento al entrar.
+  useEffect(() => {
+    const timer = initialJobs.some((job) => job.status === "PENDING" || job.status === "PROCESSING") ? window.setTimeout(() => void poll(), 0) : undefined;
+    return () => {
+      window.clearTimeout(timer);
+      pollingGeneration.current += 1;
+    };
+    // Solo al montar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function uploadOne(item: BatchItem, batchId: string) {
     patchItem(item.localId, { status: "UPLOADING" });
     const formData = new FormData();
-    formData.set("file", item.file);
-    formData.set("batchId", id);
-    const endpoint = engine === "openai" ? "/api/expenses/ai-analysis" : "/api/expenses/ocr";
+    if (item.file) formData.set("file", item.file);
+    formData.set("batchId", batchId);
+    const endpoint = effectiveEngine === "openai" ? "/api/expenses/ai-analysis" : "/api/expenses/ocr";
     const response = await fetch(endpoint, { method: "POST", headers: getCsrfHeader(), body: formData });
-    if (!response.ok) throw new Error(await readApiError(response, `No se pudo subir ${item.file.name}.`));
-    const payload = await response.json().catch(() => ({})) as { id?: string; jobId?: string; status?: string; message?: string; draft?: OcrDraft };
+    const payload = (await response.clone().json().catch(() => ({}))) as { id?: string; jobId?: string; fileUrl?: string; draft?: InboxJob["extracted"] };
     const jobId = payload.id ?? payload.jobId;
-    if (!jobId) throw new Error(`No se pudo subir ${item.file.name}: el servidor no devolvió el análisis.`);
-    patchItem(item.localId, { jobId, status: payload.draft ? "DONE" : "PENDING", draft: payload.draft });
+    if (!response.ok) {
+      patchItem(item.localId, { jobId, fileUrl: payload.fileUrl ?? undefined });
+      throw new Error(await readApiError(response, `No se pudo subir ${item.fileName}.`));
+    }
+    if (!jobId) throw new Error(`No se pudo subir ${item.fileName}: el servidor no devolvió el análisis.`);
+    const provider = effectiveEngine === "openai" ? "openai" : "tesseract";
+    patchItem(item.localId, (current) => {
+      const withJob: BatchItem = { ...current, jobId, batchId, provider, fileUrl: payload.fileUrl ?? `/api/expenses/ocr/${jobId}/file` };
+      return payload.draft
+        ? mergeJobProgress(withJob, { status: "DONE", errorMessage: null, extracted: payload.draft, duplicateAssessment: emptyDuplicate, extractionProvider: provider }, context)
+        : { ...withJob, status: "PENDING" };
+    });
+  }
+
+  function validateFiles(files: File[]) {
+    if (files.length === 0) return false;
+    if (files.length > MAX_FILES) {
+      toast.error(`Selecciona como máximo ${MAX_FILES} archivos por lote.`);
+      return false;
+    }
+    const invalid = files.find((file) => file.size > MAX_FILE_BYTES);
+    if (invalid) {
+      toast.error(`${invalid.name} supera el límite de 12 MB.`);
+      return false;
+    }
+    if (files.reduce((total, file) => total + file.size, 0) > MAX_BATCH_BYTES) {
+      toast.error("El lote supera el límite total de 120 MB.");
+      return false;
+    }
+    return true;
   }
 
   async function startBatch(files: File[]) {
-    if (files.length === 0) return;
-    if (files.length > 50) return toast.error("Selecciona como máximo 50 archivos por lote.");
-    const invalid = files.find((file) => file.size > 12 * 1024 * 1024);
-    if (invalid) return toast.error(`${invalid.name} supera el límite de 12 MB.`);
-    if (files.reduce((total, file) => total + file.size, 0) > 120 * 1024 * 1024) return toast.error("El lote supera el límite total de 120 MB.");
-
+    if (!validateFiles(files)) return;
     setIsStarting(true);
-    pollingGeneration.current += 1;
-    const generation = pollingGeneration.current;
-    const initialItems: BatchItem[] = files.map((file) => ({
-      localId: crypto.randomUUID(), file, status: "WAITING", hydrated: false,
-      supplierPartnerId: "", purchaseOrderId: "", goodsReceiptId: "", supplierName: "", supplierTaxId: "", supplierCountryCode: "ES",
-      supplierDocumentNumber: "", issueDate: today(), dueDate: "", currencyCode: "EUR", lines: [],
-      duplicate: emptyDuplicate, acknowledgePossible: false,
-      acknowledgeBlocking: false,
-    }));
-    setItems(initialItems);
+    const newItems = files.map((file) => newBatchItem({ file, fileName: file.name, sizeBytes: file.size, contentType: file.type }));
+    setItems((current) => [...current, ...newItems]);
     try {
       const response = await fetch("/api/expenses/ocr/batches", {
         method: "POST",
@@ -278,34 +280,34 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, goodsRec
         body: JSON.stringify({ expectedFiles: files.length }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo crear el lote de facturas."));
-      const batch = await response.json().catch(() => ({})) as { id?: string };
-      if (!batch.id) throw new Error("No se pudo crear el lote de facturas. Inténtalo de nuevo.");
-      setBatchId(batch.id);
+      const batch = (await response.json().catch(() => ({}))) as { id?: string };
+      const batchId = batch.id;
+      if (!batchId) throw new Error("No se pudo crear el lote de facturas. Inténtalo de nuevo.");
       let cursor = 0;
-      const workers = Array.from({ length: Math.min(3, initialItems.length) }, async () => {
-        while (cursor < initialItems.length) {
-          const item = initialItems[cursor++];
+      const workers = Array.from({ length: Math.min(3, newItems.length) }, async () => {
+        while (cursor < newItems.length) {
+          const item = newItems[cursor++];
           try {
-            await uploadOne(item, batch.id as string);
+            await uploadOne(item, batchId);
           } catch (error) {
-            patchItem(item.localId, { status: "FAILED", error: errorMessage(error, `No se pudo subir ${item.file.name}.`) });
+            patchItem(item.localId, { status: "FAILED", error: errorMessage(error, `No se pudo subir ${item.fileName}.`) });
           }
         }
       });
       await Promise.all(workers);
       toast.success(`${files.length === 1 ? "Archivo subido" : `${files.length} archivos subidos`}; el análisis continúa en segundo plano.`);
-      void pollBatch(batch.id, generation);
+      void poll();
     } catch (error) {
       const message = errorMessage(error, "No se pudo iniciar el lote.");
-      setItems((current) => current.map((item) => ({ ...item, status: "FAILED", error: message })));
+      const ids = new Set(newItems.map((item) => item.localId));
+      setItems((current) => current.map((item) => (ids.has(item.localId) ? { ...item, status: "FAILED", error: message } : item)));
       toast.error(message);
     } finally {
       setIsStarting(false);
     }
   }
 
-  async function checkDuplicate(item: BatchItem) {
-    const totalAmount = item.lines.reduce((total, line) => total + lineTotal(line), 0);
+  async function checkDuplicate(item: BatchItem, totalAmount: number) {
     const response = await fetch("/api/expenses/duplicate-check", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -320,40 +322,27 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, goodsRec
         ocrJobId: item.jobId,
       }),
     });
-    if (!response.ok) throw new Error("No se pudo comprobar si la factura está duplicada.");
-    return response.json() as Promise<DuplicateAssessment>;
+    if (!response.ok) throw new Error(await readApiError(response, "No se pudo comprobar si la factura está duplicada."));
+    return (await response.json()) as DuplicateAssessment;
   }
 
-  async function postItem(item: BatchItem) {
-    if (!item.jobId || item.status !== "DONE") return;
-    if (!item.supplierPartnerId && !item.supplierName.trim() && !item.supplierTaxId.trim()) return patchItem(item.localId, { error: "Indica o selecciona un proveedor." });
-    if (!item.supplierDocumentNumber.trim()) return patchItem(item.localId, { error: "Revisa e indica el número de factura." });
-    if (item.currencyCode !== baseCurrencyCode) return patchItem(item.localId, { error: `La factura está en ${item.currencyCode}. Configura su conversión a ${baseCurrencyCode} antes de contabilizarla.` });
-    if (item.lines.length === 0) return patchItem(item.localId, { error: "El análisis no contiene líneas de gasto." });
-    if (item.draft?.warnings.some((warning) => warning.toLocaleLowerCase().startsWith("bloqueo:")) && !item.acknowledgeBlocking) return patchItem(item.localId, { error: "Revisa los errores bloqueantes y confirma la corrección antes de contabilizar." });
-    for (const line of item.lines) {
-      const percentages = [parsePercent(line.taxRate), parsePercent(line.taxDeductiblePct), parsePercent(line.retentionRate)];
-      if (!line.description.trim() || !line.expenseAccountId) return patchItem(item.localId, { error: "Todas las líneas necesitan concepto y cuenta de gasto." });
-      if (!Number.isFinite(parseQuantity(line.quantity)) || parseQuantity(line.quantity) <= 0) return patchItem(item.localId, { error: "La cantidad de cada línea debe ser mayor que cero." });
-      if (!Number.isFinite(parseMoney(line.unitPrice)) || parseMoney(line.unitPrice) < 0) return patchItem(item.localId, { error: "La base de cada línea debe ser válida y no negativa (por ejemplo, 100,00)." });
-      if (percentages.some((value) => !Number.isFinite(value) || value < 0 || value > 100)) return patchItem(item.localId, { error: "IVA, deducibilidad y retención deben estar entre 0 y 100." });
-    }
-    const calculatedTotal = item.lines.reduce((total, line) => total + lineTotal(line), 0);
-    if (item.draft?.totalAmount !== undefined && Math.abs(calculatedTotal - item.draft.totalAmount) > 0.03) {
-      return patchItem(item.localId, { error: `Las líneas (${formatMoney(calculatedTotal, item.currencyCode)}) no cuadran con el total extraído (${formatMoney(item.draft.totalAmount, item.currencyCode)}).` });
+  /** Registra un documento. Devuelve true si quedó registrado. */
+  async function postItem(item: BatchItem, options: { bulk?: boolean } = {}) {
+    if (!item.jobId || item.status !== "DONE") return false;
+    const readiness = assessReadiness(toReviewItem(item), baseCurrencyCode);
+    // Al registrar uno a uno no hace falta "revisada": el propio clic es la revisión.
+    const blocking = readiness.reasons.filter((reason) => reason !== "confidence");
+    if (blocking.length > 0) {
+      patchItem(item.localId, { error: `No se puede registrar todavía: ${blocking.map((reason) => reviewReasonLabels[reason].toLocaleLowerCase("es-ES")).join(", ")}.` });
+      if (!options.bulk) setOpenItemId(item.localId);
+      return false;
     }
     try {
-      const duplicate = await checkDuplicate(item);
+      const duplicate = await checkDuplicate(item, readiness.total);
       patchItem(item.localId, { duplicate });
-      if (duplicate.level === "exact") throw new Error("Documento duplicado: revisa la factura existente antes de continuar.");
-      if (duplicate.level === "possible" && !item.acknowledgePossible) throw new Error("Confirma la coincidencia por fecha e importe antes de contabilizar.");
+      if (duplicate.level === "exact") throw new Error("Documento duplicado: ya existe esta factura. Revísala antes de continuar.");
+      if (duplicate.level === "possible" && !item.acknowledgePossible) throw new Error("Hay otra factura del mismo proveedor, fecha e importe. Confirma que es distinta antes de registrar.");
       patchItem(item.localId, { status: "POSTING", error: undefined });
-      const lines = item.lines.map((line) => ({
-        expenseAccountId: line.expenseAccountId,
-        description: line.description.trim(),
-        quantity: parseQuantity(line.quantity), unitPrice: parseMoney(line.unitPrice), taxRate: parsePercent(line.taxRate),
-        taxDeductiblePct: parsePercent(line.taxDeductiblePct), retentionRate: parsePercent(line.retentionRate),
-      }));
       const response = await fetch("/api/expenses", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -365,36 +354,62 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, goodsRec
           supplierDocumentNumber: item.supplierDocumentNumber,
           purchaseOrderId: item.purchaseOrderId || undefined,
           goodsReceiptId: item.goodsReceiptId || undefined,
-          issueDate: isoDate(item.issueDate), dueDate: item.dueDate ? isoDate(item.dueDate) : undefined,
-          currencyCode: item.currencyCode, ocrJobId: item.jobId,
-          idempotencyKey: `expense-ocr-job:${item.jobId}`, lines,
+          issueDate: isoDate(item.issueDate),
+          dueDate: item.dueDate ? isoDate(item.dueDate) : undefined,
+          currencyCode: item.currencyCode,
+          vatTreatment: item.vatTreatment || undefined,
+          ocrJobId: item.jobId,
+          idempotencyKey: `expense-ocr-job:${item.jobId}`,
+          lines: item.lines.map((line) => ({
+            expenseAccountId: line.expenseAccountId,
+            description: line.description.trim(),
+            quantity: parseQuantity(line.quantity),
+            unitPrice: parseMoney(line.unitPrice),
+            taxRate: parsePercent(line.taxRate),
+            taxDeductiblePct: parsePercent(line.taxDeductiblePct),
+            retentionRate: parsePercent(line.retentionRate),
+          })),
         }),
       });
-      if (!response.ok) throw new Error(await readApiError(response, "No se pudo contabilizar la factura."));
-      const payload = await response.json().catch(() => ({})) as { id?: string };
-      if (!payload.id) throw new Error("No se pudo contabilizar la factura: el servidor no devolvió su identificador.");
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo registrar la factura."));
+      const payload = (await response.json().catch(() => ({}))) as { id?: string };
+      if (!payload.id) throw new Error("No se pudo registrar la factura: el servidor no devolvió su identificador.");
       patchItem(item.localId, { status: "POSTED", createdExpenseId: payload.id, error: undefined });
-      toast.success(`${item.file.name} se ha registrado y contabilizado.`);
+      if (!options.bulk) {
+        toast.success(`${item.fileName} se ha registrado.`);
+        const next = itemsRef.current.find((candidate) => candidate.localId !== item.localId && candidate.status === "DONE");
+        setOpenItemId(next?.localId ?? null);
+      }
+      return true;
     } catch (error) {
-      const message = errorMessage(error, "No se pudo contabilizar la factura.");
+      const message = errorMessage(error, "No se pudo registrar la factura.");
       patchItem(item.localId, { status: "DONE", error: message });
-      toast.error(`${item.file.name}: ${message}`);
+      if (!options.bulk) toast.error(`${item.fileName}: ${message}`);
+      return false;
     }
   }
 
-  function submitItem(event: React.FormEvent<HTMLFormElement>, item: BatchItem) {
-    event.preventDefault();
-    if (item.status !== "DONE") return;
-    void postItem(item);
-  }
-
   async function postReady() {
-    const ready = items.filter((item) => item.status === "DONE" && item.draft?.confidence === "high" && item.duplicate.level === "none" && !item.draft.warnings.some((warning) => warning.toLocaleLowerCase().startsWith("bloqueo:")));
-    for (const item of ready) await postItem(item);
+    setBulkPosting(true);
+    let posted = 0;
+    let failed = 0;
+    try {
+      for (const entry of safeToPost.ready) {
+        const current = itemsRef.current.find((item) => item.localId === entry.item.source.localId);
+        if (!current) continue;
+        if (await postItem(current, { bulk: true })) posted += 1;
+        else failed += 1;
+      }
+    } finally {
+      setBulkPosting(false);
+      setConfirmOpen(false);
+    }
+    if (posted > 0) toast.success(`${posted === 1 ? "1 factura registrada" : `${posted} facturas registradas`}.`);
+    if (failed > 0) toast.error(`${failed === 1 ? "1 factura no se pudo registrar" : `${failed} facturas no se pudieron registrar`}: revisa los avisos.`);
   }
 
   async function retryItem(item: BatchItem) {
-    if (!item.jobId || !batchId) return;
+    if (!item.jobId) return;
     patchItem(item.localId, { status: "PENDING", error: undefined });
     const response = await fetch(`/api/expenses/ocr/${item.jobId}`, { method: "POST", headers: getCsrfHeader() });
     if (!response.ok) {
@@ -402,164 +417,341 @@ export function ExpenseBatchUpload({ baseCurrencyCode, expenseAccounts, goodsRec
       toast.error(message);
       return patchItem(item.localId, { status: "FAILED", error: message });
     }
-    toast.success(`Reanalizando ${item.file.name}…`);
-    pollingGeneration.current += 1;
-    void pollBatch(batchId, pollingGeneration.current);
+    toast.success(`Reanalizando ${item.fileName}…`);
+    void poll();
   }
 
+  async function discardItem() {
+    const target = discardTarget;
+    if (!target) return;
+    if (!target.jobId) {
+      setItems((current) => current.filter((item) => item.localId !== target.localId));
+      setDiscardTarget(null);
+      return;
+    }
+    setDiscarding(true);
+    try {
+      const response = await fetch(`/api/expenses/ocr/${target.jobId}`, { method: "DELETE", headers: getCsrfHeader() });
+      if (!response.ok && response.status !== 404) throw new Error(await readApiError(response, "No se pudo descartar el documento."));
+      setItems((current) => current.filter((item) => item.localId !== target.localId));
+      if (openItemId === target.localId) setOpenItemId(null);
+      toast.success(`${target.fileName} se ha quitado de la bandeja.`);
+      setDiscardTarget(null);
+    } catch (error) {
+      toast.error(errorMessage(error, "No se pudo descartar el documento."));
+    } finally {
+      setDiscarding(false);
+    }
+  }
+
+  async function toggleExternalAi(enabled: boolean) {
+    try {
+      const response = await fetch("/api/expenses/ocr/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+        body: JSON.stringify({ externalAiEnabled: enabled }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar la preferencia."));
+      setAiSettings((current) => ({ ...current, externalAiEnabled: enabled }));
+      if (!enabled) setEngine("local");
+      toast.success(enabled ? "Análisis con OpenAI permitido para la empresa." : "Análisis con OpenAI desactivado: solo se usará el OCR local.");
+    } catch (error) {
+      toast.error(errorMessage(error, "No se pudo guardar la preferencia."));
+    }
+  }
+
+  const summaryLine = items.length === 0
+    ? "Bandeja vacía."
+    : [
+        `${counts.total} documento${counts.total === 1 ? "" : "s"}`,
+        counts.processing > 0 ? `${counts.processing} en análisis` : null,
+        counts.review > 0 ? `${counts.review} por revisar (${counts.ready} listo${counts.ready === 1 ? "" : "s"} para registrar)` : null,
+        counts.posted > 0 ? `${counts.posted} registrado${counts.posted === 1 ? "" : "s"}` : null,
+        counts.failed > 0 ? `${counts.failed} con error` : null,
+      ].filter(Boolean).join(" · ");
+
+  const busy = isStarting || bulkPosting;
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <header className="flex flex-col gap-3 border-b border-window-shadow pb-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <Button className="mb-2" onClick={onBack} size="sm" type="button" variant="ghost">
-            <ArrowLeft aria-hidden="true" /> Cambiar modo
-          </Button>
+          {onBack ? (
+            <Button className="mb-2" onClick={onBack} size="sm" type="button" variant="ghost">
+              <ArrowLeft aria-hidden="true" /> Cambiar modo
+            </Button>
+          ) : backHref ? (
+            <Link className="mb-2 inline-flex items-center gap-1 font-mono text-xs font-bold text-primary hover:underline" href={backHref}>
+              <ArrowLeft aria-hidden="true" /> Registrar a mano
+            </Link>
+          ) : null}
           <h2 className="font-mono text-base font-bold">Bandeja de facturas</h2>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">Cada archivo se analiza y contabiliza por separado. Un error no detiene los demás documentos.</p>
+          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+            Sube las facturas y tickets; se leen solos. Revisa cada uno junto a su imagen y regístralo. Lo que dejes a medias queda guardado aquí.
+          </p>
         </div>
-        {items.length > 0 ? <Button disabled={!items.some((item) => item.status === "DONE" && item.draft?.confidence === "high" && item.duplicate.level === "none" && !item.draft.warnings.some((warning) => warning.toLocaleLowerCase().startsWith("bloqueo:")))} onClick={() => void postReady()} type="button">Registrar preparados</Button> : null}
+        {items.length > 0 ? (
+          <div className="flex flex-col items-start gap-1 md:items-end">
+            <Button disabled={safeToPost.ready.length === 0 || busy} onClick={() => setConfirmOpen(true)} type="button">
+              Registrar preparados ({safeToPost.ready.length})
+            </Button>
+            <p className="max-w-xs text-xs text-muted-foreground md:text-right">
+              Solo entran los documentos con cuenta de gasto propuesta o elegida, sin avisos y bien leídos o marcados como revisados.
+            </p>
+          </div>
+        ) : null}
       </header>
 
-      <section aria-label="Subir facturas" className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)] lg:grid-cols-[220px_1fr] lg:items-end">
-        <AccessibleField helperText={items.length > 0 ? "Se elige antes de subir el lote." : "El OCR local no envía datos fuera del ERP."} id="expense-batch-engine" label="Motor de análisis">
-          <Select disabled={items.length > 0} id="expense-batch-engine" onChange={(event) => setEngine(event.target.value as "local" | "openai")} value={engine}>
-            <option value="local">OCR local</option>
-            <option value="openai">OpenAI</option>
-          </Select>
-        </AccessibleField>
-        <label
-          className={cn(
-            "group flex min-h-24 cursor-pointer items-center justify-center gap-3 border border-dashed border-window-dark-shadow bg-card px-5 text-center transition-colors hover:bg-window-highlight has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus",
-            isStarting && "cursor-wait opacity-60",
+      <section aria-label="Subir facturas" className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)] lg:grid-cols-[260px_1fr] lg:items-start">
+        <div className="space-y-2">
+          {aiAvailable ? (
+            <AccessibleField
+              helperText={effectiveEngine === "local" ? "El OCR local lee el documento en tu servidor: no sale del ERP." : undefined}
+              id="expense-batch-engine"
+              label="Cómo leer los documentos"
+            >
+              <Select disabled={busy} id="expense-batch-engine" onChange={(event) => setEngine(event.target.value === "openai" ? "openai" : "local")} value={engine}>
+                <option value="local">OCR local (privado)</option>
+                <option value="openai">OpenAI (más preciso, servicio externo)</option>
+              </Select>
+            </AccessibleField>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-mono font-bold text-foreground">Lectura con OCR local.</span> Los documentos se leen en tu servidor y no salen del ERP.
+            </p>
           )}
-          htmlFor="expense-batch-files"
-        >
-          <UploadSimple className="size-6 text-primary" aria-hidden="true" />
-          <span>
-            <span className="block font-mono text-sm font-bold">{isStarting ? "Subiendo…" : "Seleccionar facturas"}</span>
-            <span className="block text-xs text-muted-foreground" id="expense-batch-files-helper">PDF, PNG, JPG o WEBP · hasta 50 archivos de 12 MB</span>
-          </span>
-          <input accept="application/pdf,image/png,image/jpeg,image/webp" aria-describedby="expense-batch-files-helper" className="sr-only" disabled={isStarting} id="expense-batch-files" multiple onChange={(event) => void startBatch(Array.from(event.target.files ?? []))} type="file" />
-        </label>
+          {effectiveEngine === "openai" ? (
+            <p className="border border-warning bg-warning/10 p-2 text-xs text-warning-text" role="note">
+              <strong>Aviso de privacidad:</strong> con OpenAI el documento completo (datos del proveedor, importes y cualquier dato personal que contenga) se envía a OpenAI, un proveedor externo con servidores fuera de la UE, para leerlo. Úsalo solo si tu empresa lo permite.
+            </p>
+          ) : null}
+          {canManageAiSettings && aiSettings.externalAiConfigured ? (
+            <label className="flex items-start gap-2 text-xs" htmlFor="expense-external-ai-enabled">
+              <input
+                checked={aiSettings.externalAiEnabled}
+                className="mt-0.5"
+                id="expense-external-ai-enabled"
+                onChange={(event) => void toggleExternalAi(event.target.checked)}
+                type="checkbox"
+              />
+              <span>Permitir leer facturas con OpenAI en esta empresa (preferencia de administración).</span>
+            </label>
+          ) : null}
+        </div>
+        <div className="space-y-2">
+          <label
+            className={cn(
+              "group flex min-h-24 cursor-pointer items-center justify-center gap-3 border border-dashed border-window-dark-shadow bg-card px-5 text-center transition-colors hover:bg-window-highlight has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus",
+              busy && "cursor-wait opacity-60",
+            )}
+            htmlFor="expense-batch-files"
+          >
+            <UploadSimple className="size-6 text-primary" aria-hidden="true" />
+            <span>
+              <span className="block font-mono text-sm font-bold">{isStarting ? "Subiendo…" : "Seleccionar facturas"}</span>
+              <span className="block text-xs text-muted-foreground" id="expense-batch-files-helper">PDF, PNG, JPG o WEBP · hasta 50 archivos de 12 MB</span>
+            </span>
+            <input
+              accept={ACCEPTED_TYPES}
+              aria-describedby="expense-batch-files-helper"
+              className="sr-only"
+              disabled={busy}
+              id="expense-batch-files"
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                event.target.value = "";
+                void startBatch(files);
+              }}
+              type="file"
+            />
+          </label>
+          {/* Móvil: foto directa con la cámara trasera; se pueden hacer varias antes de analizarlas. */}
+          <div className="space-y-2 sm:hidden">
+            <label className={cn("flex min-h-12 cursor-pointer items-center justify-center gap-2 border border-window-dark-shadow bg-primary px-3 font-mono text-sm font-bold text-primary-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus", busy && "opacity-60")} htmlFor="expense-batch-camera">
+              <Camera aria-hidden="true" className="size-5" />
+              {shots.length === 0 ? "Hacer foto del ticket" : "Hacer otra foto"}
+              <input
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                disabled={busy}
+                id="expense-batch-camera"
+                onChange={(event) => {
+                  const photo = event.target.files?.[0];
+                  event.target.value = "";
+                  if (photo) setShots((current) => [...current, photo]);
+                }}
+                type="file"
+              />
+            </label>
+            {shots.length > 0 ? (
+              <div className="flex items-center justify-between gap-2 border border-window-dark-shadow bg-card p-2 text-xs">
+                <span aria-live="polite">{shots.length === 1 ? "1 foto preparada" : `${shots.length} fotos preparadas`}</span>
+                <span className="flex gap-1">
+                  <Button onClick={() => setShots([])} size="sm" type="button" variant="ghost">Descartar</Button>
+                  <Button
+                    disabled={busy}
+                    onClick={() => {
+                      const pendingShots = shots;
+                      setShots([]);
+                      void startBatch(pendingShots);
+                    }}
+                    size="sm"
+                    type="button"
+                  >
+                    Leer {shots.length === 1 ? "la foto" : `${shots.length} fotos`}
+                  </Button>
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </section>
+
+      <p aria-live="polite" className="sr-only">{summaryLine}</p>
 
       {items.length > 0 ? (
         <dl className="grid grid-cols-2 gap-px border border-window-dark-shadow bg-window-shadow md:grid-cols-5">
-          {[['Archivos', counts.total], ['Procesando', counts.processing], ['Por revisar', counts.review], ['Registrados', counts.posted], ['Con error', counts.failed]].map(([label, value]) => (
-            <div className="bg-card px-3 py-2" key={String(label)}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 font-mono text-lg font-bold tabular-nums">{value}</dd></div>
+          {([["Documentos", counts.total], ["En análisis", counts.processing], ["Por revisar", counts.review], ["Registrados", counts.posted], ["Con error", counts.failed]] as const).map(([label, value]) => (
+            <div className="bg-card px-3 py-2" key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 font-mono text-lg font-bold tabular-nums">{value}</dd></div>
           ))}
         </dl>
+      ) : null}
+
+      {pollState === "stalled" ? (
+        <div className="flex flex-col gap-2 border border-warning bg-warning/10 p-2 text-xs text-warning-text sm:flex-row sm:items-center sm:justify-between" role="status">
+          <p>
+            <strong>Sigue procesando…</strong> Algunos documentos tardan más de lo normal o no hemos podido consultar su estado. Puedes seguir revisando los demás o volver más tarde a «Bandeja pendiente».
+          </p>
+          <Button onClick={() => void poll()} size="sm" type="button" variant="outline">Reintentar</Button>
+        </div>
       ) : null}
 
       {items.length === 0 ? (
         <div className="flex min-h-52 flex-col items-center justify-center border border-dashed border-window-dark-shadow bg-window-panel text-center">
           <FileText className="mb-2 size-7 text-muted-foreground" aria-hidden="true" />
-          <p className="font-mono text-sm font-bold">Aún no hay documentos</p>
-          <p className="mt-1 text-xs text-muted-foreground">Pulsa Seleccionar facturas para subir uno o varios archivos y crear la cola de revisión.</p>
+          <p className="font-mono text-sm font-bold">No hay documentos pendientes</p>
+          <p className="mt-1 max-w-sm text-xs text-muted-foreground">Pulsa «Seleccionar facturas» para subir uno o varios archivos; quedarán en esta bandeja hasta que los registres.</p>
         </div>
       ) : (
-        <div className="space-y-3" aria-live="polite">
+        <ol className="space-y-2" aria-label="Documentos de la bandeja">
           {items.map((item, index) => {
-            const total = item.lines.reduce((sum, line) => sum + lineTotal(line), 0);
-            const totalsMismatch = item.draft?.totalAmount !== undefined && Math.abs(total - item.draft.totalAmount) > 0.03;
+            const readiness = item.status === "DONE" ? assessReadiness(toReviewItem(item), baseCurrencyCode) : null;
+            const isOpen = openItemId === item.localId && (item.status === "DONE" || item.status === "POSTING");
+            const supplierLabel = item.supplierPartnerId
+              ? suppliers.find((supplier) => supplier.id === item.supplierPartnerId)?.name
+              : item.supplierName || item.supplierTaxId;
             return (
-              <article aria-labelledby={`batch-item-${item.localId}-title`} className="border border-window-dark-shadow bg-card shadow-[inset_1px_1px_0_var(--window-highlight)]" key={item.localId}>
-                <div className="flex flex-col gap-3 border-b border-window-shadow bg-window-panel px-3 py-2 md:flex-row md:items-center md:justify-between">
+              <li aria-labelledby={`batch-item-${item.localId}-title`} className="border border-window-dark-shadow bg-card shadow-[inset_1px_1px_0_var(--window-highlight)]" key={item.localId}>
+                <div className="flex flex-col gap-2 bg-window-panel px-3 py-2 md:flex-row md:items-center md:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
-                    {item.status === "POSTED" ? <CheckCircle aria-hidden="true" className="size-5 shrink-0 text-success" weight="fill" /> : item.status === "FAILED" ? <XCircle aria-hidden="true" className="size-5 shrink-0 text-destructive" weight="fill" /> : ["WAITING", "UPLOADING", "PENDING", "PROCESSING", "POSTING"].includes(item.status) ? <SpinnerGap aria-hidden="true" className="size-5 shrink-0 animate-spin text-primary" /> : <FileText aria-hidden="true" className="size-5 shrink-0 text-primary" />}
-                    <div className="min-w-0"><p className="truncate font-mono text-xs font-bold" id={`batch-item-${item.localId}-title`}>{index + 1}. {item.file.name}</p><p className="text-xs text-muted-foreground">{statusLabel(item.status)} · {formatAmount(item.file.size / 1024 / 1024)} MB{item.draft ? ` · confianza ${confidenceLabels[item.draft.confidence]}` : ""}</p></div>
+                    {item.status === "POSTED" ? <CheckCircle aria-hidden="true" className="size-5 shrink-0 text-success" weight="fill" />
+                      : item.status === "FAILED" ? <XCircle aria-hidden="true" className="size-5 shrink-0 text-destructive" weight="fill" />
+                        : PROCESSING_STATUSES.includes(item.status) || item.status === "POSTING" ? <SpinnerGap aria-hidden="true" className="size-5 shrink-0 animate-spin text-primary" />
+                          : <FileText aria-hidden="true" className="size-5 shrink-0 text-primary" />}
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-xs font-bold" id={`batch-item-${item.localId}-title`}>{index + 1}. {supplierLabel || item.fileName}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {statusLabel(item.status)}
+                        {item.supplierDocumentNumber ? ` · ${item.supplierDocumentNumber}` : ""}
+                        {readiness ? ` · ${formatMoney(readiness.total, item.currencyCode)}` : ""}
+                        {supplierLabel ? ` · ${item.fileName}` : ` · ${formatAmount(item.sizeBytes / 1024 / 1024)} MB`}
+                      </p>
+                    </div>
                   </div>
-                  {item.createdExpenseId ? <a className="font-mono text-xs font-bold text-primary hover:underline" href={`/expenses/${item.createdExpenseId}`}>Abrir factura</a> : null}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {readiness?.ready ? <StatusBadge tone="success">Listo</StatusBadge> : null}
+                    {readiness && !readiness.ready ? readiness.reasons.slice(0, 3).map((reason) => (
+                      <StatusBadge key={reason} tone={reason === "account" || reason === "duplicate" || reason === "totals" ? "warning" : "neutral"}>{reviewReasonLabels[reason]}</StatusBadge>
+                    )) : null}
+                    {item.createdExpenseId ? <Link className="font-mono text-xs font-bold text-primary hover:underline" href={`/expenses/${item.createdExpenseId}`}>Abrir factura</Link> : null}
+                    {item.status === "DONE" ? (
+                      <Button aria-expanded={isOpen} onClick={() => setOpenItemId(isOpen ? null : item.localId)} size="sm" type="button" variant={isOpen ? "outline" : "default"}>
+                        {isOpen ? "Cerrar" : "Revisar"}
+                      </Button>
+                    ) : null}
+                    {item.status === "FAILED" && item.jobId ? <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar</Button> : null}
+                    {(item.status === "PENDING" || item.status === "PROCESSING") && pollState === "stalled" && item.jobId ? (
+                      <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar análisis</Button>
+                    ) : null}
+                    {item.status !== "POSTED" && item.status !== "POSTING" && item.status !== "UPLOADING" ? (
+                      <Button aria-label={`Descartar ${item.fileName}`} onClick={() => setDiscardTarget(item)} size="icon-sm" title="Quitar de la bandeja" type="button" variant="ghost">
+                        <Trash aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-
-                {item.status === "DONE" || item.status === "POSTING" || item.status === "POSTED" ? (
-                  <form className="space-y-3 p-3" noValidate onSubmit={(event) => submitItem(event, item)}>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                      <AccessibleField className="xl:col-span-2" id={`supplier-${item.localId}`} label="Proveedor">
-                        <Select disabled={item.status !== "DONE"} id={`supplier-${item.localId}`} onChange={(event) => selectItemSupplier(item, event.target.value)} value={item.supplierPartnerId}><option value="">Nuevo / no encontrado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.number} · {supplier.name} · {supplier.taxId ?? "sin NIF"}</option>)}</Select>
-                      </AccessibleField>
-                      {!item.supplierPartnerId ? (
-                        <>
-                          <AccessibleField helperText="Nombre o CIF: al menos uno." id={`supplier-name-${item.localId}`} label="Razón social">
-                            <Input disabled={item.status !== "DONE"} id={`supplier-name-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierName: event.target.value })} value={item.supplierName} />
-                          </AccessibleField>
-                          <AccessibleField id={`supplier-tax-${item.localId}`} label="CIF/NIF/VAT">
-                            <Input disabled={item.status !== "DONE"} id={`supplier-tax-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierTaxId: event.target.value, duplicate: emptyDuplicate })} value={item.supplierTaxId} />
-                          </AccessibleField>
-                        </>
-                      ) : null}
-                      <AccessibleField id={`number-${item.localId}`} label="N.º factura" required>
-                        <Input disabled={item.status !== "DONE"} id={`number-${item.localId}`} onChange={(event) => patchItem(item.localId, { supplierDocumentNumber: event.target.value, duplicate: emptyDuplicate })} value={item.supplierDocumentNumber} />
-                      </AccessibleField>
-                      <AccessibleField id={`date-${item.localId}`} label="Fecha" required>
-                        <Input disabled={item.status !== "DONE"} id={`date-${item.localId}`} onChange={(event) => patchItem(item.localId, { issueDate: event.target.value, duplicate: emptyDuplicate })} type="date" value={item.issueDate} />
-                      </AccessibleField>
-                      <AccessibleField id={`due-date-${item.localId}`} label="Vencimiento">
-                        <Input disabled={item.status !== "DONE"} id={`due-date-${item.localId}`} onChange={(event) => patchItem(item.localId, { dueDate: event.target.value })} type="date" value={item.dueDate} />
-                      </AccessibleField>
-                      <AccessibleField helperText={item.currencyCode !== baseCurrencyCode ? `Requiere conversión a ${baseCurrencyCode}` : undefined} id={`currency-${item.localId}`} label="Moneda" required>
-                        <Input disabled={item.status !== "DONE"} id={`currency-${item.localId}`} maxLength={3} onChange={(event) => patchItem(item.localId, { currencyCode: event.target.value.toUpperCase() })} value={item.currencyCode} />
-                      </AccessibleField>
-                    </div>
-
-                    <div className="grid gap-3 border border-window-shadow bg-window-panel p-2.5 md:grid-cols-2">
-                      <AccessibleField id={`purchase-order-${item.localId}`} label="Pedido de compra (opcional)">
-                        <Select disabled={item.status !== "DONE"} id={`purchase-order-${item.localId}`} onChange={(event) => selectItemPurchaseOrder(item, event.target.value)} value={item.purchaseOrderId}>
-                          <option value="">Sin pedido relacionado</option>
-                          {purchaseOrders.filter((order) => !item.supplierPartnerId || order.supplierPartnerId === item.supplierPartnerId).map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}
-                        </Select>
-                      </AccessibleField>
-                      <AccessibleField id={`goods-receipt-${item.localId}`} label="Recepción (opcional)">
-                        <Select disabled={item.status !== "DONE"} id={`goods-receipt-${item.localId}`} onChange={(event) => selectItemGoodsReceipt(item, event.target.value)} value={item.goodsReceiptId}>
-                          <option value="">Sin recepción relacionada</option>
-                          {goodsReceipts.filter((receipt) => item.purchaseOrderId ? receipt.purchaseOrderId === item.purchaseOrderId : !item.supplierPartnerId || receipt.supplierPartnerId === item.supplierPartnerId).map((receipt) => <option key={receipt.id} value={receipt.id}>{receipt.number}</option>)}
-                        </Select>
-                      </AccessibleField>
-                    </div>
-
-                    <details className="border border-window-shadow" open={item.lines.length <= 2}>
-                      <summary className="cursor-pointer px-3 py-2 font-mono text-xs font-bold">{item.lines.length} línea{item.lines.length === 1 ? "" : "s"} · {formatMoney(total, item.currencyCode)}</summary>
-                      <div className="space-y-3 border-t border-window-shadow p-3">
-                        {item.lines.map((line, lineIndex) => (
-                          <fieldset className="grid gap-2 lg:grid-cols-[2fr_1.5fr_repeat(5,minmax(76px,0.55fr))]" key={line.id}>
-                            <legend className="sr-only">Línea {lineIndex + 1}</legend>
-                            <AccessibleField hideLabel={lineIndex > 0} id={`line-description-${line.id}`} label={lineIndex > 0 ? `Concepto línea ${lineIndex + 1}` : "Concepto"}>
-                              <Input disabled={item.status !== "DONE"} id={`line-description-${line.id}`} onChange={(event) => patchLine(item.localId, line.id, { description: event.target.value })} value={line.description} />
-                            </AccessibleField>
-                            <AccessibleField hideLabel={lineIndex > 0} id={`line-account-${line.id}`} label={lineIndex > 0 ? `Cuenta línea ${lineIndex + 1}` : "Cuenta"}>
-                              <Select disabled={item.status !== "DONE"} id={`line-account-${line.id}`} onChange={(event) => patchLine(item.localId, line.id, { expenseAccountId: event.target.value })} value={line.expenseAccountId}>{expenseAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</Select>
-                            </AccessibleField>
-                            {lineNumberFields.map(({ field, kind, label }) => {
-                              const inputProps = {
-                                disabled: item.status !== "DONE",
-                                id: `${field}-${line.id}`,
-                                onChange: (event: React.ChangeEvent<HTMLInputElement>) => patchLine(item.localId, line.id, { [field]: event.target.value } as Partial<DraftLine>),
-                                value: line[field],
-                              };
-                              return (
-                                <AccessibleField hideLabel={lineIndex > 0} id={`${field}-${line.id}`} key={field} label={lineIndex > 0 ? `${label} línea ${lineIndex + 1}` : label}>
-                                  {kind === "quantity" ? <QuantityInput {...inputProps} /> : kind === "money" ? <MoneyInput currencySymbol={item.currencyCode === "EUR" ? "€" : item.currencyCode} {...inputProps} /> : <PercentInput {...inputProps} />}
-                                </AccessibleField>
-                              );
-                            })}
-                          </fieldset>
-                        ))}
-                      </div>
-                    </details>
-
-                    {item.draft?.warnings.length ? <div className="text-xs text-warning"><p className="flex items-start gap-2"><WarningCircle aria-hidden="true" className="mt-0.5 shrink-0" />{item.draft.warnings.join(" ")}</p>{item.draft.warnings.some((warning) => warning.toLocaleLowerCase().startsWith("bloqueo:")) ? <label className="mt-2 flex items-center gap-2 pl-6 font-mono font-bold" htmlFor={`ack-blocking-${item.localId}`}><input checked={item.acknowledgeBlocking} id={`ack-blocking-${item.localId}`} onChange={(event) => patchItem(item.localId, { acknowledgeBlocking: event.target.checked })} type="checkbox" />He corregido y revisado los datos bloqueantes</label> : null}</div> : null}
-                    {totalsMismatch ? <p className="font-mono text-xs text-destructive">Las líneas suman {formatMoney(total, item.currencyCode)} y el documento indica {formatMoney(item.draft?.totalAmount ?? 0, item.currencyCode)}. Corrige las líneas para poder registrar.</p> : null}
-                    {item.duplicate.level !== "none" ? <div className={cn("border px-3 py-2 text-xs", item.duplicate.level === "exact" ? "border-destructive bg-destructive/10 text-destructive" : "border-warning bg-warning/10 text-warning")} role="status"><p className="font-mono font-bold">{item.duplicate.level === "exact" ? "Duplicado exacto" : "Coincidencia por fecha e importe"}</p>{item.duplicate.matches.map((match) => <a className="mt-1 block underline" href={`/expenses/${match.invoiceId}`} key={match.invoiceId}>Revisar {match.number}</a>)}{item.duplicate.level === "possible" ? <label className="mt-2 flex items-center gap-2 font-mono font-bold" htmlFor={`ack-possible-${item.localId}`}><input checked={item.acknowledgePossible} id={`ack-possible-${item.localId}`} onChange={(event) => patchItem(item.localId, { acknowledgePossible: event.target.checked })} type="checkbox" />Confirmo que es una factura distinta</label> : null}</div> : null}
-                    <FormErrorMessage>{item.error}</FormErrorMessage>
-                    {item.status !== "POSTED" ? <div className="flex justify-end"><SubmitButton disabled={item.duplicate.level === "exact" || totalsMismatch} pending={item.status === "POSTING"} pendingLabel="Registrando…">Registrar factura</SubmitButton></div> : null}
-                  </form>
-                ) : item.error ? <div className="flex items-center justify-between gap-3 p-3"><FormErrorMessage>{item.error}</FormErrorMessage>{item.jobId ? <Button onClick={() => void retryItem(item)} type="button" variant="outline">Reintentar</Button> : null}</div> : null}
-              </article>
+                {item.status === "FAILED" && item.error ? (
+                  <p className="flex items-start gap-2 border-t border-window-shadow px-3 py-2 font-mono text-xs text-destructive" role="alert">
+                    <WarningCircle aria-hidden="true" className="mt-0.5 shrink-0" /> {item.error}
+                  </p>
+                ) : null}
+                {isOpen ? (
+                  <ExpenseBatchItemReview
+                    baseCurrencyCode={baseCurrencyCode}
+                    expenseAccounts={expenseAccounts}
+                    goodsReceipts={goodsReceipts}
+                    item={item}
+                    onPatch={(patch) => patchItem(item.localId, patch)}
+                    onPost={() => void postItem(item)}
+                    purchaseOrders={purchaseOrders}
+                    readiness={readiness}
+                    suppliers={suppliers}
+                  />
+                ) : null}
+              </li>
             );
           })}
-        </div>
+        </ol>
       )}
-      {batchId ? <p className="text-right font-mono text-xs text-muted-foreground">Lote {batchId.slice(0, 8)}</p> : null}
+
+      <Dialog
+        description={`Se registrarán ${safeToPost.ready.length === 1 ? "1 factura" : `${safeToPost.ready.length} facturas`} por ${formatMoney(safeToPost.total, baseCurrencyCode)}. Cada una se contabiliza con la cuenta que ves; las demás siguen en la bandeja para revisarlas.`}
+        initialFocusId="expense-bulk-cancel"
+        onClose={() => { if (!bulkPosting) setConfirmOpen(false); }}
+        open={confirmOpen}
+        size="lg"
+        title="Registrar facturas preparadas"
+      >
+        <ul className="max-h-72 space-y-1 overflow-y-auto border border-window-shadow p-2 text-xs">
+          {safeToPost.ready.map(({ item: entry, total }) => {
+            const source = entry.source;
+            const supplierLabel = source.supplierPartnerId ? suppliers.find((supplier) => supplier.id === source.supplierPartnerId)?.name : source.supplierName || source.supplierTaxId;
+            const accounts = [...new Set(source.lines.map((line) => expenseAccounts.find((account) => account.id === line.expenseAccountId)?.code ?? ""))].filter(Boolean);
+            return (
+              <li className="flex items-start justify-between gap-3 border-b border-window-shadow pb-1 last:border-b-0" key={source.localId}>
+                <span className="min-w-0">
+                  <span className="block truncate font-mono font-bold">{supplierLabel} · {source.supplierDocumentNumber}</span>
+                  <span className="block text-muted-foreground">Cuenta {accounts.join(", ")} · {source.fileName}</span>
+                </span>
+                <span className="shrink-0 font-mono font-bold tabular-nums">{formatMoney(total, source.currencyCode)}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-2 font-mono text-sm font-bold">Total: {formatMoney(safeToPost.total, baseCurrencyCode)}</p>
+        <DialogFooter>
+          <Button disabled={bulkPosting} id="expense-bulk-cancel" onClick={() => setConfirmOpen(false)} type="button" variant="outline">Cancelar</Button>
+          <Button disabled={bulkPosting || safeToPost.ready.length === 0} onClick={() => void postReady()} type="button">
+            {bulkPosting ? "Registrando…" : `Registrar ${safeToPost.ready.length === 1 ? "1 factura" : `${safeToPost.ready.length} facturas`}`}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog
+        description={discardTarget ? `«${discardTarget.fileName}» se quitará de la bandeja y se borrará el archivo subido. No afecta a ninguna factura registrada.` : undefined}
+        initialFocusId="expense-discard-cancel"
+        onClose={() => { if (!discarding) setDiscardTarget(null); }}
+        open={Boolean(discardTarget)}
+        size="sm"
+        title="Descartar documento"
+      >
+        <DialogFooter>
+          <Button disabled={discarding} id="expense-discard-cancel" onClick={() => setDiscardTarget(null)} type="button" variant="outline">Cancelar</Button>
+          <Button disabled={discarding} onClick={() => void discardItem()} type="button" variant="destructive">{discarding ? "Descartando…" : "Descartar"}</Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDecimalInput, parseDecimalInput } from "@/lib/format";
+import { todayDateInput } from "@/server/invoices/due-dates";
 
 type DeliveryOrder = {
   id: string;
@@ -30,7 +31,7 @@ export function CreateDeliveryNoteForm({ orders, warehouses, initialOrderId }: {
   const router = useRouter();
   const [salesOrderId, setSalesOrderId] = useState(initialOrderId && orders.some((order) => order.id === initialOrderId) ? initialOrderId : orders[0]?.id ?? "");
   const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? "");
-  const [issuedAt, setIssuedAt] = useState(new Date().toISOString().slice(0, 10));
+  const [issuedAt, setIssuedAt] = useState(() => todayDateInput());
   const selected = orders.find((order) => order.id === salesOrderId);
   const [quantities, setQuantities] = useState<Record<string, string>>(() => Object.fromEntries(orders.flatMap((order) => order.lines.map((line) => [line.id, String(line.pendingQuantity)]))));
   const [loading, setLoading] = useState(false);

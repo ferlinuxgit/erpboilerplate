@@ -10,9 +10,12 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { customer, deliveryNote, salesOrder, salesOrderLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
-import { getSalesOrderTransition } from "@/lib/document-pipelines";
+import { getSalesOrderTransition, type SalesDocumentStatus } from "@/lib/document-pipelines";
 import { formatDate, formatMoney } from "@/lib/format";
-import { salesDocumentStatusLabels, salesDocumentStatusTone, statusLabel } from "@/lib/status-labels";
+import { can } from "@/lib/rbac";
+import { SalesTransitionButton } from "@/components/sales/sales-transition-button";
+import { salesStatusLabel, salesStatusTone } from "@/components/sales/sales-status";
+import { orderChangeBlocker } from "@/server/sales/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -59,8 +62,11 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
       .from(deliveryNote)
       .where(and(eq(deliveryNote.companyId, ctx.company.id), eq(deliveryNote.salesOrderId, id))),
   ]);
-  const transition = getSalesOrderTransition(record.status);
+  const transition = getSalesOrderTransition(record.status as SalesDocumentStatus);
   const currency = ctx.company.baseCurrencyCode;
+  const canManage = can(ctx.membership.role, "invoice.create");
+  const changeBlocker = await orderChangeBlocker(db, ctx.company.id, record, "edit");
+  const invoiceBlocker = await orderChangeBlocker(db, ctx.company.id, record, "invoice");
 
   return (
     <PageShell>
@@ -72,13 +78,41 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
         ]}
         title={record.number}
         description={`${record.customerName} · ${formatDate(record.issueDate)}`}
-        meta={<StatusBadge tone={salesDocumentStatusTone(record.status)}>{statusLabel(salesDocumentStatusLabels, record.status)}</StatusBadge>}
+        meta={<StatusBadge tone={salesStatusTone(record.status)}>{salesStatusLabel(record.status)}</StatusBadge>}
         actions={
           <>
             <a className={buttonVariants({ variant: "outline" })} href={`/api/sales-orders/${record.id}/pdf`} rel="noreferrer" target="_blank">PDF</a>
             <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.customerId}`}>Ver cliente</Link>
             {record.salesQuoteId ? <Link className={buttonVariants({ variant: "outline" })} href={`/sales/quotes/${record.salesQuoteId}`}>Ver presupuesto</Link> : null}
+            {canManage && !changeBlocker ? <Link className={buttonVariants({ variant: "outline" })} data-testid="sales-order-edit-link" href={`/sales/orders/${record.id}/edit`}>Editar</Link> : null}
+            {canManage && !invoiceBlocker ? (
+              <SalesTransitionButton
+                confirmDescription={`Se creará una factura en borrador para ${record.customerName} con todas las líneas del pedido (${formatMoney(record.totalAmount, currency)}), sin albarán. Podrás revisarla antes de emitirla.`}
+                confirmLabel="Crear factura en borrador"
+                confirmTitle="¿Facturar el pedido sin albarán?"
+                label="Facturar"
+                successMessage="Factura en borrador creada desde el pedido. Revísala y emítela."
+                targetBasePath="/invoices"
+                testId="order-to-invoice"
+                url={`/api/sales-orders/${record.id}/to-invoice`}
+                variant="secondary"
+              />
+            ) : null}
             {transition.allowed ? <Link className={buttonVariants()} href={`/sales/delivery-notes/new?orderId=${record.id}`}>Preparar albarán</Link> : null}
+            {canManage && !changeBlocker ? (
+              <SalesTransitionButton
+                confirmDescription={`El pedido ${record.number} quedará anulado: no se podrá entregar ni facturar. No se borra del historial.`}
+                confirmLabel="Anular pedido"
+                confirmTitle="¿Anular el pedido?"
+                label="Anular"
+                method="DELETE"
+                showArrow={false}
+                successMessage="Pedido anulado."
+                testId="order-cancel"
+                url={`/api/sales-orders/${record.id}`}
+                variant="destructive"
+              />
+            ) : null}
           </>
         }
       />
@@ -100,7 +134,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
         ) :deliveries.map((delivery) => (
           <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/sales/delivery-notes/${delivery.id}`} key={delivery.id}>
             <span><span className="font-medium">{delivery.number}</span><span className="block text-xs text-muted-foreground">{formatDate(delivery.issuedAt)}</span></span>
-            <StatusBadge tone={salesDocumentStatusTone(delivery.status)}>{statusLabel(salesDocumentStatusLabels, delivery.status)}</StatusBadge>
+            <StatusBadge tone={salesStatusTone(delivery.status)}>{salesStatusLabel(delivery.status, "delivery")}</StatusBadge>
           </Link>
         ))}
       </PageSection>

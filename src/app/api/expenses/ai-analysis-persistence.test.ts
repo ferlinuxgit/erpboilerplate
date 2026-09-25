@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createJob: vi.fn(),
   completeJob: vi.fn(),
   failJob: vi.fn(),
+  getSettings: vi.fn(),
 }));
 
 vi.mock("@/lib/current-user", () => ({ getUserSession: mocks.getUserSession }));
@@ -15,6 +16,7 @@ vi.mock("@/lib/tenant", () => ({ ensureUserTenant: mocks.ensureUserTenant }));
 vi.mock("@/lib/rbac", () => ({ can: mocks.can }));
 vi.mock("@/server/ai/expense-invoice-analysis", () => ({ analyzeExpenseInvoiceWithOpenAI: mocks.analyze }));
 vi.mock("@/server/ocr/expense-ocr", () => ({ createExpenseOcrJob: mocks.createJob, completeExpenseOcrJob: mocks.completeJob, failExpenseOcrJob: mocks.failJob }));
+vi.mock("@/server/ocr/settings", () => ({ getExpenseOcrSettings: mocks.getSettings }));
 
 describe("OpenAI expense analysis persistence", () => {
   beforeEach(() => {
@@ -25,6 +27,19 @@ describe("OpenAI expense analysis persistence", () => {
     mocks.createJob.mockResolvedValue({ id: "ocr-ai-1", fileName: "factura.pdf", fileUrl: "/api/expenses/ocr/ocr-ai-1/file", contentType: "application/pdf", sizeBytes: 12 });
     mocks.analyze.mockResolvedValue({ draft: { lines: [], confidence: "high", warnings: [] }, analysis: { invoice_number: "F-1" }, model: "gpt-5" });
     mocks.completeJob.mockResolvedValue({ id: "ocr-ai-1", status: "DONE" });
+    mocks.getSettings.mockResolvedValue({ externalAiEnabled: true, externalAiConfigured: true });
+  });
+
+  it("never sends the document to OpenAI when the company disabled external analysis", async () => {
+    mocks.getSettings.mockResolvedValueOnce({ externalAiEnabled: false, externalAiConfigured: true });
+    const formData = new FormData();
+    formData.set("file", new File(["%PDF-test"], "factura.pdf", { type: "application/pdf" }));
+    const { POST } = await import("@/app/api/expenses/ai-analysis/route");
+    const response = await POST(new Request("https://erp.test/api/expenses/ai-analysis", { method: "POST", body: formData }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.createJob).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
   });
 
   it("stores the original before analysis and returns its job identifier", async () => {

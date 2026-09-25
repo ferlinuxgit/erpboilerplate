@@ -18,7 +18,12 @@ const CSRF_EXEMPT_PATHS = new Set([
   "/api/auth/register",
   "/api/auth/verify-email",
   "/api/auth/verify-two-factor",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/auth/resend-verification",
   "/api/billing/webhook",
+  // Server-to-server cron trigger: authenticated by the CRON_SECRET header, never by cookies.
+  "/api/recurring/run",
 ]);
 
 function withRequestId(response: NextResponse, requestId: string) {

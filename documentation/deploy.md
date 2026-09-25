@@ -130,3 +130,13 @@ Rollback con migraciones aplicadas:
 4. Verifica `/api/readyz` y un smoke funcional (`npm run deploy:smoke`).
 
 Los datos escritos entre el backup y el rollback se pierden; si no es aceptable, escribe una migración inversa revisada en lugar de restaurar. Prueba la restauración periódicamente en un entorno no productivo.
+
+## Recurrencias y recordatorios de cobro
+
+Las facturas y gastos recurrentes y los recordatorios de cobro automáticos se procesan fuera de las peticiones. Ambas tareas son idempotentes (cada periodo se genera una sola vez, `recurring_run` es único por plantilla y fecha), así que puedes combinar las dos opciones o ejecutarlas en varias réplicas.
+
+- **Worker continuo** (Docker/Coolify, VPS): `npm run recurring:worker`. Cada `RECURRING_WORKER_INTERVAL_MS` (15 min por defecto) genera los periodos vencidos y envía los recordatorios que tocan. Con `RECURRING_WORKER_ONCE=true` hace un solo ciclo y termina (para un cron del sistema, p. ej. `0 * * * *`).
+- **Cron HTTP** (plataformas sin procesos permanentes): define `CRON_SECRET` (mínimo 16 caracteres) y llama a `GET /api/recurring/run` con `Authorization: Bearer $CRON_SECRET` o `x-cron-secret: $CRON_SECRET` (formato compatible con Vercel Cron). Sin `CRON_SECRET` la ruta responde 401.
+  - `POST` también está disponible, pero pasa por la comprobación CSRF de `src/proxy.ts`: envía además `x-csrf-token: x` y la cookie `csrf-token=x`, o usa `GET`.
+- El envío de emails usa el SMTP de «Integraciones opcionales». Sin SMTP, las recurrencias se generan igualmente (las de «emitir y enviar» quedan emitidas con un aviso) y los recordatorios automáticos no se envían.
+- "Hoy" se calcula en la zona horaria de cada empresa (`company.timezone`, por defecto Europe/Madrid).

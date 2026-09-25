@@ -3,7 +3,7 @@ import Link from "next/link";
 import { and, asc, count, eq, isNotNull, sql } from "drizzle-orm";
 
 import { CustomersTable } from "@/components/customers/customers-table";
-import { customer, customerStatusEnum, partner } from "@/db/schema";
+import { customer, customerStatusEnum, deliveryNote, invoice, partner, salesOrder, salesQuote } from "@/db/schema";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -101,6 +101,13 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
           city: partner.city,
           province: partner.province,
           countryCode: partner.countryCode,
+          // Con documentos no se puede eliminar (solo marcar como inactivo): se indica en el menú.
+          hasDocuments: sql<boolean>`(
+            exists (select 1 from ${invoice} where ${invoice.customerId} = ${customer.id})
+            or exists (select 1 from ${salesQuote} where ${salesQuote.customerId} = ${customer.id})
+            or exists (select 1 from ${salesOrder} where ${salesOrder.customerId} = ${customer.id})
+            or exists (select 1 from ${deliveryNote} where ${deliveryNote.customerId} = ${customer.id})
+          )`,
           total: windowCount(),
         })
         .from(customer)
@@ -140,11 +147,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
 
       <PageSection
         title="Clientes registrados"
-        description="Abre un cliente para editar su identidad, contacto y domicilio fiscal."
+        description="Abre un cliente para ver lo que te debe, sus facturas y sus condiciones de pago."
       >
         <CustomersTable
           countryOptions={countryOptions}
-          rows={result.rows}
+          rows={result.rows.map((row) => ({ ...row, hasDocuments: Boolean(row.hasDocuments) }))}
           server={toServerListState(params, result, recordCount)}
         />
       </PageSection>

@@ -12,22 +12,29 @@ import {
   type TenantOption,
 } from "@/lib/active-context-client";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 
-export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }) {
+const NEW_FISCAL_YEAR_VALUE = "__new-fiscal-year";
+/** El panel de apertura y cierre de ejercicios vive en Contabilidad. */
+const FISCAL_YEAR_PANEL_HREF = "/accounting";
+
+function contextValue(companyId: string, fiscalYearId: string) {
+  return `${companyId}:${fiscalYearId}`;
+}
+
+/**
+ * Selector de empresa y ejercicio en un solo menú que se aplica al elegir (sin botón
+ * "Aplicar"). Si el usuario pertenece a varios espacios de trabajo aparece otro selector.
+ */
+export function ActiveContextSwitcher({ compact = false, onChanged }: { compact?: boolean; onChanged?: () => void }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tenantId, setTenantId] = useState("");
-  const [appliedTenantId, setAppliedTenantId] = useState("");
   const [tenants, setTenants] = useState<TenantOption[]>([]);
-  const [companyId, setCompanyId] = useState("");
-  const [fiscalYearId, setFiscalYearId] = useState("");
-  const [appliedContext, setAppliedContext] = useState({ companyId: "", fiscalYearId: "" });
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [fiscalYears, setFiscalYears] = useState<FiscalYearOption[]>([]);
   const [fiscalYearsByCompany, setFiscalYearsByCompany] = useState<Record<string, FiscalYearOption[]>>({});
+  const [selected, setSelected] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -37,13 +44,9 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
       if (payload) {
         setTenants(payload.availableTenants ?? []);
         setTenantId(payload.active.tenantId ?? "");
-        setAppliedTenantId(payload.active.tenantId ?? "");
         setCompanies(payload.availableCompanies);
-        setFiscalYears(payload.availableFiscalYears);
         setFiscalYearsByCompany(payload.availableFiscalYearsByCompany);
-        setCompanyId(payload.active.companyId);
-        setFiscalYearId(payload.active.fiscalYearId);
-        setAppliedContext(payload.active);
+        setSelected(contextValue(payload.active.companyId, payload.active.fiscalYearId));
       }
       setLoading(false);
     });
@@ -53,13 +56,75 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
   }, []);
 
   if (loading) {
-    return <p className={compact ? "font-mono text-[0.65rem] text-chrome-active-foreground/75" : "text-xs text-muted-foreground"}>Cargando contexto…</p>;
+    return <p className={compact ? "font-mono text-[0.65rem] text-chrome-active-foreground/75" : "text-xs text-muted-foreground"}>Cargando empresa…</p>;
   }
 
-  // El selector de espacio solo aparece si el usuario pertenece a varios.
+  async function switchTenant(nextTenantId: string) {
+    const previous = tenantId;
+    setTenantId(nextTenantId);
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/context/active", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+        body: JSON.stringify({ tenantId: nextTenantId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "No se pudo cambiar de espacio de trabajo.");
+      }
+      invalidateActiveContext();
+      toast.success(`Espacio activo: ${tenants.find((tenant) => tenant.id === nextTenantId)?.name ?? "espacio de trabajo"}`);
+      // Recarga completa intencionada: resetea todo el estado cliente del espacio anterior.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/dashboard");
+    } catch (caught) {
+      setTenantId(previous);
+      setError(caught instanceof Error ? caught.message : "No se pudo cambiar de espacio de trabajo.");
+      setSaving(false);
+    }
+  }
+
+  async function switchContext(value: string) {
+    if (value === NEW_FISCAL_YEAR_VALUE) {
+      onChanged?.();
+      router.push(FISCAL_YEAR_PANEL_HREF);
+      return;
+    }
+    const [companyId, fiscalYearId] = value.split(":");
+    if (!companyId || !fiscalYearId || value === selected) return;
+    const previous = selected;
+    setSelected(value);
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/context/active", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+        body: JSON.stringify({ companyId, fiscalYearId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "No se pudo cambiar de empresa o ejercicio.");
+      }
+      invalidateActiveContext();
+      const companyName = companies.find((company) => company.id === companyId)?.name;
+      const fiscalYearCode = fiscalYearsByCompany[companyId]?.find((year) => year.id === fiscalYearId)?.code;
+      toast.success(`Trabajando en ${companyName ?? "la empresa"} · ejercicio ${fiscalYearCode ?? ""}`.trim());
+      onChanged?.();
+      router.refresh();
+    } catch (caught) {
+      setSelected(previous);
+      setError(caught instanceof Error ? caught.message : "No se pudo cambiar de empresa o ejercicio. Revisa tu conexión.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const showTenantSelector = tenants.length > 1;
-  const switchingTenant = showTenantSelector && Boolean(tenantId) && tenantId !== appliedTenantId;
-  const hasPendingChange = switchingTenant || companyId !== appliedContext.companyId || fiscalYearId !== appliedContext.fiscalYearId;
+  const multipleCompanies = companies.length > 1;
+  const optionLabel = (company: CompanyOption, year: FiscalYearOption) => (multipleCompanies ? `${company.name} · ${year.code}` : `Ejercicio ${year.code} · ${company.name}`);
 
   return (
     <div className={compact ? "flex min-w-0 items-center gap-1" : "space-y-1"}>
@@ -68,10 +133,7 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
           aria-label="Espacio de trabajo activo"
           className={compact ? "h-7 w-28 border-white/50 bg-window-highlight px-1.5 text-[0.7rem] text-window-text xl:w-36" : undefined}
           disabled={saving}
-          onChange={(event) => {
-            setTenantId(event.target.value);
-            setError("");
-          }}
+          onChange={(event) => void switchTenant(event.target.value)}
           value={tenantId}
         >
           {tenants.map((tenant) => (
@@ -82,86 +144,32 @@ export function ActiveContextSwitcher({ compact = false }: { compact?: boolean }
         </Select>
       ) : null}
       <Select
-        aria-label="Empresa activa"
-        className={compact ? "h-7 w-32 border-white/50 bg-window-highlight px-1.5 text-[0.7rem] text-window-text xl:w-44" : undefined}
-        disabled={saving || switchingTenant}
-        title={switchingTenant ? "Se abrirá la empresa principal del espacio seleccionado" : undefined}
-        onChange={(event) => {
-          const nextCompanyId = event.target.value;
-          const nextYears = fiscalYearsByCompany[nextCompanyId] ?? [];
-          setCompanyId(nextCompanyId);
-          setFiscalYears(nextYears);
-          setFiscalYearId(nextYears[0]?.id ?? "");
-          setError("");
-        }}
-        value={companyId}
-      >
-        {companies.map((company) => (
-          <option key={company.id} value={company.id}>
-            {company.name}
-          </option>
-        ))}
-      </Select>
-      <Select
-        aria-label="Ejercicio fiscal activo"
-        className={compact ? "h-7 w-16 border-white/50 bg-window-highlight px-1.5 text-[0.7rem] text-window-text" : undefined}
-        disabled={saving || switchingTenant}
-        onChange={(event) => setFiscalYearId(event.target.value)}
-        value={fiscalYearId}
-      >
-        {fiscalYears.map((fiscalYear) => (
-          <option key={fiscalYear.id} value={fiscalYear.id}>
-            {fiscalYear.code}
-          </option>
-        ))}
-      </Select>
-      <Button
         aria-busy={saving || undefined}
-        className={compact ? "h-7 border-white/60 bg-window-highlight px-2 text-window-text hover:bg-window-surface" : "w-full"}
-        disabled={saving || !hasPendingChange || (!switchingTenant && !fiscalYearId)}
-        onClick={async () => {
-          setError("");
-          setSaving(true);
-          try {
-            const response = await fetch("/api/context/active", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-              body: JSON.stringify(switchingTenant ? { tenantId } : { companyId, fiscalYearId }),
-            });
-            if (response.ok && switchingTenant) {
-              // Otro espacio: recarga completa para no conservar datos del anterior.
-              invalidateActiveContext();
-              const tenantName = tenants.find((tenant) => tenant.id === tenantId)?.name;
-              toast.success(`Espacio activo: ${tenantName ?? "espacio de trabajo"}`);
-              // Recarga completa intencionada: resetea todo el estado cliente del espacio anterior.
-              // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-              window.location.assign("/dashboard");
-              return;
-            }
-            if (response.ok) {
-              invalidateActiveContext();
-              setAppliedContext({ companyId, fiscalYearId });
-              const companyName = companies.find((company) => company.id === companyId)?.name;
-              const fiscalYearCode = fiscalYears.find((fiscalYear) => fiscalYear.id === fiscalYearId)?.code;
-              toast.success(`Contexto activo: ${companyName ?? "empresa"} · ${fiscalYearCode ?? "ejercicio"}`);
-              router.refresh();
-            } else {
-              const payload = await response.json().catch(() => null);
-              setError(payload?.message ?? "No se pudo cambiar el contexto.");
-            }
-          } catch {
-            setError("No se pudo cambiar el contexto. Revisa tu conexión.");
-          } finally {
-            setSaving(false);
-          }
-        }}
-        size={compact ? "xs" : "sm"}
-        title={switchingTenant ? "Cambiar al espacio de trabajo seleccionado" : hasPendingChange ? "Aplicar empresa y ejercicio seleccionados" : "Selecciona otra empresa o ejercicio para aplicar"}
-        type="button"
-        variant={compact ? "ghost" : "outline"}
+        aria-label="Empresa y ejercicio activos"
+        className={compact ? "h-7 w-44 border-white/50 bg-window-highlight px-1.5 text-[0.7rem] text-window-text xl:w-60" : undefined}
+        disabled={saving}
+        onChange={(event) => void switchContext(event.target.value)}
+        title="Se aplica al elegir"
+        value={selected}
       >
-        {saving ? "Aplicando…" : "Aplicar"}
-      </Button>
+        {companies.map((company) => {
+          const years = fiscalYearsByCompany[company.id] ?? [];
+          const options = years.map((year) => (
+            <option key={year.id} value={contextValue(company.id, year.id)}>
+              {optionLabel(company, year)}
+            </option>
+          ));
+          return multipleCompanies ? (
+            <optgroup key={company.id} label={company.name}>
+              {options}
+            </optgroup>
+          ) : (
+            options
+          );
+        })}
+        <option value={NEW_FISCAL_YEAR_VALUE}>Nuevo ejercicio… (abrir en Contabilidad)</option>
+      </Select>
+      {saving ? <span className="sr-only" role="status">Cambiando de contexto…</span> : null}
       {error ? <p className={compact ? "max-w-40 truncate border border-white/60 bg-destructive px-1 font-mono text-[0.65rem] text-destructive-foreground" : "text-xs text-destructive"} role="alert" title={error}>{error}</p> : null}
     </div>
   );

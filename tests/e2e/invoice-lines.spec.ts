@@ -82,6 +82,8 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByTestId("invoice-line-2-quantity").fill("1.5");
   await page.getByTestId("invoice-line-2-unit-price").fill("80");
   await page.getByTestId("invoice-line-2-taxes").locator("summary").click();
+  // Las líneas nuevas proponen el IVA por defecto (21 %): se cambia por el reducido.
+  await page.getByTestId("invoice-line-2-taxes").getByRole("checkbox", { name: /IVA general/ }).uncheck();
   await page.getByTestId("invoice-line-2-taxes").getByRole("checkbox", { name: /IVA reducido/ }).check();
 
   await page.getByRole("button", { name: "Duplicar línea 2" }).click();
@@ -164,7 +166,8 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   });
   await page.goto(editHref!);
   await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
-  await expect(page.getByTestId("invoice-edit-due-date-input")).toHaveValue("");
+  // Vencimiento propuesto automáticamente: emisión + 30 días (plazo de la empresa).
+  await expect(page.getByTestId("invoice-edit-due-date-input")).toHaveValue("2026-06-08");
   const editPaymentMethods = page.getByTestId("invoice-payment-methods-picker");
   await editPaymentMethods.locator("summary").click();
   await expect(editPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
@@ -249,6 +252,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
     (response) => response.url().endsWith(`/api/invoices/${invoiceId}/credit-notes`) && response.request().method() === "POST",
   );
   await page.getByTestId("credit-note-submit").click();
+  await page.getByTestId("invoice-issue-confirm").click();
   const creditNoteResponse = await creditNoteResponsePromise;
   expect(creditNoteResponse.status()).toBe(201);
   const creditNote = (await creditNoteResponse.json()) as { id: string; number: string; totalAmount: number };
@@ -307,6 +311,7 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Emitir factura" }).click();
+  await page.getByTestId("invoice-issue-confirm").click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok()).toBe(true);
   const createdInvoice = (await invoiceResponse.json()) as { number: string; lifecycle: string };

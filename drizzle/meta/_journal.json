@@ -218,6 +218,13 @@
       "when": 1790246444584,
       "tag": "0030_invoices_verifactu_performance",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790351698570,
+      "tag": "0031_ux_overhaul",
+      "breakpoints": true
     }
   ]
 }

@@ -9,7 +9,7 @@ export async function GET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver OCR de facturas de proveedor." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver la bandeja de facturas." }, { status: 403 });
   return NextResponse.json(await listRecentExpenseOcrJobs(ctx.company.id));
 }
 
@@ -17,13 +17,13 @@ export async function POST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para procesar OCR de facturas de proveedor." }, { status: 403 });
+  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para subir facturas de proveedor." }, { status: 403 });
 
   const formData = await request.formData();
   const file = formData.get("file");
   const batchId = formData.get("batchId");
   if (!(file instanceof File)) return NextResponse.json({ message: "Adjunta un PDF o imagen." }, { status: 400 });
-  if (file.size > 12 * 1024 * 1024) return NextResponse.json({ message: "El archivo OCR no puede superar 12 MB." }, { status: 400 });
+  if (file.size > 12 * 1024 * 1024) return NextResponse.json({ message: "El archivo no puede superar 12 MB." }, { status: 400 });
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     void processExpenseOcrJob(job.id);
     return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo crear el job OCR.";
+    const message = error instanceof Error ? error.message : "No se pudo guardar el documento para leerlo.";
     return NextResponse.json({ message }, { status: 400 });
   }
 }

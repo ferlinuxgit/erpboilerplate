@@ -111,6 +111,12 @@ type ResourceListProps<TItem> = {
    * Omit for small lists (client-side filtering and pagination).
    */
   server?: ServerListState;
+  /**
+   * Server mode: loads every row matching the current search, filters and order for the CSV
+   * export (not only the visible page). Receives the list query without `page`/`pageSize`.
+   * Without it, server-mode lists export the current page.
+   */
+  exportAll?: (query: URLSearchParams) => Promise<TItem[]>;
 };
 
 type SortDirection = "asc" | "desc";
@@ -220,8 +226,11 @@ export function ResourceList<TItem>({
   bulkActions,
   summaryLabel = "Total",
   server,
+  exportAll,
 }: ResourceListProps<TItem>) {
   const isServerMode = Boolean(server);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const [isNavigating, startNavigation] = useTransition();
@@ -598,6 +607,29 @@ export function ResourceList<TItem>({
     });
   }
 
+  async function exportCurrentView() {
+    if (selectedItems.length > 0) {
+      exportRows(selectedItems);
+      return;
+    }
+    if (!isServerMode || !exportAll) {
+      exportRows(sortedItems);
+      return;
+    }
+    const query = new URLSearchParams(serverSearch.replace(/^\?/, ""));
+    query.delete(LIST_PARAM.page);
+    query.delete(LIST_PARAM.pageSize);
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      exportRows(await exportAll(query));
+    } catch (error) {
+      setExportError(error instanceof Error && error.message ? error.message : "No se pudo exportar. Inténtalo de nuevo.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   function exportRows(rows: TItem[]) {
     const csv = buildCsv([
       exportableColumns.map((column) => column.header),
@@ -748,7 +780,7 @@ export function ResourceList<TItem>({
       <div className="w-full overflow-visible rounded-[2px] border border-window-dark-shadow bg-card p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">
         <div className="mb-1.5 flex min-h-5 flex-wrap items-center justify-between gap-1">
           <p
-            className="font-mono text-[0.7rem] font-bold text-foreground"
+            className="font-mono text-xs font-bold text-foreground"
             aria-live="polite"
             data-testid={`${listId}-summary`}
           >
@@ -763,7 +795,7 @@ export function ResourceList<TItem>({
             {selectedItems.length > 0 ? (
               <p
                 aria-live="polite"
-                className="border border-window-dark-shadow bg-primary px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-primary-foreground"
+                className="border border-window-dark-shadow bg-primary px-1.5 py-0.5 font-mono text-xs font-bold text-primary-foreground"
               >
                 {selectedItems.length} seleccionados
               </p>
@@ -864,26 +896,29 @@ export function ResourceList<TItem>({
               <div className="flex min-w-0 flex-wrap items-center gap-1 lg:justify-end">
                 {exportableColumns.length > 0 ? (
                   <Button
+                    aria-busy={isExporting || undefined}
                     aria-label={
                       selectedItems.length > 0
                         ? `Exportar ${selectedItems.length} registros seleccionados`
-                        : isServerMode
-                          ? "Exportar los registros de esta página"
-                          : "Exportar registros visibles"
+                        : isServerMode && exportAll
+                          ? `Exportar los ${matchingCount} registros filtrados`
+                          : isServerMode
+                            ? "Exportar los registros de esta página"
+                            : "Exportar registros visibles"
                     }
-                    disabled={paginatedItems.length === 0}
-                    onClick={() =>
-                      exportRows(
-                        selectedItems.length > 0 ? selectedItems : sortedItems,
-                      )
-                    }
+                    disabled={paginatedItems.length === 0 || isExporting}
+                    onClick={() => void exportCurrentView()}
                     size="icon-lg"
                     title={
-                      selectedItems.length > 0
-                        ? `Exportar ${selectedItems.length} seleccionados`
-                        : isServerMode
-                          ? "Exportar esta página"
-                          : "Exportar registros"
+                      isExporting
+                        ? "Preparando la exportación…"
+                        : selectedItems.length > 0
+                          ? `Exportar ${selectedItems.length} seleccionados`
+                          : isServerMode && exportAll
+                            ? `Exportar los ${matchingCount} registros filtrados`
+                            : isServerMode
+                              ? "Exportar esta página"
+                              : "Exportar registros"
                     }
                     type="button"
                     variant="outline"
@@ -1001,7 +1036,7 @@ export function ResourceList<TItem>({
             {filters.length > 0 || dateRange ? (
               <div className="flex w-full flex-col gap-1.5 border border-window-shadow bg-window-panel p-2 lg:flex-row lg:items-end">
                 <div className="flex min-h-8 shrink-0 items-center gap-1.5 font-mono text-xs font-bold text-foreground lg:pr-1">
-                  <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-primary shadow-[inset_1px_1px_0_var(--window-highlight)]">
+                  <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-link shadow-[inset_1px_1px_0_var(--window-highlight)]">
                     <Funnel aria-hidden="true" />
                   </span>
                   <span>Filtrar</span>
@@ -1012,7 +1047,7 @@ export function ResourceList<TItem>({
                       className="min-w-0 flex-1 space-y-0.5 sm:min-w-40 sm:max-w-56"
                       key={filter.key}
                     >
-                      <span className="block font-mono text-[0.6rem] font-bold uppercase tracking-[0.05em] text-muted-foreground">
+                      <span className="block font-mono text-xs font-bold uppercase tracking-[0.05em] text-muted-foreground">
                         {filter.label}
                       </span>
                       <Select
@@ -1036,7 +1071,7 @@ export function ResourceList<TItem>({
                     <fieldset className="flex min-w-0 flex-1 gap-1.5 sm:min-w-64 sm:max-w-80">
                       <legend className="sr-only">{dateRange.label}</legend>
                       <label className="min-w-0 flex-1 space-y-0.5">
-                        <span className="block font-mono text-[0.6rem] font-bold uppercase tracking-[0.05em] text-muted-foreground">
+                        <span className="block font-mono text-xs font-bold uppercase tracking-[0.05em] text-muted-foreground">
                           {dateRange.label}: desde
                         </span>
                         <Input
@@ -1049,7 +1084,7 @@ export function ResourceList<TItem>({
                         />
                       </label>
                       <label className="min-w-0 flex-1 space-y-0.5">
-                        <span className="block font-mono text-[0.6rem] font-bold uppercase tracking-[0.05em] text-muted-foreground">
+                        <span className="block font-mono text-xs font-bold uppercase tracking-[0.05em] text-muted-foreground">
                           hasta
                         </span>
                         <Input
@@ -1080,13 +1115,18 @@ export function ResourceList<TItem>({
             ) : null}
           </div>
         ) : null}
+        {exportError ? (
+          <p className="mt-1.5 border border-destructive bg-destructive/10 px-2 py-1 font-mono text-xs text-danger-text" role="alert">
+            {exportError}
+          </p>
+        ) : null}
         {bulkActions && selectedItems.length > 0 ? (
           <div
             aria-label="Acciones sobre la selección"
             className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5"
             role="toolbar"
           >
-            <span className="font-mono text-[0.7rem] font-bold">Con {selectedItems.length} seleccionados:</span>
+            <span className="font-mono text-xs font-bold">Con {selectedItems.length} seleccionados:</span>
             {bulkActions(selectedItems, () => setSelectedIds(new Set()))}
             <Button className="ml-auto" onClick={() => setSelectedIds(new Set())} size="sm" type="button" variant="ghost">
               <X aria-hidden="true" />
@@ -1249,7 +1289,7 @@ export function ResourceList<TItem>({
                         {column.summary ? (
                           <span className="tabular-nums">{column.summary(sortedItems)}</span>
                         ) : columnIndex === 0 ? (
-                          <span className="text-[0.68rem] uppercase tracking-[0.04em]">
+                          <span className="text-xs uppercase tracking-[0.04em]">
                             {summaryLabel} ({matchingCount})
                           </span>
                         ) : null}

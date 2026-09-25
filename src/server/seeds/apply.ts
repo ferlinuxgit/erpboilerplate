@@ -125,11 +125,19 @@ async function applyTemplateRows(
     }
 
     if (input.template.taxes.length > 0) {
+      // Tipo y operación también se corrigen en impuestos ya creados (retenciones antiguas guardadas
+      // como IVA que sumaban en vez de restar). `isDefault` solo al crear: respeta la elección del usuario.
       await tx.insert(tax).values(input.template.taxes.map((entry) => ({
           companyId: input.companyId,
           name: entry.name,
           rate: entry.rate,
-      }))).onConflictDoUpdate({ target: [tax.companyId, tax.name], set: { rate: sql`excluded."rate"` } });
+          kind: entry.kind ?? "VAT",
+          operation: entry.operation ?? (entry.kind === "WITHHOLDING" ? "SUBTRACT" : "ADD"),
+          isDefault: entry.isDefault ?? false,
+      }))).onConflictDoUpdate({
+        target: [tax.companyId, tax.name],
+        set: { rate: sql`excluded."rate"`, kind: sql`excluded."kind"`, operation: sql`excluded."operation"`, updatedAt: new Date() },
+      });
     }
 
     if (input.template.journals.length > 0) {

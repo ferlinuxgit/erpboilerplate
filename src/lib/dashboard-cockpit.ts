@@ -1,3 +1,5 @@
+import type { BusinessType } from "@/lib/company-readiness";
+
 type CustomerInput = {
   status: string;
 };
@@ -65,28 +67,11 @@ export type DashboardAction = {
   eyebrow: string;
 };
 
-export type DashboardEmptyState = {
-  title: string;
-  description: string;
-  href: string;
-  actionLabel: string;
-};
-
 export type DashboardAlert = {
   title: string;
   description: string;
   href: string;
   tone: "warning" | "critical";
-};
-
-export type DashboardGuidedDemoStep = {
-  step: number;
-  title: string;
-  description: string;
-  href: string;
-  actionLabel: string;
-  completed: boolean;
-  isNext: boolean;
 };
 
 export type DashboardMetric = {
@@ -95,6 +80,33 @@ export type DashboardMetric = {
   helper: string;
   href: string;
   tone: "neutral" | "warning" | "danger";
+};
+
+/** Datos de configuración (fuera del resumen operativo) que alimentan la puesta en marcha. */
+export type DashboardSetupInput = {
+  /** Etiquetas de los datos fiscales que faltan para facturar (vacío = lista para facturar). */
+  missingCompanyFields: string[];
+  hasInvoiceSeries: boolean;
+  hasBankAccount: boolean;
+};
+
+export type SetupStepKey = "company" | "series" | "bank" | "customer" | "invoice";
+
+export type SetupChecklistStep = {
+  key: SetupStepKey;
+  title: string;
+  description: string;
+  href: string;
+  actionLabel: string;
+  completed: boolean;
+  isNext: boolean;
+};
+
+export type SetupChecklist = {
+  steps: SetupChecklistStep[];
+  completedCount: number;
+  total: number;
+  complete: boolean;
 };
 
 export type DashboardCockpit = {
@@ -109,10 +121,74 @@ export type DashboardCockpit = {
   };
   metricCards: DashboardMetric[];
   primaryActions: DashboardAction[];
-  guidedDemoSteps: DashboardGuidedDemoStep[];
-  emptyStates: DashboardEmptyState[];
   alerts: DashboardAlert[];
+  /** Lista única de puesta en marcha: se muestra primero hasta completarla. */
+  setupChecklist: SetupChecklist;
 };
+
+export type DashboardCockpitOptions = {
+  currencyCode?: string;
+  businessType?: BusinessType;
+  setup?: DashboardSetupInput;
+};
+
+/**
+ * Pasos para pasar de "cuenta nueva" a "lista para facturar", con enlace directo a la
+ * pantalla que resuelve cada uno.
+ */
+export function buildSetupChecklist(input: DashboardSetupInput & { hasCustomer: boolean; hasInvoice: boolean }): SetupChecklist {
+  const missing = input.missingCompanyFields;
+  const steps: Array<Omit<SetupChecklistStep, "isNext">> = [
+    {
+      key: "company",
+      title: "Completa los datos fiscales",
+      description: missing.length > 0 ? `Falta: ${missing.join(", ")}. Sin ellos la factura no es válida.` : "Razón social, NIF y domicilio fiscal completos.",
+      href: "/settings/company",
+      actionLabel: "Completar datos fiscales",
+      completed: missing.length === 0,
+    },
+    {
+      key: "series",
+      title: "Elige la serie de tus facturas",
+      description: "El prefijo con el que se numeran (por ejemplo FA000001).",
+      href: "/onboarding",
+      actionLabel: "Configurar la serie",
+      completed: input.hasInvoiceSeries,
+    },
+    {
+      key: "bank",
+      title: "Añade tu cuenta bancaria",
+      description: "Aparece en las facturas para que te paguen por transferencia.",
+      href: "/treasury/bank-accounts/new",
+      actionLabel: "Añadir cuenta bancaria",
+      completed: input.hasBankAccount,
+    },
+    {
+      key: "customer",
+      title: "Da de alta tu primer cliente",
+      description: "Nombre, NIF y dirección de a quién vas a facturar.",
+      href: "/customers/new",
+      actionLabel: "Crear cliente",
+      completed: input.hasCustomer,
+    },
+    {
+      key: "invoice",
+      title: "Haz tu primera factura",
+      description: "Se guarda como borrador hasta que decidas emitirla.",
+      href: "/invoices/new",
+      actionLabel: "Crear factura",
+      completed: input.hasInvoice,
+    },
+  ];
+  const nextKey = steps.find((step) => !step.completed)?.key;
+  const completedCount = steps.filter((step) => step.completed).length;
+  return {
+    steps: steps.map((step) => ({ ...step, isNext: step.key === nextKey })),
+    completedCount,
+    total: steps.length,
+    complete: completedCount === steps.length,
+  };
+}
 
 const inactiveSalesStatuses = new Set(["VOID", "PAID", "INVOICED"]);
 const closedInvoiceStatuses = new Set(["PAID", "VOID"]);
@@ -157,10 +233,10 @@ function formatCount(value: number, singular: string, plural: string) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
 
-function buildMetricCards(cockpit: DashboardCockpit["metrics"], currencyCode: string): DashboardMetric[] {
+function buildMetricCards(cockpit: DashboardCockpit["metrics"], currencyCode: string, businessType: BusinessType): DashboardMetric[] {
   const receivables = cockpit.receivablesAmount.toLocaleString("es-ES", { style: "currency", currency: currencyCode });
   const overdue = cockpit.overdueInvoices > 0 ? ` · ${formatCount(cockpit.overdueInvoices, "vencida", "vencidas")}` : "";
-  return [
+  const cards: DashboardMetric[] = [
     {
       label: "Clientes activos",
       value: String(cockpit.activeCustomers),
@@ -190,65 +266,8 @@ function buildMetricCards(cockpit: DashboardCockpit["metrics"], currencyCode: st
       tone: cockpit.lowStockAlerts > 0 ? "danger" : "neutral",
     },
   ];
-}
-
-type GuidedDemoProgress = {
-  hasCustomer: boolean;
-  hasSalesDocument: boolean;
-  hasInvoice: boolean;
-  hasRecordedPayment: boolean;
-  hasInventorySignal: boolean;
-};
-
-function buildGuidedDemoSteps(progress: GuidedDemoProgress): DashboardGuidedDemoStep[] {
-  const steps = [
-    {
-      step: 1,
-      title: "Crea la base comercial",
-      description: "Da de alta un cliente real o de demo para activar presupuestos, pedidos y facturas.",
-      href: "/customers",
-      actionLabel: "Crear cliente",
-      completed: progress.hasCustomer,
-    },
-    {
-      step: 2,
-      title: "Prepara la primera venta",
-      description: "Recorre presupuesto o pedido y valida que cada transición pide el dato correcto.",
-      href: "/sales",
-      actionLabel: "Crear presupuesto/pedido",
-      completed: progress.hasSalesDocument,
-    },
-    {
-      step: 3,
-      title: "Emite la factura",
-      description: "Convierte trabajo entregado en una factura lista para seguimiento de cobro.",
-      href: "/invoices",
-      actionLabel: "Emitir factura",
-      completed: progress.hasInvoice,
-    },
-    {
-      step: 4,
-      title: "Registra el cobro",
-      description: "Marca pagos parciales o totales desde tesorería para que los KPIs reflejen caja real.",
-      href: "/treasury",
-      actionLabel: "Registrar cobro",
-      completed: progress.hasRecordedPayment,
-    },
-    {
-      step: 5,
-      title: "Revisa inventario",
-      description: "Comprueba stock y mínimos para detectar roturas antes de comprometer entregas.",
-      href: "/inventory",
-      actionLabel: "Revisar inventario",
-      completed: progress.hasInventorySignal,
-    },
-  ];
-  const nextStep = steps.find((step) => !step.completed)?.step;
-
-  return steps.map((step) => ({
-    ...step,
-    isNext: step.step === nextStep,
-  }));
+  // Empresas de servicios: sin stock que vigilar (salvo que ya tengan alertas reales).
+  return businessType === "services" && cockpit.lowStockAlerts === 0 ? cards.filter((card) => card.href !== "/inventory") : cards;
 }
 
 /** Row-level input → summary (kept for callers and tests that already have the rows). */
@@ -291,12 +310,15 @@ export function summarizeDashboardInput(input: DashboardCockpitInput): Dashboard
   };
 }
 
-export function buildDashboardCockpit(input: DashboardCockpitInput): DashboardCockpit {
-  return buildDashboardCockpitFromSummary(summarizeDashboardInput(input), input.currencyCode);
+export function buildDashboardCockpit(input: DashboardCockpitInput, options: Omit<DashboardCockpitOptions, "currencyCode"> = {}): DashboardCockpit {
+  return buildDashboardCockpitFromSummary(summarizeDashboardInput(input), { ...options, currencyCode: input.currencyCode });
 }
 
-export function buildDashboardCockpitFromSummary(summary: DashboardCockpitSummary, currencyCode = "EUR"): DashboardCockpit {
-  const { activeCustomers, salesInProgress, overdueInvoices, lowStockAlerts, hasRecordedPayment } = summary;
+export function buildDashboardCockpitFromSummary(summary: DashboardCockpitSummary, options: DashboardCockpitOptions = {}): DashboardCockpit {
+  const currencyCode = options.currencyCode ?? "EUR";
+  const businessType = options.businessType ?? "both";
+  const sellsProducts = businessType !== "services";
+  const { activeCustomers, salesInProgress, overdueInvoices, lowStockAlerts } = summary;
   const metrics = {
     activeCustomers,
     salesInProgress,
@@ -309,32 +331,6 @@ export function buildDashboardCockpitFromSummary(summary: DashboardCockpitSummar
   const hasOperationalSignals = salesInProgress > 0 || metrics.unpaidInvoices > 0 || lowStockAlerts > 0;
   const stateLabel =
     activeCustomers === 0 && !hasOperationalSignals ? "Primeros pasos" : hasOperationalSignals ? "Operación real" : "Datos iniciales";
-
-  const emptyStates: DashboardEmptyState[] = [];
-  if (activeCustomers === 0) {
-    emptyStates.push({
-      title: "Sin clientes todavía",
-      description: "Empieza creando un cliente para habilitar presupuestos, pedidos y facturas reales.",
-      href: "/customers",
-      actionLabel: "Crear cliente",
-    });
-  }
-  if (salesInProgress === 0) {
-    emptyStates.push({
-      title: "Sin documentos de venta",
-      description: "Registra presupuestos, pedidos o albaranes desde sus secciones independientes.",
-      href: "/sales",
-      actionLabel: "Abrir ventas",
-    });
-  }
-  if (lowStockAlerts === 0) {
-    emptyStates.push({
-      title: "Inventario sin alertas",
-      description: "Revisa el stock inicial y mínimos para que el cockpit detecte roturas antes de vender.",
-      href: "/inventory",
-      actionLabel: "Revisar inventario",
-    });
-  }
 
   const alerts: DashboardAlert[] = [];
   if (overdueInvoices > 0) {
@@ -365,40 +361,49 @@ export function buildDashboardCockpitFromSummary(summary: DashboardCockpitSummar
   }
   primaryActions.push(
     {
-      title: activeCustomers === 0 ? "Crea tu primer cliente" : "Mantén clientes activos",
-      description: "Centraliza datos comerciales antes de presupuestar o facturar.",
-      href: "/customers",
-      eyebrow: "1",
+      title: activeCustomers === 0 ? "Crea tu primer cliente" : "Da de alta un cliente",
+      description: "Nombre, NIF y dirección de a quién vas a facturar.",
+      href: "/customers/new",
+      eyebrow: "Clientes",
     },
     {
-      title: "Prepara una oferta o pedido",
-      description: "Crea un presupuesto o registra directamente un pedido confirmado.",
-      href: "/sales",
-      eyebrow: "2",
+      title: "Haz una factura",
+      description: salesInProgress > 0 ? "Tienes ventas en curso: conviértelas en factura y deja listo el cobro." : "Se guarda como borrador hasta que la emitas.",
+      href: "/invoices/new",
+      eyebrow: "Ventas",
     },
     {
-      title: salesInProgress > 0 ? "Emite la siguiente factura" : "Revisa inventario y servicios",
-      description: salesInProgress > 0 ? "Convierte entregas en factura y deja listo el cobro." : "Valida stock, servicios y mínimos antes de vender.",
-      href: salesInProgress > 0 ? "/invoices" : "/inventory",
-      eyebrow: "3",
+      title: "Registra un gasto",
+      description: "Sube el ticket o la factura del proveedor para deducir el IVA.",
+      href: "/expenses/new",
+      eyebrow: "Gastos",
     },
   );
-
-  const guidedDemoSteps = buildGuidedDemoSteps({
-    hasCustomer: activeCustomers > 0,
-    hasSalesDocument: salesInProgress > 0 || summary.invoiceCount > 0,
-    hasInvoice: summary.invoiceCount > 0,
-    hasRecordedPayment,
-    hasInventorySignal: summary.inventoryItemsCount > 0 || lowStockAlerts > 0,
+  // El catálogo de productos y el stock solo se sugieren a quien vende productos.
+  if (sellsProducts && summary.inventoryItemsCount === 0) {
+    primaryActions.push({
+      title: "Da de alta tus productos",
+      description: "Con precio e IVA, para no teclearlos en cada factura y controlar el stock.",
+      href: "/inventory/items/new",
+      eyebrow: "Catálogo",
+    });
+  }
+  primaryActions.push({
+    title: "Prepara un presupuesto",
+    description: "Envía una oferta y conviértela en pedido o factura cuando la acepten.",
+    href: "/sales/new",
+    eyebrow: "Ventas",
   });
+
+  const setup = options.setup ?? { missingCompanyFields: [], hasInvoiceSeries: true, hasBankAccount: true };
+  const setupChecklist = buildSetupChecklist({ ...setup, hasCustomer: activeCustomers > 0, hasInvoice: summary.invoiceCount > 0 });
 
   return {
     stateLabel,
     metrics,
-    metricCards: buildMetricCards(metrics, currencyCode),
+    metricCards: buildMetricCards(metrics, currencyCode, businessType),
     primaryActions: primaryActions.slice(0, 4),
-    guidedDemoSteps,
-    emptyStates,
     alerts,
+    setupChecklist,
   };
 }

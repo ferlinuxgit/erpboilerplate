@@ -16,7 +16,7 @@ const reportingSources = [
   { href: "/suppliers", label: "Proveedores", description: "Revisa compras, gastos y terceros acreedores." },
   { href: "/invoices", label: "Facturas", description: "Revisa facturación, vencimientos y cobros." },
   { href: "/treasury", label: "Tesorería", description: "Contrasta caja y bancos antes de exportar." },
-  { href: "/dashboard", label: "Panel", description: "Vuelve al cockpit para priorizar siguientes pasos." },
+  { href: "/dashboard", label: "Panel", description: "Vuelve al panel para decidir los siguientes pasos." },
 ] as const;
 
 const periodOptions = [
@@ -25,7 +25,7 @@ const periodOptions = [
   { value: "year", label: "Año en curso" },
 ] as const;
 
-export const metadata: Metadata = { title: "Informes y BI" };
+export const metadata: Metadata = { title: "Informes" };
 
 export default async function ReportingPage({ searchParams }: { searchParams?: Promise<{ period?: string | string[] }> }) {
   const ctx = await requireContext("reporting.read");
@@ -41,13 +41,13 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
     <PageShell>
       <PageHeader
         eyebrow="Operación"
-        title="Informes y BI"
-        description="Indicadores accionables del espacio activo para revisar salud comercial, caja y módulos de origen."
+        title="Informes"
+        description="Indicadores de ventas, gastos y caja de la empresa activa, con enlace al módulo de origen de cada dato."
         backHref="/dashboard"
         backLabel="Volver al panel"
       />
       <section className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,1fr)]">
-        <PageSection title="KPIs operativos" description="Valida las señales contra sus módulos de origen antes de exportar." contentClassName="space-y-3">
+        <PageSection title="Indicadores del periodo" description="Comprueba cada indicador en su módulo de origen antes de compartir el informe." contentClassName="space-y-3">
             <form action="/reporting" className="grid gap-4 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end" data-ignore-dirty-guard="true" method="get">
               <div className="space-y-2">
                 <Label htmlFor="reporting-period">Periodo del informe</Label>
@@ -72,7 +72,7 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="reporting-kpi-cards">
               {!finance.hasData ? (
-                <EmptyState className="sm:col-span-2 xl:col-span-3" title="Sin métricas calculadas aún" description="Crea clientes, facturas y cobros para que el reporting sustituya esta guía por indicadores reales." />
+                <EmptyState className="sm:col-span-2 xl:col-span-3" title="Sin métricas calculadas aún" description="Crea clientes, facturas y cobros para ver aquí tus indicadores reales." />
               ) : (
                 kpis.map((kpi) => (
                   <MetricCard
@@ -113,7 +113,7 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
         </PageSection>
       ) : null}
 
-      <PageSection title="Drill-down recomendado" description="Si un KPI no cuadra, vuelve al módulo fuente antes de compartir el informe." contentClassName="grid gap-3 md:grid-cols-4">
+      <PageSection title="Revisar el origen de los datos" description="Si un indicador no cuadra, revisa el módulo del que sale antes de compartir el informe." contentClassName="grid gap-3 md:grid-cols-4">
         <div className="contents" data-testid="reporting-source-links">
           {reportingSources.map((source) => (
             <Link className="rounded-[2px] border p-3 hover:border-primary hover:bg-muted/50" href={source.href} key={source.href}>

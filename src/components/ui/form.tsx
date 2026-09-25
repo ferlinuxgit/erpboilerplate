@@ -96,7 +96,7 @@ export function AccessibleField({ children, className, error, helperText, hideLa
 /** Legend shown once per form to explain the required marker. */
 export function RequiredFieldsNote({ className }: { className?: string }) {
   return (
-    <p className={cn("text-[0.7rem] text-muted-foreground", className)}>
+    <p className={cn("text-xs text-muted-foreground", className)}>
       Los campos marcados con <span className="text-destructive" aria-hidden="true">*</span>
       <span className="sr-only">asterisco</span> son obligatorios.
     </p>
@@ -108,7 +108,7 @@ export function FormErrorMessage({ children, className, id }: { children?: React
   if (!children) return null;
   return (
     <p
-      className={cn("border border-destructive bg-destructive/10 px-2 py-1.5 font-mono text-xs text-destructive", className)}
+      className={cn("border border-destructive bg-destructive/10 px-2 py-1.5 font-mono text-xs text-danger-text", className)}
       id={id}
       role="alert"
     >

@@ -9,7 +9,8 @@ import { createFiscalReport, listFiscalReports } from "@/server/fiscal/service";
 const payloadSchema = z.object({
   code: z.enum(spanishFiscalModelCodes),
   period: z.string().trim().min(4).max(7),
-  status: z.enum(["DRAFT", "READY", "FILED"]),
+  // "Presentado" no se elige al crear: se marca después con fecha y justificante (POST /[id]/file).
+  status: z.enum(["DRAFT", "READY"]).default("DRAFT"),
 });
 
 export async function GET() {
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
   if (!rawPayload) return invalidJsonResponse();
 
   const payload = payloadSchema.safeParse(rawPayload);
-  if (!payload.success) return NextResponse.json({ message: "Revisa el modelo, el periodo (p. ej. 2026-Q1, 2026-04 o 2026) y el estado." }, { status: 400 });
+  if (!payload.success) return NextResponse.json({ message: "Revisa el modelo y el periodo (p. ej. 2026-Q1, 2026-04 o 2026). Para marcarlo como presentado, créalo primero y usa «Marcar como presentado»." }, { status: 400 });
 
   try {
     const created = await createFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, payload.data);

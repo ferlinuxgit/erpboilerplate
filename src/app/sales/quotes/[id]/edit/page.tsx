@@ -7,6 +7,7 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, partner, salesQuote, salesQuoteLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+import { dateInputValue } from "@/lib/date-input";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -67,8 +68,8 @@ export default async function EditSalesQuotePage({
           initialValues={{
             customerId: record.customerId,
             number: record.number,
-            issueDate: record.issueDate.toISOString().slice(0, 10),
-            validUntil: record.validUntil?.toISOString().slice(0, 10) ?? "",
+            issueDate: dateInputValue(record.issueDate, ctx.company.timezone),
+            validUntil: record.validUntil ? dateInputValue(record.validUntil, ctx.company.timezone) : "",
             lines: lines.map((line) => ({
               description: line.description,
               quantity: line.quantity,

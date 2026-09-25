@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment, partner } from "@/db/schema";
+import { accountChart, purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment, partner } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { HttpError } from "@/lib/http";
@@ -15,6 +15,11 @@ type UpdateSupplierInput = z.infer<typeof updateSupplierSchema>;
 
 function cleanOptional(value: string | null | undefined) {
   return value?.trim() || null;
+}
+
+function optionalRate(value: number | null | undefined) {
+  if (value === undefined) return undefined;
+  return value === null || !Number.isFinite(value) ? null : value.toFixed(3);
 }
 
 function normalizeCountryCode(value: string | null | undefined) {
@@ -39,7 +44,23 @@ function supplierValues(input: CreateSupplierInput | UpdateSupplierInput) {
     paymentMethodId: cleanOptional("paymentMethodId" in input ? input.paymentMethodId : undefined),
     defaultAccountId: cleanOptional("defaultAccountId" in input ? input.defaultAccountId : undefined),
     currencyCode: ("currencyCode" in input ? input.currencyCode : "EUR").trim().toUpperCase(),
+    // Claves ausentes = no se tocan (integraciones que no conocen estos campos no los borran).
+    defaultExpenseAccountId: input.defaultExpenseAccountId === undefined ? undefined : cleanOptional(input.defaultExpenseAccountId),
+    defaultRetentionRate: optionalRate(input.defaultRetentionRate),
+    defaultTaxDeductiblePct: optionalRate(input.defaultTaxDeductiblePct),
+    defaultVatTreatment: input.defaultVatTreatment === undefined ? undefined : input.defaultVatTreatment || null,
   };
+}
+
+/** La cuenta de gasto habitual debe ser una cuenta imputable de la propia empresa. */
+async function assertDefaultExpenseAccount(dbClient: DbClient, companyId: string, accountId: string | null | undefined) {
+  if (!accountId) return;
+  const [row] = await dbClient
+    .select({ id: accountChart.id })
+    .from(accountChart)
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, accountId), eq(accountChart.isPostable, true)))
+    .limit(1);
+  if (!row) throw new HttpError(400, "La cuenta de gasto habitual no es válida para esta empresa.");
 }
 
 function partnerTypeForSupplier(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
@@ -67,6 +88,10 @@ export async function listSuppliers(dbClient: DbClient, companyId: string) {
         paymentTermsDays: partner.paymentTermsDays,
         paymentMethodId: partner.paymentMethodId,
         defaultAccountId: partner.defaultAccountId,
+        defaultExpenseAccountId: partner.defaultExpenseAccountId,
+        defaultRetentionRate: partner.defaultRetentionRate,
+        defaultTaxDeductiblePct: partner.defaultTaxDeductiblePct,
+        defaultVatTreatment: partner.defaultVatTreatment,
         currencyCode: partner.currencyCode,
         createdAt: partner.createdAt,
         updatedAt: partner.updatedAt,
@@ -124,6 +149,10 @@ export async function getSupplier(dbClient: DbClient, companyId: string, id: str
       paymentTermsDays: partner.paymentTermsDays,
       paymentMethodId: partner.paymentMethodId,
       defaultAccountId: partner.defaultAccountId,
+      defaultExpenseAccountId: partner.defaultExpenseAccountId,
+      defaultRetentionRate: partner.defaultRetentionRate,
+      defaultTaxDeductiblePct: partner.defaultTaxDeductiblePct,
+      defaultVatTreatment: partner.defaultVatTreatment,
       currencyCode: partner.currencyCode,
       createdAt: partner.createdAt,
       updatedAt: partner.updatedAt,
@@ -136,6 +165,7 @@ export async function getSupplier(dbClient: DbClient, companyId: string, id: str
 
 export async function createSupplierWithPartner(dbClient: DbClient, companyId: string, input: CreateSupplierInput) {
   const values = supplierValues(input);
+  await assertDefaultExpenseAccount(dbClient, companyId, values.defaultExpenseAccountId);
   const [existing] = await dbClient
     .select({ id: partner.id, type: partner.type })
     .from(partner)
@@ -161,6 +191,10 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
         paymentTermsDays: values.paymentTermsDays,
         paymentMethodId: values.paymentMethodId,
         defaultAccountId: values.defaultAccountId,
+        defaultExpenseAccountId: values.defaultExpenseAccountId,
+        defaultRetentionRate: values.defaultRetentionRate,
+        defaultTaxDeductiblePct: values.defaultTaxDeductiblePct,
+        defaultVatTreatment: values.defaultVatTreatment,
         currencyCode: values.currencyCode,
         isActive: true,
         updatedAt: new Date(),
@@ -190,6 +224,10 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
       paymentTermsDays: values.paymentTermsDays,
       paymentMethodId: values.paymentMethodId,
       defaultAccountId: values.defaultAccountId,
+      defaultExpenseAccountId: values.defaultExpenseAccountId,
+      defaultRetentionRate: values.defaultRetentionRate,
+      defaultTaxDeductiblePct: values.defaultTaxDeductiblePct,
+      defaultVatTreatment: values.defaultVatTreatment,
       currencyCode: values.currencyCode,
       isActive: true,
     })
@@ -199,6 +237,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
 
 export async function updateSupplierWithPartner(dbClient: DbClient, companyId: string, id: string, input: UpdateSupplierInput) {
   const values = supplierValues(input);
+  await assertDefaultExpenseAccount(dbClient, companyId, values.defaultExpenseAccountId);
   const [duplicate] = await dbClient
     .select({ id: partner.id })
     .from(partner)
@@ -223,6 +262,10 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
       paymentTermsDays: values.paymentTermsDays,
       paymentMethodId: values.paymentMethodId,
       defaultAccountId: values.defaultAccountId,
+      defaultExpenseAccountId: values.defaultExpenseAccountId,
+      defaultRetentionRate: values.defaultRetentionRate,
+      defaultTaxDeductiblePct: values.defaultTaxDeductiblePct,
+      defaultVatTreatment: values.defaultVatTreatment,
       currencyCode: values.currencyCode,
       isActive: values.isActive,
       updatedAt: new Date(),

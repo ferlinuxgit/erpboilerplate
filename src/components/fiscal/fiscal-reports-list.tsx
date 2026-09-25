@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/resource-list";
 import { fiscalStatusLabels } from "@/lib/fiscal-spain";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { describeDaysUntil } from "@/lib/pluralize";
 import type { FiscalReportWithSummary } from "@/server/fiscal/service";
 
 type FiscalReportsListProps = {
@@ -41,9 +42,7 @@ export function FiscalReportsList({
 }: FiscalReportsListProps) {
   function dueLabel(daysUntilDue: number | null) {
     if (daysUntilDue === null) return "";
-    return daysUntilDue < 0
-      ? `${Math.abs(daysUntilDue)} días vencido`
-      : `${daysUntilDue} días`;
+    return describeDaysUntil(daysUntilDue);
   }
 
   function renderModelName(report: FiscalReportWithSummary) {
@@ -51,7 +50,7 @@ export function FiscalReportsList({
 
     return (
       <Link
-        className="font-medium text-primary hover:underline"
+        className="font-medium text-link hover:underline"
         href={`/fiscal/${report.id}`}
       >
         {content}
@@ -154,7 +153,7 @@ export function FiscalReportsList({
     <ResourceList
       columns={columns}
       emptyDescription="Crea el primer borrador fiscal español para controlar IVA, resúmenes anuales y obligaciones informativas."
-      emptyTitle="Sin modelos fiscales"
+      emptyTitle="Sin modelos"
       exportFileName="fiscalidad-espana.csv"
       getRowId={(report) => report.id}
       getSearchText={(report) =>
@@ -193,7 +192,7 @@ export function FiscalReportsList({
       )}
       searchPlaceholder="Buscar modelo, periodo o estado"
       testId="fiscal-reports-list"
-      title="Modelos fiscales"
+      title="Modelos"
       filters={[
         {
           key: "status",

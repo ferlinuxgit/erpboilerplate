@@ -5,7 +5,7 @@ import Link from "next/link";
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, documentSeries, partner, paymentMethod, tax } from "@/db/schema";
+import { companySettings, customer, documentSeries, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -35,12 +35,16 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       city: partner.city,
       province: partner.province,
       countryCode: partner.countryCode,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultRetentionRate: customer.defaultRetentionRate,
+      defaultVatTreatment: customer.defaultVatTreatment,
+      equivalenceSurcharge: customer.equivalenceSurcharge,
     })
     .from(customer)
     .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(customer.companyId, tenantContext.company.id), eq(customer.status, "ACTIVE")))
     .orderBy(asc(customer.name));
-  const [[invoiceSeries], taxes, paymentMethods] = await Promise.all([db
+  const [[invoiceSeries], taxes, paymentMethods, [settings]] = await Promise.all([db
     .select({
       format: documentSeries.format,
       nextNumber: documentSeries.nextNumber,
@@ -67,7 +71,8 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       type: paymentMethod.type,
       bankAccountNumber: paymentMethod.bankAccountNumber,
       isDefault: paymentMethod.isDefault,
-    }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name))]);
+    }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name)),
+    db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, tenantContext.company.id)).limit(1)]);
   const nextInvoiceNumberPreview = invoiceSeries
     ? formatSeriesNumber({
         format: invoiceSeries.format,
@@ -89,7 +94,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         ]}
       />
 
-      <PageSection title="Datos de factura" description="Selecciona el cliente, informa fechas y añade las líneas del documento.">
+      <PageSection title="Datos de factura" description="Elige el cliente y añade las líneas. El vencimiento, el IVA y la retención se proponen según la ficha del cliente.">
         {!canCreateInvoice ? (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite crear facturas." />
         ) : customers.length === 0 && !canCreateCustomer ? (
@@ -105,7 +110,8 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         ) : (
           <CreateInvoiceForm
             canCreateCustomer={canCreateCustomer}
-            customers={customers}
+            companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
+            customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}
             nextInvoiceNumberPreview={nextInvoiceNumberPreview}

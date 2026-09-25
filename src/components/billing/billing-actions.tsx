@@ -49,10 +49,10 @@ export function BillingActions({ checkout, portal }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button disabled={isLoading || !checkout.enabled} onClick={openCheckout}>
-        Checkout Stripe
+        Contratar o cambiar de plan
       </Button>
       <Button disabled={isLoading || !portal.enabled} onClick={openPortal} variant="outline">
-        Portal Stripe
+        Gestionar pago y facturas
       </Button>
       {checkout.configurationError ? <p className="text-sm text-muted-foreground">{checkout.configurationError}</p> : null}
     </div>

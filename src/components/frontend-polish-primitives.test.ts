@@ -65,7 +65,11 @@ describe("frontend polish primitives", () => {
 
     expect(customerActions).toContain("name");
     expect(customerActions).toContain("title=");
-    expect(customerActions).toContain("successMessage=");
+    // Clientes: diálogo propio con copy contextual; si tiene documentos (409) ofrece desactivarlo.
+    expect(customerActions).toContain("DestructiveActionDialog");
+    expect(customerActions).toContain("toast.success(`Cliente ${name} eliminado.`)");
+    expect(customerActions).toContain("response.status === 409");
+    expect(customerActions).toContain("/deactivate");
     expect(customerRows).toContain("name={customer.name}");
     expect(invoiceActions).toContain("number");
     expect(invoiceActions).toContain("title=");
@@ -100,9 +104,13 @@ describe("frontend polish primitives", () => {
     expect(dashboardPage).toContain("buildDashboardCockpit");
     expect(dashboardPage).toContain('data-testid="dashboard-metrics"');
     expect(dashboardPage).toContain('data-testid="dashboard-primary-actions"');
-    expect(dashboardPage).toContain('data-testid="dashboard-empty-states"');
-    expect(dashboardPage).toContain('data-testid="dashboard-guided-demo"');
-    expect(dashboardPage).toContain("cockpit.guidedDemoSteps.map");
+    // A single guidance block: the setup checklist first, then the frequent actions.
+    expect(dashboardPage).toContain('data-testid="dashboard-setup-checklist"');
+    expect(dashboardPage).toContain('data-testid="dashboard-fiscal-banner"');
+    expect(dashboardPage).toContain("checklist.steps.map");
+    expect(dashboardPage).toContain("<TodayPanel");
+    expect(dashboardPage).not.toContain('data-testid="dashboard-empty-states"');
+    expect(dashboardPage).not.toContain('data-testid="dashboard-guided-demo"');
     // Counts (items included) now come from SQL aggregates in loadCockpitSummary.
     expect(dashboardPage).toContain("loadCockpitSummary");
     expect(dashboardPage).toContain("dashboardDataError");

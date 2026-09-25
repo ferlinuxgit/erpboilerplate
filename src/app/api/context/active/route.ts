@@ -5,7 +5,8 @@ import { z } from "zod";
 
 import { ACTIVE_COMPANY_COOKIE, ACTIVE_FISCAL_YEAR_COOKIE, activeContextCookieOptions, writeActiveTenant } from "@/lib/active-context";
 import { requireContext } from "@/lib/current-context";
-import { company, fiscalYear } from "@/db/schema";
+import { company, companySettings, fiscalYear } from "@/db/schema";
+import { parseBusinessType } from "@/lib/company-readiness";
 import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
 import { listUserTenants } from "@/lib/tenant";
@@ -26,13 +27,14 @@ const payloadSchema = z
 export async function GET() {
   try {
     const ctx = await requireContext();
-    const [allFiscalYears, availableTenants] = await Promise.all([
+    const [allFiscalYears, availableTenants, [settings]] = await Promise.all([
       db
         .select({ id: fiscalYear.id, code: fiscalYear.code, companyId: fiscalYear.companyId })
         .from(fiscalYear)
         .where(inArray(fiscalYear.companyId, ctx.availableCompanies.map((entry) => entry.id)))
         .orderBy(asc(fiscalYear.startsAt)),
       listUserTenants(ctx.user.id),
+      db.select({ businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
     ]);
     return NextResponse.json({
       active: {
@@ -41,6 +43,8 @@ export async function GET() {
         fiscalYearId: ctx.fiscalYear.id,
       },
       availableTenants,
+      // Qué vende la empresa activa: la navegación oculta lo que no aplica (p. ej. stock en servicios).
+      businessType: parseBusinessType(settings?.businessType),
       availableCompanies: ctx.availableCompanies,
       availableFiscalYears: ctx.availableFiscalYears,
       availableFiscalYearsByCompany: Object.fromEntries(ctx.availableCompanies.map((entry) => [entry.id, allFiscalYears.filter((year) => year.companyId === entry.id).map(({ id, code }) => ({ id, code }))])),

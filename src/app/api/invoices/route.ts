@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import { customer, invoice } from "@/db/schema";
 import { db } from "@/lib/db";
@@ -8,6 +8,7 @@ import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/
 import { invoiceErrorResponse, toInvoiceActor } from "@/server/invoices/http";
 import { createInvoiceSchema } from "@/server/invoices/schemas";
 import { createInvoice } from "@/server/invoices/service";
+import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
 import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
 import { renderInvoicePdf } from "@/server/pdf/render";
 
@@ -17,6 +18,33 @@ export async function GET(request: Request) {
 
   if (!hasApiActorPermission(actor, "invoice.read")) {
     return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  }
+
+  // ?pending=1: facturas emitidas con algo pendiente de cobro (neto de cobros y rectificativas).
+  if (new URL(request.url).searchParams.get("pending") === "1") {
+    const companyId = actor.context.company.id;
+    const paid = paidByInvoiceSubquery(companyId);
+    const credited = creditedByInvoiceSubquery(companyId);
+    const outstanding = netOutstandingSql(paid, credited);
+    const pendingRows = await db
+      .select({
+        id: invoice.id,
+        number: invoice.number,
+        customerName: customer.name,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        totalAmount: invoice.totalAmount,
+        paymentStatus: invoice.paymentStatus,
+        outstandingAmount: outstanding.mapWith(Number),
+      })
+      .from(invoice)
+      .innerJoin(customer, eq(customer.id, invoice.customerId))
+      .leftJoin(paid, eq(paid.invoiceId, invoice.id))
+      .leftJoin(credited, eq(credited.invoiceId, invoice.id))
+      .where(and(eq(invoice.companyId, companyId), invoiceIsIssuedSql, eq(invoice.invoiceType, "INVOICE"), sql`${outstanding} > 0`))
+      .orderBy(asc(invoice.dueDate), asc(invoice.issueDate))
+      .limit(200);
+    return NextResponse.json({ data: pendingRows });
   }
 
   const rows = await db

@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { accountTypeLabels, statusLabel } from "@/lib/status-labels";
-import { formatMoney } from "@/lib/format";
+import { formatBalance } from "@/lib/format";
 
 type AccountRow = {
   id: string;
@@ -39,7 +39,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
             {account.code} - {account.name}
           </p>
           <Link
-            className="text-sm text-primary underline-offset-4 hover:underline"
+            className="text-sm text-link underline-offset-4 hover:underline"
             href={`/accounting/ledger/${account.id}`}
           >
             Ver mayor
@@ -60,7 +60,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
       cell: (account) => (
         <div className="flex flex-wrap gap-1">
           <StatusBadge tone={account.isPostable ? "success" : "neutral"}>
-            {account.isPostable ? "Postable" : `Nivel ${account.level}`}
+            {account.isPostable ? "Admite apuntes" : `Grupo (nivel ${account.level})`}
           </StatusBadge>
           <StatusBadge tone={account.isActive ? "success" : "neutral"}>
             {account.isActive ? "Activa" : "Inactiva"}
@@ -68,14 +68,14 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
         </div>
       ),
       exportValue: (account) =>
-        `${account.isPostable ? "Postable" : "No postable"} / ${account.isActive ? "Activa" : "Inactiva"}`,
+        `${account.isPostable ? "Admite apuntes" : "Grupo"} / ${account.isActive ? "Activa" : "Inactiva"}`,
       sortValue: (account) =>
         `${account.isActive ? "0" : "1"}-${account.isPostable ? "0" : "1"}-${account.code}`,
     },
     {
-      header: "Saldo",
+      header: "Saldo (deudor / acreedor)",
       className: "text-right",
-      cell: (account) => formatMoney(account.balance),
+      cell: (account) => formatBalance(account.balance),
       exportValue: (account) => account.balance,
       sortValue: (account) => account.balance,
     },
@@ -95,7 +95,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
       exportFileName="plan-contable.csv"
       getRowId={(account) => account.id}
       getSearchText={(account) =>
-        `${account.code} ${account.name} ${account.type} ${account.isActive ? "activa" : "inactiva"} ${account.isPostable ? "postable" : "grupo"}`
+        `${account.code} ${account.name} ${account.type} ${account.isActive ? "activa" : "inactiva"} ${account.isPostable ? "admite apuntes" : "grupo"}`
       }
       items={rows}
       pageSize={16}
@@ -108,12 +108,12 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
             </p>
             <p className="text-sm text-muted-foreground">
               {statusLabel(accountTypeLabels, account.type)} · Saldo{" "}
-              {formatMoney(account.balance)}
+              {formatBalance(account.balance)}
             </p>
           </div>
           <div className="flex flex-wrap gap-1">
             <StatusBadge tone={account.isPostable ? "success" : "neutral"}>
-              {account.isPostable ? "Postable" : `Nivel ${account.level}`}
+              {account.isPostable ? "Admite apuntes" : `Grupo (nivel ${account.level})`}
             </StatusBadge>
             <StatusBadge tone={account.isActive ? "success" : "neutral"}>
               {account.isActive ? "Activa" : "Inactiva"}
@@ -121,7 +121,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
-              className="text-sm text-primary underline-offset-4 hover:underline"
+              className="text-sm text-link underline-offset-4 hover:underline"
               href={`/accounting/ledger/${account.id}`}
             >
               Ver mayor
@@ -130,7 +130,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
           </div>
         </div>
       )}
-      searchPlaceholder="Buscar código, nombre, tipo, activa, postable…"
+      searchPlaceholder="Buscar código, nombre, tipo, activa, admite apuntes…"
       testId="account-chart-list"
       title="Plan general contable"
     />

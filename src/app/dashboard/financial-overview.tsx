@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { ArrowRight, Bank, CalendarCheck, Receipt, Warning } from "@phosphor-icons/react/dist/ssr";
 
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { MetricCard, PageSection } from "@/components/ui/page";
-import { formatDate, formatMoney, formatPercent } from "@/lib/format";
+import { formatMoney, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { financePeriodOptions } from "@/server/reporting/dashboard-model";
 import type { DashboardFinance } from "@/server/reporting/dashboard";
@@ -12,15 +11,11 @@ function signedPercent(value: number) {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatPercent(Math.abs(value))}`;
 }
 
-function dayCount(days: number) {
-  return `${days} ${days === 1 ? "día" : "días"}`;
-}
-
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-/** Financial KPIs, 12-month charts and "Qué hacer hoy", computed with SQL aggregates. */
+/** Financial KPIs and 12-month charts, computed with SQL aggregates ("Qué hacer hoy" lives in `today-panel.tsx`). */
 export function FinancialOverview({ finance, currencyCode }: { finance: DashboardFinance; currencyCode: string }) {
   const money = (value: number) => formatMoney(value, currencyCode);
   const period = financePeriodOptions.find((option) => option.value === finance.period) ?? financePeriodOptions[0];
@@ -32,11 +27,6 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
   const aging = finance.receivables.aging;
   const maxBucket = Math.max(...aging.buckets.map((bucket) => bucket.amount), 0);
   const vatToPay = finance.vat.result >= 0;
-  const hasTodayItems =
-    finance.receivables.overdueInvoices.length > 0 ||
-    finance.payables.dueSoon.length > 0 ||
-    finance.unreconciledMovements > 0 ||
-    finance.fiscalDeadlines.length > 0;
 
   return (
     <section aria-labelledby="dashboard-finance-title" className="space-y-2" data-testid="dashboard-finance">
@@ -108,7 +98,7 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
           value={money(finance.bank.balance)}
         />
         <MetricCard
-          helper={`IVA repercutido ${money(finance.vat.outputVat)} − soportado deducible ${money(finance.vat.inputVat)}. ${vatToPay ? "A ingresar" : "A compensar"} (estimación; el 303 definitivo está en Fiscal).`}
+          helper={`IVA repercutido ${money(finance.vat.outputVat)} − soportado deducible ${money(finance.vat.inputVat)}. ${vatToPay ? "A ingresar" : "A compensar"} (estimación; el 303 definitivo está en Fiscalidad).`}
           href="/fiscal"
           label={`IVA estimado · ${finance.vat.label}`}
           tone={vatToPay && finance.vat.result > 0 ? "info" : "neutral"}
@@ -192,111 +182,6 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
         </PageSection>
       </div>
 
-      <PageSection
-        contentClassName="grid gap-2 md:grid-cols-2"
-        data-testid="dashboard-today"
-        description="Lo más urgente para cobrar, pagar y cumplir plazos."
-        title="Qué hacer hoy"
-      >
-        {!hasTodayItems ? (
-          <p className="border border-dashed border-window-dark-shadow p-2.5 text-xs text-muted-foreground md:col-span-2">
-            Nada urgente: no hay cobros vencidos, pagos esta semana, movimientos sin conciliar ni plazos fiscales próximos.
-          </p>
-        ) : null}
-
-        {finance.receivables.overdueInvoices.length > 0 ? (
-          <div className="space-y-1.5 border border-window-shadow p-2.5">
-            <h3 className="flex items-center gap-1.5 font-mono text-xs font-bold">
-              <Warning aria-hidden="true" className="size-4 text-warning" />
-              Reclama {finance.receivables.overdueCount} {finance.receivables.overdueCount === 1 ? "factura vencida" : "facturas vencidas"} ({money(finance.receivables.overdueAmount)})
-            </h3>
-            <ul className="divide-y divide-window-shadow">
-              {finance.receivables.overdueInvoices.map((entry) => (
-                <li key={entry.id}>
-                  <Link className="flex items-center justify-between gap-2 py-1 text-xs hover:bg-window-highlight" href={`/invoices/${entry.id}`}>
-                    <span className="min-w-0">
-                      <span className="font-mono font-semibold text-primary">{entry.number}</span>{" "}
-                      <span className="truncate">{entry.customerName}</span>
-                      <span className="block text-muted-foreground">Vencida hace {dayCount(entry.daysOverdue)}</span>
-                    </span>
-                    <span className="font-mono font-bold tabular-nums">{money(entry.amount)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            {finance.receivables.overdueCount > finance.receivables.overdueInvoices.length ? (
-              <Link className="inline-flex items-center gap-1 font-mono text-xs font-bold text-primary hover:underline" href="/invoices?due=overdue">
-                Ver las {finance.receivables.overdueCount} vencidas <ArrowRight aria-hidden="true" />
-              </Link>
-            ) : null}
-          </div>
-        ) : null}
-
-        {finance.payables.dueSoon.length > 0 ? (
-          <div className="space-y-1.5 border border-window-shadow p-2.5">
-            <h3 className="flex items-center gap-1.5 font-mono text-xs font-bold">
-              <Receipt aria-hidden="true" className="size-4 text-primary" />
-              Paga {finance.payables.dueSoonCount} {finance.payables.dueSoonCount === 1 ? "factura de proveedor" : "facturas de proveedor"} esta semana ({money(finance.payables.dueSoonAmount)})
-            </h3>
-            <ul className="divide-y divide-window-shadow">
-              {finance.payables.dueSoon.map((entry) => (
-                <li key={entry.id}>
-                  <Link className="flex items-center justify-between gap-2 py-1 text-xs hover:bg-window-highlight" href={`/expenses/${entry.id}`}>
-                    <span className="min-w-0">
-                      <span className="font-mono font-semibold text-primary">{entry.number}</span> <span className="truncate">{entry.supplierName}</span>
-                      <span className="block text-muted-foreground">
-                        {entry.daysOverdue > 0 ? `Vencida hace ${dayCount(entry.daysOverdue)}` : entry.dueDate ? `Vence el ${formatDate(entry.dueDate)}` : "Sin vencimiento"}
-                      </span>
-                    </span>
-                    <span className="font-mono font-bold tabular-nums">{money(entry.amount)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {finance.unreconciledMovements > 0 ? (
-          <Link className="flex items-start justify-between gap-2 border border-window-shadow p-2.5 hover:bg-window-highlight" href="/treasury/reconciliation">
-            <span>
-              <span className="flex items-center gap-1.5 font-mono text-xs font-bold">
-                <Bank aria-hidden="true" className="size-4 text-primary" />
-                Concilia {finance.unreconciledMovements} {finance.unreconciledMovements === 1 ? "movimiento bancario" : "movimientos bancarios"}
-              </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">Relaciónalos con cobros y pagos para que el saldo y las cuentas cuadren.</span>
-            </span>
-            <ArrowRight aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          </Link>
-        ) : null}
-
-        {finance.fiscalDeadlines.length > 0 ? (
-          <div className="space-y-1.5 border border-window-shadow p-2.5">
-            <h3 className="flex items-center gap-1.5 font-mono text-xs font-bold">
-              <CalendarCheck aria-hidden="true" className="size-4 text-primary" />
-              Plazos fiscales próximos
-            </h3>
-            <ul className="divide-y divide-window-shadow">
-              {finance.fiscalDeadlines.map((deadline) => (
-                <li key={`${deadline.code}-${deadline.period}`}>
-                  <Link className="flex items-center justify-between gap-2 py-1 text-xs hover:bg-window-highlight" href="/fiscal/calendar">
-                    <span>
-                      <span className="font-mono font-semibold">Modelo {deadline.code}</span> · {deadline.name} · {deadline.periodLabel}
-                      <span className={cn("block", deadline.status === "overdue" ? "font-semibold text-destructive" : "text-muted-foreground")}>
-                        {deadline.status === "overdue"
-                          ? `Venció el ${formatDate(deadline.dueDate)} y no consta presentado`
-                          : deadline.daysUntil === 0
-                            ? "Vence hoy"
-                            : `Vence el ${formatDate(deadline.dueDate)} (en ${dayCount(deadline.daysUntil)})`}
-                      </span>
-                    </span>
-                    <ArrowRight aria-hidden="true" className="size-4 shrink-0" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </PageSection>
     </section>
   );
 }

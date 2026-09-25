@@ -10,11 +10,7 @@ import {
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
-import {
-  salesDocumentStatusLabels,
-  salesDocumentStatusTone,
-  statusLabel,
-} from "@/lib/status-labels";
+import { salesStatusLabel, salesStatusOptions, salesStatusTone } from "@/components/sales/sales-status";
 
 export type SalesDocumentListRow = {
   id: string;
@@ -46,6 +42,8 @@ type SalesDocumentsListProps = {
   showAmounts?: boolean;
   /** Show the origin column (defaults to "some row has an origin"; set it in server mode). */
   showOrigin?: boolean;
+  /** Tipo de documento (etiquetas de estado: en presupuestos "Aceptado"/"Rechazado"). */
+  kind?: "quote" | "order" | "delivery";
 };
 
 export function SalesDocumentsList({
@@ -58,6 +56,7 @@ export function SalesDocumentsList({
   testId,
   title,
   server,
+  kind = "order",
   totals,
   showAmounts,
   showOrigin,
@@ -132,11 +131,11 @@ export function SalesDocumentsList({
     {
       header: "Estado",
       cell: (row) => (
-        <StatusBadge tone={salesDocumentStatusTone(row.status)}>
-          {statusLabel(salesDocumentStatusLabels, row.status)}
+        <StatusBadge tone={salesStatusTone(row.status)}>
+          {salesStatusLabel(row.status, kind)}
         </StatusBadge>
       ),
-      exportValue: (row) => statusLabel(salesDocumentStatusLabels, row.status),
+      exportValue: (row) => salesStatusLabel(row.status, kind),
       sortValue: (row) => row.status,
       sortKey: "status",
     },
@@ -169,7 +168,7 @@ export function SalesDocumentsList({
           row.number,
           row.customerName,
           row.status,
-          statusLabel(salesDocumentStatusLabels, row.status),
+          salesStatusLabel(row.status, kind),
           row.originLabel ?? "",
           formatDate(row.date),
         ].join(" ")
@@ -190,8 +189,8 @@ export function SalesDocumentsList({
                 {row.customerName}
               </p>
             </div>
-            <StatusBadge tone={salesDocumentStatusTone(row.status)}>
-              {statusLabel(salesDocumentStatusLabels, row.status)}
+            <StatusBadge tone={salesStatusTone(row.status)}>
+              {salesStatusLabel(row.status, kind)}
             </StatusBadge>
           </div>
           <div className="flex items-end justify-between gap-3 text-sm">
@@ -228,9 +227,7 @@ export function SalesDocumentsList({
           key: "status",
           label: "Estado",
           allLabel: "Todos los estados",
-          options: Object.entries(salesDocumentStatusLabels).map(
-            ([value, label]) => ({ value, label }),
-          ),
+          options: salesStatusOptions(kind),
           getValue: (row) => row.status,
         },
       ]}

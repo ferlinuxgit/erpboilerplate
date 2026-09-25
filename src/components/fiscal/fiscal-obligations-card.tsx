@@ -3,14 +3,13 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
+import { describeDaysUntil, formatCount } from "@/lib/pluralize";
 import type { FiscalObligation } from "@/server/fiscal/obligations";
 
 const reportStatusLabel = { DRAFT: "Borrador", READY: "Preparado", FILED: "Presentado" } as const;
 
 function dueText(obligation: FiscalObligation) {
-  if (obligation.daysUntilDue < 0) return `Venció hace ${Math.abs(obligation.daysUntilDue)} días`;
-  if (obligation.daysUntilDue === 0) return "Vence hoy";
-  return `Quedan ${obligation.daysUntilDue} días`;
+  return describeDaysUntil(obligation.daysUntilDue);
 }
 
 /** Tarjeta "Qué tengo que presentar este trimestre" en /fiscal. */
@@ -24,7 +23,7 @@ export function FiscalObligationsCard({ canWrite, obligations }: { canWrite: boo
       <p className="text-sm">
         {pending.length === 0
           ? "Todo presentado para el próximo plazo. ¡Bien!"
-          : `Tienes ${pending.length} modelo(s) por presentar en el próximo plazo.`}
+          : `Tienes ${formatCount(pending.length, "modelo")} por presentar en el próximo plazo.`}
       </p>
       <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {required.map((obligation) => {

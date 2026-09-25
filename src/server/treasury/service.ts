@@ -6,9 +6,28 @@ import { postBankTransaction, reverseAutomaticEntries } from "@/server/accountin
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { recordAudit } from "@/server/audit";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
+import { isValidBic, normalizeBic } from "@/lib/bank-import/iban";
 
-type BankAccountPayload = { iban: string; bankName: string; accountId?: string | null };
-type BankTransactionPayload = { bankAccountId: string; amount: string; description: string; postedAt: Date };
+type BankAccountPayload = { iban: string; bankName: string; accountId?: string | null; bic?: string | null };
+
+function normalizeBankBic(bic: string | null | undefined) {
+  if (bic === undefined) return undefined;
+  const value = normalizeBic(bic);
+  if (!value) return null;
+  if (!isValidBic(value)) throw new AccountingRuleError(422, "BIC_INVALID", "El BIC debe tener 8 u 11 caracteres (p. ej. CAIXESBBXXX).");
+  return value;
+}
+type BankTransactionPayload = {
+  bankAccountId: string;
+  amount: string;
+  description: string;
+  postedAt: Date;
+  // Datos opcionales del extracto importado.
+  valueDate?: Date | null;
+  balanceAfter?: string | null;
+  reference?: string | null;
+  importSource?: "MANUAL" | "CSV" | "XLSX" | "NORMA43" | null;
+};
 
 export async function listTreasury(companyId: string) {
   return db
@@ -37,6 +56,7 @@ export async function listBankAccounts(companyId: string) {
       accountName: accountChart.name,
       isActive: bankAccount.isActive,
       archivedAt: bankAccount.archivedAt,
+      bic: bankAccount.bic,
     })
     .from(bankAccount)
     .leftJoin(accountChart, eq(accountChart.id, bankAccount.accountId))
@@ -56,6 +76,7 @@ export async function getBankAccount(companyId: string, id: string) {
       accountName: accountChart.name,
       isActive: bankAccount.isActive,
       archivedAt: bankAccount.archivedAt,
+      bic: bankAccount.bic,
     })
     .from(bankAccount)
     .leftJoin(accountChart, eq(accountChart.id, bankAccount.accountId))
@@ -91,7 +112,8 @@ async function assertBankLedgerAccount(client: DbClient, companyId: string, acco
 export async function createBankAccount(companyId: string, tenantId: string, actorUserId: string, payload: BankAccountPayload) {
   return db.transaction(async (tx) => {
     const accountId = await assertBankLedgerAccount(tx, companyId, payload.accountId);
-    const [created] = await tx.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName, accountId }).returning();
+    const bic = normalizeBankBic(payload.bic) ?? null;
+    const [created] = await tx.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName, accountId, bic }).returning();
     await tx.insert(paymentMethod).values({
       companyId,
       bankAccountId: created.id,
@@ -108,9 +130,10 @@ export async function createBankAccount(companyId: string, tenantId: string, act
 export async function updateBankAccount(companyId: string, tenantId: string, actorUserId: string, id: string, payload: BankAccountPayload) {
   return db.transaction(async (tx) => {
     const accountId = payload.accountId === undefined ? undefined : await assertBankLedgerAccount(tx, companyId, payload.accountId);
+    const bic = normalizeBankBic(payload.bic);
     const [updated] = await tx
       .update(bankAccount)
-      .set({ iban: payload.iban, bankName: payload.bankName, ...(accountId === undefined ? {} : { accountId }) })
+      .set({ iban: payload.iban, bankName: payload.bankName, ...(accountId === undefined ? {} : { accountId }), ...(bic === undefined ? {} : { bic }) })
       .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)))
       .returning();
     if (!updated) return null;
@@ -215,6 +238,10 @@ export async function getBankTransaction(companyId: string, id: string, client: 
       matchedInvoicePaymentId: bankTransaction.matchedInvoicePaymentId,
       matchedSupplierPaymentId: bankTransaction.matchedSupplierPaymentId,
       reconciledAt: bankTransaction.reconciledAt,
+      resolution: bankTransaction.resolution,
+      reference: bankTransaction.reference,
+      valueDate: bankTransaction.valueDate,
+      balanceAfter: bankTransaction.balanceAfter,
     })
     .from(bankTransaction)
     .innerJoin(bankAccount, eq(bankTransaction.bankAccountId, bankAccount.id))

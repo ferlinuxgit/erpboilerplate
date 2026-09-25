@@ -19,7 +19,9 @@ vi.mock("@/lib/db", () => ({
       const chain = {
         from: vi.fn(() => chain),
         innerJoin: vi.fn(() => chain),
+        leftJoin: vi.fn(() => chain),
         where: vi.fn(() => chain),
+        orderBy: vi.fn(() => chain),
         limit: vi.fn(async () => rows),
       };
       return chain;
@@ -28,11 +30,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-function loginRequest(email: string, password = "wrong-password") {
+function loginRequest(email: string, password = "wrong-password", extra: Record<string, unknown> = {}) {
   return new Request("https://erp.example.com/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.10" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, ...extra }),
   });
 }
 
@@ -92,5 +94,29 @@ describe("POST /api/auth/login", () => {
 
     expect(response.status).toBe(200);
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", ipAddress: "203.0.113.10" }));
+  });
+
+  it("answers 403 with a machine-readable code so the form can offer to resend the verification email", async () => {
+    userRows.current = [{ id: "user-1", name: "Ana", email: "ana@example.com", emailVerified: false, password: "$argon2id$real" }];
+    argon2Mock.verify.mockResolvedValue(true);
+    const { POST } = await import("@/app/api/auth/login/route");
+
+    const response = await POST(loginRequest("ana@example.com", "correct-password"));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ code: "EMAIL_NOT_VERIFIED" });
+  });
+
+  it("returns the requested safe return path and never an external one", async () => {
+    userRows.current = [{ id: "user-1", name: "Ana", email: "ana@example.com", emailVerified: true, password: "$argon2id$real" }];
+    argon2Mock.verify.mockResolvedValue(true);
+    const { POST } = await import("@/app/api/auth/login/route");
+
+    const toInvitation = await POST(loginRequest("ana@example.com", "correct-password", { next: "/invitations/tok" }));
+    await expect(toInvitation.json()).resolves.toMatchObject({ redirectTo: "/invitations/tok" });
+
+    // No membership yet (mocked lookups are empty): a new account goes to the setup wizard.
+    const external = await POST(loginRequest("ana@example.com", "correct-password", { next: "https://evil.example" }));
+    await expect(external.json()).resolves.toMatchObject({ redirectTo: "/onboarding" });
   });
 });

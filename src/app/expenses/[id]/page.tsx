@@ -159,8 +159,8 @@ export default async function ExpenseDetailPage({
                 <TableHead>Cuenta</TableHead>
                 <TableHead className="text-right">Base</TableHead>
                 <TableHead className="text-right">IVA</TableHead>
-                <TableHead className="text-right">Ded.</TableHead>
-                <TableHead className="text-right">Ret.</TableHead>
+                <TableHead className="text-right" title="Parte del IVA que se recupera">IVA deducible</TableHead>
+                <TableHead className="text-right" title="Retención de IRPF">Retención</TableHead>
                 <TableHead className="text-right">Total</TableHead>
               </TableRow>
             </TableHeader>

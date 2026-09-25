@@ -7,12 +7,13 @@ import { EmptyState, InlineAlert, MetricCard, PageHeader, PageSection, PageShell
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
+import { formatCount } from "@/lib/pluralize";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { verifactuInvoiceTypeLabels } from "@/server/verifactu/mapping";
 import { getVerifactuOverview, verifactuStatusLabels, verifactuStatusTone } from "@/server/verifactu/service";
 
-export const metadata: Metadata = { title: "VeriFactu" };
+export const metadata: Metadata = { title: "VERI*FACTU" };
 
 const eventLabels: Record<string, string> = {
   SYSTEM_START: "Inicio",
@@ -39,7 +40,7 @@ export default async function VerifactuPage() {
     <PageShell>
       <PageHeader
         eyebrow="Fiscalidad"
-        title="VeriFactu"
+        title="VERI*FACTU"
         description="Registro inalterable de tus facturas (Ley Antifraude). Cada factura emitida genera un registro con una huella encadenada a la anterior."
         backHref="/fiscal"
         backLabel="Volver a fiscalidad"
@@ -50,7 +51,7 @@ export default async function VerifactuPage() {
       {!active ? (
         <InlineAlert tone="warning" title="VERI*FACTU no está activado">
           Tus facturas todavía no generan registros de facturación. Actívalo en{" "}
-          <Link className="underline" href="/fiscal/settings">Fiscalidad › Configuración</Link> antes de la fecha en la que te sea obligatorio
+          <Link className="link underline" href="/fiscal/settings">Fiscalidad › Configuración</Link> antes de la fecha en la que te sea obligatorio
           (según el calendario vigente, a partir de 2027 para la mayoría de empresas y autónomos; confírmalo con tu asesor).
         </InlineAlert>
       ) : null}
@@ -64,7 +65,7 @@ export default async function VerifactuPage() {
       ) : null}
 
       {rejected > 0 ? (
-        <InlineAlert tone="danger" title={`${rejected} registro(s) rechazados por la AEAT`}>
+        <InlineAlert tone="danger" title={`${formatCount(rejected, "registro rechazado", "registros rechazados")} por la AEAT`}>
           Revisa el motivo en la tabla. Normalmente se debe a datos del cliente (NIF) o de la empresa. Corrige el dato y emite una rectificativa si procede.
         </InlineAlert>
       ) : null}
@@ -106,7 +107,7 @@ export default async function VerifactuPage() {
                   <TableRow key={record.id}>
                     <TableCell className="font-mono">{record.sequence}</TableCell>
                     <TableCell>
-                      <Link className="font-mono font-semibold text-primary hover:underline" href={`/invoices/${record.invoiceId}`}>{record.invoiceNumber}</Link>
+                      <Link className="font-mono font-semibold text-link hover:underline" href={`/invoices/${record.invoiceId}`}>{record.invoiceNumber}</Link>
                       <span className="block text-xs text-muted-foreground">{record.invoiceIssueDate} · generado {formatDate(record.generatedAt)}</span>
                     </TableCell>
                     <TableCell className="text-xs">

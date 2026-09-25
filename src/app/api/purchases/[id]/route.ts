@@ -6,7 +6,7 @@ import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http"
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { purchaseOrderStatuses } from "@/lib/document-pipelines";
-import { deletePurchaseOrder, getPurchaseOrder, updatePurchaseOrder } from "@/server/purchases/service";
+import { deletePurchaseOrder, getPurchaseOrder, PURCHASE_SUPPLIER_NOT_FOUND, updatePurchaseOrder } from "@/server/purchases/service";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
@@ -35,10 +35,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const parsed = z.object({
     number: z.string().trim().min(1, "El número es obligatorio."),
     status: z.enum(purchaseOrderStatuses),
-    supplierName: z.string().trim().min(1, "El proveedor es obligatorio."),
+    supplierPartnerId: z.string().trim().optional(),
+    supplierName: z.string().trim().optional(),
     lines: z.array(z.object({ description: z.string().trim().min(1), itemId: z.string().trim().optional(), quantity: z.coerce.number().positive(), unitPrice: z.coerce.number().nonnegative() })).min(1, "Añade al menos una línea."),
   }).safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
+  if (!parsed.data.supplierPartnerId && !parsed.data.supplierName) return NextResponse.json({ message: "Elige el proveedor del pedido." }, { status: 400 });
 
   const { id } = await params;
   try {
@@ -48,6 +50,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!updated) return NextResponse.json({ message: "Pedido no encontrado." }, { status: 404 });
     return NextResponse.json(updated);
   } catch (error) {
+    if (error instanceof Error && error.message === PURCHASE_SUPPLIER_NOT_FOUND) {
+      return NextResponse.json({ message: "El proveedor no existe. Búscalo o créalo desde el selector antes de guardar el pedido." }, { status: 400 });
+    }
     if (error instanceof Error && error.message === "PURCHASE_ORDER_LOCKED") {
       return NextResponse.json(
         { message: "No puedes editar un pedido con recepciones o facturas vinculadas." },

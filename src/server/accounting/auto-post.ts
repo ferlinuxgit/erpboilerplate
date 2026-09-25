@@ -681,3 +681,65 @@ export async function postCreditNote(
     ),
   });
 }
+
+/**
+ * Líneas de "Asignar a cuenta" de un movimiento bancario (función pura).
+ *
+ * `movementAmount` es el importe con signo del extracto; cada partida va en el sentido del
+ * movimiento (positiva = misma dirección; negativa = dirección contraria, p. ej. una comisión
+ * descontada de un cobro). Ingreso: Banco al debe y cuentas al haber; cargo: cuentas al debe y
+ * Banco al haber. Las partidas negativas pasan al lado contrario, así que el asiento siempre cuadra.
+ */
+export function buildBankAssignmentLines(
+  bankAccountId: string,
+  movementAmount: number,
+  allocations: Array<{ accountId: string; amount: number | string }>,
+): PostingLine[] {
+  const direction = movementAmount >= 0 ? 1 : -1;
+  const lines: PostingLine[] = [];
+  let bankNetCents = 0;
+  for (const allocation of allocations) {
+    const cents = toCents(allocation.amount);
+    bankNetCents += direction * cents;
+    const accountNet = -direction * cents;
+    lines.push({
+      accountId: allocation.accountId,
+      debit: accountNet > 0 ? centsToAmount(accountNet) : "0.00",
+      credit: accountNet < 0 ? centsToAmount(-accountNet) : "0.00",
+    });
+  }
+  lines.unshift({
+    accountId: bankAccountId,
+    debit: bankNetCents > 0 ? centsToAmount(bankNetCents) : "0.00",
+    credit: bankNetCents < 0 ? centsToAmount(-bankNetCents) : "0.00",
+  });
+  return normalizePostingLines(lines);
+}
+
+/**
+ * Parte de un movimiento bancario asignada directamente a cuentas (comisiones 626, cuota de
+ * autónomos 642, pagos a Hacienda 4750…): Banco ↔ cuentas, con origen
+ * `bankTransactionAssignment` para poder revertirlo al deshacer. El asiento provisional del
+ * movimiento (Banco ↔ 555) lo revierte quien llama, de modo que 555 vuelve a cero.
+ */
+export async function postBankTransactionAssignment(
+  input: PostingInput & {
+    bankTransactionId: string;
+    bankAccountId: string;
+    movementAmount: number;
+    allocations: Array<{ accountId: string; amount: number | string }>;
+  },
+) {
+  const client = input.dbClient ?? db;
+  const { ids } = await resolveAccounts(input.companyId, ["bank"], client);
+  const bankId = (await resolveBankLedgerAccountId(client, input.companyId, { bankAccountId: input.bankAccountId })) ?? ids.bank;
+  return createAutomaticEntry({
+    ...input,
+    action: "accounting.autopost.bankTransactionAssignment",
+    entityName: "bankTransaction",
+    entityId: input.bankTransactionId,
+    sourceType: "bankTransactionAssignment",
+    sourceId: input.bankTransactionId,
+    lines: buildBankAssignmentLines(bankId, input.movementAmount, input.allocations),
+  });
+}

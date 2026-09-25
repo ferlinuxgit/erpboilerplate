@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -32,15 +33,12 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType, onC
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
           body: JSON.stringify({ code, name, type }),
         });
-        if (!response.ok) {
-          const payload = (await response.json()) as { message?: string };
-          throw new Error(payload.message ?? "No se pudo actualizar la cuenta.");
-        }
+        if (!response.ok) throw new Error(await readApiError(response, "No se pudo actualizar la cuenta."));
         toast.success("Cuenta actualizada correctamente.");
         if (onSuccess) onSuccess();
         else { router.push("/accounting"); router.refresh(); }
       } catch (submissionError) {
-        const message = submissionError instanceof Error ? submissionError.message : "Error inesperado.";
+        const message = errorMessage(submissionError, "No se pudo actualizar la cuenta.");
         setError(message);
         toast.error(message);
       } finally {

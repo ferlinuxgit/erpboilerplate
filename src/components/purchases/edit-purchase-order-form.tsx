@@ -6,7 +6,7 @@ export function EditPurchaseOrderForm({
   currencyCode,
   defaultNumber,
   defaultStatus,
-  defaultSupplierName,
+  defaultSupplierId,
   initialLines,
   items,
   orderId,
@@ -16,7 +16,7 @@ export function EditPurchaseOrderForm({
   currencyCode: string;
   defaultNumber: string;
   defaultStatus: string;
-  defaultSupplierName: string;
+  defaultSupplierId: string;
   initialLines: PurchaseOrderInitialLine[];
   items: PurchaseItemOption[];
   suppliers: PurchaseSupplierOption[];
@@ -26,7 +26,7 @@ export function EditPurchaseOrderForm({
       currencyCode={currencyCode}
       defaultNumber={defaultNumber}
       defaultStatus={defaultStatus}
-      defaultSupplierName={defaultSupplierName}
+      defaultSupplierId={defaultSupplierId}
       initialLines={initialLines}
       items={items}
       orderId={orderId}

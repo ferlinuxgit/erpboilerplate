@@ -223,7 +223,7 @@ export function ExpenseInvoicesList({
     <>
       <ResourceList
         columns={columns}
-        emptyDescription="Sube por OCR o registra manualmente la primera factura recibida."
+        emptyDescription="Sube o fotografía la primera factura recibida (se lee sola) o regístrala a mano."
         emptyTitle="Sin facturas de proveedor"
         exportFileName="facturas-proveedor.csv"
         getRowId={(invoice) => invoice.id}

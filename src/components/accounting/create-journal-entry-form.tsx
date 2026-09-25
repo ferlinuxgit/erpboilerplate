@@ -1,47 +1,45 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
+import {
+  describeJournalEntryBlockers,
+  emptyJournalLine,
+  normalizeJournalLinesForSubmit,
+  type JournalFormLine,
+} from "@/components/accounting/journal-entry-utils";
+import { JournalLinesEditor, type JournalAccountOption } from "@/components/accounting/journal-lines-editor";
 import { Button } from "@/components/ui/button";
+import { errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { formatAmount } from "@/lib/format";
-import { calculateJournalTotals, canSubmitJournalEntry, updateJournalLineAmount, type JournalFormLine } from "@/components/accounting/journal-entry-utils";
-
-type AccountOption = { id: string; code: string; name: string };
-
-function emptyLine(accounts: AccountOption[]): JournalFormLine {
-  return { accountId: accounts[0]?.id ?? "", debit: "", credit: "" };
-}
 
 type CreateJournalEntryFormProps = {
-  accounts: AccountOption[];
+  accounts: JournalAccountOption[];
   redirectHref?: string;
+  /** Fecha propuesta (hoy en la zona horaria de la empresa), "YYYY-MM-DD". */
+  defaultPostedAt?: string;
 };
 
-export function CreateJournalEntryForm({ accounts, redirectHref }: CreateJournalEntryFormProps) {
+export function CreateJournalEntryForm({ accounts, defaultPostedAt = "", redirectHref }: CreateJournalEntryFormProps) {
   const router = useRouter();
-  const [postedAt, setPostedAt] = useState("");
+  const [postedAt, setPostedAt] = useState(defaultPostedAt);
   const [reference, setReference] = useState("");
-  const [lines, setLines] = useState<JournalFormLine[]>([emptyLine(accounts), emptyLine(accounts)]);
+  const [lines, setLines] = useState<JournalFormLine[]>(() => [emptyJournalLine(), emptyJournalLine()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const totals = useMemo(() => calculateJournalTotals(lines), [lines]);
-  const canSubmit = canSubmitJournalEntry({ postedAt, lines });
+  const blockers = describeJournalEntryBlockers({ postedAt, lines });
+  const canSubmit = blockers.length === 0;
   const errorId = error ? "create-journal-entry-error" : undefined;
-
-  function updateLine(index: number, next: Partial<JournalFormLine>) {
-    setLines((prev) => prev.map((line, lineIndex) => lineIndex === index ? { ...line, ...next } : line));
-  }
 
   return (
     <form className="space-y-4" onSubmit={async (event) => {
       event.preventDefault();
       if (!canSubmit) {
-        setError("El asiento debe tener fecha, líneas válidas y estar balanceado antes de guardar.");
+        setError(blockers[0] ?? "Revisa el asiento antes de guardarlo.");
         return;
       }
       setLoading(true);
@@ -50,19 +48,22 @@ export function CreateJournalEntryForm({ accounts, redirectHref }: CreateJournal
         const res = await fetch("/api/journal-entries", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-          body: JSON.stringify({ postedAt, reference, lines }),
+          body: JSON.stringify({ postedAt, reference, lines: normalizeJournalLinesForSubmit(lines) }),
         });
-        if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "No se pudo crear el asiento.");
+        if (!res.ok) throw new Error(await readApiError(res, "No se pudo crear el asiento."));
+        const created = (await res.json().catch(() => null)) as { number?: string } | null;
+        toast.success(created?.number ? `Asiento ${created.number} creado.` : "Asiento creado.");
         setReference("");
-        setPostedAt("");
-        setLines([emptyLine(accounts), emptyLine(accounts)]);
+        setLines([emptyJournalLine(), emptyJournalLine()]);
         if (redirectHref) {
           router.push(redirectHref);
         } else {
           router.refresh();
         }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Error inesperado.");
+      } catch (submissionError) {
+        const message = errorMessage(submissionError, "No se pudo crear el asiento.");
+        setError(message);
+        toast.error(message);
       } finally {
         setLoading(false);
       }
@@ -74,62 +75,24 @@ export function CreateJournalEntryForm({ accounts, redirectHref }: CreateJournal
         </div>
         <div className="space-y-2">
           <Label htmlFor="journal-reference">Referencia</Label>
-          <Input id="journal-reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Referencia" aria-describedby={errorId} />
+          <Input id="journal-reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej.: Amortización 2026, cuota de autónomos de marzo…" aria-describedby={errorId} />
         </div>
       </div>
-      <div className="space-y-3" aria-label="Líneas del asiento">
-        {lines.map((line, index) => (
-          <div key={index} className="grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_auto]">
-            <div className="space-y-2">
-              <Label htmlFor={`journal-line-${index}-account`}>Cuenta de la línea {index + 1}</Label>
-              <Select
-                id={`journal-line-${index}-account`}
-                className="h-9"
-                value={line.accountId}
-                onChange={(e) => updateLine(index, { accountId: e.target.value })}
-                aria-describedby={errorId}
-              >
-                {accounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor={`journal-line-${index}-debit`}>Debe</Label>
-              <Input
-                id={`journal-line-${index}-debit`}
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                type="number"
-                value={line.debit}
-                onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? updateJournalLineAmount(x, "debit", e.target.value) : x))}
-                aria-describedby={errorId}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor={`journal-line-${index}-credit`}>Haber</Label>
-              <Input
-                id={`journal-line-${index}-credit`}
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                type="number"
-                value={line.credit}
-                onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? updateJournalLineAmount(x, "credit", e.target.value) : x))}
-                aria-describedby={errorId}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button type="button" variant="outline" disabled={lines.length <= 2} onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>Eliminar línea</Button>
-            </div>
+      <JournalLinesEditor accounts={accounts} errorId={errorId} lines={lines} onChange={setLines} />
+      {error ? <p id="create-journal-entry-error" className="text-sm text-danger-text" role="alert">{error}</p> : null}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+        <Button aria-describedby={canSubmit ? undefined : "create-journal-entry-blockers"} type="submit" disabled={loading || !canSubmit}>
+          {loading ? "Guardando…" : "Crear asiento"}
+        </Button>
+        {!canSubmit ? (
+          <div className="text-xs text-muted-foreground" id="create-journal-entry-blockers">
+            <p className="font-medium">Para poder guardar:</p>
+            <ul className="list-disc pl-4">
+              {blockers.slice(0, 4).map((reason) => <li key={reason}>{reason}</li>)}
+            </ul>
           </div>
-        ))}
+        ) : null}
       </div>
-      <Button type="button" variant="outline" onClick={() => setLines((prev) => [...prev, emptyLine(accounts)])}>Añadir línea</Button>
-      <p className={`text-sm ${totals.isBalanced ? "text-success" : "text-warning"}`} aria-live="polite">
-        Debe: {formatAmount(totals.totalDebit)} | Haber: {formatAmount(totals.totalCredit)} | Diferencia: {formatAmount(totals.difference)} | {totals.isBalanced ? "Balanceado" : "Desbalanceado"}
-      </p>
-      {error ? <p id="create-journal-entry-error" className="text-sm text-destructive" role="alert">{error}</p> : null}
-      <Button type="submit" disabled={loading || !canSubmit}>{loading ? "Guardando…" : "Crear asiento"}</Button>
     </form>
   );
 }

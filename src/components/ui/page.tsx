@@ -70,10 +70,10 @@ type MetricCardProps = {
 
 const alertToneClasses = {
   neutral: "border-window-dark-shadow bg-window-panel text-window-text",
-  info: "border-info bg-info/15 text-info",
-  success: "border-success bg-success/15 text-success",
-  warning: "border-warning bg-warning/15 text-warning",
-  danger: "border-destructive bg-destructive/15 text-destructive",
+  info: "border-info bg-info/10 text-info-text",
+  success: "border-success bg-success/10 text-success-text",
+  warning: "border-warning bg-warning/10 text-warning-text",
+  danger: "border-destructive bg-destructive/10 text-danger-text",
 };
 
 const metricToneClasses = {
@@ -101,7 +101,7 @@ export function Breadcrumbs({ className, items }: { className?: string; items: B
   if (items.length === 0) return null;
   return (
     <nav aria-label="Migas de pan" className={cn("min-w-0", className)}>
-      <ol className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 font-mono text-[0.66rem] text-muted-foreground">
+      <ol className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 font-mono text-xs text-muted-foreground">
         {items.map((item, index) => {
           const isCurrent = index === items.length - 1;
           return (
@@ -151,7 +151,7 @@ export function PageHeader({
               <Link
                 className={cn(
                   buttonVariants({ variant: "link", size: "xs" }),
-                  "-ml-1 w-fit border-0 px-1 text-[0.62rem] text-muted-foreground hover:text-foreground",
+                  "-ml-1 w-fit border-0 px-1 text-xs text-muted-foreground hover:text-foreground",
                 )}
                 href={backHref}
               >
@@ -160,7 +160,7 @@ export function PageHeader({
               </Link>
             ) : null}
             {eyebrow ? (
-              <p className="font-mono text-[0.6rem] font-bold uppercase tracking-[0.07em] text-primary">
+              <p className="font-mono text-xs font-bold uppercase tracking-[0.05em] text-link">
                 [ {eyebrow} ]
               </p>
             ) : null}
@@ -291,7 +291,7 @@ export function InlineAlert({
       {...props}
     >
       {title ? <p className="mb-1 font-bold">{title}</p> : null}
-      <div className="text-current/90">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -306,10 +306,10 @@ export function MetricCard({
 }: MetricCardProps) {
   const content = (
     <>
-      <p className="font-mono text-[0.66rem] font-bold uppercase tracking-[0.04em] text-muted-foreground">{label}</p>
+      <p className="font-mono text-xs font-bold uppercase tracking-[0.02em] text-muted-foreground">{label}</p>
       <p className="mt-1 font-mono text-xl font-bold tabular-nums">{value}</p>
       {helper ? (
-        <p className="mt-1 text-[0.7rem] leading-4 text-muted-foreground">{helper}</p>
+        <p className="mt-1 text-xs leading-4 text-muted-foreground">{helper}</p>
       ) : null}
     </>
   );

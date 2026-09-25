@@ -124,7 +124,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
   const vat = new Map<number, CentsBucket>();
   const surcharge = new Map<number, CentsBucket>();
   const withholdings = new Map<number, CentsBucket>();
-  const zeroRated: Record<SalesVatTreatment, number> = { DOMESTIC: 0, EXEMPT: 0, INTRA_EU: 0, EXPORT: 0, REVERSE_CHARGE: 0, NOT_SUBJECT: 0 };
+  const zeroRated: Record<SalesVatTreatment, number> = { DOMESTIC: 0, EXEMPT: 0, INTRA_EU: 0, INTRA_EU_SERVICES: 0, EXPORT: 0, REVERSE_CHARGE: 0, NOT_SUBJECT: 0 };
   let otherTaxCents = 0;
   const documents = new Map<string, { doc: FiscalSourceDocument; base: number; tax: number; withholding: number }>();
   const drafts = new Set<string>();
@@ -428,7 +428,9 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   boxes.push({ box: "71", label: "Resultado de la liquidación (sin compensaciones de periodos anteriores)", amount: money(totals.resultCents), kind: "settlement" });
 
   const informative: Array<[string, string, number]> = [
-    ["59", "Entregas intracomunitarias exentas", issued.zeroRated.INTRA_EU],
+    // Casilla 59: entregas intracomunitarias de bienes y prestaciones de servicios a empresas de la UE
+    // no sujetas por reglas de localización (las que se declaran en el 349 con clave E o S).
+    ["59", "Entregas intracomunitarias de bienes y prestaciones de servicios", issued.zeroRated.INTRA_EU + issued.zeroRated.INTRA_EU_SERVICES],
     ["60", "Exportaciones y operaciones asimiladas", issued.zeroRated.EXPORT],
     ["120", "Operaciones no sujetas por reglas de localización", issued.zeroRated.NOT_SUBJECT],
     ["122", "Operaciones sujetas con inversión del sujeto pasivo (emitidas)", issued.zeroRated.REVERSE_CHARGE],

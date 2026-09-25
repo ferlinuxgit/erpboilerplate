@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { BulkInvoiceEmailButton } from "@/components/invoice-email/bulk-invoice-email-actions";
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
 import {
   ResourceList,
@@ -41,7 +42,7 @@ type InvoicesListProps = {
   /** Server pagination state; `rows` is then only the current page. */
   server?: ServerListState;
   /** Footer totals over every filtered invoice (server mode). */
-  totals?: { totalAmount: number; outstandingAmount: number };
+  totals?: { totalAmount: number; outstandingAmount: number; draftAmount?: number; draftCount?: number };
 };
 
 function sumAmounts(rows: InvoiceListRow[], pick: (row: InvoiceListRow) => number) {
@@ -116,6 +117,7 @@ export function InvoicesList({ currencyCode = "EUR", paymentMethods, rows, serve
     <InvoiceRowActions
       id={invoice.id}
       invoiceType={invoice.invoiceType}
+      isOverdue={invoice.isOverdue}
       lifecycle={invoice.lifecycle}
       number={rowLabel(invoice)}
       outstandingAmount={invoice.outstandingAmount}
@@ -176,7 +178,7 @@ export function InvoicesList({ currencyCode = "EUR", paymentMethods, rows, serve
       sortValue: (invoice) => Number(invoice.totalAmount),
       sortKey: "total",
       summary: (filtered) =>
-        formatMoney(totals ? totals.totalAmount : sumAmounts(filtered, (row) => Number(row.totalAmount)), currencyCode),
+        formatMoney(totals ? totals.totalAmount : sumAmounts(filtered, (row) => (row.lifecycle === "ISSUED" ? Number(row.totalAmount) : 0)), currencyCode),
     },
     {
       header: "Pendiente",
@@ -223,6 +225,16 @@ export function InvoicesList({ currencyCode = "EUR", paymentMethods, rows, serve
       getRowTestId={(invoice) => `invoice-row-${invoice.id}`}
       getRowLabel={rowLabel}
       getRowClassName={(invoice) => (invoice.isOverdue ? "bg-destructive/10" : undefined)}
+      bulkActions={(selected, clearSelection) => {
+        const issued = selected.filter((invoice) => invoice.lifecycle === "ISSUED");
+        const overdue = issued.filter((invoice) => invoice.isOverdue && invoice.invoiceType === "INVOICE");
+        return (
+          <>
+            <BulkInvoiceEmailButton invoiceIds={issued.map((invoice) => invoice.id)} mode="email" onDone={clearSelection} />
+            {overdue.length > 0 ? <BulkInvoiceEmailButton invoiceIds={overdue.map((invoice) => invoice.id)} mode="remind" onDone={clearSelection} /> : null}
+          </>
+        );
+      }}
       getSearchText={(invoice) =>
         [
           invoice.number,
@@ -243,7 +255,7 @@ export function InvoicesList({ currencyCode = "EUR", paymentMethods, rows, serve
       exportFileName="facturas.csv"
       searchPlaceholder="Buscar factura por número, cliente o importe"
       testId="invoices-list"
-      summaryLabel="Total filtrado"
+      summaryLabel={totals?.draftCount ? `Total emitido (sin ${totals.draftCount} ${totals.draftCount === 1 ? "borrador" : "borradores"}: ${formatMoney(totals.draftAmount ?? 0, currencyCode)})` : "Total emitido (sin borradores)"}
       dateRange={{ label: "Fecha de emisión", getValue: (invoice) => invoice.issueDate }}
       filters={[
         {

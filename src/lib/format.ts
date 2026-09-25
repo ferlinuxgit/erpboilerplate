@@ -70,3 +70,26 @@ export function formatDecimalInput(
   if (value === null || value === undefined || !Number.isFinite(value)) return "";
   return new Intl.NumberFormat("es-ES", { minimumFractionDigits, maximumFractionDigits }).format(value);
 }
+
+export type BalanceSide = "Deudor" | "Acreedor" | "Saldado";
+
+/** Lado del saldo contable (debe − haber): deudor si es positivo, acreedor si es negativo. */
+export function balanceSide(balance: string | number): BalanceSide {
+  const amount = typeof balance === "number" ? balance : Number(balance);
+  if (!Number.isFinite(amount) || Math.abs(amount) < 0.005) return "Saldado";
+  return amount > 0 ? "Deudor" : "Acreedor";
+}
+
+/** "1.234,00 € deudor" / "56,00 € acreedor" / "0,00 €": saldo sin signo con su lado en palabras. */
+export function formatBalance(balance: string | number, currencyCode = "EUR") {
+  const amount = typeof balance === "number" ? balance : Number(balance);
+  const side = balanceSide(amount);
+  const money = formatMoney(Math.abs(Number.isFinite(amount) ? amount : 0), currencyCode);
+  return side === "Saldado" ? money : `${money} ${side.toLowerCase()}`;
+}
+
+/** Importe tal como lo piden los formularios de la sede de la AEAT: sin miles y con coma decimal ("1234,56"). */
+export function formatAeatAmount(value: string | number) {
+  const amount = typeof value === "number" ? value : Number(value);
+  return (Number.isFinite(amount) ? amount : 0).toFixed(2).replace(".", ",");
+}

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, ne } from "drizzle-orm";
 
 import {
   auditLog,
@@ -6,25 +6,31 @@ import {
   deliveryNote,
   deliveryNoteLine,
   invoice,
-  invoiceLine,
   salesOrder,
   salesOrderLine,
   salesQuote,
   salesQuoteLine,
   stockMovement,
   stockLocation,
+  tax,
   warehouse,
 } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
-import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { postSalesInvoice } from "@/server/accounting/auto-post";
+import type { InvoiceCalculationTax } from "@/lib/invoice-totals";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
-import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { refreshStockLocation } from "@/server/inventory/stock-location";
-import { buildInvoiceLineInsertValues } from "@/server/invoices/line-values";
-import { loadCustomerSnapshot, loadIssuerSnapshot } from "@/server/invoices/snapshot";
+import { findRetentionTaxByRate, findVatTaxByRate } from "@/server/invoices/default-taxes";
+import { computeDueDate } from "@/server/invoices/due-dates";
+import { resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods";
+import {
+  createDraftInvoiceInTransaction,
+  ensureCompanyDefaults,
+  issueInvoiceInTransaction,
+  resolveCustomerBillingDefaults,
+  type InvoiceActor,
+} from "@/server/invoices/service";
 import {
   assertSalesTransitionAllowed,
   getDeliveryNoteTransition,
@@ -58,48 +64,6 @@ function assertTransitionOrHttpError(result: ReturnType<typeof getSalesOrderTran
 
 async function reserveDocumentNumber(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], companyId: string, fiscalYearId: string, type: SeriesType, referenceDate?: Date | string | null) {
   return reserveSeriesNumber(tx, { companyId, fiscalYearId, type, referenceDate });
-}
-
-function finiteMoney(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function pickStoredOrderTotals(
-  order: Record<string, unknown>,
-  fallback: { subtotal: number; taxAmount: number; retentionAmount: number; totalAmount: number },
-) {
-  const subtotal = finiteMoney(order.subtotal);
-  const taxAmount = finiteMoney(order.taxAmount);
-  const retentionAmount = finiteMoney(order.retentionAmount);
-  const totalAmount = finiteMoney(order.totalAmount);
-  if (subtotal === null || taxAmount === null || retentionAmount === null || totalAmount === null) return fallback;
-  return { subtotal, taxAmount, retentionAmount, totalAmount };
-}
-
-function formatMoney(value: number) {
-  return value.toFixed(2);
-}
-
-function sameQuantity(left: unknown, right: unknown) {
-  const leftNumber = finiteMoney(left);
-  const rightNumber = finiteMoney(right);
-  return leftNumber !== null && rightNumber !== null && Math.abs(leftNumber - rightNumber) < 0.0005;
-}
-
-function deliveryCoversWholeOrder(deliveryLines: Array<Record<string, unknown>>, orderLines: Array<Record<string, unknown>>) {
-  if (deliveryLines.length !== orderLines.length) return false;
-
-  const remainingDeliveryLines = [...deliveryLines];
-  return orderLines.every((orderLine) => {
-    const index = remainingDeliveryLines.findIndex(
-      (deliveryLine) => deliveryLine.itemId === orderLine.itemId && sameQuantity(deliveryLine.quantity, orderLine.quantity),
-    );
-    if (index === -1) return false;
-    remainingDeliveryLines.splice(index, 1);
-    return true;
-  });
 }
 
 function findSourceOrderLine(
@@ -143,7 +107,13 @@ export async function convertQuoteToOrder(input: {
       .for("update")
       .limit(1);
     if (!quote) throw new HttpError(404, "Presupuesto no encontrado.");
-    assertTransitionOrHttpError(getSalesQuoteTransition(quote.status as SalesDocumentStatus));
+    if (quote.status === "CONFIRMED" || quote.status === "REJECTED") {
+      // Aceptado a mano: se puede convertir si aún no tiene pedido ni factura.
+      const blocker = quoteConversionBlocker(quote.status, await quoteLinks(tx, input.companyId, quote.id));
+      if (blocker) throw new HttpError(409, blocker);
+    } else {
+      assertTransitionOrHttpError(getSalesQuoteTransition(quote.status as SalesDocumentStatus));
+    }
 
     const issueDate = new Date();
     const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_ORDER", issueDate);
@@ -345,13 +315,132 @@ export async function convertOrderToDelivery(input: {
   });
 }
 
-export async function convertDeliveryToInvoice(input: {
-  tenantId: string;
-  companyId: string;
-  actorUserId: string;
-  fiscalYearId: string;
-  deliveryNoteId: string;
-}) {
+type InvoiceSourceLine = {
+  itemId: string | null;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  discountPct: number;
+  taxRate: number;
+  retentionRate: number;
+};
+
+type CompanyTaxRow = { id: string; name: string; rate: string | number; kind: string; operation: string; isDefault: boolean; isActive: boolean };
+
+/**
+ * Presupuestos, pedidos y albaranes guardan el tipo de IVA y el % de retención; la factura guarda
+ * impuestos configurados. Se busca el impuesto de la empresa con ese tipo (para que el desglose,
+ * los modelos y VERI*FACTU sean idénticos a una factura hecha a mano) y, si no existe, se congela
+ * un impuesto equivalente con el mismo tipo.
+ */
+export function mapSalesLineTaxes(line: Pick<InvoiceSourceLine, "taxRate" | "retentionRate">, taxes: CompanyTaxRow[]): InvoiceCalculationTax[] {
+  const result: InvoiceCalculationTax[] = [];
+  if (line.taxRate > 0) {
+    const vat = findVatTaxByRate(taxes, line.taxRate);
+    result.push(vat
+      ? { id: vat.id, name: vat.name, rate: Number(vat.rate), kind: "VAT", operation: "ADD" }
+      : { id: null, name: `IVA ${line.taxRate.toLocaleString("es-ES")} %`, rate: line.taxRate, kind: "VAT", operation: "ADD" });
+  }
+  if (line.retentionRate > 0) {
+    const retention = findRetentionTaxByRate(taxes, line.retentionRate);
+    result.push(retention
+      ? { id: retention.id, name: retention.name, rate: Number(retention.rate), kind: "WITHHOLDING", operation: "SUBTRACT" }
+      : { id: null, name: `Retención IRPF ${line.retentionRate.toLocaleString("es-ES")} %`, rate: line.retentionRate, kind: "WITHHOLDING", operation: "SUBTRACT" });
+  }
+  return result;
+}
+
+async function toInvoiceLines(tx: DbClient, companyId: string, lines: InvoiceSourceLine[]) {
+  const taxes = await tx
+    .select({ id: tax.id, name: tax.name, rate: tax.rate, kind: tax.kind, operation: tax.operation, isDefault: tax.isDefault, isActive: tax.isActive })
+    .from(tax)
+    .where(eq(tax.companyId, companyId));
+  return lines.map((line) => ({
+    itemId: line.itemId,
+    description: line.description,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    discountPct: line.discountPct,
+    taxRate: line.taxRate,
+    retentionRate: line.retentionRate,
+    taxes: mapSalesLineTaxes(line, taxes),
+  }));
+}
+
+function storedLine(line: { itemId: string | null; description: string; quantity: string; unitPrice: string; discountPct: string; taxRate: string; retentionRate: string }): InvoiceSourceLine {
+  return {
+    itemId: line.itemId,
+    description: line.description,
+    quantity: Number(line.quantity),
+    unitPrice: Number(line.unitPrice),
+    discountPct: Number(line.discountPct ?? 0),
+    taxRate: Number(line.taxRate ?? 0),
+    retentionRate: Number(line.retentionRate ?? 0),
+  };
+}
+
+/** Borrador de factura con las condiciones del cliente (vencimiento, formas de pago). */
+async function createInvoiceDraftFromSales(
+  tx: AppDbTransaction,
+  actor: SalesInvoiceActor,
+  input: { customerId: string; lines: InvoiceSourceLine[]; notes: string; source: { salesQuoteId?: string | null; salesOrderId?: string | null; deliveryNoteId?: string | null }; auditPayload: Record<string, unknown> },
+) {
+  const billing = await resolveCustomerBillingDefaults(tx, actor.companyId, input.customerId);
+  const issueDate = new Date();
+  const paymentMethods = (await resolveInvoicePaymentMethods(actor.companyId, billing.paymentMethodIds)) ?? [];
+  const lines = await toInvoiceLines(tx, actor.companyId, input.lines);
+  return createDraftInvoiceInTransaction(tx, actor, {
+    customerId: input.customerId,
+    issueDate,
+    dueDate: computeDueDate(issueDate, billing.termsDays),
+    paymentMethods,
+    lines,
+    // null = automático: al emitir se aplica el tratamiento habitual del cliente o el de su país.
+    vatTreatment: null,
+    notes: input.notes,
+    source: input.source,
+    auditPayload: input.auditPayload,
+  });
+}
+
+export type SalesInvoiceActor = InvoiceActor;
+
+async function findExistingDeliveryInvoice(tx: DbClient, input: { tenantId: string; companyId: string }, deliveryNoteId: string) {
+  const [linked] = await tx
+    .select({ id: invoice.id, number: invoice.number, totalAmount: invoice.totalAmount })
+    .from(invoice)
+    .where(and(eq(invoice.companyId, input.companyId), eq(invoice.deliveryNoteId, deliveryNoteId)))
+    .limit(1);
+  if (linked) return linked;
+  // Albaranes facturados antes de existir `invoice.deliveryNoteId`: se busca en la auditoría.
+  const invoiceAuditRows = await tx
+    .select({ entityId: auditLog.entityId, payload: auditLog.payload })
+    .from(auditLog)
+    .where(and(eq(auditLog.tenantId, input.tenantId), eq(auditLog.companyId, input.companyId), eq(auditLog.action, "sales.delivery.invoice"), eq(auditLog.entityName, "invoice")));
+  const linkedAudit = invoiceAuditRows.find((row) => {
+    if (!row.payload) return false;
+    try {
+      return (JSON.parse(row.payload) as { deliveryNoteId?: unknown }).deliveryNoteId === deliveryNoteId;
+    } catch {
+      return false;
+    }
+  });
+  if (!linkedAudit) return null;
+  const [existingInvoice] = await tx
+    .select({ id: invoice.id, number: invoice.number, totalAmount: invoice.totalAmount })
+    .from(invoice)
+    .where(and(eq(invoice.id, linkedAudit.entityId), eq(invoice.companyId, input.companyId)))
+    .limit(1);
+  return existingInvoice ?? null;
+}
+
+/**
+ * Albarán → factura EMITIDA por el flujo único de emisión (`issueInvoiceInTransaction`): valida el
+ * tratamiento de IVA, congela los datos fiscales, numera por la serie de la fecha, contabiliza,
+ * registra en VERI*FACTU, aplica vencimiento y formas de pago del cliente. Todo en una transacción.
+ */
+export async function convertDeliveryToInvoice(input: SalesInvoiceActor & { deliveryNoteId: string }) {
+  await ensureCompanyDefaults(input);
   return db.transaction(async (tx) => {
     const [note] = await tx
       .select()
@@ -363,36 +452,10 @@ export async function convertDeliveryToInvoice(input: {
     const deliveryTransition = getDeliveryNoteTransition(note.status as SalesDocumentStatus);
     if (deliveryTransition.allowed === false) {
       if (note.status === "INVOICED" || note.status === "PAID") {
-        const invoiceAuditRows = await tx
-          .select({ entityId: auditLog.entityId, payload: auditLog.payload })
-          .from(auditLog)
-          .where(
-            and(
-              eq(auditLog.tenantId, input.tenantId),
-              eq(auditLog.companyId, input.companyId),
-              eq(auditLog.action, "sales.delivery.invoice"),
-              eq(auditLog.entityName, "invoice"),
-            ),
-          );
-        const linkedAudit = invoiceAuditRows.find((row) => {
-          if (!row.payload) return false;
-          try {
-            const payload = JSON.parse(row.payload) as { deliveryNoteId?: unknown };
-            return payload.deliveryNoteId === note.id;
-          } catch {
-            return false;
-          }
-        });
-        if (linkedAudit) {
-          const [existingInvoice] = await tx
-            .select({ id: invoice.id, number: invoice.number })
-            .from(invoice)
-            .where(and(eq(invoice.id, linkedAudit.entityId), eq(invoice.companyId, input.companyId)))
-            .limit(1);
-          if (existingInvoice) return existingInvoice;
-        }
+        const existing = await findExistingDeliveryInvoice(tx, input, note.id);
+        if (existing) return { ...existing, status: "SENT", alreadyInvoiced: true };
       }
-      if (deliveryTransition.allowed === false) throw new HttpError(409, deliveryTransition.reason);
+      throw new HttpError(409, deliveryTransition.reason);
     }
 
     const [order] = note.salesOrderId
@@ -402,85 +465,36 @@ export async function convertDeliveryToInvoice(input: {
           .where(and(eq(salesOrder.id, note.salesOrderId), eq(salesOrder.companyId, input.companyId)))
           .limit(1)
       : [null];
-
     if (!order) throw new HttpError(409, "No se puede facturar un albarán sin pedido de origen.");
 
     const deliveryLines = await tx.select().from(deliveryNoteLine).where(eq(deliveryNoteLine.deliveryNoteId, note.id));
     if (deliveryLines.length === 0) throw new HttpError(409, "No se puede crear la factura sin líneas del albarán de origen.");
-
     const orderLines = await tx.select().from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, order.id));
     if (orderLines.length === 0) throw new HttpError(409, "No se puede crear la factura sin líneas del pedido de origen.");
 
     const availableOrderLines = orderLines.map((line) => ({ ...line }));
-    const sourceLineByInvoiceIndex: Array<Record<string, unknown>> = [];
-    const invoiceLines = deliveryLines.map((deliveryLine) => {
+    const sourceLines: InvoiceSourceLine[] = deliveryLines.map((deliveryLine) => {
       const sourceLine = findSourceOrderLine(deliveryLine, availableOrderLines);
       if (!sourceLine) throw new HttpError(409, "No se puede crear la factura sin líneas del pedido de origen.");
-      sourceLineByInvoiceIndex.push(sourceLine);
-
       return {
         itemId: deliveryLine.itemId,
         description: String(deliveryLine.description ?? sourceLine.description ?? ""),
         quantity: Number(deliveryLine.quantity),
         unitPrice: Number(sourceLine.unitPrice),
-        discountPct: Number(sourceLine.discountPct),
-        taxRate: Number(sourceLine.taxRate),
-        retentionRate: Number(sourceLine.retentionRate),
+        discountPct: Number(sourceLine.discountPct ?? 0),
+        taxRate: Number(sourceLine.taxRate ?? 0),
+        retentionRate: Number(sourceLine.retentionRate ?? 0),
       };
     });
-    const calculatedTotals = calculateInvoiceTotals(invoiceLines);
-    const totals = deliveryCoversWholeOrder(deliveryLines, orderLines) ? pickStoredOrderTotals(order, calculatedTotals) : calculatedTotals;
 
-    const issueDate = new Date();
-    await assertFiscalPeriodOpen(input.companyId, issueDate, tx);
-
-    // Serie del ejercicio de la fecha de emisión (no del ejercicio activo de la sesión).
-    const number = await reserveDocumentNumber(tx, input.companyId, input.fiscalYearId, "SALES_INVOICE", issueDate);
-    // Factura emitida desde el albarán: se congelan los datos fiscales de emisor y cliente.
-    const [issuerSnapshot, customerSnapshot] = await Promise.all([
-      loadIssuerSnapshot(tx, input.companyId),
-      loadCustomerSnapshot(tx, input.companyId, note.customerId),
-    ]);
-    const [created] = await tx
-      .insert(invoice)
-      .values({
-        companyId: input.companyId,
-        customerId: note.customerId,
-        number,
-        issueDate,
-        dueDate: null,
-        totalAmount: formatMoney(totals.totalAmount),
-        status: "SENT",
-        issuedAt: issueDate,
-        issuerSnapshot,
-        customerSnapshot,
-      })
-      .returning();
-
-    if (invoiceLines.length > 0) {
-      const lineValues = buildInvoiceLineInsertValues(created.id, invoiceLines).map((value, index) => {
-        const sourceLine = sourceLineByInvoiceIndex[index];
-        const storedLineTotal = sameQuantity(deliveryLines[index]?.quantity, sourceLine?.quantity)
-          ? finiteMoney(sourceLine?.lineTotal)
-          : null;
-        return storedLineTotal === null ? value : { ...value, lineTotal: formatMoney(storedLineTotal) };
-      });
-      await tx.insert(invoiceLine).values(lineValues);
-    }
-
-    await postSalesInvoice({
-      tenantId: input.tenantId,
-      companyId: input.companyId,
-      actorUserId: input.actorUserId,
-      postedAt: issueDate,
-      reference: `Factura ${created.number}`,
-      invoiceId: created.id,
-      subtotal: totals.subtotal,
-      taxAmount: totals.taxAmount,
-      retentionAmount: totals.retentionAmount,
-      totalAmount: totals.totalAmount,
-      dbClient: tx,
+    const draft = await createInvoiceDraftFromSales(tx, input, {
+      customerId: note.customerId,
+      lines: sourceLines,
+      notes: `Albarán ${note.number}${order.number ? ` · Pedido ${order.number}` : ""}`,
+      source: { deliveryNoteId: note.id, salesOrderId: order.id, salesQuoteId: order.salesQuoteId ?? null },
+      auditPayload: { origin: "deliveryNote", deliveryNoteId: note.id },
     });
+    const issued = await issueInvoiceInTransaction(tx, input, draft.id);
 
     await tx
       .update(deliveryNote)
@@ -501,18 +515,206 @@ export async function convertDeliveryToInvoice(input: {
         actorUserId: input.actorUserId,
         action: "sales.delivery.invoice",
         entityName: "invoice",
-        entityId: created.id,
-        payload: {
-          deliveryNoteId: note.id,
-          salesOrderId: order.id,
-          number: created.number,
-          totalAmount: totals.totalAmount,
-        },
+        entityId: issued.id,
+        payload: { deliveryNoteId: note.id, salesOrderId: order.id, number: issued.number, totalAmount: Number(issued.totalAmount) },
       },
       tx,
     );
 
-    return created;
+    return { id: issued.id, number: issued.number, status: issued.status, totalAmount: issued.totalAmount, alreadyInvoiced: false };
+  });
+}
+
+/** Presupuesto: estados a los que se puede pasar a mano (Enviado / Aceptado / Rechazado / Anulado). */
+export const QUOTE_STATUS_ACTIONS = {
+  SENT: { from: ["DRAFT"], label: "Marcar como enviado", done: "Presupuesto marcado como enviado." },
+  CONFIRMED: { from: ["DRAFT", "SENT"], label: "Marcar como aceptado", done: "Presupuesto aceptado. Ya puedes convertirlo en pedido o factura." },
+  REJECTED: { from: ["DRAFT", "SENT", "CONFIRMED"], label: "Marcar como rechazado", done: "Presupuesto marcado como rechazado." },
+  VOID: { from: ["DRAFT", "SENT", "CONFIRMED", "REJECTED"], label: "Anular", done: "Presupuesto anulado." },
+} as const;
+
+export type QuoteStatusTarget = keyof typeof QUOTE_STATUS_ACTIONS;
+
+/** Motivo por el que un presupuesto no puede convertirse (en pedido o factura), o null. */
+export function quoteConversionBlocker(status: string, linked: { orders: number; invoices: number }) {
+  if (status === "VOID") return "El presupuesto está anulado.";
+  if (status === "REJECTED") return "El cliente rechazó el presupuesto. Márcalo como aceptado si ha cambiado de opinión.";
+  if (linked.orders > 0 || linked.invoices > 0 || status === "INVOICED" || status === "DELIVERED" || status === "PAID") {
+    return "Este presupuesto ya se convirtió en pedido o factura.";
+  }
+  if (!["DRAFT", "SENT", "CONFIRMED"].includes(status)) return "Este presupuesto no se puede convertir.";
+  return null;
+}
+
+export function assertQuoteStatusChange(current: string, target: QuoteStatusTarget, linked: { orders: number; invoices: number }) {
+  const action = QUOTE_STATUS_ACTIONS[target];
+  if (!(action.from as readonly string[]).includes(current)) {
+    throw new HttpError(409, current === target ? "El presupuesto ya está en ese estado." : "Ese cambio de estado no está permitido para este presupuesto.");
+  }
+  if (target !== "VOID" && (linked.orders > 0 || linked.invoices > 0)) {
+    throw new HttpError(409, "Este presupuesto ya se convirtió en pedido o factura: su estado se actualiza solo.");
+  }
+}
+
+async function quoteLinks(tx: DbClient, companyId: string, quoteId: string) {
+  const [[orders], [invoices]] = await Promise.all([
+    tx.select({ value: count() }).from(salesOrder).where(and(eq(salesOrder.companyId, companyId), eq(salesOrder.salesQuoteId, quoteId))),
+    tx.select({ value: count() }).from(invoice).where(and(eq(invoice.companyId, companyId), eq(invoice.salesQuoteId, quoteId), ne(invoice.status, "VOID"))),
+  ]);
+  return { orders: Number(orders?.value ?? 0), invoices: Number(invoices?.value ?? 0) };
+}
+
+export async function setQuoteStatus(input: { tenantId: string; companyId: string; actorUserId: string; quoteId: string; status: QuoteStatusTarget }) {
+  return db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select({ id: salesQuote.id, number: salesQuote.number, status: salesQuote.status })
+      .from(salesQuote)
+      .where(and(eq(salesQuote.id, input.quoteId), eq(salesQuote.companyId, input.companyId)))
+      .for("update")
+      .limit(1);
+    if (!quote) throw new HttpError(404, "Presupuesto no encontrado.");
+    assertQuoteStatusChange(quote.status, input.status, await quoteLinks(tx, input.companyId, quote.id));
+    await tx
+      .update(salesQuote)
+      .set({ status: input.status, updatedAt: new Date() })
+      .where(and(eq(salesQuote.id, quote.id), eq(salesQuote.companyId, input.companyId)));
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "salesQuote.status",
+        entityName: "salesQuote",
+        entityId: quote.id,
+        payload: { number: quote.number, from: quote.status, to: input.status },
+      },
+      tx,
+    );
+    return { id: quote.id, number: quote.number, status: input.status, message: QUOTE_STATUS_ACTIONS[input.status].done };
+  });
+}
+
+/** Presupuesto → factura BORRADOR con las mismas líneas (empresas de servicios, sin pedido ni albarán). */
+export async function convertQuoteToInvoice(input: SalesInvoiceActor & { quoteId: string }) {
+  return db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select()
+      .from(salesQuote)
+      .where(and(eq(salesQuote.id, input.quoteId), eq(salesQuote.companyId, input.companyId)))
+      .for("update")
+      .limit(1);
+    if (!quote) throw new HttpError(404, "Presupuesto no encontrado.");
+    const blocker = quoteConversionBlocker(quote.status, await quoteLinks(tx, input.companyId, quote.id));
+    if (blocker) throw new HttpError(409, blocker);
+    const lines = await tx.select().from(salesQuoteLine).where(eq(salesQuoteLine.salesQuoteId, quote.id));
+    if (lines.length === 0) throw new HttpError(409, "El presupuesto no tiene líneas que facturar.");
+
+    const draft = await createInvoiceDraftFromSales(tx, input, {
+      customerId: quote.customerId,
+      lines: lines.map(storedLine),
+      notes: `Presupuesto ${quote.number}`,
+      source: { salesQuoteId: quote.id },
+      auditPayload: { origin: "salesQuote", salesQuoteId: quote.id },
+    });
+    await tx
+      .update(salesQuote)
+      .set({ status: "INVOICED", updatedAt: new Date() })
+      .where(and(eq(salesQuote.id, quote.id), eq(salesQuote.companyId, input.companyId)));
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "salesQuote.invoice",
+        entityName: "salesQuote",
+        entityId: quote.id,
+        payload: { quoteNumber: quote.number, invoiceId: draft.id },
+      },
+      tx,
+    );
+    return { id: draft.id, number: draft.number, status: draft.status };
+  });
+}
+
+/** Pedido sin entregas → factura BORRADOR con sus líneas (servicios o venta sin albarán). */
+export async function convertOrderToInvoice(input: SalesInvoiceActor & { salesOrderId: string }) {
+  return db.transaction(async (tx) => {
+    const [order] = await tx
+      .select()
+      .from(salesOrder)
+      .where(and(eq(salesOrder.id, input.salesOrderId), eq(salesOrder.companyId, input.companyId)))
+      .for("update")
+      .limit(1);
+    if (!order) throw new HttpError(404, "Pedido no encontrado.");
+    const blocker = await orderChangeBlocker(tx, input.companyId, order, "invoice");
+    if (blocker) throw new HttpError(409, blocker);
+    const lines = await tx.select().from(salesOrderLine).where(eq(salesOrderLine.salesOrderId, order.id));
+    if (lines.length === 0) throw new HttpError(409, "El pedido no tiene líneas que facturar.");
+
+    const draft = await createInvoiceDraftFromSales(tx, input, {
+      customerId: order.customerId,
+      lines: lines.map(storedLine),
+      notes: `Pedido ${order.number}`,
+      source: { salesOrderId: order.id, salesQuoteId: order.salesQuoteId ?? null },
+      auditPayload: { origin: "salesOrder", salesOrderId: order.id },
+    });
+    await tx
+      .update(salesOrder)
+      .set({ status: "INVOICED", updatedAt: new Date() })
+      .where(and(eq(salesOrder.id, order.id), eq(salesOrder.companyId, input.companyId)));
+    await recordAudit(
+      {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "salesOrder.invoice",
+        entityName: "salesOrder",
+        entityId: order.id,
+        payload: { orderNumber: order.number, invoiceId: draft.id },
+      },
+      tx,
+    );
+    return { id: draft.id, number: draft.number, status: draft.status };
+  });
+}
+
+/**
+ * Por qué un pedido no se puede editar, anular o facturar directamente (o null).
+ * Con albaranes, el pedido sigue su curso por los albaranes.
+ */
+export async function orderChangeBlocker(tx: DbClient, companyId: string, order: { id: string; status: string }, action: "edit" | "cancel" | "invoice") {
+  if (order.status === "VOID") return "El pedido está anulado.";
+  if (order.status === "INVOICED" || order.status === "PAID") return "El pedido ya está facturado.";
+  const [[deliveries], [invoices]] = await Promise.all([
+    tx.select({ value: count() }).from(deliveryNote).where(and(eq(deliveryNote.companyId, companyId), eq(deliveryNote.salesOrderId, order.id))),
+    tx.select({ value: count() }).from(invoice).where(and(eq(invoice.companyId, companyId), eq(invoice.salesOrderId, order.id), ne(invoice.status, "VOID"))),
+  ]);
+  if (Number(invoices?.value ?? 0) > 0) return "El pedido ya tiene una factura.";
+  if (Number(deliveries?.value ?? 0) > 0) {
+    return action === "invoice"
+      ? "El pedido ya tiene albaranes: factura desde cada albarán."
+      : "El pedido ya tiene albaranes y no se puede modificar.";
+  }
+  return null;
+}
+
+export async function cancelSalesOrder(input: { tenantId: string; companyId: string; actorUserId: string; salesOrderId: string }) {
+  return db.transaction(async (tx) => {
+    const [order] = await tx
+      .select({ id: salesOrder.id, number: salesOrder.number, status: salesOrder.status })
+      .from(salesOrder)
+      .where(and(eq(salesOrder.id, input.salesOrderId), eq(salesOrder.companyId, input.companyId)))
+      .for("update")
+      .limit(1);
+    if (!order) throw new HttpError(404, "Pedido no encontrado.");
+    const blocker = await orderChangeBlocker(tx, input.companyId, order, "cancel");
+    if (blocker) throw new HttpError(409, blocker);
+    await tx.update(salesOrder).set({ status: "VOID", updatedAt: new Date() }).where(and(eq(salesOrder.id, order.id), eq(salesOrder.companyId, input.companyId)));
+    await recordAudit(
+      { tenantId: input.tenantId, companyId: input.companyId, actorUserId: input.actorUserId, action: "salesOrder.cancel", entityName: "salesOrder", entityId: order.id, payload: { number: order.number, from: order.status } },
+      tx,
+    );
+    return { id: order.id, number: order.number, status: "VOID" };
   });
 }
 

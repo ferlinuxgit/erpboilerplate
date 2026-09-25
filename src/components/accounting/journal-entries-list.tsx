@@ -9,7 +9,9 @@ import {
   type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { readApiError } from "@/components/ui/form";
 import { formatDate, formatMoney } from "@/lib/format";
+import { journalEntryOriginLabel } from "@/lib/status-labels";
 
 type JournalEntryRow = {
   id: string;
@@ -24,23 +26,18 @@ type JournalEntryRow = {
   sourceType?: string | null;
 };
 
-const sourceLabels: Record<string, string> = {
-  invoice: "Factura emitida",
-  supplierInvoice: "Factura recibida",
-  payment: "Cobro",
-  supplierPayment: "Pago",
-  bankTransaction: "Movimiento bancario",
-  fiscalYearRegularization: "Regularización",
-  fiscalYearClosing: "Cierre",
-  fiscalYearOpening: "Apertura",
-  journalEntryReversal: "Reversión",
-};
-
 function entryOrigin(row: JournalEntryRow) {
   if (row.reversesEntryId) return { label: "Reversión", tone: "neutral" as const };
   if (row.reversedAt) return { label: "Revertido", tone: "warning" as const };
-  if (row.isAutomatic) return { label: sourceLabels[row.sourceType ?? ""] ?? "Automático", tone: "info" as const };
-  return { label: "Manual", tone: "success" as const };
+  return { label: journalEntryOriginLabel(row), tone: row.isAutomatic ? ("info" as const) : ("success" as const) };
+}
+
+/** Exportación completa: todos los asientos filtrados, no solo la página visible. */
+async function fetchAllEntries(query: URLSearchParams): Promise<JournalEntryRow[]> {
+  query.set("export", "all");
+  const response = await fetch(`/api/journal-entries?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readApiError(response, "No se pudieron exportar los asientos."));
+  return (await response.json()) as JournalEntryRow[];
 }
 
 function sumAmounts(rows: JournalEntryRow[], pick: (row: JournalEntryRow) => string) {
@@ -68,13 +65,13 @@ export function JournalEntriesList({
       header: "Asiento",
       cell: (row) => (
         <div>
-          <Link className="font-mono font-semibold text-primary hover:underline" href={`/accounting/entries/${row.id}`}>
+          <Link className="font-mono font-semibold text-link hover:underline" href={`/accounting/entries/${row.id}`}>
             {row.number}
           </Link>
           <p className="text-xs text-muted-foreground">{row.reference || "Sin referencia"}</p>
         </div>
       ),
-      exportValue: (row) => row.number,
+      exportValue: (row) => (row.reference ? `${row.number} · ${row.reference}` : row.number),
       sortValue: (row) => row.number,
       sortKey: "number",
     },
@@ -139,6 +136,7 @@ export function JournalEntriesList({
       }
       items={rows}
       server={server}
+      exportAll={server ? fetchAllEntries : undefined}
       dateRange={{ label: "Fecha", getValue: (row) => row.postedAt }}
       summaryLabel="Total filtrado"
       pageSize={20}
@@ -146,7 +144,7 @@ export function JournalEntriesList({
       renderMobileCard={(row) => (
         <div className="space-y-2">
           <Link
-            className="font-medium text-primary"
+            className="font-medium text-link"
             href={`/accounting/entries/${row.id}`}
           >
             {row.number}

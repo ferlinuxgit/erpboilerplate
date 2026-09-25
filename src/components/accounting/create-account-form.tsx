@@ -1,10 +1,11 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AccessibleField } from "@/components/ui/form";
+import { AccessibleField, errorMessage, readApiError } from "@/components/ui/form";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -31,7 +32,8 @@ export function CreateAccountForm({ onCancel, onSuccess, redirectHref }: CreateA
       setLoading(true); setError(null);
       try {
         const res = await fetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json", ...getCsrfHeader() }, body: JSON.stringify({ code, name, type }) });
-        if (!res.ok) throw new Error(((await res.json()) as { message?: string }).message ?? "Error");
+        if (!res.ok) throw new Error(await readApiError(res, "No se pudo crear la cuenta."));
+        toast.success(`Cuenta ${code} creada.`);
         setCode(""); setName(""); setType("ASSET");
         if (onSuccess) {
           onSuccess();
@@ -40,13 +42,13 @@ export function CreateAccountForm({ onCancel, onSuccess, redirectHref }: CreateA
         } else {
           router.refresh();
         }
-      } catch (e) { setError(e instanceof Error ? e.message : "Error inesperado."); } finally { setLoading(false); }
+      } catch (e) { setError(errorMessage(e, "No se pudo crear la cuenta.")); } finally { setLoading(false); }
     }}>
       <AccessibleField id="account-code" label="Código" required><Input id="account-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="4300" required /></AccessibleField>
       <AccessibleField id="account-name" label="Nombre" required><Input id="account-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Clientes" required /></AccessibleField>
       <AccessibleField id="account-type" label="Tipo" required><Select id="account-type" value={type} onChange={(e) => setType(e.target.value as (typeof accountTypes)[number])}>{accountTypes.map((option) => <option key={option} value={option}>{statusLabel(accountTypeLabels, option)}</option>)}</Select></AccessibleField>
       <div className="flex gap-2 self-end md:justify-end">{onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear cuenta"}</Button></div>
-      {error ? <InlineAlert className="md:col-span-4" tone="danger">{error}</InlineAlert> : null}
+      {error ? <InlineAlert className="md:col-span-4" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>
   );
 }

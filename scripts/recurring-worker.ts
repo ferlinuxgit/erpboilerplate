@@ -1,0 +1,41 @@
+import { loadEnvConfig } from "@next/env";
+
+loadEnvConfig(process.cwd());
+
+/**
+ * Worker de facturas/gastos recurrentes y recordatorios de cobro automáticos (mismo patrón que
+ * `ocr-worker.ts`). Cada RECURRING_WORKER_INTERVAL_MS (15 min por defecto) genera los periodos
+ * vencidos y envía los recordatorios que tocan. Es idempotente: se puede ejecutar en varias
+ * réplicas o junto al cron `POST /api/recurring/run` sin duplicar documentos.
+ * `RECURRING_WORKER_ONCE=true` ejecuta un solo ciclo y termina (útil en cron del sistema).
+ */
+async function main() {
+  const { runScheduledJobs } = await import("../src/server/recurring/worker");
+  const intervalMs = Math.max(Number(process.env.RECURRING_WORKER_INTERVAL_MS ?? 15 * 60 * 1000), 60_000);
+  const once = process.env.RECURRING_WORKER_ONCE === "true";
+
+  async function tick() {
+    const result = await runScheduledJobs();
+    console.log(`Recurring worker: ${JSON.stringify(result)}`);
+  }
+
+  if (once) {
+    await tick();
+    process.exit(0);
+  }
+
+  console.log(`Recurring worker started. intervalMs=${intervalMs}`);
+  while (true) {
+    try {
+      await tick();
+    } catch (error) {
+      console.error("Recurring worker tick failed", error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+void main().catch((error) => {
+  console.error("Recurring worker failed to start", error);
+  process.exitCode = 1;
+});

@@ -28,6 +28,8 @@ const coveredForms = [
   "src/components/expenses/create-expense-invoice-form.tsx",
   "src/components/accounting/edit-account-form.tsx",
   "src/components/accounting/edit-journal-entry-form.tsx",
+  "src/components/accounting/journal-lines-editor.tsx",
+  "src/components/fiscal/mark-fiscal-report-filed-button.tsx",
   "src/components/inventory/item-form.tsx",
   "src/components/inventory/warehouse-form.tsx",
   "src/components/inventory/inventory-operations-panel.tsx",

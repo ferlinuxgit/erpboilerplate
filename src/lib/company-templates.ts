@@ -37,6 +37,12 @@ export type CompanyTemplateJournal = {
 export type CompanyTemplateTax = {
   name: string;
   rate: string;
+  /** Igual que `tax.kind`: VAT (IVA), SURCHARGE (recargo de equivalencia), WITHHOLDING (IRPF) u OTHER. */
+  kind?: "VAT" | "SURCHARGE" | "WITHHOLDING" | "OTHER";
+  /** ADD suma a la factura (IVA, recargo); SUBTRACT resta (retenciones). */
+  operation?: "ADD" | "SUBTRACT";
+  /** IVA propuesto por defecto en las líneas nuevas (solo al crear el impuesto). */
+  isDefault?: boolean;
 };
 
 export type CompanyTemplateSeries = {
@@ -102,12 +108,17 @@ export const companyTemplates = [
       { code: "CIE", name: "Diario de cierre", role: "Regularizacion y cierre fiscal." },
     ],
     taxes: [
-      { name: "IVA general 21%", rate: "21.000" },
-      { name: "IVA reducido 10%", rate: "10.000" },
-      { name: "IVA superreducido 4%", rate: "4.000" },
-      { name: "Retencion IRPF 15%", rate: "15.000" },
-      { name: "Retencion IRPF 7%", rate: "7.000" },
-      { name: "Retencion alquiler 19%", rate: "19.000" },
+      { name: "IVA general 21%", rate: "21.000", kind: "VAT", operation: "ADD", isDefault: true },
+      { name: "IVA reducido 10%", rate: "10.000", kind: "VAT", operation: "ADD" },
+      { name: "IVA superreducido 4%", rate: "4.000", kind: "VAT", operation: "ADD" },
+      // Recargo de equivalencia (art. 161 LIVA) de cada tipo de IVA: 21 % → 5,2 %, 10 % → 1,4 %, 4 % → 0,5 %.
+      { name: "Recargo de equivalencia 5,2%", rate: "5.200", kind: "SURCHARGE", operation: "ADD" },
+      { name: "Recargo de equivalencia 1,4%", rate: "1.400", kind: "SURCHARGE", operation: "ADD" },
+      { name: "Recargo de equivalencia 0,5%", rate: "0.500", kind: "SURCHARGE", operation: "ADD" },
+      // Retenciones: restan del total. Se conservan los nombres para corregir las ya creadas al reaplicar.
+      { name: "Retencion IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+      { name: "Retencion IRPF 7%", rate: "7.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+      { name: "Retencion alquiler 19%", rate: "19.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
     ],
     documentSeries: commonSeries,
     settings: {

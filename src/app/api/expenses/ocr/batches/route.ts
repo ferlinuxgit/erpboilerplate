@@ -5,9 +5,21 @@ import { getUserSession } from "@/lib/current-user";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { createExpenseOcrBatch } from "@/server/ocr/expense-ocr";
+import { createExpenseOcrBatch, listExpenseInbox, listExpenseOcrBatches } from "@/server/ocr/expense-ocr";
+import { withDuplicateAssessment } from "@/server/ocr/inbox";
 
 const payloadSchema = z.object({ expectedFiles: z.number().int().min(1).max(50) });
+
+/** Bandeja pendiente: lotes recientes y documentos todavía sin registrar de la empresa activa. */
+export async function GET() {
+  const session = await getUserSession();
+  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver la bandeja de facturas." }, { status: 403 });
+  const [batches, inbox] = await Promise.all([listExpenseOcrBatches(ctx.company.id), listExpenseInbox(ctx.company.id)]);
+  const jobs = await withDuplicateAssessment(ctx.company.id, inbox);
+  return NextResponse.json({ batches, jobs });
+}
 
 export async function POST(request: Request) {
   const session = await getUserSession();

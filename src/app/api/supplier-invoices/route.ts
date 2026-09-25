@@ -13,7 +13,10 @@ import { createPurchaseSupplierInvoice } from "@/server/supplier-invoices/servic
 const payloadSchema = z.object({
   supplierPartnerId: z.string().trim().min(1),
   purchaseOrderId: z.string().trim().min(1),
-  goodsReceiptId: z.string().trim().min(1),
+  /** Recepciones del pedido que cubre la factura (una o varias). */
+  goodsReceiptIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
+  /** Compatibilidad: una sola recepción. */
+  goodsReceiptId: z.string().trim().min(1).optional(),
   number: z.string().trim().optional().or(z.literal("")),
   supplierDocumentNumber: z.string().trim().optional().or(z.literal("")),
   issueDate: z.string().datetime().optional(),
@@ -23,6 +26,8 @@ const payloadSchema = z.object({
     .array(
       z.object({
         itemId: z.string().trim().optional().or(z.literal("")),
+        purchaseOrderLineId: z.string().trim().optional().or(z.literal("")),
+        goodsReceiptLineId: z.string().trim().optional().or(z.literal("")),
         expenseAccountId: z.string().trim().optional().or(z.literal("")),
         description: z.string().trim().min(1),
         quantity: z.number().positive(),
@@ -33,6 +38,9 @@ const payloadSchema = z.object({
       }),
     )
     .min(1),
+}).refine((value) => Boolean(value.goodsReceiptIds?.length || value.goodsReceiptId), {
+  message: "Elige al menos una recepción.",
+  path: ["goodsReceiptIds"],
 });
 
 export async function GET() {
@@ -53,7 +61,7 @@ export async function POST(request: Request) {
   if (!payload) return invalidJsonResponse();
 
   const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message === "Elige al menos una recepción." ? "Elige al menos una recepción." : "Datos inválidos." }, { status: 400 });
 
   try {
     const created = await createPurchaseSupplierInvoice({
@@ -63,7 +71,7 @@ export async function POST(request: Request) {
       actorUserId: session.user.id,
       supplierPartnerId: parsed.data.supplierPartnerId,
       purchaseOrderId: parsed.data.purchaseOrderId,
-      goodsReceiptId: parsed.data.goodsReceiptId,
+      goodsReceiptIds: parsed.data.goodsReceiptIds ?? (parsed.data.goodsReceiptId ? [parsed.data.goodsReceiptId] : []),
       number: parsed.data.number || undefined,
       supplierDocumentNumber: parsed.data.supplierDocumentNumber || undefined,
       issueDate: parsed.data.issueDate ? new Date(parsed.data.issueDate) : undefined,
@@ -71,6 +79,8 @@ export async function POST(request: Request) {
       notes: parsed.data.notes || undefined,
       lines: parsed.data.lines.map((line) => ({
         itemId: line.itemId || undefined,
+        purchaseOrderLineId: line.purchaseOrderLineId || undefined,
+        goodsReceiptLineId: line.goodsReceiptLineId || undefined,
         expenseAccountId: line.expenseAccountId || undefined,
         description: line.description,
         quantity: line.quantity,

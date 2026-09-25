@@ -24,14 +24,27 @@ test("una declaración presentada bloquea facturas dentro del periodo fiscal", a
   const customerId = customerResponse.payload?.id;
   expect(typeof customerId).toBe("string");
 
+  // "Presentado" ya no se elige al crear: se crea el borrador y se marca con fecha y justificante.
+  const filedOnCreate = await postJson(page, "/api/fiscal-reports", {
+    body: { code: "303", period: "2026-Q2", status: "FILED" },
+  });
+  expect(filedOnCreate.status).toBe(400);
+
   const fiscalResponse = await postJson(page, "/api/fiscal-reports", {
     body: {
       code: "303",
       period: "2026-Q2",
-      status: "FILED",
+      status: "DRAFT",
     },
   });
   expect(fiscalResponse.ok).toBe(true);
+  const reportId = fiscalResponse.payload?.id;
+  expect(typeof reportId).toBe("string");
+
+  const filedResponse = await postJson(page, `/api/fiscal-reports/${reportId}/file`, {
+    body: { filedAt: "2026-07-15", receiptNumber: "3030123456789" },
+  });
+  expect(filedResponse.ok).toBe(true);
 
   const lockedInvoiceResponse = await postJson(page, "/api/invoices", {
     body: {
@@ -72,7 +85,8 @@ test("una declaración presentada bloquea facturas dentro del periodo fiscal", a
     },
   });
   expect(openInvoiceResponse.ok).toBe(true);
-  expect(openInvoiceResponse.payload?.number).toMatch(/^INV-\d{6}$/);
+  // The setup wizard applies the default Spanish invoice prefix ("FA").
+  expect(openInvoiceResponse.payload?.number).toMatch(/^FA\d{6}$/);
 });
 
 async function postJson(page: Page, path: string, options: { body: Record<string, unknown> }): Promise<ApiResponse>;

@@ -13,6 +13,8 @@ import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney, parseDecimalInput } from "@/lib/format";
 
+import { bankAccountForMethod, preselectPaymentOptions, type BankAccountOption, type PaymentMethodOption } from "./payment-defaults";
+
 type FieldErrors = Partial<Record<"amount" | "postedAt", string>>;
 
 function currencySymbolFor(currencyCode: string) {
@@ -47,20 +49,47 @@ export function RegisterSupplierPaymentButton({
   const [bankAccountId, setBankAccountId] = useState("");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
-  const [paymentMethods, setPaymentMethods] = useState<Array<{ id: string; name: string }>>([]);
-  const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; bankName: string; iban: string }>>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccountOption[]>([]);
+  const [bankAccountTouched, setBankAccountTouched] = useState(false);
+  const [optionsState, setOptionsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    void Promise.all([fetch("/api/payment-methods"), fetch("/api/bank-accounts")])
-      .then(async ([methodsResponse, accountsResponse]) => {
-        if (methodsResponse.ok) setPaymentMethods(await methodsResponse.json());
-        if (accountsResponse.ok) setBankAccounts(await accountsResponse.json());
-      })
-      .catch(() => undefined);
-  }, [open]);
+    let cancelled = false;
+    const query = invoiceId ? `?invoiceId=${encodeURIComponent(invoiceId)}` : supplierId ? `?supplierId=${encodeURIComponent(supplierId)}` : "";
+    void (async () => {
+      setOptionsState("loading");
+      try {
+        const response = await fetch(`/api/supplier-payments/options${query}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(await readApiError(response, "No se pudieron cargar las formas de pago y cuentas bancarias."));
+        const payload = (await response.json()) as { paymentMethods: PaymentMethodOption[]; bankAccounts: BankAccountOption[]; supplierPaymentMethodId: string | null };
+        if (cancelled) return;
+        setPaymentMethods(payload.paymentMethods);
+        setBankAccounts(payload.bankAccounts);
+        // Preselección: forma de pago habitual del proveedor (o la de la empresa) y su banco,
+        // o la única cuenta activa. El usuario puede cambiarlo.
+        const preset = preselectPaymentOptions({ methods: payload.paymentMethods, accounts: payload.bankAccounts, supplierPaymentMethodId: payload.supplierPaymentMethodId });
+        setPaymentMethodId((current) => current || preset.paymentMethodId);
+        setBankAccountId((current) => current || preset.bankAccountId);
+        setOptionsError(null);
+        setOptionsState("loaded");
+      } catch (error) {
+        if (cancelled) return;
+        setOptionsError(errorMessage(error, "No se pudieron cargar las formas de pago y cuentas bancarias."));
+        setOptionsState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceId, open, reloadKey, supplierId]);
+
+  const activeBankAccounts = bankAccounts.filter((account) => account.isActive || account.id === bankAccountId);
 
   function validate() {
     const nextErrors: FieldErrors = {};
@@ -137,18 +166,45 @@ export function RegisterSupplierPaymentButton({
           </AccessibleField>
           <div className="grid gap-4 sm:grid-cols-2">
             <AccessibleField id={`supplier-payment-method-${contextId}`} label="Método de pago">
-              <Select id={`supplier-payment-method-${contextId}`} onChange={(event) => setPaymentMethodId(event.target.value)} value={paymentMethodId}>
+              <Select
+                disabled={optionsState === "loading"}
+                id={`supplier-payment-method-${contextId}`}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  setPaymentMethodId(nextId);
+                  if (!bankAccountTouched) setBankAccountId(bankAccountForMethod(paymentMethods.find((method) => method.id === nextId), bankAccounts));
+                }}
+                value={paymentMethodId}
+              >
                 <option value="">Sin especificar</option>
                 {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
               </Select>
             </AccessibleField>
-            <AccessibleField id={`supplier-payment-account-${contextId}`} label="Cuenta bancaria">
-              <Select id={`supplier-payment-account-${contextId}`} onChange={(event) => setBankAccountId(event.target.value)} value={bankAccountId}>
-                <option value="">Sin especificar</option>
-                {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}</option>)}
+            <AccessibleField
+              helperText={bankAccountId ? "Desde dónde sale el dinero; así el pago se podrá conciliar con el extracto." : "Si pagas desde el banco, elige la cuenta para poder conciliarlo."}
+              id={`supplier-payment-account-${contextId}`}
+              label="Cuenta bancaria"
+            >
+              <Select
+                disabled={optionsState === "loading"}
+                id={`supplier-payment-account-${contextId}`}
+                onChange={(event) => {
+                  setBankAccountId(event.target.value);
+                  setBankAccountTouched(true);
+                }}
+                value={bankAccountId}
+              >
+                <option value="">Sin especificar (efectivo u otro)</option>
+                {activeBankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}{account.isActive ? "" : " (archivada)"}</option>)}
               </Select>
             </AccessibleField>
           </div>
+          {optionsState === "error" ? (
+            <div className="flex items-center justify-between gap-2 border border-warning bg-warning/10 p-2 text-xs text-warning-text" role="alert">
+              <span>{optionsError}</span>
+              <Button onClick={() => setReloadKey((current) => current + 1)} size="sm" type="button" variant="outline">Reintentar</Button>
+            </div>
+          ) : null}
           <AccessibleField id={`supplier-payment-reference-${contextId}`} label="Referencia">
             <Input id={`supplier-payment-reference-${contextId}`} onChange={(event) => setReference(event.target.value)} placeholder="Referencia bancaria o concepto" value={reference} />
           </AccessibleField>

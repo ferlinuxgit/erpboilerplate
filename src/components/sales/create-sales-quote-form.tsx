@@ -8,7 +8,7 @@ export type SalesQuoteFormValues = SalesDocumentFormValues & { validUntil: strin
 export function CreateSalesQuoteForm({
   currencyCode,
   customers,
-  defaultTaxRate = 0,
+  defaultTaxRate = 21,
   initialCustomerId,
   initialValues,
   quoteId,

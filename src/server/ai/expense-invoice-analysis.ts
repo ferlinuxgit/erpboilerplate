@@ -160,6 +160,23 @@ function confidenceLabel(score: number): "high" | "medium" | "low" {
   return "low";
 }
 
+/**
+ * Una factura con cuenta de gasto o tipo de IVA supuestos (no leídos del documento) nunca
+ * tiene confianza alta: así no entra en el registro en bloque sin revisión.
+ */
+function cappedConfidence(
+  confidence: "high" | "medium" | "low",
+  lines: ExpenseInvoiceAiDraft["lines"],
+  analysis: ExpenseInvoiceAiAnalysis,
+): "high" | "medium" | "low" {
+  if (confidence !== "high") return confidence;
+  const accountMissing = lines.some((line) => !line.suggestedExpenseAccountCode);
+  const taxAssumed = analysis.lines.length > 0
+    ? analysis.lines.some((line) => line.tax_rate === null) && analysis.taxes.every((tax) => tax.rate === null)
+    : analysis.taxes.every((tax) => tax.rate === null);
+  return accountMissing || taxAssumed ? "medium" : confidence;
+}
+
 function numberOrFallback(value: number | null, fallback: number) {
   return Number.isFinite(value) ? Number(value) : fallback;
 }
@@ -189,7 +206,7 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
       taxRate: numberOrFallback(line.tax_rate, analysis.taxes[0]?.rate ?? 21),
       taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, analysis.taxes[0]?.deductible_pct ?? 100),
       retentionRate: numberOrFallback(line.retention_rate, 0),
-      suggestedExpenseAccountCode: line.suggested_expense_account_code ?? undefined,
+      suggestedExpenseAccountCode: line.suggested_expense_account_code ?? analysis.suggested_expense_account_code ?? undefined,
     }))
     : [{
       description: analysis.description || analysis.invoice_number || "Gasto analizado por IA",
@@ -220,7 +237,7 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
     retentionAmount: analysis.retention_amount ?? undefined,
     totalAmount: analysis.total_amount ?? undefined,
     lines,
-    confidence: confidenceLabel(analysis.confidence_overall),
+    confidence: cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis),
     warnings: [...analysis.warnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
   };
 }
@@ -252,7 +269,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
           filePart,
           {
             type: "input_text",
-            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento.",
+            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
           },
         ],
       },

@@ -22,17 +22,19 @@ export default async function BankTransactionsPage({ searchParams }: { searchPar
       <PageHeader
         eyebrow="Tesorería"
         title="Movimientos bancarios"
-        description="Histórico bancario, importes y estado de conciliación."
+        description="Histórico del banco. Cada movimiento está «Pendiente de conciliar», «Conciliado» (con su cobro o pago) o «Asignado a cuenta» (comisiones, cuotas, impuestos…)."
         backHref="/treasury"
         backLabel="Volver al resumen"
         actions={
           canManage ? (
-            <Link
-              className={buttonVariants()}
-              href="/treasury/bank-transactions/new"
-            >
-              Nuevo movimiento
-            </Link>
+            <>
+              <Link className={buttonVariants({ variant: "outline" })} href="/treasury/bank-transactions/new">
+                Nuevo movimiento
+              </Link>
+              <Link className={buttonVariants()} href="/treasury/import">
+                Importar extracto
+              </Link>
+            </>
           ) : null
         }
       />

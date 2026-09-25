@@ -29,12 +29,14 @@ for (const viewport of viewports) {
         if (viewport.name === "desktop") {
           await expect(page.getByTestId("desktop-sidebar")).toBeVisible();
           await expect(page.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("10 · Comercial", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("20 · Aprovisionamiento", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("30 · Finanzas y operaciones", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("40 · Administración", { exact: true })).toBeVisible();
-          await expect(page.getByLabel("Empresa activa")).toBeVisible();
-          await expect(page.getByLabel("Ejercicio fiscal activo")).toBeVisible();
+          // Codes are hidden until "modo teclado" is on; advanced sections are grouped and collapsed.
+          await expect(page.getByTestId("desktop-sidebar").getByText("Ventas", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Compras y gastos", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Finanzas", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Administración", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Avanzado")).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("10 · Ventas", { exact: true })).toHaveCount(0);
+          await expect(page.getByLabel("Empresa y ejercicio activos")).toBeVisible();
           await expect(page.getByLabel("Paleta de interfaz")).toBeVisible();
           await expect(page.getByTestId("desktop-sidebar").getByTestId(navTestId)).toHaveAttribute("aria-current", "page");
         } else {
@@ -46,6 +48,7 @@ for (const viewport of viewports) {
           await expect(drawer).toBeVisible();
           await expect(drawer.getByRole("navigation", { name: "Navegación principal" })).toBeVisible();
           await expect(drawer.getByText("Contexto activo", { exact: true })).toBeVisible();
+          await expect(page.getByTestId("mobile-active-company")).toContainText("Mi empresa");
           await expect(drawer.getByLabel("Paleta de interfaz")).toBeVisible();
           await expect(drawer.getByTestId(navTestId)).toHaveAttribute("aria-current", "page");
         }

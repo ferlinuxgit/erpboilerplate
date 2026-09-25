@@ -32,7 +32,12 @@ import {
   type RectificationReason,
   type RectificationType,
 } from "@/server/invoices/lifecycle";
+import { describeDueDate } from "@/server/invoices/due-dates";
 import { getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
+import { SendInvoiceEmailDialog } from "@/components/invoice-email/send-invoice-email-dialog";
+import { InvoiceEmailTimeline } from "@/components/invoice-email/invoice-email-timeline";
+import { nextReminderLevel } from "@/server/dunning/schedule";
+import { listInvoiceEmailLog, reminderStatsByInvoice } from "@/server/invoice-email/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -125,8 +130,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     getInvoiceBalance(db, tenantContext.company.id, data.id, data.totalAmount),
   ]);
   const original = originalRows[0] ?? null;
+  const [emailLog, reminderStats] = lifecycle === "ISSUED"
+    ? await Promise.all([listInvoiceEmailLog(tenantContext.company.id, data.id), reminderStatsByInvoice(tenantContext.company.id, [data.id])])
+    : [[], new Map<string, { count: number; lastSentAt: Date | null }>()];
 
   const totals = calculateInvoiceTotals(lines, { allowNegative: isCreditNote });
+  const hasDiscount = lines.some((line) => Number(line.discountPct ?? 0) > 0);
   const canEditInvoice = canManageInvoices(tenantContext.membership.role);
   const outstanding = isIssuedInvoice ? balance.outstandingCents / 100 : 0;
 
@@ -152,6 +161,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ? [{ name: data.paymentMethodName, type: data.paymentMethodType, bankAccountNumber: data.paymentBankAccountNumber, position: 0 }]
       : [];
   const documentNoun = isCreditNote ? "Rectificativa" : "Factura";
+  // "Vence en N días" / "Vencida hace N días" solo mientras quede algo por cobrar.
+  const dueStatus = isIssuedInvoice && data.dueDate && outstanding > 0
+    ? describeDueDate(data.dueDate, { timeZone: tenantContext.company.timezone || undefined })
+    : null;
 
   return (
     <PageShell>
@@ -184,12 +197,19 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           <>
             {canEditInvoice && isDraft ? (
               <>
-                {!isCreditNote ? (
-                  <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-edit-link" href={`/invoices/${data.id}/edit`}>
-                    Editar
-                  </Link>
-                ) : null}
-                <IssueInvoiceButton invoiceId={data.id} isCreditNote={isCreditNote} />
+                <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-edit-link" href={`/invoices/${data.id}/edit`}>
+                  Editar
+                </Link>
+                <IssueInvoiceButton
+                  invoiceId={data.id}
+                  isCreditNote={isCreditNote}
+                  summary={
+                    <p>
+                      {party.name} · Total <strong className="font-mono">{formatMoney(data.totalAmount.toString(), currencyCode)}</strong>
+                      {!isCreditNote ? ` · ${data.dueDate ? `vence el ${formatDate(data.dueDate)}` : "el vencimiento se calculará con los días de pago del cliente"}` : ""}
+                    </p>
+                  }
+                />
               </>
             ) : null}
             {canEditInvoice && isIssuedInvoice ? (
@@ -212,7 +232,16 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 ) : null}
               </>
             ) : null}
+            {canEditInvoice && lifecycle === "ISSUED" ? <SendInvoiceEmailDialog invoiceId={data.id} number={data.number} /> : null}
+            {canEditInvoice && dueStatus?.kind === "overdue" ? (
+              <SendInvoiceEmailDialog invoiceId={data.id} kind="REMINDER" number={data.number} reminderLevel={nextReminderLevel(reminderStats.get(data.id)?.count ?? 0)} />
+            ) : null}
             {canEditInvoice && !isCreditNote ? <DuplicateInvoiceButton invoiceId={data.id} /> : null}
+            {canEditInvoice && !isCreditNote && lifecycle !== "VOID" ? (
+              <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-make-recurring" href={`/invoices/recurring/new?invoiceId=${data.id}`}>
+                Hacer recurrente
+              </Link>
+            ) : null}
             <Link className={buttonVariants()} href={`/api/invoices/${data.id}/pdf`} prefetch={false} target="_blank">
               PDF
             </Link>
@@ -222,7 +251,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
       {isDraft ? (
         <InlineAlert data-testid="invoice-draft-notice" title="Borrador" tone="info">
-          Puedes editarlo libremente. Al pulsar «Emitir {isCreditNote ? "rectificativa" : "factura"}» se le asigna el número definitivo de la serie, se contabiliza y queda bloqueado.
+          Puedes editarlo libremente. Al pulsar «Emitir {isCreditNote ? "rectificativa" : "factura"}» (te pediremos confirmación) se le asigna el número definitivo de la serie, se contabiliza y queda bloqueado.
           {canEditInvoice ? (
             <span className="mt-2 block">
               <DeleteButton
@@ -281,7 +310,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             </div>
             <div>
               <dt className="text-muted-foreground">Fecha de vencimiento</dt>
-              <dd className="font-medium">{data.dueDate ? formatDate(data.dueDate) : "Sin vencimiento"}</dd>
+              <dd className="font-medium">{data.dueDate ? formatDate(data.dueDate) : isDraft && !isCreditNote ? "Se calculará al emitir" : "Sin vencimiento"}</dd>
+              {dueStatus ? (
+                <dd className="mt-1" data-testid="invoice-due-status"><StatusBadge tone={dueStatus.tone}>{dueStatus.label}</StatusBadge></dd>
+              ) : null}
             </div>
             <div>
               <dt className="text-muted-foreground">Total</dt>
@@ -356,6 +388,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 <TableHead>Concepto</TableHead>
                 <TableHead className="text-right">Cantidad</TableHead>
                 <TableHead className="text-right">Precio</TableHead>
+                {hasDiscount ? <TableHead className="text-right">Dto.</TableHead> : null}
                 <TableHead className="text-right">Impuestos</TableHead>
                 <TableHead className="text-right">Total</TableHead>
               </TableRow>
@@ -366,6 +399,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   <TableCell className="font-medium">{line.description}</TableCell>
                   <TableCell className="text-right">{Number(line.quantity).toLocaleString("es-ES")}</TableCell>
                   <TableCell className="text-right">{formatMoney(line.unitPrice, currencyCode)}</TableCell>
+                  {hasDiscount ? <TableCell className="text-right">{Number(line.discountPct ?? 0) > 0 ? `${Number(line.discountPct).toLocaleString("es-ES")} %` : "—"}</TableCell> : null}
                   <TableCell className="text-right">
                     {(line.taxes ?? []).map((selectedTax) => (
                       <span className="block" key={`${selectedTax.name}-${selectedTax.rate}-${selectedTax.operation}`}>
@@ -417,6 +451,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ) : null}
 
       {lifecycle === "ISSUED" ? <InvoiceVerifactuCard companyId={tenantContext.company.id} invoiceId={id} /> : null}
+
+      {lifecycle === "ISSUED" ? (
+        <PageSection title="Envíos por email" description="Cada envío de la factura y cada recordatorio de cobro, con su resultado.">
+          <InvoiceEmailTimeline entries={emailLog} />
+        </PageSection>
+      ) : null}
 
       {isIssuedInvoice ? (
         <PageSection title="Cobros" description="Cobros registrados y aplicados a esta factura.">

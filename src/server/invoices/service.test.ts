@@ -190,6 +190,7 @@ import {
   createInvoice,
   duplicateInvoice,
   issueInvoice,
+  updateCreditNoteDraft,
   updateInvoice,
   voidInvoice,
   type InvoiceActor,
@@ -273,6 +274,22 @@ describe("createInvoice", () => {
     expect(stored.issuerSnapshot).toMatchObject({ name: "Empresa S.L.", taxId: "B00000000" });
     expect(mocks.postSalesInvoice).toHaveBeenCalledWith(expect.objectContaining({ subtotal: 320, taxAmount: 54, totalAmount: 374, retentionAmount: 0, reference: "Factura FA000001" }));
     expect(auditActions()).toEqual(["invoice.create", "invoice.issue"]);
+  });
+
+  it("sin vencimiento, al emitir se calcula emisión + días de pago (30 por defecto)", async () => {
+    const created = await createInvoice(actor, { ...baseInput, dueDate: "" });
+    expect((invoiceRow(created.id).dueDate as Date).toISOString()).toBe("2026-06-08T00:00:00.000Z");
+  });
+
+  it("usa los días de pago del cliente al emitir", async () => {
+    rows("customer")[0]!.paymentTermsDays = 60;
+    const created = await createInvoice(actor, { ...baseInput, dueDate: "" });
+    expect((invoiceRow(created.id).dueDate as Date).toISOString()).toBe("2026-07-08T00:00:00.000Z");
+  });
+
+  it("un borrador sin vencimiento no lo fija hasta emitirse", async () => {
+    const draft = await createInvoice(actor, { ...baseInput, dueDate: "", mode: "draft" });
+    expect(invoiceRow(draft.id).dueDate).toBeNull();
   });
 
   it("rechaza importes cero o negativos en facturas ordinarias", async () => {
@@ -386,6 +403,24 @@ describe("facturas rectificativas", () => {
     const draft = await createInvoice(actor, { ...baseInput, mode: "draft" });
     await expect(createCreditNote(actor, draft.id, { reason: "R4", type: "DIFFERENCES", scope: "FULL", description: "Error" }))
       .rejects.toMatchObject({ status: 409 });
+  });
+
+  it("un borrador de rectificativa se puede editar y emitir", async () => {
+    const original = await createInvoice(actor, baseInput);
+    const draft = await createCreditNote(actor, original.id, { reason: "R4", type: "DIFFERENCES", scope: "FULL", description: "Anulación", issue: false });
+    expect(invoiceRow(draft!.id)).toMatchObject({ status: "DRAFT", totalAmount: "-374.00" });
+
+    const updated = await updateCreditNoteDraft(actor, draft!.id, {
+      reason: "R4",
+      type: "DIFFERENCES",
+      scope: "PARTIAL",
+      description: "Devolución de 1 hora",
+      lines: [{ description: "Consultoría", quantity: 1, unitPrice: 100, taxIds: [VAT_21] }],
+      issue: true,
+    });
+    expect(updated).toMatchObject({ number: "R-000001", totalAmount: -121 });
+    expect(invoiceRow(draft!.id)).toMatchObject({ status: "SENT", rectificationDescription: "Devolución de 1 hora", totalAmount: "-121.00" });
+    await expect(updateCreditNoteDraft(actor, draft!.id, { reason: "R4", type: "DIFFERENCES", scope: "FULL", description: "Otra" })).rejects.toMatchObject({ status: 409 });
   });
 
   it("por sustitución: anula las líneas originales y añade las correctas", async () => {

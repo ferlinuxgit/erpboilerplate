@@ -6,8 +6,8 @@ import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { recordAudit } from "@/server/audit";
+import { CUSTOMER_HAS_DOCUMENTS_MESSAGE, customerUpdateFormSchema } from "@/server/customers/schemas";
 import { updateCustomerWithPartner } from "@/server/customers/service";
-import { updateCustomerSchema } from "@/server/schemas/forms";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await authenticateApiActor(request);
@@ -32,6 +32,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       city: partner.city,
       province: partner.province,
       countryCode: partner.countryCode,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultRetentionRate: customer.defaultRetentionRate,
+      defaultVatTreatment: customer.defaultVatTreatment,
+      invoiceEmail: customer.invoiceEmail,
+      iban: customer.iban,
+      equivalenceSurcharge: customer.equivalenceSurcharge,
+      viesStatus: customer.viesStatus,
+      viesName: customer.viesName,
+      viesCheckedAt: customer.viesCheckedAt,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
     })
@@ -53,7 +62,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const payload = await readJsonBody(request);
   if (!payload) return invalidJsonResponse();
 
-  const parsedPayload = updateCustomerSchema.safeParse(payload);
+  const parsedPayload = customerUpdateFormSchema.safeParse(payload);
   if (!parsedPayload.success) {
     return NextResponse.json({ message: parsedPayload.error.issues[0]?.message ?? "Los datos son inválidos." }, { status: 400 });
   }
@@ -106,6 +115,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (!deleted) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (error) {
+    // Con facturas, presupuestos, pedidos o albaranes la base de datos impide borrarlo (FK restrict):
+    // en lugar de un 500 se explica y se ofrece marcarlo como Inactivo.
+    const databaseError = (error as { code?: string; cause?: { code?: string } } | null);
+    if (databaseError?.code === "23503" || databaseError?.cause?.code === "23503") {
+      return NextResponse.json({ message: CUSTOMER_HAS_DOCUMENTS_MESSAGE, canDeactivate: true }, { status: 409 });
+    }
     return handleRouteError(error, "customer.delete", "No se pudo eliminar el cliente.");
   }
 }

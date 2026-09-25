@@ -9,6 +9,7 @@ import { AccessibleField, errorMessage, readApiError } from "@/components/ui/for
 import { Input } from "@/components/ui/input";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { ibanHelperText } from "@/components/treasury/iban-helper";
 
 type CreateBankAccountFormProps = {
   onCancel?: () => void;
@@ -22,6 +23,7 @@ export function CreateBankAccountForm({ ledgerAccounts = [], onCancel, onSuccess
   const [iban, setIban] = useState("");
   const [bankName, setBankName] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [bic, setBic] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -35,13 +37,14 @@ export function CreateBankAccountForm({ ledgerAccounts = [], onCancel, onSuccess
           const res = await fetch("/api/bank-accounts", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-            body: JSON.stringify({ iban, bankName, accountId: accountId || null }),
+            body: JSON.stringify({ iban, bankName, accountId: accountId || null, bic: bic.trim() || null }),
           });
           if (!res.ok) throw new Error(await readApiError(res, "No se pudo crear la cuenta bancaria."));
           toast.success(`Cuenta ${bankName} creada.`, { description: "También se ha creado su forma de pago por transferencia." });
           setIban("");
           setBankName("");
           setAccountId("");
+          setBic("");
           if (onSuccess) {
             onSuccess();
           } else if (redirectHref) {
@@ -61,10 +64,13 @@ export function CreateBankAccountForm({ ledgerAccounts = [], onCancel, onSuccess
       <AccessibleField id="bank-account-name" label="Banco" required>
         <Input id="bank-account-name" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Banco Santander" required />
       </AccessibleField>
-      <AccessibleField id="bank-account-iban" label="IBAN" required>
+      <AccessibleField helperText={ibanHelperText(iban)} id="bank-account-iban" label="IBAN" required>
         <Input id="bank-account-iban" value={iban} onChange={(e) => setIban(e.target.value)} placeholder="ES00 0000 0000 0000 0000 0000" required />
       </AccessibleField>
       <BankLedgerAccountField id="bank-account-ledger" onChange={setAccountId} options={ledgerAccounts} value={accountId} />
+      <AccessibleField helperText="Opcional. Se usa en las remesas SEPA (p. ej. CAIXESBBXXX)." id="bank-account-bic" label="BIC / SWIFT">
+        <Input autoComplete="off" id="bank-account-bic" maxLength={11} value={bic} onChange={(e) => setBic(e.target.value.toUpperCase())} />
+      </AccessibleField>
       <div className="flex gap-2 md:col-span-3 md:justify-end">
         {onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}
         <Button type="submit" disabled={loading} aria-busy={loading}>{loading ? "Guardando…" : "Crear cuenta"}</Button>

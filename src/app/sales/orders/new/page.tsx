@@ -1,4 +1,3 @@
-import { asc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -10,20 +9,14 @@ import {
   PageSection,
   PageShell,
 } from "@/components/ui/page";
-import { customer, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
-import { db } from "@/lib/db";
+import { loadSalesFormData } from "@/server/sales/form-data";
 
 export const metadata: Metadata = { title: "Nuevo pedido de venta" };
 
 export default async function NewSalesOrderPage() {
   const ctx = await requireContext("invoice.create");
-  const [customers, [defaultTax]] = await Promise.all([db
-    .select({ id: customer.id, number: partner.number, name: customer.name })
-    .from(customer)
-    .leftJoin(partner, eq(partner.id, customer.partnerId))
-    .where(eq(customer.companyId, ctx.company.id))
-    .orderBy(asc(customer.name)), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, ctx.company.id)).orderBy(tax.rate).limit(1)]);
+  const { customers, defaultTaxRate } = await loadSalesFormData(ctx.company.id);
   return (
     <PageShell>
       <PageHeader
@@ -40,7 +33,7 @@ export default async function NewSalesOrderPage() {
         description="Selecciona cliente, fecha y líneas. Los totales se calculan en el servidor."
       >
         {customers.length ? (
-          <CreateSalesOrderForm customers={customers} defaultTaxRate={Number(defaultTax?.rate ?? 0)} />
+          <CreateSalesOrderForm customers={customers} defaultTaxRate={defaultTaxRate} />
         ) : (
           <EmptyState
             title="Falta un cliente"

@@ -115,7 +115,7 @@ export default async function DeliveryNotesPage({ searchParams }: { searchParams
         <MetricCard label="Anulados" value={voided} helper="Entregas canceladas" tone={voided > 0 ? "danger" : "neutral"} />
       </section>
       <PageSection title="Listado de albaranes" description="Consulta las entregas y abre su ficha para revisar líneas o generar la factura.">
-        <SalesDocumentsList
+        <SalesDocumentsList kind="delivery"
           basePath="/sales/delivery-notes"
           currencyCode={ctx.company.baseCurrencyCode}
           dateLabel="Entrega"

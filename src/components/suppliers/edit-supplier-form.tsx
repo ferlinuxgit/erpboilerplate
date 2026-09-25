@@ -7,6 +7,13 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import {
+  SupplierInvoiceDefaultsFields,
+  emptySupplierInvoiceDefaults,
+  supplierInvoiceDefaultsPayload,
+  type SupplierInvoiceDefaultsDraft,
+  type SupplierInvoiceDefaultsErrors,
+} from "@/components/suppliers/supplier-invoice-defaults-fields";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -37,6 +44,8 @@ export function EditSupplierForm({
   defaultStatus,
   defaultTaxId,
   id,
+  expenseAccounts = [],
+  invoiceDefaults: initialInvoiceDefaults,
   paymentMethods = [],
 }: {
   id: string;
@@ -57,9 +66,13 @@ export function EditSupplierForm({
   defaultCurrencyCode: string;
   paymentMethods?: Array<{ id: string; name: string }>;
   defaultAccounts?: Array<{ id: string; code: string; name: string }>;
+  expenseAccounts?: Array<{ id: string; code: string; name: string }>;
+  invoiceDefaults?: SupplierInvoiceDefaultsDraft;
 }) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [invoiceDefaults, setInvoiceDefaults] = useState<SupplierInvoiceDefaultsDraft>(initialInvoiceDefaults ?? emptySupplierInvoiceDefaults());
+  const [invoiceDefaultsErrors, setInvoiceDefaultsErrors] = useState<SupplierInvoiceDefaultsErrors>({});
   const {
     register,
     handleSubmit,
@@ -93,11 +106,17 @@ export function EditSupplierForm({
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
+    const defaults = supplierInvoiceDefaultsPayload(invoiceDefaults);
+    setInvoiceDefaultsErrors(defaults.errors);
+    if (Object.keys(defaults.errors).length > 0) {
+      setSubmitError("Revisa los valores habituales de sus facturas.");
+      return;
+    }
     try {
       const response = await fetch(`/api/suppliers/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, ...defaults.payload }),
       });
 
       if (!response.ok) {
@@ -147,7 +166,7 @@ export function EditSupplierForm({
       <AccessibleField id="supplier-phone" label="Teléfono" error={errors.phone?.message}>
         <Input autoComplete="tel" id="supplier-phone" type="tel" {...register("phone")} />
       </AccessibleField>
-      <AccessibleField id="supplier-payment-terms" label="Días pago" required error={paymentTermsError} helperText="Plazo de pago en días (0 = al contado).">
+      <AccessibleField id="supplier-payment-terms" label="Días pago" required error={paymentTermsError} helperText="Días que tienes para pagarle. El vencimiento de sus facturas se calcula solo (0 = al contado).">
         <Input className="text-right tabular-nums" id="supplier-payment-terms" inputMode="numeric" max="365" min="0" type="number" {...register("paymentTermsDays", paymentTermsRegisterOptions)} />
       </AccessibleField>
       <AccessibleField id="supplier-payment-method" label="Método pago" error={errors.paymentMethodId?.message}>
@@ -156,9 +175,9 @@ export function EditSupplierForm({
           {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
         </Select>
       </AccessibleField>
-      <AccessibleField id="supplier-default-account" label="Cuenta proveedor" error={errors.defaultAccountId?.message} helperText="Cuenta contable para sus facturas.">
+      <AccessibleField id="supplier-default-account" label="Cuenta del proveedor" error={errors.defaultAccountId?.message} helperText="Dónde se anota lo que le debes (grupo 410). Déjalo en la general salvo que tu gestor use subcuentas.">
         <Select id="supplier-default-account" {...register("defaultAccountId")}>
-          <option value="">Cuenta por defecto de empresa</option>
+          <option value="">General de la empresa (410)</option>
           {defaultAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
         </Select>
       </AccessibleField>
@@ -171,6 +190,7 @@ export function EditSupplierForm({
           <option value="INACTIVE">Inactivo</option>
         </Select>
       </AccessibleField>
+      <SupplierInvoiceDefaultsFields accounts={expenseAccounts} draft={invoiceDefaults} errors={invoiceDefaultsErrors} onChange={(patch) => setInvoiceDefaults((current) => ({ ...current, ...patch }))} />
       <FormErrorMessage className="md:col-span-6">{submitError}</FormErrorMessage>
       <FormActions className="md:col-span-6">
         <SubmitButton pending={isSubmitting}>Guardar cambios</SubmitButton>

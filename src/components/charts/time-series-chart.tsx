@@ -120,7 +120,7 @@ export function TimeSeriesChart({
 
   return (
     <figure className={cn("min-w-0 space-y-1.5", className)} data-testid={testId}>
-      <div aria-hidden="true" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 font-mono text-[0.7rem]">
+      <div aria-hidden="true" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 font-mono text-xs">
         {/* Y-axis title (units), kept outside the SVG so it never collides with tick labels. */}
         <span className="text-muted-foreground">{valueLabel}</span>
         {series.length > 1 ? (
@@ -159,14 +159,14 @@ export function TimeSeriesChart({
                 y1={Math.round(y.map(tick)) + 0.5}
                 y2={Math.round(y.map(tick)) + 0.5}
               />
-              <text className="fill-muted-foreground tabular-nums" dominantBaseline="middle" fontSize={11} textAnchor="end" x={plotLeft - 6} y={y.map(tick)}>
+              <text className="fill-muted-foreground tabular-nums" dominantBaseline="middle" fontSize={12} textAnchor="end" x={plotLeft - 6} y={y.map(tick)}>
                 {formatCompactMoney(tick, currencyCode)}
               </text>
             </g>
           ))}
           {categories.map((category, index) =>
             index % stride === (categories.length - 1) % stride ? (
-              <text className="fill-muted-foreground" fontSize={11} key={category.label} textAnchor="middle" x={band.center(index)} y={height - 8}>
+              <text className="fill-muted-foreground" fontSize={12} key={category.label} textAnchor="middle" x={band.center(index)} y={height - 8}>
                 {category.label}
               </text>
             ) : null,

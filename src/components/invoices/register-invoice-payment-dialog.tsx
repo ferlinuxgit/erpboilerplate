@@ -12,6 +12,7 @@ import { MoneyInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney, parseDecimalInput } from "@/lib/format";
+import { todayDateInput } from "@/server/invoices/due-dates";
 
 type PaymentMethodOption = {
   id: string;
@@ -34,8 +35,9 @@ type RegisterInvoicePaymentDialogProps = {
 
 type FieldErrors = Partial<Record<"postedAt" | "paymentMethod" | "amount", string>>;
 
+/** Hoy en la zona horaria del usuario (España), no en UTC. */
 function todayInputValue() {
-  return new Date().toISOString().slice(0, 10);
+  return todayDateInput();
 }
 
 /** Importe con coma decimal, como lo escribe el usuario en es-ES ("1234,56"). */
@@ -62,6 +64,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
   function openDialog() {
     // Cada vez que se abre se propone el saldo pendiente actual (lo habitual es cobrarlo entero).
     setAmount(amountInputValue(outstandingAmount));
+    setPostedAt(todayInputValue());
     setFieldErrors({});
     setError(null);
     setIsOpen(true);

@@ -4,13 +4,23 @@ import { getUserSession } from "@/lib/current-user";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
+import { parseListParams } from "@/lib/list-params";
+import { journalEntryListConfig, listJournalEntriesForExport } from "@/server/accounting/journal-entry-list";
 import { createJournalEntry, listJournalEntries } from "@/server/accounting/service";
 
-export async function GET() {
+/**
+ * Libro diario de la empresa. Con `?export=all` devuelve todos los asientos que cumplen la
+ * búsqueda, filtros y orden de la lista (`?q=&from=&to=&sort=&dir=`), para exportarlos completos.
+ */
+export async function GET(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "accounting.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  const searchParams = new URL(request.url).searchParams;
+  if (searchParams.get("export") === "all") {
+    return NextResponse.json(await listJournalEntriesForExport(ctx.company.id, parseListParams(searchParams, journalEntryListConfig)));
+  }
   return NextResponse.json(await listJournalEntries(ctx.company.id));
 }
 

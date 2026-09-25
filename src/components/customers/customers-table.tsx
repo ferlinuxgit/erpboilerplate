@@ -9,6 +9,7 @@ import {
   type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { countryName } from "@/lib/countries";
 
 type CustomerRow = {
   id: string;
@@ -22,6 +23,7 @@ type CustomerRow = {
   city: string | null;
   province: string | null;
   countryCode: string | null;
+  hasDocuments?: boolean;
 };
 
 type CustomersTableProps = {
@@ -117,7 +119,7 @@ const columns: ResourceListColumn<CustomerRow>[] = [
   {
     header: "Acciones",
     cell: (customer) => (
-      <CustomerRowActions id={customer.id} name={customer.name} />
+      <CustomerRowActions hasDocuments={customer.hasDocuments} id={customer.id} name={customer.name} status={customer.status} />
     ),
     className: "text-right",
   },
@@ -171,7 +173,7 @@ export function CustomersTable({ rows, server, countryOptions }: CustomersTableP
           key: "country",
           label: "País",
           allLabel: "Todos los países",
-          options: countries.map((value) => ({ value, label: value })),
+          options: countries.map((value) => ({ value, label: countryName(value) })),
           getValue: (customer) => customer.countryCode,
         },
       ]}
@@ -205,7 +207,7 @@ export function CustomersTable({ rows, server, countryOptions }: CustomersTableP
               {customer.phone ?? "Sin teléfono"}
             </p>
           </div>
-          <CustomerRowActions id={customer.id} name={customer.name} />
+          <CustomerRowActions hasDocuments={customer.hasDocuments} id={customer.id} name={customer.name} status={customer.status} />
         </div>
       )}
     />

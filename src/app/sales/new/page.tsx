@@ -1,13 +1,11 @@
-import { asc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CreateSalesQuoteForm } from "@/components/sales/create-sales-quote-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { customer, partner, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
-import { db } from "@/lib/db";
+import { loadSalesFormData } from "@/server/sales/form-data";
 
 export const metadata: Metadata = { title: "Nuevo presupuesto" };
 
@@ -15,7 +13,7 @@ export default async function NewSalesQuotePage({ searchParams }: { searchParams
   const ctx = await requireContext("invoice.create");
   const params = await searchParams;
   const initialCustomerId = Array.isArray(params.customerId) ? params.customerId[0] : params.customerId;
-  const [customers, [defaultTax]] = await Promise.all([db.select({ id: customer.id, number: partner.number, name: customer.name }).from(customer).leftJoin(partner, eq(partner.id, customer.partnerId)).where(eq(customer.companyId, ctx.company.id)).orderBy(asc(customer.name)), db.select({ rate: tax.rate }).from(tax).where(eq(tax.companyId, ctx.company.id)).orderBy(tax.rate).limit(1)]);
+  const { customers, defaultTaxRate } = await loadSalesFormData(ctx.company.id);
 
   return (
     <PageShell>
@@ -31,7 +29,7 @@ export default async function NewSalesQuotePage({ searchParams }: { searchParams
       <PageSection title="Datos del presupuesto" description="Selecciona el cliente, define la vigencia y añade los conceptos de la propuesta.">
         {customers.length === 0 ? (
           <EmptyState title="Falta un cliente" description="Crea al menos un cliente antes de preparar un presupuesto." action={<Link className={buttonVariants()} href="/customers/new">Crear cliente</Link>} />
-        ) : <CreateSalesQuoteForm customers={customers} defaultTaxRate={Number(defaultTax?.rate ?? 0)} initialCustomerId={initialCustomerId} />}
+        ) : <CreateSalesQuoteForm customers={customers} defaultTaxRate={defaultTaxRate} initialCustomerId={initialCustomerId} />}
       </PageSection>
     </PageShell>
   );

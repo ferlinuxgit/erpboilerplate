@@ -7,14 +7,27 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import {
+  SupplierInvoiceDefaultsFields,
+  emptySupplierInvoiceDefaults,
+  supplierInvoiceDefaultsPayload,
+  type SupplierInvoiceDefaultsDraft,
+  type SupplierInvoiceDefaultsErrors,
+} from "@/components/suppliers/supplier-invoice-defaults-fields";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { createSupplierSchema } from "@/server/schemas/forms";
 
+type CreatedSupplier = { id: string; number: string; name: string; taxId: string | null };
+
 type CreateSupplierFormProps = {
   redirectHref?: string;
+  /** Alta rápida desde otro formulario: recibe el proveedor creado en lugar de navegar. */
+  onCreated?: (supplier: CreatedSupplier) => void;
+  /** Cuentas imputables para elegir la cuenta de gasto habitual. */
+  expenseAccounts?: Array<{ id: string; code: string; name: string }>;
   paymentMethods?: Array<{ id: string; name: string }>;
   defaultAccounts?: Array<{ id: string; code: string; name: string }>;
 };
@@ -23,10 +36,12 @@ const paymentTermsRegisterOptions = {
   setValueAs: (value: unknown) => (typeof value === "number" ? value : value === "" || value === null || value === undefined ? Number.NaN : Number(value)),
 } as const;
 
-export function CreateSupplierForm({ defaultAccounts = [], paymentMethods = [], redirectHref }: CreateSupplierFormProps = {}) {
+export function CreateSupplierForm({ defaultAccounts = [], expenseAccounts = [], onCreated, paymentMethods = [], redirectHref }: CreateSupplierFormProps = {}) {
   type CreateSupplierPayload = z.input<typeof createSupplierSchema>;
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [invoiceDefaults, setInvoiceDefaults] = useState<SupplierInvoiceDefaultsDraft>(emptySupplierInvoiceDefaults);
+  const [invoiceDefaultsErrors, setInvoiceDefaultsErrors] = useState<SupplierInvoiceDefaultsErrors>({});
   const {
     register,
     reset,
@@ -47,7 +62,7 @@ export function CreateSupplierForm({ defaultAccounts = [], paymentMethods = [], 
       phone: "",
       paymentTermsDays: 30,
       paymentMethodId: "",
-      defaultAccountId: defaultAccounts[0]?.id ?? "",
+      defaultAccountId: "",
       currencyCode: "EUR",
     },
   });
@@ -59,20 +74,30 @@ export function CreateSupplierForm({ defaultAccounts = [], paymentMethods = [], 
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
+    const defaults = supplierInvoiceDefaultsPayload(invoiceDefaults);
+    setInvoiceDefaultsErrors(defaults.errors);
+    if (Object.keys(defaults.errors).length > 0) {
+      setSubmitError("Revisa los valores habituales de sus facturas.");
+      return;
+    }
     try {
       const response = await fetch("/api/suppliers", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, ...defaults.payload }),
       });
 
       if (!response.ok) {
         throw new Error(await readApiError(response, "No se pudo crear el proveedor."));
       }
 
+      const created = (await response.json().catch(() => null)) as CreatedSupplier | null;
       reset();
+      setInvoiceDefaults(emptySupplierInvoiceDefaults());
       toast.success("Proveedor creado correctamente.");
-      if (redirectHref) {
+      if (onCreated && created?.id) {
+        onCreated(created);
+      } else if (redirectHref) {
         router.push(redirectHref);
       } else {
         router.refresh();
@@ -117,7 +142,7 @@ export function CreateSupplierForm({ defaultAccounts = [], paymentMethods = [], 
       <AccessibleField id="supplier-phone" label="Teléfono" error={errors.phone?.message} helperText="Opcional; incluye prefijo si aplica.">
         <Input autoComplete="tel" id="supplier-phone" placeholder="+34 600 000 000" type="tel" {...register("phone")} />
       </AccessibleField>
-      <AccessibleField id="supplier-payment-terms" label="Días pago" required error={paymentTermsError} helperText="Plazo de pago en días (0 = al contado).">
+      <AccessibleField id="supplier-payment-terms" label="Días pago" required error={paymentTermsError} helperText="Días que tienes para pagarle. El vencimiento de sus facturas se calcula solo (0 = al contado).">
         <Input className="text-right tabular-nums" id="supplier-payment-terms" inputMode="numeric" max="365" min="0" type="number" {...register("paymentTermsDays", paymentTermsRegisterOptions)} />
       </AccessibleField>
       <AccessibleField id="supplier-payment-method" label="Método pago" error={errors.paymentMethodId?.message}>
@@ -126,15 +151,16 @@ export function CreateSupplierForm({ defaultAccounts = [], paymentMethods = [], 
           {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
         </Select>
       </AccessibleField>
-      <AccessibleField id="supplier-default-account" label="Cuenta proveedor" error={errors.defaultAccountId?.message} helperText="Cuenta contable para sus facturas.">
+      <AccessibleField id="supplier-default-account" label="Cuenta del proveedor" error={errors.defaultAccountId?.message} helperText="Dónde se anota lo que le debes (grupo 410). Déjalo en la general salvo que tu gestor use subcuentas.">
         <Select id="supplier-default-account" {...register("defaultAccountId")}>
-          <option value="">Cuenta por defecto de empresa</option>
+          <option value="">General de la empresa (410)</option>
           {defaultAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
         </Select>
       </AccessibleField>
       <AccessibleField id="supplier-currency" label="Moneda" required error={errors.currencyCode?.message} helperText="Código ISO de 3 letras (EUR, USD…).">
         <Input id="supplier-currency" maxLength={3} {...register("currencyCode")} />
       </AccessibleField>
+      <SupplierInvoiceDefaultsFields accounts={expenseAccounts} draft={invoiceDefaults} errors={invoiceDefaultsErrors} onChange={(patch) => setInvoiceDefaults((current) => ({ ...current, ...patch }))} />
       <FormErrorMessage className="md:col-span-6">{submitError}</FormErrorMessage>
       <FormActions className="md:col-span-6">
         <SubmitButton data-testid="supplier-create-submit" pending={isSubmitting} pendingLabel="Creando…">

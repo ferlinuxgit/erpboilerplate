@@ -86,7 +86,7 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
                 return (
                   <TableRow key={line.id}>
                     <TableCell>
-                      {account ? <Link className="font-mono font-semibold text-primary hover:underline" href={`/accounting/ledger/${account.id}`}>{account.code}</Link> : "—"}
+                      {account ? <Link className="font-mono font-semibold text-link hover:underline" href={`/accounting/ledger/${account.id}`}>{account.code}</Link> : "—"}
                     </TableCell>
                     <TableCell className="font-medium">{account?.name ?? "Cuenta no disponible"}</TableCell>
                     <TableCell className="text-right font-mono">{Number(line.debit) > 0 ? formatMoney(line.debit, ctx.company.baseCurrencyCode) : "—"}</TableCell>

@@ -60,6 +60,9 @@ export async function getFiscalReport(companyId: string, id: string) {
 export async function createFiscalReport(companyId: string, tenantId: string, actorUserId: string, payload: FiscalReportPayload) {
   const normalized = normalizeFiscalReportPayload(payload);
   if (!normalized) throw new AccountingRuleError(422, "FISCAL_PERIOD_INVALID", "Modelo o periodo fiscal no soportado. Usa 2026-Q1, 2026-04 o 2026 según el modelo.");
+  if (normalized.status === "FILED") {
+    throw new AccountingRuleError(422, "FILING_DATA_REQUIRED", "Crea el modelo como borrador y márcalo como presentado con la fecha y el número de justificante.");
+  }
   await assertFiscalReportKeyAvailable(companyId, normalized.code, normalized.period);
 
   const [created] = await db.insert(fiscalReport).values({
@@ -67,7 +70,6 @@ export async function createFiscalReport(companyId: string, tenantId: string, ac
     code: normalized.code,
     period: normalized.period,
     status: normalized.status,
-    filedAt: normalized.status === "FILED" ? new Date() : null,
   }).returning();
   await recordAudit({ tenantId, companyId, actorUserId, action: "fiscal.create", entityName: "fiscalReport", entityId: created.id, payload: normalized });
   return created;
@@ -80,6 +82,9 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
 
   const current = await getFiscalReport(companyId, id);
   if (!current) return null;
+  if (current.status !== "FILED" && normalized.status === "FILED") {
+    throw new AccountingRuleError(422, "FILING_DATA_REQUIRED", "Para marcarlo como presentado usa «Marcar como presentado»: pide la fecha y el número de justificante.");
+  }
   if (current.status === "FILED" && normalized.status !== "FILED" && !payload.reopenReason?.trim()) {
     throw new AccountingRuleError(422, "REOPEN_REASON_REQUIRED", "Debes indicar el motivo para reabrir una declaración presentada.");
   }
@@ -89,6 +94,7 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
     .set({
       ...normalized,
       filedAt: normalized.status === "FILED" ? current.filedAt ?? new Date() : null,
+      ...(normalized.status === "FILED" ? {} : { filingReceiptNumber: null, paymentNrc: null }),
       updatedAt: new Date(),
     })
     .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId)))
@@ -106,6 +112,61 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
       payload: { from: current.status, to: normalized.status, code: normalized.code, period: normalized.period, reason: payload.reopenReason?.trim() },
     });
   }
+  return updated;
+}
+
+export type MarkFiledPayload = {
+  filedAt: Date;
+  /** Número de justificante de la presentación (AEAT). */
+  receiptNumber: string;
+  /** NRC del pago en el banco, si el modelo salió a ingresar. */
+  nrc?: string | null;
+};
+
+/** Normaliza y valida los datos de presentación (función pura). Devuelve el mensaje de error o los datos. */
+export function normalizeMarkFiledPayload(payload: MarkFiledPayload, now = new Date()): { error: string } | { data: { filedAt: Date; receiptNumber: string; nrc: string | null } } {
+  if (Number.isNaN(payload.filedAt.getTime())) return { error: "La fecha de presentación no es válida." };
+  const endOfToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  if (payload.filedAt.getTime() >= endOfToday) return { error: "La fecha de presentación no puede ser futura." };
+  const receiptNumber = payload.receiptNumber.replace(/\s+/g, "").toUpperCase();
+  if (!/^[0-9A-Z-]{6,40}$/.test(receiptNumber)) return { error: "Indica el número de justificante que aparece en el documento de la AEAT (solo números y letras)." };
+  const nrc = payload.nrc?.replace(/\s+/g, "").toUpperCase() || null;
+  if (nrc && !/^[0-9A-Z]{10,40}$/.test(nrc)) return { error: "El NRC tiene que tener entre 10 y 40 números o letras." };
+  return { data: { filedAt: payload.filedAt, receiptNumber, nrc } };
+}
+
+/**
+ * Marca un modelo como presentado con su fecha, justificante y (si hubo pago) NRC.
+ * Bloquea el periodo: ya no se pueden registrar documentos con fecha dentro de él.
+ */
+export async function markFiscalReportFiled(companyId: string, tenantId: string, actorUserId: string, id: string, payload: MarkFiledPayload) {
+  const normalized = normalizeMarkFiledPayload(payload);
+  if ("error" in normalized) throw new AccountingRuleError(422, "FISCAL_FILING_INVALID", normalized.error);
+  const current = await getFiscalReport(companyId, id);
+  if (!current) return null;
+  if (current.status === "FILED") throw new AccountingRuleError(409, "FISCAL_REPORT_FILED", "Este modelo ya está marcado como presentado.");
+
+  const [updated] = await db
+    .update(fiscalReport)
+    .set({
+      status: "FILED",
+      filedAt: normalized.data.filedAt,
+      filingReceiptNumber: normalized.data.receiptNumber,
+      paymentNrc: normalized.data.nrc,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId)))
+    .returning();
+  if (!updated) return null;
+  await recordAudit({
+    tenantId,
+    companyId,
+    actorUserId,
+    action: "fiscal.file",
+    entityName: "fiscalReport",
+    entityId: id,
+    payload: { code: current.code, period: current.period, filedAt: normalized.data.filedAt, receiptNumber: normalized.data.receiptNumber, nrc: normalized.data.nrc },
+  });
   return updated;
 }
 

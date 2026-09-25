@@ -7,7 +7,12 @@ import { ActivityTimeline, type ActivityTimelineItem } from "@/components/ui/act
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { customer, deliveryNote, invoice, partner, salesOrder, salesQuote } from "@/db/schema";
+import { ViesCheck } from "@/components/customers/vies-check";
+import { companySettings, customer, deliveryNote, invoice, partner, salesOrder, salesQuote } from "@/db/schema";
+import { countryName, isEuCountry } from "@/lib/countries";
+import { getCustomerBalance } from "@/server/customers/service";
+import { effectivePaymentTermsDays } from "@/server/invoices/due-dates";
+import { salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -32,18 +37,24 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("customer.read");
   const { id } = await params;
-  const [record] = await db.select({ id: customer.id, number: partner.number, name: customer.name, email: customer.email, phone: customer.phone, status: customer.status, createdAt: customer.createdAt, updatedAt: customer.updatedAt, taxId: partner.taxId, address: partner.address, addressLine2: partner.addressLine2, postalCode: partner.postalCode, city: partner.city, province: partner.province, countryCode: partner.countryCode, currencyCode: partner.currencyCode, paymentTermsDays: partner.paymentTermsDays }).from(customer).leftJoin(partner, eq(partner.id, customer.partnerId)).where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id))).limit(1);
+  const [record] = await db.select({ id: customer.id, number: partner.number, name: customer.name, email: customer.email, phone: customer.phone, status: customer.status, createdAt: customer.createdAt, updatedAt: customer.updatedAt, taxId: partner.taxId, address: partner.address, addressLine2: partner.addressLine2, postalCode: partner.postalCode, city: partner.city, province: partner.province, countryCode: partner.countryCode, currencyCode: partner.currencyCode, paymentTermsDays: partner.paymentTermsDays, defaultRetentionRate: customer.defaultRetentionRate, defaultVatTreatment: customer.defaultVatTreatment, invoiceEmail: customer.invoiceEmail, iban: customer.iban, equivalenceSurcharge: customer.equivalenceSurcharge, viesStatus: customer.viesStatus, viesName: customer.viesName, viesCheckedAt: customer.viesCheckedAt }).from(customer).leftJoin(partner, eq(partner.id, customer.partnerId)).where(and(eq(customer.id, id), eq(customer.companyId, ctx.company.id))).limit(1);
   if (!record) notFound();
 
-  const [invoices, quotes, orders, deliveries] = await Promise.all([
+  const [invoices, quotes, orders, deliveries, balance, [settings]] = await Promise.all([
     db.select({ id: invoice.id, number: invoice.number, totalAmount: invoice.totalAmount, paymentStatus: invoice.paymentStatus, issueDate: invoice.issueDate, createdAt: invoice.createdAt }).from(invoice).where(and(eq(invoice.companyId, ctx.company.id), eq(invoice.customerId, id))).orderBy(desc(invoice.createdAt)),
     db.select({ id: salesQuote.id, number: salesQuote.number, totalAmount: salesQuote.totalAmount, status: salesQuote.status, createdAt: salesQuote.createdAt }).from(salesQuote).where(and(eq(salesQuote.companyId, ctx.company.id), eq(salesQuote.customerId, id))).orderBy(desc(salesQuote.createdAt)),
     db.select({ id: salesOrder.id, number: salesOrder.number, totalAmount: salesOrder.totalAmount, status: salesOrder.status, createdAt: salesOrder.createdAt }).from(salesOrder).where(and(eq(salesOrder.companyId, ctx.company.id), eq(salesOrder.customerId, id))).orderBy(desc(salesOrder.createdAt)),
     db.select({ id: deliveryNote.id, number: deliveryNote.number, status: deliveryNote.status, createdAt: deliveryNote.createdAt }).from(deliveryNote).where(and(eq(deliveryNote.companyId, ctx.company.id), eq(deliveryNote.customerId, id))).orderBy(desc(deliveryNote.createdAt)),
+    getCustomerBalance(ctx.company.id, id),
+    db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
   ]);
   const currencyCode = record.currencyCode ?? ctx.company.baseCurrencyCode;
-  const totalInvoiced = invoices.reduce((total, row) => total + Number(row.totalAmount), 0);
-  const openAmount = invoices.filter((row) => row.paymentStatus !== "PAID" && row.paymentStatus !== "VOID").reduce((total, row) => total + Number(row.totalAmount), 0);
+  // Importes reales: sin borradores ni anuladas, restando rectificativas y cobros (mismas reglas que la lista de facturas).
+  const totalInvoiced = balance.invoiced;
+  const openAmount = balance.outstanding;
+  const termsDays = effectivePaymentTermsDays(record.paymentTermsDays, settings?.paymentTermsDays);
+  const vatTreatmentLabel = salesVatTreatmentOptions.find((option) => option.value === record.defaultVatTreatment)?.label ?? `Automático (${countryName(record.countryCode ?? "ES")})`;
+  const showVies = isEuCountry(record.countryCode) && record.countryCode !== "ES";
   const timeline: ActivityTimelineItem[] = [
     ...invoices.map((row) => ({ id: `invoice-${row.id}`, title: `Factura ${row.number}`, description: `${formatMoney(row.totalAmount, currencyCode)} · ${statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}`, date: row.createdAt, href: `/invoices/${row.id}`, tone: row.paymentStatus === "PAID" ? "success" as const : "warning" as const })),
     ...quotes.map((row) => ({ id: `quote-${row.id}`, title: `Presupuesto ${row.number}`, description: `${formatMoney(row.totalAmount, currencyCode)} · ${statusLabel(salesDocumentStatusLabels, row.status)}`, date: row.createdAt, href: `/sales/quotes/${row.id}` })),
@@ -58,8 +69,8 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
       <PageHeader breadcrumbs={[{ label: "Comercial" }, { label: "Clientes", href: "/customers" }, { label: record.name }]} title={record.name} description={[record.number ? `N.º cliente ${record.number}` : null, record.taxId, record.city, record.province, record.countryCode].filter(Boolean).join(" · ") || "Ficha comercial y fiscal"} meta={<StatusBadge tone={record.status === "ACTIVE" ? "success" : "neutral"}>{record.status === "ACTIVE" ? "Activo" : "Inactivo"}</StatusBadge>} actions={<>{canManage ? <Link className={buttonVariants({ variant: "outline" })} href={`/customers/${record.id}/edit`}>Editar</Link> : null}<Link className={buttonVariants({ variant: "outline" })} href={`/sales/new?customerId=${record.id}`}>Nuevo presupuesto</Link><Link className={buttonVariants()} href={`/invoices/new?customerId=${record.id}`}>Nueva factura</Link></>} />
 
       <section className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Facturado" value={formatMoney(totalInvoiced, currencyCode)} helper={`${invoices.length} facturas`} />
-        <MetricCard label="Pendiente" value={formatMoney(openAmount, currencyCode)} helper="Importe sin cobrar" tone={openAmount > 0 ? "warning" : "success"} />
+        <MetricCard label="Facturado" value={formatMoney(totalInvoiced, currencyCode)} helper={`${balance.issuedCount} ${balance.issuedCount === 1 ? "factura emitida" : "facturas emitidas"}${balance.draftCount > 0 ? ` · ${balance.draftCount} ${balance.draftCount === 1 ? "borrador" : "borradores"} sin contar` : ""}`} />
+        <MetricCard label="Pendiente de cobro" value={formatMoney(openAmount, currencyCode)} helper="Descontados cobros y rectificativas" tone={openAmount > 0 ? "warning" : "success"} />
         <MetricCard label="Presupuestos" value={quotes.length} helper="Propuestas comerciales" />
         <MetricCard label="Pedidos" value={orders.length} helper={`${deliveries.length} albaranes`} />
       </section>
@@ -67,7 +78,8 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
       <section className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="space-y-4">
           <PageSection title="Identidad y contacto" description="Información comercial y domicilio fiscal." contentClassName="space-y-4 text-sm">
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3"><dt className="text-muted-foreground">N.º cliente</dt><dd className="text-right font-mono font-medium">{record.number ?? "Sin informar"}</dd><dt className="text-muted-foreground">CIF/NIF</dt><dd className="text-right font-medium">{record.taxId ?? "Sin informar"}</dd><dt className="text-muted-foreground">Email</dt><dd className="truncate text-right font-medium">{record.email ?? "Sin informar"}</dd><dt className="text-muted-foreground">Teléfono</dt><dd className="text-right font-medium">{record.phone ?? "Sin informar"}</dd><dt className="text-muted-foreground">Dirección</dt><dd className="text-right font-medium">{[record.address, record.addressLine2, record.postalCode, record.city, record.province, record.countryCode].filter(Boolean).join(", ") || "Sin informar"}</dd><dt className="text-muted-foreground">Condiciones</dt><dd className="text-right font-medium">{record.paymentTermsDays ?? 30} días · {currencyCode}</dd></dl>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3"><dt className="text-muted-foreground">N.º cliente</dt><dd className="text-right font-mono font-medium">{record.number ?? "Sin informar"}</dd><dt className="text-muted-foreground">CIF/NIF</dt><dd className="text-right font-medium">{record.taxId ?? "Sin informar"}</dd><dt className="text-muted-foreground">Email</dt><dd className="truncate text-right font-medium">{record.email ?? "Sin informar"}</dd><dt className="text-muted-foreground">Teléfono</dt><dd className="text-right font-medium">{record.phone ?? "Sin informar"}</dd><dt className="text-muted-foreground">Dirección</dt><dd className="text-right font-medium">{[record.address, record.addressLine2, record.postalCode, record.city, record.province, record.countryCode].filter(Boolean).join(", ") || "Sin informar"}</dd><dt className="text-muted-foreground">Días de pago</dt><dd className="text-right font-medium">{termsDays === 0 ? "Al contado" : `${termsDays} ${termsDays === 1 ? "día" : "días"}`}{record.paymentTermsDays === null ? " (plazo de la empresa)" : ""}</dd><dt className="text-muted-foreground">Retención IRPF</dt><dd className="text-right font-medium">{record.defaultRetentionRate && Number(record.defaultRetentionRate) > 0 ? `${Number(record.defaultRetentionRate).toLocaleString("es-ES")} %` : "Sin retención"}</dd><dt className="text-muted-foreground">Tipo de operación</dt><dd className="text-right font-medium">{vatTreatmentLabel}</dd>{record.equivalenceSurcharge ? <><dt className="text-muted-foreground">Recargo</dt><dd className="text-right font-medium">En recargo de equivalencia</dd></> : null}{record.invoiceEmail ? <><dt className="text-muted-foreground">Correo para facturas</dt><dd className="truncate text-right font-medium">{record.invoiceEmail}</dd></> : null}{record.iban ? <><dt className="text-muted-foreground">IBAN</dt><dd className="text-right font-mono font-medium">{record.iban}</dd></> : null}</dl>
+            {showVies && canManage ? <ViesCheck customerId={record.id} initial={{ status: record.viesStatus, name: record.viesName, checkedAt: record.viesCheckedAt }} /> : null}
           </PageSection>
           <PageSection title="Facturas recientes" description="Últimos documentos emitidos." contentClassName="space-y-2">
             {invoices.length === 0 ? <EmptyState title="Sin facturas" description="Todavía no hay facturas emitidas a este cliente." action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/invoices/new?customerId=${record.id}`}>Crear factura</Link>} /> :invoices.slice(0, 6).map((row) => <Link className="flex items-center justify-between gap-3 rounded-[2px] border p-3 text-sm transition-colors hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}><span><span className="font-medium">{row.number}</span><span className="block text-xs text-muted-foreground">{formatDate(row.issueDate)}</span></span><span className="text-right"><span className="block font-mono font-semibold">{formatMoney(row.totalAmount, currencyCode)}</span><StatusBadge tone={invoicePaymentStatusTone(row.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}</StatusBadge></span></Link>)}

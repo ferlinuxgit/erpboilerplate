@@ -39,7 +39,7 @@ describe("accounting journal service validation", () => {
         { accountId: "cash", debit: "100.00", credit: "" },
         { accountId: "sales", debit: "", credit: "99.99" },
       ],
-    })).rejects.toThrow("balanceado");
+    })).rejects.toThrow("descuadrado");
 
     expect(dbMocks.transaction).not.toHaveBeenCalled();
   });
@@ -52,7 +52,7 @@ describe("accounting journal service validation", () => {
         { accountId: "cash", debit: "50.00", credit: "" },
         { accountId: "sales", debit: "", credit: "40.00" },
       ],
-    })).rejects.toThrow("balanceado");
+    })).rejects.toThrow("descuadrado");
 
     expect(dbMocks.transaction).not.toHaveBeenCalled();
   });

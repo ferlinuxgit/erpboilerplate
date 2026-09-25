@@ -29,6 +29,7 @@ vi.mock("@/lib/db", () => ({ db: mocks.db }));
 vi.mock("@/lib/logger", () => ({ logger: { error: mocks.loggerError } }));
 vi.mock("@/lib/auth", () => ({
   AUTH_TOKEN_COOKIE: "auth-token",
+  AUTH_TOKEN_MAX_AGE_SECONDS: 28_800,
   createAuthToken: vi.fn(),
   getAuthCookieOptions: vi.fn(),
   hashAuthToken: mocks.hashAuthToken,
@@ -41,7 +42,7 @@ vi.mock("@/server/email/send", () => ({
 
 import { POST } from "./route";
 
-function registrationRequest() {
+function registrationRequest(extra: Record<string, unknown> = {}) {
   return new Request("https://erp.example.com/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -49,6 +50,7 @@ function registrationRequest() {
       name: "Existing User",
       email: "existing@example.com",
       password: "correct-password",
+      ...extra,
     }),
   });
 }
@@ -110,7 +112,8 @@ describe("POST /api/auth/register recovery", () => {
     }));
     expect(mocks.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: "existing@example.com",
-      subject: "Verifica tu cuenta de ERP",
+      subject: "Confirma tu correo para empezar a usar ERP Suite",
+      html: expect.stringContaining("https://erp.example.com/auth/verify-email?token="),
     }));
   });
 
@@ -120,7 +123,7 @@ describe("POST /api/auth/register recovery", () => {
     const response = await POST(registrationRequest());
 
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "Ya existe una cuenta con ese email." });
+    await expect(response.json()).resolves.toEqual({ error: "Ya existe una cuenta con ese email. Inicia sesión o recupera tu contraseña." });
     expect(mocks.db.transaction).not.toHaveBeenCalled();
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
@@ -152,5 +155,20 @@ describe("POST /api/auth/register recovery", () => {
         reason: "Certificate hostname mismatch",
       },
     }, "auth.verification_email_delivery_failed");
+  });
+
+  it("keeps an invitation return path in the verification link", async () => {
+    const response = await POST(registrationRequest({ next: "/invitations/tok-1" }));
+
+    expect(response.status).toBe(202);
+    const sent = mocks.sendEmail.mock.calls[0]?.[0] as { html: string };
+    expect(sent.html).toContain("next=%2Finvitations%2Ftok-1");
+  });
+
+  it("drops unsafe return paths from the verification link", async () => {
+    await POST(registrationRequest({ next: "https://evil.example" }));
+
+    const sent = mocks.sendEmail.mock.calls[0]?.[0] as { html: string };
+    expect(sent.html).not.toContain("evil.example");
   });
 });

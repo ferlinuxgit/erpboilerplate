@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const encoder = new TextEncoder();
 
@@ -130,4 +130,35 @@ export function getAuthCookieOptions() {
     path: "/",
     maxAge: AUTH_TOKEN_MAX_AGE_SECONDS,
   };
+}
+
+/** Propósitos de los tokens de un solo uso enviados por email (la firma los separa entre sí). */
+export type SignedActionPurpose = "password-reset";
+
+type SignedActionPayload = { sub: string; exp: number; n: string };
+
+/**
+ * Token firmado (HMAC con `JWT_SECRET`) y con caducidad para enlaces de un solo uso.
+ * La firma permite rechazar enlaces manipulados o caducados sin consultar la base de
+ * datos; el uso único lo garantiza quien lo emite guardando solo su hash.
+ */
+export function createSignedActionToken(purpose: SignedActionPurpose, subject: string, maxAgeSeconds: number, now = Date.now()) {
+  const payload: SignedActionPayload = { sub: subject, exp: Math.floor(now / 1000) + maxAgeSeconds, n: randomBytes(24).toString("base64url") };
+  const body = base64UrlEncode(JSON.stringify(payload));
+  return `${body}.${signInput(`${purpose}:${body}`)}`;
+}
+
+export function verifySignedActionToken(purpose: SignedActionPurpose, token: string | null | undefined, now = Date.now()) {
+  if (!token || token.length > 1024) return null;
+  const [body, signature, extra] = token.split(".");
+  if (!body || !signature || extra !== undefined) return null;
+  if (!safeEqual(signature, signInput(`${purpose}:${body}`))) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(body)) as Partial<SignedActionPayload>;
+    if (typeof payload.sub !== "string" || !payload.sub || typeof payload.exp !== "number") return null;
+    if (payload.exp <= Math.floor(now / 1000)) return null;
+    return { subject: payload.sub, expiresAt: new Date(payload.exp * 1000) };
+  } catch {
+    return null;
+  }
 }

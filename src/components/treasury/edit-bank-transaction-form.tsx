@@ -62,7 +62,7 @@ export function EditBankTransactionForm({
             body: JSON.stringify({ bankAccountId, amount: parsedAmount.toFixed(2), description, postedAt }),
           });
           if (!res.ok) throw new Error(await readApiError(res, "No se pudo actualizar el movimiento."));
-          toast.success("Movimiento actualizado.", { description: "Su asiento provisional (banco ↔ 555) se ha rehecho con los datos nuevos." });
+          toast.success("Movimiento actualizado.", { description: "Sigue pendiente de conciliar, ya con los datos nuevos." });
           if (onSuccess) onSuccess();
           else { router.push("/treasury/bank-transactions"); router.refresh(); }
         } catch (e) {

@@ -5,6 +5,7 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { analyzeExpenseInvoiceWithOpenAI } from "@/server/ai/expense-invoice-analysis";
 import { completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { getExpenseOcrSettings } from "@/server/ocr/settings";
 
 const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
 
@@ -13,6 +14,11 @@ export async function POST(request: Request) {
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para analizar facturas de proveedor." }, { status: 403 });
+
+  const settings = await getExpenseOcrSettings(ctx.company.id, Boolean(process.env.OPENAI_API_KEY));
+  if (!settings.externalAiEnabled) {
+    return NextResponse.json({ message: "El análisis con IA externa está desactivado para esta empresa. Usa el OCR local." }, { status: 403 });
+  }
 
   const formData = await request.formData();
   const file = formData.get("file");

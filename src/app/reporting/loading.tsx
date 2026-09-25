@@ -1,5 +1,5 @@
 import { RouteLoadingState } from "@/components/route-state";
 
 export default function Loading() {
-  return <RouteLoadingState title="Cargando reporting" description="Estamos preparando KPIs, exportación y enlaces de drill-down." />;
+  return <RouteLoadingState title="Cargando informes" description="Estamos calculando los indicadores del periodo." />;
 }

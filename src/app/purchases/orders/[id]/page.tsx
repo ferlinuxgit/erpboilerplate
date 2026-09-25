@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DownloadSimple as Download } from "@phosphor-icons/react/dist/ssr";
+import { CreateSupplierInvoiceFromReceiptButton } from "@/components/purchases/create-supplier-invoice-from-receipt-button";
 import { ReceivePurchaseButton } from "@/components/purchases/receive-purchase-button";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -35,6 +36,7 @@ import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { getPurchaseOrderReceiptTransition } from "@/lib/document-pipelines";
 import { can } from "@/lib/rbac";
+import { getPurchaseInvoiceContext } from "@/server/purchases/invoice-context";
 import {
   invoicePaymentStatusLabels,
   purchaseOrderStatusLabels,
@@ -112,6 +114,8 @@ export default async function PurchaseDetailPage({
       .from(warehouse)
       .where(and(eq(warehouse.companyId, ctx.company.id), eq(warehouse.isActive, true))),
   ]);
+  const invoiceContext = receipts.length > 0 ? await getPurchaseInvoiceContext(ctx.company.id, id) : null;
+  const uninvoicedReceipts = invoiceContext?.receipts.filter((receipt) => !receipt.invoiceId) ?? [];
   const invoiceIds = invoices.map((row) => row.id);
   const payments =
     invoiceIds.length === 0
@@ -225,6 +229,13 @@ export default async function PurchaseDetailPage({
               >
                 Editar
               </Link>
+            ) : null}
+            {canWrite && invoiceContext && uninvoicedReceipts.length > 0 ? (
+              <CreateSupplierInvoiceFromReceiptButton
+                context={invoiceContext}
+                currencyCode={ctx.company.baseCurrencyCode}
+                label={uninvoicedReceipts.length > 1 ? `Facturar ${uninvoicedReceipts.length} entregas` : "Registrar factura"}
+              />
             ) : null}
             {canWrite && transition.allowed ? (
               <ReceivePurchaseButton

@@ -28,7 +28,7 @@ export default async function EditPurchasePage({ params }: { params: Promise<{ i
   const tenantContext = await requireContext("purchase.write");
 
   const { id } = await params;
-  const [order] = await db.select({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status, supplierName: partner.name }).from(purchaseOrder).innerJoin(partner, eq(partner.id, purchaseOrder.supplierPartnerId)).where(and(eq(purchaseOrder.id, id), eq(purchaseOrder.companyId, tenantContext.company.id))).limit(1);
+  const [order] = await db.select({ id: purchaseOrder.id, number: purchaseOrder.number, status: purchaseOrder.status, supplierPartnerId: purchaseOrder.supplierPartnerId, supplierName: partner.name }).from(purchaseOrder).innerJoin(partner, eq(partner.id, purchaseOrder.supplierPartnerId)).where(and(eq(purchaseOrder.id, id), eq(purchaseOrder.companyId, tenantContext.company.id))).limit(1);
   if (!order) notFound();
   const [lines, items, suppliers] = await Promise.all([
     db.select().from(purchaseOrderLine).where(eq(purchaseOrderLine.purchaseOrderId, id)),
@@ -49,7 +49,7 @@ export default async function EditPurchasePage({ params }: { params: Promise<{ i
         ]}
       />
       <PageSection title="Datos del pedido" description="Modifica proveedor, líneas y transiciones manuales antes de que existan recepciones o facturas.">
-        <EditPurchaseOrderForm orderId={order.id} currencyCode={tenantContext.company.baseCurrencyCode} defaultNumber={order.number} defaultStatus={order.status} defaultSupplierName={order.supplierName} initialLines={lines} items={items} suppliers={suppliers} />
+        <EditPurchaseOrderForm orderId={order.id} currencyCode={tenantContext.company.baseCurrencyCode} defaultNumber={order.number} defaultStatus={order.status} defaultSupplierId={order.supplierPartnerId} initialLines={lines} items={items} suppliers={suppliers} />
       </PageSection>
     </PageShell>
   );

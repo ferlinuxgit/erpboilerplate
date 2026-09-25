@@ -7,6 +7,8 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { accountChart, paymentMethod } from "@/db/schema";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { formatDecimalInput } from "@/lib/format";
+import { parseSupplierVatTreatment } from "@/lib/supplier-defaults";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getSupplier } from "@/server/suppliers/service";
 
@@ -70,6 +72,13 @@ export default async function EditSupplierPage({ params }: { params: Promise<{ i
           defaultAccountId={data.defaultAccountId}
           defaultCurrencyCode={data.currencyCode}
           defaultAccounts={supplierAccounts.filter((account) => account.code.startsWith("410"))}
+          expenseAccounts={supplierAccounts.filter((account) => account.code.startsWith("6") || account.code.startsWith("2"))}
+          invoiceDefaults={{
+            expenseAccountId: data.defaultExpenseAccountId ?? "",
+            retentionRate: data.defaultRetentionRate === null ? "" : formatDecimalInput(Number(data.defaultRetentionRate), { maximumFractionDigits: 3 }),
+            taxDeductiblePct: data.defaultTaxDeductiblePct === null ? "" : formatDecimalInput(Number(data.defaultTaxDeductiblePct), { maximumFractionDigits: 3 }),
+            vatTreatment: parseSupplierVatTreatment(data.defaultVatTreatment) ?? "",
+          }}
           paymentMethods={paymentMethods}
         />
       </PageSection>

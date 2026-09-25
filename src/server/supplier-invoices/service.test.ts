@@ -61,6 +61,7 @@ vi.mock("@/server/partners/numbers", () => ({ reservePartnerNumber: vi.fn(async 
 vi.mock("@/server/accounting/auto-post", () => ({ postSupplierInvoice: mocks.postSupplierInvoice, reverseAutomaticEntries: vi.fn() }));
 
 import {
+  assessExpenseDuplicate,
   computeSupplierInvoiceAmounts,
   createExpenseInvoice,
   refreshSupplierInvoicePaymentStatus,
@@ -209,5 +210,63 @@ describe("refreshSupplierInvoicePaymentStatus", () => {
     await refreshSupplierInvoicePaymentStatus("company-1", "supplier-invoice-1", mocks.tx as never);
 
     expect(mocks.state.updates.at(-1)?.values).toMatchObject({ paymentStatus: "PAID" });
+  });
+});
+
+describe("createExpenseInvoice supplier defaults", () => {
+  it("computes the due date from the supplier payment terms and uses its usual VAT treatment", async () => {
+    mocks.state.selectResults.set(partner, [{ ...supplierRow("ES")[0], paymentTermsDays: 30, defaultVatTreatment: "REVERSE_CHARGE", defaultExpenseAccountId: null }]);
+
+    await createExpenseInvoice(baseInput());
+
+    expect(insertedHeader()).toMatchObject({ vatTreatment: "REVERSE_CHARGE" });
+    expect((insertedHeader().dueDate as Date).toISOString()).toBe("2026-06-09T12:00:00.000Z");
+  });
+
+  it("keeps an explicit due date and treatment over the supplier defaults", async () => {
+    mocks.state.selectResults.set(partner, [{ ...supplierRow("ES")[0], paymentTermsDays: 30, defaultVatTreatment: "REVERSE_CHARGE" }]);
+    const dueDate = new Date("2026-05-20T12:00:00.000Z");
+
+    await createExpenseInvoice(baseInput({ dueDate, vatTreatment: "DOMESTIC" }));
+
+    expect(insertedHeader()).toMatchObject({ vatTreatment: "DOMESTIC", dueDate });
+  });
+
+  it("leaves the due date empty when the supplier has no payment terms", async () => {
+    await createExpenseInvoice(baseInput());
+
+    expect(insertedHeader().dueDate).toBeNull();
+  });
+});
+
+describe("assessExpenseDuplicate", () => {
+  const input = {
+    companyId: "company-1",
+    supplierPartnerId: "supplier-1",
+    issueDate: new Date("2026-05-10T12:00:00.000Z"),
+    totalAmount: 121,
+  };
+
+  it("is exact when the same supplier already has that invoice number", async () => {
+    mocks.state.selectResults.set(supplierInvoice, [{ invoiceId: "si-1", number: "FP-1" }]);
+
+    const result = await assessExpenseDuplicate({ ...input, supplierDocumentNumber: "f-001" }, mocks.tx as never);
+
+    expect(result.level).toBe("exact");
+    expect(result.matches).toEqual([{ invoiceId: "si-1", number: "FP-1", reason: "supplier-number" }]);
+  });
+
+  it("is only possible when the same supplier has an invoice with the same date and amount", async () => {
+    mocks.state.selectResults.set(supplierInvoice, [{ invoiceId: "si-2", number: "FP-2" }]);
+
+    const result = await assessExpenseDuplicate(input, mocks.tx as never);
+
+    expect(result).toEqual({ level: "possible", matches: [{ invoiceId: "si-2", number: "FP-2", reason: "date-total" }] });
+  });
+
+  it("finds nothing for a new invoice", async () => {
+    mocks.state.selectResults.set(supplierInvoice, []);
+
+    expect(await assessExpenseDuplicate({ ...input, supplierDocumentNumber: "F-9" }, mocks.tx as never)).toEqual({ level: "none", matches: [] });
   });
 });

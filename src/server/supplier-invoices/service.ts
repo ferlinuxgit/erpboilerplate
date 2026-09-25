@@ -7,12 +7,14 @@ import {
   expenseOcrJob,
   goodsReceipt,
   goodsReceiptLine,
+  item,
   journalEntry,
   partner,
   purchaseOrder,
   purchaseOrderLine,
   supplierInvoice,
   supplierInvoiceAttachment,
+  supplierInvoiceGoodsReceipt,
   supplierInvoiceLine,
   supplierInvoicePayment,
   supplierPayment,
@@ -25,7 +27,9 @@ import {
   reverseChargeTaxAmount,
   type SupplierVatTreatment,
 } from "@/lib/fiscal-spain";
+import { invoiceQuantityProblem, isOrderFullyInvoiced, quantitiesByOrderLine } from "@/lib/purchase-invoice";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { computeDueDate, supplierDefaultsFromRow } from "@/lib/supplier-defaults";
 import { postSupplierInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
@@ -37,6 +41,10 @@ export type SupplierInvoiceOrigin = "PURCHASE" | "EXPENSE";
 
 export type SupplierInvoiceLineInput = {
   itemId?: string;
+  /** Línea del pedido que se factura (la trazabilidad es por línea, no por artículo). */
+  purchaseOrderLineId?: string;
+  /** Línea de la recepción que se factura. */
+  goodsReceiptLineId?: string;
   expenseAccountId?: string;
   description: string;
   quantity: number;
@@ -61,7 +69,8 @@ export type CreatePurchaseSupplierInvoiceInput = {
   actorUserId: string;
   supplierPartnerId: string;
   purchaseOrderId: string;
-  goodsReceiptId: string;
+  /** Recepciones (del mismo pedido) que cubre la factura. */
+  goodsReceiptIds: string[];
   number?: string;
   supplierDocumentNumber?: string;
   issueDate?: Date;
@@ -222,6 +231,8 @@ function buildLineValues(
     return {
       supplierInvoiceId: invoiceId,
       itemId: line.itemId || null,
+      purchaseOrderLineId: line.purchaseOrderLineId || null,
+      goodsReceiptLineId: line.goodsReceiptLineId || null,
       expenseAccountId: line.expenseAccountId || fallbackExpenseAccountId || null,
       description: line.description.trim(),
       quantity: line.quantity.toFixed(3),
@@ -296,6 +307,15 @@ async function getDefaultExpenseAccountId(companyId: string, client: DbClient) {
     .where(and(eq(accountChart.companyId, companyId), eq(accountChart.type, "EXPENSE"), eq(accountChart.isPostable, true)))
     .limit(1);
   return firstExpenseAccount?.id;
+}
+
+async function getPostableAccountId(companyId: string, accountId: string, client: DbClient) {
+  const [row] = await client
+    .select({ id: accountChart.id })
+    .from(accountChart)
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, accountId), eq(accountChart.isPostable, true)))
+    .limit(1);
+  return row?.id;
 }
 
 async function assertExpenseAccountsBelongToCompany(companyId: string, accountIds: string[], client: DbClient) {
@@ -470,12 +490,33 @@ async function createSupplierInvoiceHeader(input: {
 }) {
   assertValidLines(input.lines);
   await assertFiscalPeriodOpen(input.companyId, input.issueDate, input.client);
-  const fallbackExpenseAccountId = await getDefaultExpenseAccountId(input.companyId, input.client);
+  const [supplierRow] = await input.client
+    .select({
+      name: partner.name,
+      taxId: partner.taxId,
+      countryCode: partner.countryCode,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultExpenseAccountId: partner.defaultExpenseAccountId,
+      defaultRetentionRate: partner.defaultRetentionRate,
+      defaultTaxDeductiblePct: partner.defaultTaxDeductiblePct,
+      defaultVatTreatment: partner.defaultVatTreatment,
+    })
+    .from(partner)
+    .where(and(eq(partner.id, input.supplierPartnerId), eq(partner.companyId, input.companyId)))
+    .limit(1);
+  const supplierDefaults = supplierDefaultsFromRow(supplierRow ?? {});
+  // Cuenta de las líneas sin cuenta: la habitual del proveedor y, si no tiene, la de compras de la empresa.
+  const supplierDefaultAccountId = supplierDefaults.defaultExpenseAccountId
+    ? await getPostableAccountId(input.companyId, supplierDefaults.defaultExpenseAccountId, input.client)
+    : undefined;
+  const fallbackExpenseAccountId = supplierDefaultAccountId ?? await getDefaultExpenseAccountId(input.companyId, input.client);
   await assertExpenseAccountsBelongToCompany(
     input.companyId,
     input.lines.map((line) => line.expenseAccountId).filter((value): value is string => Boolean(value)),
     input.client,
   );
+  // Vencimiento = fecha de factura + días de pago del proveedor si no se indicó otro.
+  const dueDate = input.dueDate ?? computeDueDate(input.issueDate, supplierDefaults.paymentTermsDays);
 
   const number =
     input.number?.trim() ||
@@ -484,20 +525,13 @@ async function createSupplierInvoiceHeader(input: {
       fiscalYearId: input.fiscalYearId,
       type: "SUPPLIER_INVOICE",
     }));
-  const [supplierIdentity] = input.supplierIdentityKey && input.vatTreatment
-    ? []
-    : await input.client
-      .select({ name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode })
-      .from(partner)
-      .where(and(eq(partner.id, input.supplierPartnerId), eq(partner.companyId, input.companyId)))
-      .limit(1);
   const supplierIdentityKey = input.supplierIdentityKey ?? buildSupplierIdentityKey({
     partnerId: input.supplierPartnerId,
-    name: supplierIdentity?.name,
-    taxId: supplierIdentity?.taxId,
-    countryCode: supplierIdentity?.countryCode,
+    name: supplierRow?.name,
+    taxId: supplierRow?.taxId,
+    countryCode: supplierRow?.countryCode,
   });
-  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment, supplierIdentity?.countryCode);
+  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment ?? supplierDefaults.defaultVatTreatment, supplierRow?.countryCode);
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim() || null;
   const supplierDocumentNumberNormalized = normalizeSupplierDocumentNumber(supplierDocumentNumber) || null;
   const [ownedCompany] = await input.client
@@ -528,9 +562,9 @@ async function createSupplierInvoiceHeader(input: {
       currencyCode,
       vatTreatment,
       issueDate: input.issueDate,
-      dueDate: input.dueDate ?? null,
+      dueDate: dueDate ?? null,
       status: "POSTED",
-      paymentStatus: getPaymentStatus(0, 0, input.dueDate),
+      paymentStatus: getPaymentStatus(0, 0, dueDate),
       subtotalAmount: "0.00",
       taxAmount: "0.00",
       retentionAmount: "0.00",
@@ -559,7 +593,7 @@ async function createSupplierInvoiceHeader(input: {
       taxAmount: totals.taxAmount.toFixed(2),
       retentionAmount: totals.retentionAmount.toFixed(2),
       totalAmount: totals.totalAmount.toFixed(2),
-      paymentStatus: getPaymentStatus(totals.totalAmount, 0, input.dueDate),
+      paymentStatus: getPaymentStatus(totals.totalAmount, 0, dueDate),
       updatedAt: new Date(),
     })
     .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, header.id)))
@@ -603,8 +637,14 @@ async function createSupplierInvoiceHeader(input: {
   return updated;
 }
 
+/**
+ * Factura de proveedor de una o varias recepciones del mismo pedido. Controla por línea de
+ * pedido que lo facturado (acumulado) no supere lo pedido ni lo recibido.
+ */
 export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplierInvoiceInput) {
   return db.transaction(async (tx) => {
+    const receiptIds = [...new Set(input.goodsReceiptIds.filter(Boolean))];
+    if (receiptIds.length === 0) throw new Error("Elige al menos una recepción para facturar.");
     const [ownedOrder] = await tx
       .select({ id: purchaseOrder.id, supplierPartnerId: purchaseOrder.supplierPartnerId })
       .from(purchaseOrder)
@@ -614,66 +654,103 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
     if (!ownedOrder) throw new Error("Pedido de compra no encontrado.");
     if (ownedOrder.supplierPartnerId !== input.supplierPartnerId) throw new Error("El proveedor no coincide con el pedido de compra.");
 
-    const [ownedReceipt] = await tx
-      .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId })
+    const ownedReceipts = await tx
+      .select({ id: goodsReceipt.id, number: goodsReceipt.number, purchaseOrderId: goodsReceipt.purchaseOrderId })
       .from(goodsReceipt)
-      .where(eq(goodsReceipt.id, input.goodsReceiptId))
-      .for("update")
-      .limit(1);
-    if (!ownedReceipt || ownedReceipt.purchaseOrderId !== input.purchaseOrderId) {
-      throw new Error("Albaran de recepcion invalido para ese pedido.");
+      .where(and(eq(goodsReceipt.companyId, input.companyId), inArray(goodsReceipt.id, receiptIds)))
+      .for("update");
+    if (ownedReceipts.length !== receiptIds.length || ownedReceipts.some((receipt) => receipt.purchaseOrderId !== input.purchaseOrderId)) {
+      throw new Error("Alguna recepción no pertenece a ese pedido de compra.");
+    }
+    const [alreadyLinked, legacyLinked] = await Promise.all([
+      tx
+        .select({ goodsReceiptId: supplierInvoiceGoodsReceipt.goodsReceiptId, number: supplierInvoice.number })
+        .from(supplierInvoiceGoodsReceipt)
+        .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoiceGoodsReceipt.supplierInvoiceId))
+        .where(and(eq(supplierInvoiceGoodsReceipt.companyId, input.companyId), inArray(supplierInvoiceGoodsReceipt.goodsReceiptId, receiptIds), ne(supplierInvoice.status, "VOID")))
+        .limit(1),
+      tx
+        .select({ goodsReceiptId: supplierInvoice.goodsReceiptId, number: supplierInvoice.number })
+        .from(supplierInvoice)
+        .where(and(eq(supplierInvoice.companyId, input.companyId), inArray(supplierInvoice.goodsReceiptId, receiptIds), ne(supplierInvoice.status, "VOID")))
+        .limit(1),
+    ]);
+    const conflict = alreadyLinked[0] ?? legacyLinked[0];
+    if (conflict) {
+      const receiptNumber = ownedReceipts.find((receipt) => receipt.id === conflict.goodsReceiptId)?.number ?? "";
+      throw new Error(`La recepción ${receiptNumber} ya está facturada en ${conflict.number}.`);
     }
 
-    const poLines = await tx
-      .select({ itemId: purchaseOrderLine.itemId, quantity: purchaseOrderLine.quantity })
+    const orderLines = (await tx
+      .select({ id: purchaseOrderLine.id, itemId: purchaseOrderLine.itemId, description: purchaseOrderLine.description, quantity: purchaseOrderLine.quantity, unitPrice: purchaseOrderLine.unitPrice })
       .from(purchaseOrderLine)
-      .where(eq(purchaseOrderLine.purchaseOrderId, input.purchaseOrderId));
-    const receiptLines = await tx
-      .select({ itemId: goodsReceiptLine.itemId, quantity: goodsReceiptLine.quantity })
-      .from(goodsReceiptLine)
-      .innerJoin(goodsReceipt, eq(goodsReceipt.id, goodsReceiptLine.goodsReceiptId))
-      .where(eq(goodsReceipt.purchaseOrderId, input.purchaseOrderId));
-    const alreadyInvoicedLines = await tx
-      .select({ itemId: supplierInvoiceLine.itemId, quantity: supplierInvoiceLine.quantity })
-      .from(supplierInvoiceLine)
-      .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoiceLine.supplierInvoiceId))
-      .where(and(
-        eq(supplierInvoice.companyId, input.companyId),
-        eq(supplierInvoice.purchaseOrderId, input.purchaseOrderId),
-        ne(supplierInvoice.status, "VOID"),
-      ));
-    const poQtyByItem = new Map<string, number>();
-    const receiptQtyByItem = new Map<string, number>();
-    const invoicedQtyByItem = new Map<string, number>();
-    const requestedQtyByItem = new Map<string, number>();
-    for (const line of poLines) if (line.itemId) poQtyByItem.set(line.itemId, (poQtyByItem.get(line.itemId) ?? 0) + Number(line.quantity));
-    for (const line of receiptLines) if (line.itemId) receiptQtyByItem.set(line.itemId, (receiptQtyByItem.get(line.itemId) ?? 0) + Number(line.quantity));
-    for (const line of alreadyInvoicedLines) if (line.itemId) invoicedQtyByItem.set(line.itemId, (invoicedQtyByItem.get(line.itemId) ?? 0) + Number(line.quantity));
-    for (const line of input.lines) if (line.itemId) requestedQtyByItem.set(line.itemId, (requestedQtyByItem.get(line.itemId) ?? 0) + line.quantity);
+      .where(eq(purchaseOrderLine.purchaseOrderId, input.purchaseOrderId)))
+      .map((line) => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) }));
+    const [receiptLines, invoicedLines] = await Promise.all([
+      tx
+        .select({ id: goodsReceiptLine.id, goodsReceiptId: goodsReceiptLine.goodsReceiptId, purchaseOrderLineId: goodsReceiptLine.purchaseOrderLineId, itemId: goodsReceiptLine.itemId, quantity: goodsReceiptLine.quantity })
+        .from(goodsReceiptLine)
+        .innerJoin(goodsReceipt, eq(goodsReceipt.id, goodsReceiptLine.goodsReceiptId))
+        .where(and(eq(goodsReceipt.companyId, input.companyId), eq(goodsReceipt.purchaseOrderId, input.purchaseOrderId))),
+      tx
+        .select({ purchaseOrderLineId: supplierInvoiceLine.purchaseOrderLineId, itemId: supplierInvoiceLine.itemId, quantity: supplierInvoiceLine.quantity })
+        .from(supplierInvoiceLine)
+        .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoiceLine.supplierInvoiceId))
+        .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.purchaseOrderId, input.purchaseOrderId), ne(supplierInvoice.status, "VOID"))),
+    ]);
+    const receiptLineById = new Map(receiptLines.map((line) => [line.id, line]));
+    const selectedReceipts = new Set(receiptIds);
 
-    for (const [itemId, requestedQuantity] of requestedQtyByItem) {
-      const cumulativeQuantity = (invoicedQtyByItem.get(itemId) ?? 0) + requestedQuantity;
-      if (cumulativeQuantity > (poQtyByItem.get(itemId) ?? 0) + 0.0005) throw new Error("La cantidad facturada acumulada supera la cantidad del pedido.");
-      if (cumulativeQuantity > (receiptQtyByItem.get(itemId) ?? 0) + 0.0005) throw new Error("La cantidad facturada acumulada supera la cantidad recepcionada.");
-    }
+    // Cada línea de factura se ata a su línea de pedido (y de recepción si se conoce).
+    const lines = input.lines.map((line) => {
+      if (line.goodsReceiptLineId) {
+        const receiptLine = receiptLineById.get(line.goodsReceiptLineId);
+        if (!receiptLine || !selectedReceipts.has(receiptLine.goodsReceiptId)) throw new Error("Una línea de la factura no pertenece a las recepciones elegidas.");
+        return { ...line, purchaseOrderLineId: receiptLine.purchaseOrderLineId ?? line.purchaseOrderLineId, itemId: receiptLine.itemId ?? line.itemId };
+      }
+      if (line.purchaseOrderLineId) {
+        if (!orderLines.some((orderLine) => orderLine.id === line.purchaseOrderLineId)) throw new Error("Una línea de la factura no pertenece al pedido de compra.");
+        return line;
+      }
+      return line;
+    });
+
+    const toRecord = (line: { purchaseOrderLineId?: string | null; itemId?: string | null; quantity: string | number }) => ({
+      purchaseOrderLineId: line.purchaseOrderLineId ?? null,
+      itemId: line.itemId ?? null,
+      quantity: Number(line.quantity),
+    });
+    const received = quantitiesByOrderLine(orderLines, receiptLines.map(toRecord));
+    const alreadyInvoiced = quantitiesByOrderLine(orderLines, invoicedLines.map(toRecord));
+    const requested = quantitiesByOrderLine(orderLines, lines.map(toRecord));
+    const problem = invoiceQuantityProblem({ orderLines, received, alreadyInvoiced, requested });
+    if (problem) throw new Error(problem);
+
+    // Líneas de artículo sin cuenta: la cuenta de compras del artículo, si la tiene.
+    const itemIds = [...new Set(lines.flatMap((line) => (!line.expenseAccountId && line.itemId ? [line.itemId] : [])))];
+    const itemAccounts = itemIds.length
+      ? await tx.select({ id: item.id, purchaseAccountId: item.purchaseAccountId }).from(item).where(and(eq(item.companyId, input.companyId), inArray(item.id, itemIds)))
+      : [];
+    const accountByItem = new Map(itemAccounts.flatMap((row) => (row.purchaseAccountId ? [[row.id, row.purchaseAccountId] as const] : [])));
+    const linesWithAccounts = lines.map((line) => (line.expenseAccountId || !line.itemId ? line : { ...line, expenseAccountId: accountByItem.get(line.itemId) }));
 
     const created = await createSupplierInvoiceHeader({
       ...input,
+      lines: linesWithAccounts,
+      goodsReceiptId: receiptIds[0],
       origin: "PURCHASE",
       issueDate: input.issueDate ?? new Date(),
       client: tx,
     });
-    const fullyInvoiced = [...poQtyByItem.entries()].every(
-      ([itemId, orderedQuantity]) =>
-        (invoicedQtyByItem.get(itemId) ?? 0) +
-          (requestedQtyByItem.get(itemId) ?? 0) >=
-        orderedQuantity - 0.0005,
-    );
-    if (fullyInvoiced && poQtyByItem.size > 0) {
+    await tx.insert(supplierInvoiceGoodsReceipt).values(receiptIds.map((goodsReceiptId) => ({ companyId: input.companyId, supplierInvoiceId: created.id, goodsReceiptId })));
+
+    const invoicedAfter = new Map(alreadyInvoiced);
+    for (const [lineId, quantity] of requested) invoicedAfter.set(lineId, (invoicedAfter.get(lineId) ?? 0) + quantity);
+    if (isOrderFullyInvoiced(orderLines, invoicedAfter)) {
       await tx
         .update(purchaseOrder)
         .set({ status: "INVOICED" })
-        .where(eq(purchaseOrder.id, input.purchaseOrderId));
+        .where(and(eq(purchaseOrder.companyId, input.companyId), eq(purchaseOrder.id, input.purchaseOrderId)));
     }
     return created;
   });
@@ -775,6 +852,9 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       goodsReceiptId: linkedReceipt?.id ?? null,
       client: tx,
     });
+    if (linkedReceipt) {
+      await tx.insert(supplierInvoiceGoodsReceipt).values({ companyId: input.companyId, supplierInvoiceId: created.id, goodsReceiptId: linkedReceipt.id });
+    }
     if (purchaseOrderId) {
       await tx
         .update(purchaseOrder)
@@ -962,13 +1042,37 @@ export async function listSupplierInvoiceRelations(companyId: string) {
   return { orders, receipts };
 }
 
+/** Proveedores con sus valores habituales (cuenta, IRPF, deducible, IVA, días de pago) para prellenar facturas. */
 export async function listSupplierPartners(companyId: string) {
-  return db
-    .select({ id: partner.id, number: partner.number, name: partner.name, taxId: partner.taxId, countryCode: partner.countryCode })
+  const rows = await db
+    .select({
+      id: partner.id,
+      number: partner.number,
+      name: partner.name,
+      taxId: partner.taxId,
+      countryCode: partner.countryCode,
+      isActive: partner.isActive,
+      paymentTermsDays: partner.paymentTermsDays,
+      defaultExpenseAccountId: partner.defaultExpenseAccountId,
+      defaultRetentionRate: partner.defaultRetentionRate,
+      defaultTaxDeductiblePct: partner.defaultTaxDeductiblePct,
+      defaultVatTreatment: partner.defaultVatTreatment,
+    })
     .from(partner)
     .where(and(eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
-    .orderBy(partner.name);
+    .orderBy(partner.name, partner.id);
+  return rows.map((row) => ({
+    id: row.id,
+    number: row.number,
+    name: row.name,
+    taxId: row.taxId,
+    countryCode: row.countryCode,
+    isActive: row.isActive,
+    defaults: supplierDefaultsFromRow(row),
+  }));
 }
+
+export type SupplierPartnerOption = Awaited<ReturnType<typeof listSupplierPartners>>[number];
 
 export async function getExpenseInvoice(companyId: string, id: string) {
   const [invoiceRow] = await db

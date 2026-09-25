@@ -13,7 +13,7 @@ test.describe("keyboard-only application operation", () => {
     await page.goto("/customers");
 
     await page.keyboard.press("F1");
-    const helpDialog = page.getByRole("dialog", { name: /KEYBOARD\.EXE/ });
+    const helpDialog = page.getByRole("dialog", { name: "Atajos de teclado" });
     await expect(helpDialog).toBeVisible();
     await expect(helpDialog).toContainText("G + código");
     await testInfo.attach("keyboard-help-dialog", {
@@ -32,9 +32,9 @@ test.describe("keyboard-only application operation", () => {
     await expect(page).toHaveURL(/\/sales\/quotes$/);
 
     await page.keyboard.press("Alt+Shift+Digit2");
-    await expect(page.getByRole("navigation", { name: "Secciones de Comercial" }).getByRole("link", { name: "Presupuestos" })).toBeFocused();
+    await expect(page.getByRole("navigation", { name: "Secciones de Ventas" }).getByRole("link", { name: "Presupuestos" })).toBeFocused();
     await page.keyboard.press("ArrowRight");
-    await expect(page.getByRole("navigation", { name: "Secciones de Comercial" }).getByRole("link", { name: "Pedidos", exact: true })).toBeFocused();
+    await expect(page.getByRole("navigation", { name: "Secciones de Ventas" }).getByRole("link", { name: "Pedidos", exact: true })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/sales\/orders$/);
 
@@ -121,7 +121,7 @@ test.describe("keyboard-only mobile drawer operation", () => {
     await expect(drawer).toBeHidden();
 
     await page.keyboard.press("F1");
-    await expect(page.getByRole("dialog", { name: /KEYBOARD\.EXE/ })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Atajos de teclado" })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.keyboard.press("Alt+Shift+Digit3");
     await expect(page.locator("#main-content")).toBeFocused();

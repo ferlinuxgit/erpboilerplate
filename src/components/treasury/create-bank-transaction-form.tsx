@@ -25,6 +25,7 @@ type CreateBankTransactionFormProps = {
 export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCancel, onSuccess, redirectHref }: CreateBankTransactionFormProps) {
   const router = useRouter();
   const activeAccounts = accounts.filter((account) => account.isActive !== false);
+  // Cuenta de la URL (desde la ficha del banco) o, si no, la primera activa (la única en la mayoría de pymes).
   const [bankAccountId, setBankAccountId] = useState(activeAccounts.some((account) => account.id === initialBankAccountId) ? initialBankAccountId ?? "" : activeAccounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -55,7 +56,7 @@ export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCa
           if (!res.ok) throw new Error(await readApiError(res, "No se pudo registrar el movimiento."));
           setAmount("");
           setDescription("");
-          toast.success("Movimiento registrado.", { description: "Queda pendiente de conciliar con su cobro o pago (cuenta 555)." });
+          toast.success("Movimiento registrado.", { description: "Queda «pendiente de conciliar»: dile en la conciliación a qué corresponde." });
           if (onSuccess) {
             onSuccess();
           } else if (redirectHref) {
@@ -89,7 +90,7 @@ export function CreateBankTransactionForm({ accounts, initialBankAccountId, onCa
         <Input id="bank-transaction-posted-at" value={postedAt} onChange={(e) => setPostedAt(e.target.value)} type="date" required />
       </AccessibleField>
       <p className="text-xs text-muted-foreground md:col-span-4">
-        El movimiento se contabiliza en el banco contra la cuenta 555 (pendiente de aplicación). Cuando lo concilies con su cobro o pago, ese apunte provisional se anula para que el banco no cuente dos veces.
+        El dinero entra o sale del banco al momento, pero hasta que digas a qué corresponde (un cobro, un pago, una comisión…) queda como «pendiente de identificar» (cuenta 555). Al conciliarlo se corrige solo y el banco no cuenta dos veces. Si tienes el extracto, mejor impórtalo: te ahorras teclear.
       </p>
       <div className="flex flex-col-reverse gap-2 md:col-span-4 sm:flex-row sm:justify-end">
         {onCancel ? <Button onClick={onCancel} type="button" variant="outline">Cancelar</Button> : null}

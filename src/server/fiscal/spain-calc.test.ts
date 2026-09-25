@@ -109,6 +109,17 @@ describe("Modelo 303 computation", () => {
     expect(box(boxes2024, "150")).toBe(50);
   });
 
+  it("puts B2B services to EU companies (INTRA_EU_SERVICES) in box 59 together with intra-EU deliveries, not in 120", () => {
+    const result = computeIssuedVat([
+      issued({ invoiceId: "goods", treatment: "INTRA_EU", taxRate: 0, unitPrice: 300 }),
+      issued({ invoiceId: "services", treatment: "INTRA_EU_SERVICES", taxRate: 0, unitPrice: 200 }),
+    ]);
+    const boxes = buildModelo303Boxes(result, computeSupplierVat([], 100), { periodYear: 2026 });
+    expect(box(boxes, "59")).toBe(500);
+    expect(box(boxes, "120")).toBeUndefined();
+    expect(box(boxes, "27")).toBe(0);
+  });
+
   it("counts draft invoices so the user is warned", () => {
     expect(computeIssuedVat([issued({ status: "DRAFT" })]).draftInvoiceCount).toBe(1);
   });

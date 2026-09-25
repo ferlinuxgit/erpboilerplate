@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 export type CompanyOption = {
   id: string;
   name: string;
@@ -25,6 +27,8 @@ export type ActiveContextPayload = {
   };
   /** Espacios de trabajo (tenants) del usuario. Puede faltar en respuestas antiguas. */
   availableTenants?: TenantOption[];
+  /** Qué vende la empresa activa ("products" | "services" | "both"). */
+  businessType?: string;
   availableCompanies: CompanyOption[];
   availableFiscalYears: FiscalYearOption[];
   availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;
@@ -50,6 +54,35 @@ export function loadActiveContext() {
   return pending;
 }
 
+const INVALIDATED_EVENT = "erp:active-context-invalidated";
+
+/** Olvida el contexto cacheado; los componentes montados con `useActiveContext` lo recargan. */
 export function invalidateActiveContext() {
   pending = null;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(INVALIDATED_EVENT));
+}
+
+/** Contexto activo (empresa, ejercicio, rol, tipo de negocio) compartido por el shell. */
+export function useActiveContext(enabled = true) {
+  const [payload, setPayload] = useState<ActiveContextPayload | null>(null);
+  useEffect(() => {
+    // Fuera de la app (login, registro): se descarta la caché para no mezclar usuarios al volver.
+    if (!enabled) {
+      pending = null;
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      void loadActiveContext().then((next) => {
+        if (!cancelled && next) setPayload(next);
+      });
+    };
+    load();
+    window.addEventListener(INVALIDATED_EVENT, load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(INVALIDATED_EVENT, load);
+    };
+  }, [enabled]);
+  return payload;
 }

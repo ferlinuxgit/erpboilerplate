@@ -5,10 +5,12 @@ import { getUserSession } from "@/lib/current-user";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { createPurchaseOrder, listPurchaseOrders } from "@/server/purchases/service";
+import { createPurchaseOrder, listPurchaseOrders, PURCHASE_SUPPLIER_NOT_FOUND } from "@/server/purchases/service";
 
 const payloadSchema = z.object({
-  supplierName: z.string().trim().min(1),
+  supplierPartnerId: z.string().trim().optional().or(z.literal("")),
+  /** Compatibilidad: nombre exacto de un proveedor ya existente. */
+  supplierName: z.string().trim().optional().or(z.literal("")),
   number: z.string().trim().optional().or(z.literal("")),
   lines: z
     .array(
@@ -46,10 +48,12 @@ export async function POST(request: Request) {
 
   const parsed = payloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+  if (!parsed.data.supplierPartnerId && !parsed.data.supplierName) return NextResponse.json({ message: "Elige el proveedor del pedido." }, { status: 400 });
 
   try {
     const createdOrder = await createPurchaseOrder(tenantContext.company.id, tenantContext.tenant.id, session.user.id, {
-      supplierName: parsed.data.supplierName,
+      supplierPartnerId: parsed.data.supplierPartnerId || undefined,
+      supplierName: parsed.data.supplierName || undefined,
       number: parsed.data.number || undefined,
       fiscalYearId: tenantContext.fiscalYear.id,
       lines: parsed.data.lines,
@@ -57,6 +61,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(createdOrder, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === PURCHASE_SUPPLIER_NOT_FOUND) {
+      return NextResponse.json({ message: "El proveedor no existe. Búscalo o créalo desde el selector antes de guardar el pedido." }, { status: 400 });
+    }
     return handleRouteError(error, "purchases.create", "No se pudo crear el pedido de compra.");
   }
 }

@@ -52,13 +52,17 @@ test("sales documents progress from quote to order, delivery note and invoice", 
   await page.getByLabel("Concepto").fill("Servicio de implantación");
   await page.getByLabel("Precio unitario").fill("100");
   await clickAndExpectPost(page, "/api/sales-quotes", () => page.getByRole("button", { name: "Crear presupuesto" }).click());
-  await expect(page).toHaveURL(/\/sales\/quotes$/);
+  // Tras crearlo se abre el presupuesto para seguir con él.
+  await expect(page).toHaveURL(/\/sales\/quotes\/.+/, { timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: quoteNumber })).toBeVisible();
+  await expect(page.getByText("Borrador", { exact: true })).toBeVisible();
+  await page.goto("/sales/quotes");
   await expect(page.getByTestId("sales-quotes-list")).toContainText(quoteNumber);
   await page.getByTestId("sales-quotes-list").getByRole("link", { name: quoteNumber }).click();
   await expect(page).toHaveURL(/\/sales\/quotes\/.+/, { timeout: 15_000 });
-  await expect(page.getByText("Borrador", { exact: true })).toBeVisible();
 
-  await clickAndExpectPost(page, "/to-order", () => page.getByRole("button", { name: "Convertir a pedido" }).click());
+  await page.getByRole("button", { name: "Convertir a pedido" }).click();
+  await clickAndExpectPost(page, "/to-order", () => page.getByTestId("quote-to-order-confirm").click());
   await expect(page).toHaveURL(/\/sales\/orders\/.+/, { timeout: 15_000 });
   await expect(page.getByText("Confirmado", { exact: true })).toBeVisible();
 
@@ -69,9 +73,13 @@ test("sales documents progress from quote to order, delivery note and invoice", 
   await expect(page).toHaveURL(/\/sales\/delivery-notes\/.+/, { timeout: 15_000 });
   await expect(page.getByText("Entregado", { exact: true }).first()).toBeVisible();
 
+  // Generar la factura emite (número, contabilidad, VERI*FACTU): pide confirmación con el resultado.
+  await page.getByRole("button", { name: "Generar factura" }).click();
+  await expect(page.getByRole("dialog", { name: "¿Emitir la factura de este albarán?" })).toBeVisible();
   const createdInvoice = await clickAndExpectPost<{ id: string; number: string; totalAmount: string }>(page, "/to-invoice", () =>
-    page.getByRole("button", { name: "Generar factura" }).click(),
+    page.getByTestId("delivery-to-invoice-confirm").click(),
   );
+  await expect(page.getByText(`Factura ${createdInvoice.number} emitida correctamente.`)).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(new RegExp(`/invoices/${createdInvoice.id}$`), { timeout: 15_000 });
   await page.goto("/invoices");
   await expect(page.getByTestId("invoices-list")).toContainText(createdInvoice.number, { timeout: 15_000 });

@@ -45,6 +45,11 @@ export const createSupplierSchema = createCustomerSchema.extend({
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
   defaultAccountId: z.string().trim().optional().or(z.literal("")),
   currencyCode: z.string().trim().length(3, "La moneda debe ser un código ISO de 3 letras.").default("EUR"),
+  // Valores habituales de sus facturas (se proponen al registrarlas, siempre editables).
+  defaultExpenseAccountId: z.string().trim().optional().or(z.literal("")),
+  defaultRetentionRate: z.number().min(0, "La retención no puede ser negativa.").max(100, "La retención no puede superar el 100 %.").nullable().optional(),
+  defaultTaxDeductiblePct: z.number().min(0, "El porcentaje deducible no puede ser negativo.").max(100, "El porcentaje deducible no puede superar el 100 %.").nullable().optional(),
+  defaultVatTreatment: z.enum(["DOMESTIC", "INTRA_EU", "REVERSE_CHARGE", "IMPORT", "NOT_SUBJECT"]).nullable().optional().or(z.literal("")),
 });
 
 export const updateSupplierSchema = createSupplierSchema.extend({

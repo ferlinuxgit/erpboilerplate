@@ -6,25 +6,28 @@ import {
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { TeamMemberActions } from "@/components/settings/team-member-actions";
+import { roleDescriptions, type AppRole } from "@/lib/rbac";
 import { roleLabels, statusLabel } from "@/lib/status-labels";
 
 type TeamMemberRow = {
   membershipId: string;
-  role: "OWNER" | "ADMIN" | "MEMBER";
+  role: AppRole;
   userId: string;
   name: string;
   email: string;
 };
 
 type TeamMembersListProps = {
+  actorRole: AppRole;
   canManage: boolean;
-  canAssignOwner: boolean;
+  currentUserId: string;
   rows: TeamMemberRow[];
 };
 
 const columns = (
   canManage: boolean,
-  canAssignOwner: boolean,
+  actorRole: AppRole,
+  currentUserId: string,
 ): ResourceListColumn<TeamMemberRow>[] => [
   {
     header: "Nombre",
@@ -55,31 +58,36 @@ const columns = (
     exportValue: (member) => statusLabel(roleLabels, member.role),
     sortValue: (member) => member.role,
   },
+  {
+    header: "Qué puede hacer",
+    cell: (member) => <p className="max-w-md text-xs text-muted-foreground">{roleDescriptions[member.role] ?? ""}</p>,
+    exportValue: (member) => roleDescriptions[member.role] ?? "",
+  },
   ...(canManage
     ? [
         {
           header: "Acciones",
           className: "text-right",
-          cell: (member: TeamMemberRow) => (
-            <TeamMemberActions
-              canAssignOwner={canAssignOwner}
-              membershipId={member.membershipId}
-              role={member.role}
-            />
-          ),
+          cell: (member: TeamMemberRow) =>
+            member.userId === currentUserId ? (
+              <span className="text-xs text-muted-foreground">Tú</span>
+            ) : (
+              <TeamMemberActions actorRole={actorRole} membershipId={member.membershipId} role={member.role} />
+            ),
         },
       ]
     : []),
 ];
 
 export function TeamMembersList({
-  canAssignOwner,
+  actorRole,
   canManage,
+  currentUserId,
   rows,
 }: TeamMembersListProps) {
   return (
     <ResourceList
-      columns={columns(canManage, canAssignOwner)}
+      columns={columns(canManage, actorRole, currentUserId)}
       emptyDescription="Invita usuarios para colaborar dentro del espacio de trabajo."
       emptyTitle="No hay miembros en el equipo."
       exportFileName="equipo.csv"

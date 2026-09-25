@@ -45,6 +45,12 @@ export const RATE_LIMIT_RULES = {
   verifyTwoFactor: { id: "auth-2fa", limit: 10, windowMs: MINUTE },
   verifyEmail: { id: "auth-verify-email", limit: 10, windowMs: MINUTE },
   invitationAccept: { id: "invitation-accept", limit: 10, windowMs: MINUTE },
+  // Recuperación de acceso: por IP en el proxy y, además, por email en el route handler.
+  forgotPassword: { id: "auth-forgot-password", limit: 5, windowMs: 15 * MINUTE },
+  forgotPasswordEmail: { id: "auth-forgot-password-email", limit: 3, windowMs: 60 * MINUTE },
+  resetPassword: { id: "auth-reset-password", limit: 10, windowMs: 15 * MINUTE },
+  resendVerification: { id: "auth-resend-verification", limit: 5, windowMs: 15 * MINUTE },
+  resendVerificationEmail: { id: "auth-resend-verification-email", limit: 3, windowMs: 60 * MINUTE },
 } satisfies Record<string, RateLimitRule>;
 
 const RATE_LIMIT_EXEMPT_PATHS = new Set(["/api/billing/webhook", "/api/health", "/api/readyz"]);
@@ -72,6 +78,9 @@ function resolveBaseRateLimitRule(pathname: string, method: string): RateLimitRu
     if (pathname === "/api/auth/register") return RATE_LIMIT_RULES.register;
     if (pathname === "/api/auth/verify-two-factor") return RATE_LIMIT_RULES.verifyTwoFactor;
     if (pathname === "/api/auth/verify-email") return RATE_LIMIT_RULES.verifyEmail;
+    if (pathname === "/api/auth/forgot-password") return RATE_LIMIT_RULES.forgotPassword;
+    if (pathname === "/api/auth/reset-password") return RATE_LIMIT_RULES.resetPassword;
+    if (pathname === "/api/auth/resend-verification") return RATE_LIMIT_RULES.resendVerification;
     if (/^\/api\/invitations\/[^/]+\/accept$/.test(pathname)) return RATE_LIMIT_RULES.invitationAccept;
   }
   return RATE_LIMIT_RULES.api;

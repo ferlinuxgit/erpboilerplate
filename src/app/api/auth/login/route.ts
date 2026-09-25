@@ -3,15 +3,15 @@ import { randomBytes, randomInt } from "node:crypto";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { account, membership, session, tenantSecurityPolicy, user, verification } from "@/db/schema";
-import { AUTH_TOKEN_COOKIE, createAuthToken, getAuthCookieOptions, hashAuthToken } from "@/lib/auth";
+import { account, membership, tenantSecurityPolicy, user, verification } from "@/db/schema";
+import { EMAIL_NOT_VERIFIED_CODE } from "@/lib/auth-client";
 import { db } from "@/lib/db";
 import { readJsonBody } from "@/lib/http";
-import { getClientIp } from "@/lib/ip-policy";
 import { logger } from "@/lib/logger";
 import { getRateLimiter, RATE_LIMIT_RULES, tooManyRequestsResponse } from "@/lib/rate-limit";
 import { authSignInSchema } from "@/server/schemas/forms";
 import { isEmailDeliveryConfigured, sendEmail } from "@/server/email/send";
+import { resolvePostAuthDestination, respondWithNewSession } from "@/server/auth/session";
 
 const INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos.";
 
@@ -39,7 +39,8 @@ function invalidCredentials() {
 }
 
 export async function POST(request: Request) {
-  const parsed = authSignInSchema.safeParse(await readJsonBody(request));
+  const body = await readJsonBody(request);
+  const parsed = authSignInSchema.safeParse(body);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Introduce un email y una contraseña válidos." }, { status: 400 });
@@ -75,7 +76,10 @@ export async function POST(request: Request) {
   await limiter.reset(RATE_LIMIT_RULES.loginEmail, email);
 
   if (!row.emailVerified) {
-    return NextResponse.json({ error: "Debes verificar tu dirección de correo antes de iniciar sesión." }, { status: 403 });
+    return NextResponse.json({
+      error: "Tu correo aún no está verificado. Abre el enlace que te enviamos o pide uno nuevo.",
+      code: EMAIL_NOT_VERIFIED_CODE,
+    }, { status: 403 });
   }
 
   const [twoFactorPolicy] = await db
@@ -99,10 +103,5 @@ export async function POST(request: Request) {
   }
 
   const authUser = { id: row.id, name: row.name, email: row.email };
-  const token = createAuthToken(authUser);
-  await db.insert(session).values({ id: crypto.randomUUID(), token: hashAuthToken(token), userId: authUser.id, expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), ipAddress: getClientIp(request.headers), userAgent: request.headers.get("user-agent") });
-  const response = NextResponse.json({ user: authUser });
-  response.cookies.set(AUTH_TOKEN_COOKIE, token, getAuthCookieOptions());
-
-  return response;
+  return respondWithNewSession(authUser, request, await resolvePostAuthDestination(authUser.id, (body as { next?: unknown } | null)?.next));
 }

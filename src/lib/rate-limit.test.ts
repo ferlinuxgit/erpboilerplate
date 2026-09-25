@@ -58,6 +58,13 @@ describe("rate limit buckets", () => {
     expect(resolveRateLimitRule("/api/auth/register", "POST")).toBe(RATE_LIMIT_RULES.register);
     expect(resolveRateLimitRule("/api/auth/verify-two-factor", "POST")).toBe(RATE_LIMIT_RULES.verifyTwoFactor);
     expect(resolveRateLimitRule("/api/invitations/abc/accept", "POST")).toBe(RATE_LIMIT_RULES.invitationAccept);
+    expect(resolveRateLimitRule("/api/auth/forgot-password", "POST")).toBe(RATE_LIMIT_RULES.forgotPassword);
+    expect(resolveRateLimitRule("/api/auth/reset-password", "POST")).toBe(RATE_LIMIT_RULES.resetPassword);
+    expect(resolveRateLimitRule("/api/auth/resend-verification", "POST")).toBe(RATE_LIMIT_RULES.resendVerification);
+    // Account recovery is limited more tightly than the generic API bucket, also per email.
+    expect(RATE_LIMIT_RULES.forgotPassword.limit).toBeLessThan(RATE_LIMIT_RULES.api.limit);
+    expect(RATE_LIMIT_RULES.forgotPasswordEmail).toMatchObject({ limit: 3, windowMs: 60 * 60_000 });
+    expect(RATE_LIMIT_RULES.resendVerificationEmail).toMatchObject({ limit: 3, windowMs: 60 * 60_000 });
     expect(resolveRateLimitRule("/api/invoices", "GET")).toBe(RATE_LIMIT_RULES.api);
     expect(resolveRateLimitRule("/api/billing/webhook", "POST")).toBeNull();
     expect(RATE_LIMIT_RULES.login.limit).toBeLessThanOrEqual(10);

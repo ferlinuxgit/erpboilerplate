@@ -4,50 +4,14 @@ import { ClockCounterClockwise, MagnifyingGlass, Plus, SquaresFour } from "@phos
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { navigationLinks } from "@/components/layout/navigation-config";
+import { buildNavigationCommands, quickActions, rankCommands, type Command, type CommandKind } from "@/components/layout/command-search";
+import { readKeyboardPreferences, useKeyboardPreferences } from "@/components/layout/keyboard-preferences";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-type CommandKind = "action" | "navigation" | "record" | "recent";
-
-type Command = {
-  href: string;
-  label: string;
-  kind: CommandKind;
-  description?: string;
-  code?: string;
-  keywords?: string;
-};
-
-/** Quick actions: the most frequent daily operations, phrased as the user thinks of them. */
-const quickActions: Command[] = [
-  { href: "/invoices/new", label: "Nueva factura", kind: "action", keywords: "emitir facturar venta cobro" },
-  { href: "/customers/new", label: "Nuevo cliente", kind: "action", keywords: "alta cliente crear" },
-  { href: "/expenses/new", label: "Registrar gasto", kind: "action", keywords: "factura de proveedor ticket compra gasto" },
-  { href: "/sales/new", label: "Nuevo presupuesto", kind: "action", keywords: "oferta cotización crear" },
-  { href: "/sales/orders/new", label: "Nuevo pedido de venta", kind: "action", keywords: "pedido cliente crear" },
-  { href: "/invoices", label: "Registrar cobro de una factura", kind: "action", keywords: "cobrar pago cliente pendiente" },
-  { href: "/suppliers/new", label: "Nuevo proveedor", kind: "action", keywords: "alta proveedor crear" },
-  { href: "/purchases/orders/new", label: "Nuevo pedido de compra", kind: "action", keywords: "comprar pedido proveedor" },
-  { href: "/purchases/payments", label: "Pagar a un proveedor", kind: "action", keywords: "pago proveedor deuda" },
-  { href: "/inventory/movements/new", label: "Registrar movimiento de stock", kind: "action", keywords: "inventario ajuste entrada salida traspaso" },
-  { href: "/inventory/items/new", label: "Nuevo artículo", kind: "action", keywords: "producto servicio catálogo" },
-  { href: "/inventory/warehouses/new", label: "Nuevo almacén", kind: "action", keywords: "ubicación" },
-  { href: "/accounting/entries/new", label: "Nuevo asiento contable", kind: "action", keywords: "contabilidad diario" },
-  { href: "/accounting/accounts/new", label: "Nueva cuenta contable", kind: "action", keywords: "plan contable" },
-  { href: "/treasury/bank-transactions/new", label: "Registrar movimiento bancario", kind: "action", keywords: "banco extracto" },
-  { href: "/treasury/bank-accounts/new", label: "Nueva cuenta bancaria", kind: "action", keywords: "banco iban" },
-  { href: "/fiscal/new", label: "Preparar modelo fiscal", kind: "action", keywords: "impuestos 303 111 hacienda" },
-];
-
-const navigationCommands: Command[] = navigationLinks.map((link) => ({
-  href: link.href,
-  label: link.label,
-  kind: "navigation",
-  code: link.code,
-}));
+const navigationCommands = buildNavigationCommands();
 
 const RECENT_STORAGE_KEY = "erp-command-palette:recent";
 const MAX_RECENT = 6;
@@ -64,20 +28,6 @@ export function CommandPaletteButton({ className, compact = false, onOpen }: { c
       {!compact ? <kbd className="border border-window-shadow bg-window-panel px-1 py-0.5 font-mono text-[0.58rem] text-window-muted">CTRL K</kbd> : null}
     </Button>
   );
-}
-
-function normalize(value: string) {
-  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase();
-}
-
-/** 0 = label starts with the query, 1 = a word starts with it, 2 = contains, 3 = keyword/code match, null = no match. */
-function matchScore(command: Command, query: string) {
-  const label = normalize(command.label);
-  if (label.startsWith(query)) return 0;
-  if (label.split(/\s+/).some((word) => word.startsWith(query))) return 1;
-  if (label.includes(query)) return 2;
-  if (normalize(`${command.keywords ?? ""} ${command.code ?? ""} ${command.description ?? ""}`).includes(query)) return 3;
-  return null;
 }
 
 function readRecent(): Command[] {
@@ -116,6 +66,7 @@ export function GlobalCommandPalette() {
   const [recent, setRecent] = useState<Command[]>([]);
   const [recordResults, setRecordResults] = useState<Array<{ href: string; label: string; description: string; type: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const { keyboardMode } = useKeyboardPreferences();
 
   const closePalette = () => {
     setOpen(false);
@@ -135,7 +86,8 @@ export function GlobalCommandPalette() {
       }
       const target = event.target;
       const isEditable = target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select, [role='textbox']"));
-      if (event.key === "/" && !isEditable && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // "/" es un atajo de una sola tecla: se puede desactivar (WCAG 2.1.4).
+      if (event.key === "/" && !isEditable && !event.metaKey && !event.ctrlKey && !event.altKey && readKeyboardPreferences().singleKeyShortcuts) {
         event.preventDefault();
         setOpen(true);
       }
@@ -184,20 +136,15 @@ export function GlobalCommandPalette() {
   }, [open, query]);
 
   const sections = useMemo<Section[]>(() => {
-    const normalized = normalize(query.trim());
-    if (!normalized) {
+    if (!query.trim()) {
       return [
         { id: "recent", title: "Recientes", items: recent },
         { id: "actions", title: "Acciones rápidas", items: quickActions.slice(0, 8) },
-        { id: "navigation", title: "Ir a", items: navigationCommands },
+        { id: "navigation", title: "Ir a", items: navigationCommands.filter((command) => command.code) },
       ].filter((section) => section.items.length > 0);
     }
-    const ranked = [...quickActions, ...navigationCommands]
-      .map((command, order) => ({ command, order, score: matchScore(command, normalized) }))
-      .filter((entry): entry is { command: Command; order: number; score: number } => entry.score !== null)
-      // Modules before actions on equal score, so "inventario" opens Inventario.
-      .sort((left, right) => left.score - right.score || (left.command.kind === right.command.kind ? left.order - right.order : left.command.kind === "navigation" ? -1 : 1))
-      .map((entry) => entry.command);
+    // A igual puntuación, módulos antes que acciones: "inventario" abre Inventario.
+    const ranked = rankCommands([...quickActions, ...navigationCommands], query);
     const records: Command[] = recordResults.map((result) => ({ href: result.href, label: result.label, kind: "record", description: `${result.type} · ${result.description}` }));
     return [
       { id: "matches", title: "Coincidencias", items: ranked },
@@ -225,7 +172,7 @@ export function GlobalCommandPalette() {
   );
 
   return (
-    <Dialog description="Busca registros, abre un módulo o inicia una operación sin soltar el teclado." initialFocusId="global-command-search" onClose={closePalette} open={open} size="lg" title="COMMAND.EXE — Buscar y ejecutar">
+    <Dialog description="Busca registros, abre un módulo o inicia una operación sin soltar el teclado." initialFocusId="global-command-search" onClose={closePalette} open={open} size="lg" title="Buscar y ejecutar">
       <label className="sr-only" htmlFor="global-command-search">Buscar módulos, registros o acciones</label>
       <div className="relative">
         <MagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-window-muted" />
@@ -262,7 +209,7 @@ export function GlobalCommandPalette() {
               execute(flatItems[Math.max(0, safeActiveIndex)]);
             }
           }}
-          placeholder="Cliente, factura, nuevo gasto…"
+          placeholder="Cliente, factura, IVA, conciliar, invitar gestor…"
           role="combobox"
           spellCheck={false}
           value={query}
@@ -303,12 +250,13 @@ export function GlobalCommandPalette() {
                     <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center border border-window-shadow bg-window-panel text-window-text">
                       {kindIcons[item.kind]}
                     </span>
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="block truncate font-bold">{item.label}</span>
-                      {item.description || item.code ? (
-                        <span className="block truncate text-[0.68rem] opacity-75">{item.code ? `Código ${item.code}` : item.description}</span>
-                      ) : null}
+                      {item.description ? <span className="block truncate text-[0.68rem] opacity-75">{item.description}</span> : null}
                     </span>
+                    {keyboardMode && item.code ? (
+                      <kbd className="shrink-0 border border-window-shadow px-1 font-mono text-[0.6rem] opacity-75" title={`Atajo: G y después ${item.code}`}>G {item.code}</kbd>
+                    ) : null}
                   </div>
                 );
               })}

@@ -4,6 +4,7 @@ import { Keyboard } from "@phosphor-icons/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { readKeyboardPreferences, setKeyboardPreference, useKeyboardPreferences } from "@/components/layout/keyboard-preferences";
 import { navigationLinks } from "@/components/layout/navigation-config";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -16,11 +17,11 @@ const shortcutGroups = [
   {
     label: "Navegación global",
     shortcuts: [
-      ["F1 / ?", "Abrir esta ayuda"],
-      ["Ctrl K / /", "Abrir búsqueda global"],
+      ["F1 / ?", "Abrir esta ayuda (? es de una sola tecla)"],
+      ["Ctrl K / /", "Abrir la búsqueda global (/ es de una sola tecla)"],
       ["F6", "Ir a la siguiente zona de la interfaz"],
       ["Mayús F6", "Ir a la zona anterior"],
-      ["G + código", "Abrir un módulo por su código visible; por ejemplo G 1 0"],
+      ["G + código", "Abrir un módulo por su código de dos cifras; por ejemplo G 1 0 abre Clientes"],
     ],
   },
   {
@@ -98,8 +99,28 @@ export function KeyboardHelpButton({ className, compact = false, onOpen }: { cla
   );
 }
 
+function PreferenceToggle({ checked, description, id, label, onChange }: { checked: boolean; description: string; id: string; label: string; onChange: (value: boolean) => void }) {
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        aria-describedby={`${id}-description`}
+        checked={checked}
+        className="mt-0.5 size-4 accent-[var(--primary)]"
+        id={id}
+        onChange={(event) => onChange(event.target.checked)}
+        type="checkbox"
+      />
+      <div>
+        <label className="font-mono text-xs font-bold" htmlFor={id}>{label}</label>
+        <p className="text-xs text-window-muted" id={`${id}-description`}>{description}</p>
+      </div>
+    </div>
+  );
+}
+
 export function KeyboardShortcuts() {
   const pathname = usePathname();
+  const preferences = useKeyboardPreferences();
   const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
   const [sequenceStatus, setSequenceStatus] = useState("");
@@ -194,7 +215,10 @@ export function KeyboardShortcuts() {
         return;
       }
 
-      if (event.key === "F1" || (!editable && event.key === "?")) {
+      // "?", "/" y "g" son atajos de una sola tecla: se pueden desactivar (WCAG 2.1.4).
+      const singleKeyShortcuts = readKeyboardPreferences().singleKeyShortcuts;
+
+      if (event.key === "F1" || (!editable && singleKeyShortcuts && event.key === "?")) {
         event.preventDefault();
         const activeModal = document.querySelector<HTMLElement>("[role='dialog'][aria-modal='true']");
         if (activeModal?.id === "mobile-navigation-drawer") {
@@ -228,7 +252,7 @@ export function KeyboardShortcuts() {
           event.preventDefault();
           focusElement(document.getElementById("main-content"));
         } else {
-          const companySelect = document.querySelector<HTMLElement>("[aria-label='Empresa activa']");
+          const companySelect = document.querySelector<HTMLElement>("[aria-label='Empresa y ejercicio activos']");
           if (focusElement(companySelect)) event.preventDefault();
         }
         return;
@@ -243,7 +267,7 @@ export function KeyboardShortcuts() {
         return;
       }
 
-      if (editable || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (editable || event.ctrlKey || event.metaKey || event.altKey || !singleKeyShortcuts) return;
 
       if (sequenceRef.current.startsWith("g")) {
         if (event.key === "Escape") {
@@ -298,12 +322,29 @@ export function KeyboardShortcuts() {
         {sequenceStatus}
       </p>
       <Dialog
-        description="Mapa de operación completo para trabajar sin ratón. Los códigos aparecen a la izquierda de cada módulo."
+        description="Todo se puede hacer sin ratón. Activa el modo teclado para ver los códigos de cada módulo en el menú."
         onClose={() => setHelpOpen(false)}
         open={helpOpen}
         size="lg"
-        title="KEYBOARD.EXE — Atajos de teclado"
+        title="Atajos de teclado"
       >
+        <section aria-labelledby="keyboard-preferences-title" className="mb-2 grid gap-2 border border-window-dark-shadow bg-window-panel p-2 md:grid-cols-2">
+          <h3 className="font-mono text-xs font-bold uppercase md:col-span-2" id="keyboard-preferences-title">Preferencias</h3>
+          <PreferenceToggle
+            checked={preferences.keyboardMode}
+            description="Muestra en el menú y en la búsqueda el código de cada módulo para abrirlo con G + código."
+            id="keyboard-mode-toggle"
+            label="Modo teclado: mostrar códigos"
+            onChange={(value) => setKeyboardPreference("keyboardMode", value)}
+          />
+          <PreferenceToggle
+            checked={preferences.singleKeyShortcuts}
+            description="Desactívalo si usas control por voz o te saltan acciones sin querer. F1, Ctrl K y los atajos con Alt siguen funcionando."
+            id="single-key-shortcuts-toggle"
+            label="Atajos de una sola tecla (/, ?, G)"
+            onChange={(value) => setKeyboardPreference("singleKeyShortcuts", value)}
+          />
+        </section>
         <div className="grid gap-px border border-window-dark-shadow bg-window-dark-shadow md:grid-cols-3">
           {shortcutGroups.map((group) => (
             <section className="bg-window-surface p-2" key={group.label}>

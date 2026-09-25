@@ -8,21 +8,24 @@ import { Button } from "@/components/ui/button";
 import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { assignableRoles, canManageMemberWithRole, type AppRole } from "@/lib/rbac";
+import { roleLabels } from "@/lib/status-labels";
 
 export function TeamMemberActions({
-  canAssignOwner,
+  actorRole,
   membershipId,
   role,
 }: {
-  canAssignOwner: boolean;
+  actorRole: AppRole;
   membershipId: string;
-  role: "OWNER" | "ADMIN" | "MEMBER";
+  role: AppRole;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  async function changeRole(nextRole: "OWNER" | "ADMIN" | "MEMBER") {
+  const options = assignableRoles(actorRole);
+  async function changeRole(nextRole: AppRole) {
     setPending(true);
     try {
       const response = await fetch(`/api/team-members/${membershipId}`, {
@@ -65,6 +68,9 @@ export function TeamMemberActions({
       setPending(false);
     }
   }
+  if (!canManageMemberWithRole(actorRole, role)) {
+    return <span className="text-xs text-muted-foreground">Solo un propietario puede cambiarlo</span>;
+  }
   return (
     <div className="flex justify-end gap-2">
       <Select
@@ -72,11 +78,14 @@ export function TeamMemberActions({
         className="h-8 w-36"
         defaultValue={role}
         disabled={pending}
-        onChange={(event) => changeRole(event.target.value as typeof role)}
+        onChange={(event) => {
+          const next = options.find((option) => option === event.target.value);
+          if (next) void changeRole(next);
+        }}
       >
-        <option value="MEMBER">Miembro</option>
-        <option value="ADMIN">Administrador</option>
-        {canAssignOwner ? <option value="OWNER">Propietario</option> : null}
+        {options.map((option) => (
+          <option key={option} value={option}>{roleLabels[option]}</option>
+        ))}
       </Select>
       <Button disabled={pending} onClick={() => setRemoveOpen(true)} size="sm" type="button" variant="ghost">Eliminar</Button>
       <DestructiveActionDialog

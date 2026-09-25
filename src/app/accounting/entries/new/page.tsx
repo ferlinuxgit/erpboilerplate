@@ -3,14 +3,13 @@ import Link from "next/link";
 import { CreateJournalEntryForm } from "@/components/accounting/create-journal-entry-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { requireUserSession } from "@/lib/current-user";
+import { requireContext } from "@/lib/current-context";
+import { dateInputValue } from "@/lib/date-input";
 import { can } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
 import { listPostingAccounts } from "@/server/accounting/service";
 
 export default async function NewJournalEntryPage() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  const ctx = await requireContext("accounting.read");
   const accounts = await listPostingAccounts(ctx.company.id);
   const canWriteAccounting = can(ctx.membership.role, "accounting.write");
 
@@ -24,7 +23,7 @@ export default async function NewJournalEntryPage() {
         backLabel="Volver a contabilidad"
       />
 
-      <PageSection title="Datos del asiento" description="Informa fecha, referencia y líneas balanceadas de debe y haber.">
+      <PageSection title="Datos del asiento" description="Fecha, referencia y líneas. El total del debe tiene que ser igual al del haber (asiento cuadrado).">
         {!canWriteAccounting ? (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite crear asientos contables." />
         ) : accounts.length === 0 ? (
@@ -38,7 +37,11 @@ export default async function NewJournalEntryPage() {
             }
           />
         ) : (
-          <CreateJournalEntryForm accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))} redirectHref="/accounting" />
+          <CreateJournalEntryForm
+            accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))}
+            defaultPostedAt={dateInputValue(new Date(), ctx.company.timezone)}
+            redirectHref="/accounting"
+          />
         )}
       </PageSection>
     </PageShell>

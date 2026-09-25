@@ -29,7 +29,10 @@ export const journalEntryListConfig: ListParamsConfig<JournalEntrySortKey> = {
   defaultPageSize: JOURNAL_ENTRIES_PAGE_SIZE,
 };
 
-export async function listJournalEntriesPage(companyId: string, params: ListParams<JournalEntrySortKey>) {
+/** Máximo de asientos en una exportación completa (protege memoria y tiempo de respuesta). */
+export const JOURNAL_ENTRIES_EXPORT_LIMIT = 50_000;
+
+function journalEntryQueryParts(companyId: string, params: ListParams<JournalEntrySortKey>) {
   // Debit/credit per entry, aggregated once and restricted to the company's entries.
   const lineTotals = db
     .select({
@@ -59,6 +62,38 @@ export async function listJournalEntriesPage(companyId: string, params: ListPara
     debit,
     credit,
   };
+  return { lineTotals, debit, credit, where, sortColumns };
+}
+
+/**
+ * Todos los asientos que cumplen la búsqueda, filtros y orden de la lista (sin paginar), para la
+ * exportación CSV completa de `ResourceList` (`exportAll`).
+ */
+export async function listJournalEntriesForExport(companyId: string, params: ListParams<JournalEntrySortKey>) {
+  const { lineTotals, debit, credit, where, sortColumns } = journalEntryQueryParts(companyId, params);
+  const rows = await db
+    .select({
+      id: journalEntry.id,
+      number: journalEntry.number,
+      postedAt: journalEntry.postedAt,
+      reference: journalEntry.reference,
+      isAutomatic: journalEntry.isAutomatic,
+      reversedAt: journalEntry.reversedAt,
+      reversesEntryId: journalEntry.reversesEntryId,
+      sourceType: journalEntry.sourceType,
+      debit,
+      credit,
+    })
+    .from(journalEntry)
+    .leftJoin(lineTotals, eq(lineTotals.journalEntryId, journalEntry.id))
+    .where(where)
+    .orderBy(...listOrderBy(sortColumns, params, journalEntry.number))
+    .limit(JOURNAL_ENTRIES_EXPORT_LIMIT);
+  return rows.map((row) => ({ ...row, debit: String(row.debit), credit: String(row.credit) }));
+}
+
+export async function listJournalEntriesPage(companyId: string, params: ListParams<JournalEntrySortKey>) {
+  const { lineTotals, debit, credit, where, sortColumns } = journalEntryQueryParts(companyId, params);
 
   const result = await paginate({
     page: params.page,

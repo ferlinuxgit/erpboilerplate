@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
+import { isAppRole } from "@/lib/rbac";
 import { requirePermission } from "@/lib/rbac-server";
 import { removeTeamMember, updateTeamMemberRole } from "@/server/team/service";
-
-const roles = ["OWNER", "ADMIN", "MEMBER"] as const;
 
 export async function PATCH(
   request: Request,
@@ -14,15 +13,14 @@ export async function PATCH(
     const { ctx, user } = await requirePermission("team.write");
     const payload = (await readJsonBody(request)) as { role?: unknown } | null;
     if (!payload) return invalidJsonResponse();
-    const role = roles.find((entry) => entry === payload.role);
-    if (!role) return jsonError(400, "Rol inválido.");
+    if (!isAppRole(payload.role)) return jsonError(400, "Rol inválido.");
     const { id } = await params;
     const updated = await updateTeamMemberRole({
       tenantId: ctx.tenant.id,
       membershipId: id,
       actorUserId: user.id,
       actorRole: ctx.membership.role,
-      role,
+      role: payload.role,
     });
     return updated ? NextResponse.json(updated) : jsonError(404, "Miembro no encontrado.");
   } catch (error) {

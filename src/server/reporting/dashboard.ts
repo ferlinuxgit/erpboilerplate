@@ -33,6 +33,7 @@ import {
   financePeriodRanges,
   lastMonths,
   mapAgingRows,
+  nextQuarterlyVatDeadline,
   percentChange,
   toAmount,
   upcomingFiscalDeadlines,
@@ -452,6 +453,8 @@ export async function loadDashboardFinance(companyId: string, options: { period:
     monthly,
     unreconciledMovements: unreconciled,
     fiscalDeadlines: reports ? upcomingFiscalDeadlines({ now, reports }) : [],
+    // Siempre hay un próximo plazo (303 del trimestre en curso): visible desde el primer día.
+    nextFiscalDeadline: reports ? nextQuarterlyVatDeadline({ now, reports }) : null,
   };
 }
 

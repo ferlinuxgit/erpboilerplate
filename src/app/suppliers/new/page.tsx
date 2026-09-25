@@ -41,6 +41,7 @@ export default async function NewSupplierPage() {
         {canCreateSupplier ? (
           <CreateSupplierForm
             defaultAccounts={supplierAccounts.filter((account) => account.code.startsWith("410"))}
+            expenseAccounts={supplierAccounts.filter((account) => account.code.startsWith("6") || account.code.startsWith("2"))}
             paymentMethods={paymentMethods}
             redirectHref="/suppliers"
           />

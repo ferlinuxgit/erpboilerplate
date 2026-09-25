@@ -8,8 +8,11 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import type { CustomerOption } from "@/components/create-invoice-form";
+import { customerLineTaxIds, type CustomerOption } from "@/components/create-invoice-form";
+import { DueDateHint } from "@/components/invoices/due-date-hint";
+import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
 import {
+  discountRegisterOptions,
   InvoiceLinesEditor,
   InvoicePaymentMethodsField,
   InvoiceTotalsSummary,
@@ -23,8 +26,10 @@ import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiE
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { defaultSalesVatTreatment, type SalesVatTreatmentCode } from "@/server/invoices/lifecycle";
+import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
+import { customerDefaultVatTreatment, type SalesVatTreatmentCode } from "@/server/invoices/lifecycle";
 import { draftInvoiceFormSchema } from "@/server/invoices/schemas";
 import { createCustomerSchema } from "@/server/schemas/forms";
 
@@ -45,6 +50,7 @@ function firstFormErrorMessage(error: unknown): string | null {
 
 export function EditInvoiceForm({
   canCreateCustomer,
+  companyPaymentTermsDays,
   customers,
   defaultCustomerId,
   defaultDueDate,
@@ -62,6 +68,7 @@ export function EditInvoiceForm({
   id: string;
   invoiceNumber: string;
   canCreateCustomer: boolean;
+  companyPaymentTermsDays?: number | null;
   customers: CustomerOption[];
   defaultCustomerId: string;
   defaultDueDate: string;
@@ -86,17 +93,15 @@ export function EditInvoiceForm({
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
   // Un tratamiento guardado distinto del que corresponde al país del cliente se considera elegido a mano.
   const [vatTreatmentTouched, setVatTreatmentTouched] = useState(
-    Boolean(defaultVatTreatment) && defaultVatTreatment !== defaultSalesVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)?.countryCode),
+    Boolean(defaultVatTreatment) && defaultVatTreatment !== customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)),
   );
-  const defaultTaxIds = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive && configuredTax.isDefault).map((configuredTax) => configuredTax.id), [taxes]);
-  const emptyLine: EditableInvoiceLine = {
-    description: "",
-    quantity: 1,
-    unitPrice: 0,
-    taxRate: 0,
-    retentionRate: 0,
-    taxIds: defaultTaxIds,
-  };
+  // Un vencimiento ya guardado se respeta; si está vacío se propone al cambiar fecha o cliente.
+  const [dueDateTouched, setDueDateTouched] = useState(Boolean(defaultDueDate));
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [issuing, setIssuing] = useState(false);
+  const [pendingIssueValues, setPendingIssueValues] = useState<UpdateInvoicePayload | null>(null);
+  const activeTaxes = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive), [taxes]);
   const {
     control,
     register,
@@ -107,13 +112,15 @@ export function EditInvoiceForm({
     resolver: zodResolver(draftInvoiceFormSchema),
     defaultValues: {
       customerId: defaultCustomerId,
-      vatTreatment: defaultVatTreatment ?? defaultSalesVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)?.countryCode),
+      vatTreatment: defaultVatTreatment ?? customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)),
       issueDate: defaultIssueDate,
       dueDate: defaultDueDate,
       notes: defaultNotes ?? "",
       paymentMethodIds: defaultPaymentMethodIds,
       totalAmount: defaultTotalAmount,
-      lines: defaultLines.length > 0 ? defaultLines : [emptyLine],
+      lines: defaultLines.length > 0
+        ? defaultLines
+        : [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(activeTaxes, customers.find((customer) => customer.id === defaultCustomerId)) }],
     },
   });
   const { fields, append, insert, move, remove } = useFieldArray({ control, name: "lines" });
@@ -121,6 +128,8 @@ export function EditInvoiceForm({
   const selectedPaymentMethodIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
   const selectedCustomerId = useWatch({ control, name: "customerId" });
   const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
+  const watchedIssueDate = useWatch({ control, name: "issueDate" });
+  const watchedDueDate = useWatch({ control, name: "dueDate" });
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
@@ -128,6 +137,10 @@ export function EditInvoiceForm({
   const totals = calculateInvoiceTotals(calculatedLines);
   const paymentMethodError = firstFormErrorMessage(errors.paymentMethodIds);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
+  const defaultTaxIds = useMemo(() => customerLineTaxIds(activeTaxes, selectedCustomer), [activeTaxes, selectedCustomer]);
+  const termsDays = effectivePaymentTermsDays(selectedCustomer?.paymentTermsDays, companyPaymentTermsDays);
+  const termsSource = typeof selectedCustomer?.paymentTermsDays === "number" ? "customer" : "company";
+  const emptyLine: EditableInvoiceLine = { description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: [...defaultTaxIds] };
   const filteredCustomers = useMemo(() => {
     const textQuery = customerSearch.trim().toLocaleLowerCase();
     const locationQuery = customerLocationSearch.trim().toLocaleLowerCase();
@@ -168,11 +181,16 @@ export function EditInvoiceForm({
     setValue("totalAmount", totals.totalAmount, { shouldValidate: true });
   }, [setValue, totals.totalAmount]);
 
-  // Mientras el usuario no fije el tratamiento de IVA, sigue al país del cliente.
+  // Mientras el usuario no fije el tratamiento de IVA, sigue al cliente (habitual o por país).
   useEffect(() => {
     if (vatTreatmentTouched || !selectedCustomer) return;
-    setValue("vatTreatment", defaultSalesVatTreatment(selectedCustomer.countryCode));
+    setValue("vatTreatment", customerDefaultVatTreatment(selectedCustomer));
   }, [selectedCustomer, setValue, vatTreatmentTouched]);
+
+  const proposeDueDate = (issueDate: string | undefined, days: number) => {
+    if (dueDateTouched || !issueDate) return;
+    setValue("dueDate", defaultDueDateInput(issueDate, days), { shouldDirty: true });
+  };
 
   useEffect(() => {
     if (pendingFocusLineIndex === null) return;
@@ -244,9 +262,9 @@ export function EditInvoiceForm({
     }
   });
 
-  const onSubmit = handleSubmit(
-    async (values) => {
+  const saveDraft = async (values: UpdateInvoicePayload, issue: boolean) => {
       setSubmissionError(null);
+      setIssueError(null);
       try {
         const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
           ...line,
@@ -255,37 +273,58 @@ export function EditInvoiceForm({
         const response = await fetch(`/api/invoices/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-          body: JSON.stringify({ ...values, totalAmount: invoiceTotals.totalAmount }),
+          body: JSON.stringify({ ...values, totalAmount: invoiceTotals.totalAmount, ...(issue ? { issue: true } : {}) }),
         });
 
         if (!response.ok) {
-          throw new Error(await readApiError(response, "No se pudo actualizar la factura."));
+          throw new Error(await readApiError(response, issue ? "No se pudo emitir la factura." : "No se pudo actualizar la factura."));
         }
 
-        toast.success("Borrador guardado. Emítelo desde la ficha cuando esté listo.");
+        const saved = (await response.json().catch(() => null)) as { number?: string } | null;
+        setIssueDialogOpen(false);
+        toast.success(issue ? `Factura ${saved?.number ?? ""} emitida correctamente.` : "Borrador guardado. Puedes emitirlo desde aquí o desde la ficha cuando esté listo.");
         router.push(`/invoices/${id}`);
         router.refresh();
       } catch (error) {
         const message = errorMessage(error, "No se pudo actualizar la factura. Inténtalo de nuevo.");
         setSubmissionError(message);
+        if (issue) setIssueError(message);
         toast.error(message);
       }
-    },
-    (validationErrors) => {
-      const detail = firstFormErrorMessage(validationErrors);
-      const summary = validationErrors.lines
-        ? "Revisa las líneas de la factura: hay datos incompletos o no válidos."
-        : "Revisa los campos indicados antes de guardar la factura.";
-      const message = detail ? `${summary} ${detail}` : summary;
-      setSubmissionError(message);
-      toast.error(message);
-      requestAnimationFrame(() => {
-        document
-          .querySelector<HTMLElement>('[data-testid="invoice-edit-form"] [aria-invalid="true"]:not([type="hidden"])')
-          ?.focus();
-      });
-    },
-  );
+  };
+
+  const onInvalid = (validationErrors: Parameters<Parameters<typeof handleSubmit>[1] & object>[0]) => {
+    const detail = firstFormErrorMessage(validationErrors);
+    const summary = validationErrors.lines
+      ? "Revisa las líneas de la factura: hay datos incompletos o no válidos."
+      : "Revisa los campos indicados antes de guardar la factura.";
+    const message = detail ? `${summary} ${detail}` : summary;
+    setSubmissionError(message);
+    toast.error(message);
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>('[data-testid="invoice-edit-form"] [aria-invalid="true"]:not([type="hidden"])')
+        ?.focus();
+    });
+  };
+
+  /** Enter / Ctrl+Enter / "Guardar borrador": solo guarda. Nunca emite. */
+  const onSubmit = handleSubmit((values) => saveDraft(values, false), onInvalid);
+  /** "Guardar y emitir": valida y pide confirmación (acción irreversible). */
+  const onRequestIssue = handleSubmit((values) => {
+    setPendingIssueValues(values);
+    setIssueError(null);
+    setIssueDialogOpen(true);
+  }, onInvalid);
+  const confirmIssue = async () => {
+    if (!pendingIssueValues) return;
+    setIssuing(true);
+    try {
+      await saveDraft(pendingIssueValues, true);
+    } finally {
+      setIssuing(false);
+    }
+  };
 
   return (
     <>
@@ -344,18 +383,23 @@ export function EditInvoiceForm({
           aria-label="Fecha de emisión"
           aria-invalid={Boolean(errors.issueDate)}
           aria-describedby={errors.issueDate ? "invoice-issue-date-error" : undefined}
-          {...register("issueDate")}
+          {...register("issueDate", { onChange: (event: { target: { value: string } }) => proposeDueDate(event.target.value, termsDays) })}
         />
       </AccessibleField>
-      <AccessibleField id="invoice-due-date" label="Fecha vencimiento" error={errors.dueDate?.message}>
+      <AccessibleField
+        id="invoice-due-date"
+        label="Fecha vencimiento"
+        error={errors.dueDate?.message}
+        helperText={<DueDateHint dueDate={watchedDueDate} termsDays={termsDays} termsSource={termsSource} />}
+      >
         <Input
           data-testid="invoice-edit-due-date-input"
           id="invoice-due-date"
+          min={watchedIssueDate || undefined}
           type="date"
           aria-label="Fecha de vencimiento"
           aria-invalid={Boolean(errors.dueDate)}
-          aria-describedby={errors.dueDate ? "invoice-due-date-error" : undefined}
-          {...register("dueDate")}
+          {...register("dueDate", { onChange: () => setDueDateTouched(true) })}
         />
       </AccessibleField>
       <div className="md:col-span-3">
@@ -366,6 +410,7 @@ export function EditInvoiceForm({
               description: lineError?.description?.message,
               quantity: lineError?.quantity?.message,
               unitPrice: lineError?.unitPrice?.message,
+              discountPct: lineError?.discountPct?.message,
               taxIds: lineError?.taxIds?.message,
             };
           })}
@@ -374,6 +419,7 @@ export function EditInvoiceForm({
             description: register(`lines.${index}.description`),
             quantity: register(`lines.${index}.quantity`, decimalRegisterOptions),
             unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
+            discountPct: register(`lines.${index}.discountPct`, discountRegisterOptions),
             taxIds: () => register(`lines.${index}.taxIds`),
           })}
           lines={watchedLines ?? []}
@@ -412,11 +458,30 @@ export function EditInvoiceForm({
         <p className="hidden text-xs text-muted-foreground sm:block">
           {submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
         </p>
-        <SubmitButton className="ml-auto min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting}>
-          Guardar borrador
-        </SubmitButton>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <SubmitButton className="min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting} variant="outline">
+            Guardar borrador
+          </SubmitButton>
+          <Button data-testid="invoice-edit-save-and-issue" disabled={isSubmitting || issuing} onClick={() => void onRequestIssue()} type="button">
+            {issuing ? "Emitiendo…" : "Guardar y emitir"}
+          </Button>
+        </div>
       </div>
     </form>
+    <IssueConfirmDialog
+      error={issueError}
+      onClose={() => setIssueDialogOpen(false)}
+      onConfirm={() => void confirmIssue()}
+      open={issueDialogOpen}
+      pending={issuing}
+      summary={
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <dt className="text-muted-foreground">Cliente</dt><dd className="font-medium">{selectedCustomer?.name ?? "—"}</dd>
+          <dt className="text-muted-foreground">Total</dt><dd className="font-mono font-bold">{formatMoney(totals.totalAmount)}</dd>
+          <dt className="text-muted-foreground">Vence</dt><dd>{watchedDueDate ? formatDate(`${watchedDueDate}T12:00:00`) : "Sin vencimiento"}</dd>
+        </dl>
+      }
+    />
     <Dialog
       description="Busca por nombre o identificación fiscal y selecciona el cliente de la factura."
       initialFocusId="invoice-customer-search"
@@ -447,6 +512,7 @@ export function EditInvoiceForm({
               type="button"
               onClick={() => {
                 setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
+                proposeDueDate(watchedIssueDate, effectivePaymentTermsDays(customer.paymentTermsDays, companyPaymentTermsDays));
                 setCustomerSearchDialogOpen(false);
               }}
             >

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
+import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
 import { Button } from "@/components/ui/button";
 import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -57,9 +58,20 @@ function lineTaxLabel(line: CreditNoteSourceLine) {
  * 1) ¿Qué quieres hacer? (anular entera / abonar una parte) → 2) causa legal → 3) motivo.
  * Los usuarios avanzados pueden elegir rectificación por sustitución y guardar como borrador.
  */
+export type CreditNoteDraftValues = {
+  creditNoteId: string;
+  reason: RectificationReason;
+  type: RectificationType;
+  scope: Scope;
+  description: string;
+  /** Líneas del borrador (en positivo) cuando abona una parte o sustituye. */
+  lines: CreditNoteSourceLine[];
+};
+
 export function CreditNoteForm({
   currencyCode,
   defaultIssueDate,
+  draft,
   invoiceId,
   invoiceNumber,
   lines,
@@ -72,16 +84,19 @@ export function CreditNoteForm({
   lines: CreditNoteSourceLine[];
   /** Importe que aún se puede rectificar (total original menos rectificativas anteriores). */
   pendingToRectify: number;
+  /** Edición de un borrador de rectificativa existente. */
+  draft?: CreditNoteDraftValues;
 }) {
   const router = useRouter();
-  const [scope, setScope] = useState<Scope>("FULL");
-  const [type, setType] = useState<RectificationType>("DIFFERENCES");
-  const [reason, setReason] = useState<RectificationReason>("R4");
-  const [description, setDescription] = useState("");
+  const [scope, setScope] = useState<Scope>(draft?.scope ?? "FULL");
+  const [type, setType] = useState<RectificationType>(draft?.type ?? "DIFFERENCES");
+  const [reason, setReason] = useState<RectificationReason>(draft?.reason ?? "R4");
+  const [description, setDescription] = useState(draft?.description ?? "");
   const [issueDate, setIssueDate] = useState(defaultIssueDate);
-  const [editableLines, setEditableLines] = useState<EditableLine[]>(() => toEditable(lines));
+  const [editableLines, setEditableLines] = useState<EditableLine[]>(() => toEditable(draft && draft.lines.length > 0 ? draft.lines : lines));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<"issue" | "draft" | null>(null);
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
 
   const usesLines = scope === "PARTIAL" || type === "SUBSTITUTION";
   const parsedLines = editableLines.map((line) => ({
@@ -105,6 +120,23 @@ export function CreditNoteForm({
     setEditableLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
   }
 
+  function validate() {
+    if (description.trim().length < 3) {
+      setError("Explica brevemente el motivo de la rectificación (aparecerá en la factura).");
+      document.getElementById("credit-note-description")?.focus();
+      return false;
+    }
+    if (usesLines && parsedLines.length === 0) {
+      setError("Deja al menos una línea.");
+      return false;
+    }
+    if (exceedsPending) {
+      setError(`El abono supera lo que queda por rectificar de ${invoiceNumber} (${formatMoney(pendingToRectify, currencyCode)}).`);
+      return false;
+    }
+    return true;
+  }
+
   async function submit(mode: "issue" | "draft") {
     setError(null);
     if (description.trim().length < 3) {
@@ -122,8 +154,8 @@ export function CreditNoteForm({
     }
     setPending(mode);
     try {
-      const response = await fetch(`/api/invoices/${invoiceId}/credit-notes`, {
-        method: "POST",
+      const response = await fetch(draft ? `/api/invoices/${draft.creditNoteId}/credit-note` : `/api/invoices/${invoiceId}/credit-notes`, {
+        method: draft ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
         body: JSON.stringify({
           reason,
@@ -151,7 +183,8 @@ export function CreditNoteForm({
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo crear la factura rectificativa."));
       const created = (await response.json()) as { id: string; number: string };
-      toast.success(mode === "issue" ? `Rectificativa ${created.number} emitida.` : "Borrador de rectificativa guardado.");
+      setIssueDialogOpen(false);
+      toast.success(mode === "issue" ? `Rectificativa ${created.number} emitida correctamente.` : "Borrador de rectificativa guardado. Puedes seguir editándolo o emitirlo cuando esté listo.");
       router.push(`/invoices/${created.id}`);
       router.refresh();
     } catch (submitError) {
@@ -163,9 +196,15 @@ export function CreditNoteForm({
     }
   }
 
+  /** Enter guarda un borrador: emitir es irreversible y siempre pasa por la confirmación. */
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void submit("issue");
+    void submit("draft");
+  }
+
+  function requestIssue() {
+    setError(null);
+    if (validate()) setIssueDialogOpen(true);
   }
 
   return (
@@ -259,13 +298,22 @@ export function CreditNoteForm({
 
       <FormErrorMessage>{error}</FormErrorMessage>
       <div className="flex flex-wrap justify-end gap-2">
-        <Button data-testid="credit-note-save-draft" disabled={pending !== null} onClick={() => void submit("draft")} type="button" variant="outline">
-          {pending === "draft" ? "Guardando…" : "Guardar borrador"}
-        </Button>
-        <SubmitButton data-testid="credit-note-submit" pending={pending === "issue"} pendingLabel="Emitiendo…">
-          Emitir rectificativa
+        <SubmitButton data-testid="credit-note-save-draft" pending={pending === "draft"} pendingLabel="Guardando…" variant="outline">
+          Guardar borrador
         </SubmitButton>
+        <Button data-testid="credit-note-submit" disabled={pending !== null} onClick={requestIssue} type="button">
+          {pending === "issue" ? "Emitiendo…" : "Emitir rectificativa"}
+        </Button>
       </div>
+      <IssueConfirmDialog
+        error={error}
+        isCreditNote
+        onClose={() => setIssueDialogOpen(false)}
+        onConfirm={() => void submit("issue")}
+        open={issueDialogOpen}
+        pending={pending === "issue"}
+        summary={<p>Rectifica <strong>{invoiceNumber}</strong> · Total <strong className="font-mono">{formatMoney(preview.totalAmount, currencyCode)}</strong></p>}
+      />
     </form>
   );
 }

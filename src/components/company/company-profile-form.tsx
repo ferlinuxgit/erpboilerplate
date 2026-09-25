@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
+import { companyInvoiceReadiness } from "@/lib/company-readiness";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { companyProfileSchema } from "@/server/schemas/forms";
 
@@ -22,15 +23,6 @@ export type CompanyProfileFormValues = z.infer<typeof companyProfileSchema>;
 type CompanyProfileFormProps = {
   initialValues: CompanyProfileFormValues;
 };
-
-const requiredForInvoice = [
-  ["legalName", "Razón social"],
-  ["vatNumber", "CIF/NIF"],
-  ["fiscalAddress", "Dirección fiscal"],
-  ["postalCode", "Código postal"],
-  ["city", "Ciudad"],
-  ["province", "Provincia"],
-] as const;
 
 const countries = [
   { code: "ES", label: "España" },
@@ -49,11 +41,7 @@ const timezones = [
 ] as const;
 
 function completion(values: Partial<CompanyProfileFormValues>) {
-  const missing = requiredForInvoice.filter(([key]) => !values[key]?.trim()).map(([, label]) => label);
-  return {
-    missing,
-    ready: missing.length === 0,
-  };
+  return companyInvoiceReadiness(values);
 }
 
 export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 
 import { accountChart, company, journal, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -302,7 +302,7 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
   });
 }
 
-export async function getLedgerByAccount(companyId: string, accountId: string) {
+export async function getLedgerByAccount(companyId: string, accountId: string, range?: { from?: Date; toExclusive?: Date }) {
   return db
     .select({
       lineId: journalLine.id,
@@ -315,6 +315,21 @@ export async function getLedgerByAccount(companyId: string, accountId: string) {
     })
     .from(journalLine)
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
-    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId)))
-    .orderBy(desc(journalEntry.postedAt));
+    .where(and(
+      eq(journalEntry.companyId, companyId),
+      eq(journalLine.accountId, accountId),
+      range?.from ? gte(journalEntry.postedAt, range.from) : undefined,
+      range?.toExclusive ? lt(journalEntry.postedAt, range.toExclusive) : undefined,
+    ))
+    .orderBy(desc(journalEntry.postedAt), desc(journalEntry.number));
+}
+
+/** Saldo (debe − haber) de una cuenta antes de `before`: saldo anterior del libro mayor filtrado. */
+export async function getLedgerBalanceBefore(companyId: string, accountId: string, before: Date) {
+  const [row] = await db
+    .select({ balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)` })
+    .from(journalLine)
+    .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
+    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), lt(journalEntry.postedAt, before)));
+  return Number(row?.balance ?? 0);
 }

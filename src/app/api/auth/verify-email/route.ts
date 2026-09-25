@@ -1,14 +1,14 @@
 import { and, eq, gt } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { session, user, verification } from "@/db/schema";
-import { AUTH_TOKEN_COOKIE, createAuthToken, getAuthCookieOptions, hashAuthToken } from "@/lib/auth";
+import { user, verification } from "@/db/schema";
+import { hashAuthToken } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getClientIp } from "@/lib/ip-policy";
 import { readJsonBody } from "@/lib/http";
+import { resolvePostAuthDestination, respondWithNewSession } from "@/server/auth/session";
 
 export async function POST(request: Request) {
-  const body = await readJsonBody(request) as { token?: unknown } | null;
+  const body = await readJsonBody(request) as { token?: unknown; next?: unknown } | null;
   const token = typeof body?.token === "string" ? body.token.trim() : "";
   if (token.length < 32) return NextResponse.json({ error: "Enlace de verificación inválido." }, { status: 400 });
 
@@ -24,14 +24,5 @@ export async function POST(request: Request) {
   });
 
   if (!verifiedUser) return NextResponse.json({ error: "El enlace no existe o ha caducado." }, { status: 400 });
-  const authToken = createAuthToken(verifiedUser);
-  await db.insert(session).values({
-    id: crypto.randomUUID(), token: hashAuthToken(authToken), userId: verifiedUser.id,
-    expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
-    ipAddress: getClientIp(request.headers),
-    userAgent: request.headers.get("user-agent"),
-  });
-  const response = NextResponse.json({ user: verifiedUser });
-  response.cookies.set(AUTH_TOKEN_COOKIE, authToken, getAuthCookieOptions());
-  return response;
+  return respondWithNewSession(verifiedUser, request, await resolvePostAuthDestination(verifiedUser.id, body?.next));
 }
