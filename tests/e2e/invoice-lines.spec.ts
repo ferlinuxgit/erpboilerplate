@@ -4,6 +4,8 @@ import { patchJson, postJson } from "./helpers/api-client";
 import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-session";
 
 test("crear customer y factura con dos líneas persiste totales y líneas", async ({ page }) => {
+  // Full lifecycle (draft → edit → issue → rectify → pay) on a cold dev server takes ~40s.
+  test.setTimeout(120_000);
   const runId = Date.now();
   const customerName = `Cliente líneas ${runId}`;
 

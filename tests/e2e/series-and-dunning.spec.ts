@@ -11,9 +11,11 @@ test("series de facturas: crear una serie de tickets y elegirla al crear la fact
   await expect(page.getByRole("heading", { name: "Series de numeración" })).toBeVisible();
   await expect(page.getByTestId("invoice-series-preview")).toBeVisible();
   const createForm = page.getByTestId("series-create-form");
-  await createForm.getByLabel("Código").fill("T");
-  await createForm.getByLabel("Nombre").fill("Tickets");
-  await createForm.getByLabel("Prefijo").fill("T-");
+  // "Código" also matches the "Insertar código en el formato" button group: target the textboxes.
+  // (Required fields append a hidden "(obligatorio)" to the accessible name, so no `exact`.)
+  await createForm.getByRole("textbox", { name: "Código" }).fill("T");
+  await createForm.getByRole("textbox", { name: "Nombre" }).fill("Tickets");
+  await createForm.getByRole("textbox", { name: "Prefijo" }).fill("T-");
   await createForm.getByRole("button", { name: "Crear serie" }).click();
   await expect(page.getByTestId("series-row-T")).toBeVisible();
 
