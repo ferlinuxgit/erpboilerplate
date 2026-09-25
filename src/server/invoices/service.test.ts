@@ -173,7 +173,11 @@ vi.mock("@/lib/db", () => {
 });
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSalesInvoice: mocks.postSalesInvoice, postCreditNote: mocks.postCreditNote }));
-vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: mocks.reserveSeriesNumber }));
+vi.mock("@/server/documents/series", () => ({
+  reserveSeriesNumber: mocks.reserveSeriesNumber,
+  reserveSeriesNumberDetailed: async (client: unknown, input: { type: string }) => ({ number: await mocks.reserveSeriesNumber(client, input), seriesId: "series-default" }),
+  assertSelectableSeries: vi.fn(async () => ({ id: "series-default" })),
+}));
 vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: mocks.assertFiscalPeriodOpen }));
 vi.mock("@/server/company/defaults", () => ({ getCompanyDefaultsStatus: vi.fn(async () => ({ ready: true, groups: [] })) }));
 vi.mock("@/server/seeds/apply", () => ({ applyCompanyTemplate: vi.fn(async () => undefined) }));
@@ -257,6 +261,21 @@ describe("createInvoice", () => {
     expect(auditActions()).toEqual(["invoice.create"]);
     // Auditoría dentro de la misma transacción (cliente de la transacción como 2º argumento).
     expect(mocks.recordAudit.mock.calls[0]?.[1]).toBe(mocks.db);
+  });
+
+  it("serie elegida: el borrador la guarda y al emitir se reserva en ella (y se guarda la serie usada)", async () => {
+    const draft = await createInvoice(actor, { ...baseInput, mode: "draft", seriesId: "series-tickets" });
+    expect(invoiceRow(draft.id)).toMatchObject({ seriesId: "series-tickets" });
+
+    await issueInvoice(actor, draft.id);
+
+    expect(mocks.reserveSeriesNumber).toHaveBeenCalledWith(mocks.db, expect.objectContaining({ type: "SALES_INVOICE", seriesId: "series-tickets" }));
+    expect(invoiceRow(draft.id)).toMatchObject({ seriesId: "series-default", status: "SENT" });
+  });
+
+  it("sin serie elegida usa la serie por defecto", async () => {
+    await createInvoice(actor, baseInput);
+    expect(mocks.reserveSeriesNumber).toHaveBeenCalledWith(mocks.db, expect.objectContaining({ seriesId: null }));
   });
 
   it("emite por defecto: número de la serie por fecha de emisión, snapshot, asiento y auditoría", async () => {

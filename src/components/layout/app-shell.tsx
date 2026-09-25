@@ -58,7 +58,7 @@ function NavigationLinks({ group, keyboardMode, pathname, onNavigate }: { group:
             onClick={onNavigate}
           >
             {keyboardMode ? (
-              <span className={cn("w-5 shrink-0 font-mono text-[0.6rem]", active ? "text-primary-foreground/80" : "text-window-muted")}>{link.code}</span>
+              <span className={cn("w-5 shrink-0 font-mono text-xs", active ? "text-primary-foreground/80" : "text-window-muted")}>{link.code}</span>
             ) : null}
             <link.icon aria-hidden="true" className="size-3.5" weight={active ? "fill" : "regular"} />
             <span className="truncate">{link.label}</span>
@@ -69,7 +69,7 @@ function NavigationLinks({ group, keyboardMode, pathname, onNavigate }: { group:
   );
 }
 
-const groupHeadingClass = "mb-px border-b border-window-shadow px-1.5 pb-px font-mono text-[0.62rem] font-bold uppercase tracking-[0.06em] text-window-muted";
+const groupHeadingClass = "mb-px border-b border-window-shadow px-1.5 pb-px font-mono text-xs font-bold uppercase tracking-[0.06em] text-window-muted";
 
 function NavigationGroups({ groups, id, keyboardMode, pathname, onNavigate }: NavigationGroupsProps) {
   return (
@@ -186,10 +186,10 @@ export function AppShell({ children }: AppShellProps) {
         data-testid="desktop-sidebar"
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
-          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-[0.62rem] font-black text-primary shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">ER</div>
+          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-primary shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">ER</div>
           <div className="min-w-0 leading-none">
             <p className="truncate font-mono text-xs font-bold">ERP Suite</p>
-            <p className="mt-0.5 truncate font-mono text-[0.62rem] text-chrome-active-foreground/75" title={activeCompanyName ?? undefined}>{activeCompanyName ?? "Espacio de trabajo"}</p>
+            <p className="mt-0.5 truncate font-mono text-xs text-chrome-active-foreground/75" title={activeCompanyName ?? undefined}>{activeCompanyName ?? "Espacio de trabajo"}</p>
           </div>
         </div>
 
@@ -205,9 +205,9 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-40 hidden h-10 shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground lg:flex">
           <div className="flex min-w-0 items-center gap-2 font-mono">
-            {keyboardMode ? <span className="border border-white/50 bg-black/15 px-1.5 py-0.5 text-[0.65rem] font-bold">{contextGroup?.code ?? currentLink?.code ?? "00"}</span> : null}
+            {keyboardMode ? <span className="border border-white/50 bg-black/15 px-1.5 py-0.5 text-xs font-bold">{contextGroup?.code ?? currentLink?.code ?? "00"}</span> : null}
             <span className="truncate text-xs font-bold uppercase">{contextGroup?.label ?? currentLink?.label ?? "Panel"}</span>
-            <span className="hidden truncate text-[0.68rem] text-chrome-active-foreground/75 xl:inline">\ {currentLink?.label ?? "Vista general"}</span>
+            <span className="hidden truncate text-xs text-chrome-active-foreground/75 xl:inline">\ {currentLink?.label ?? "Vista general"}</span>
           </div>
           <div className="flex min-w-0 items-center gap-1">
             <ThemeSwitcher compact />
@@ -233,7 +233,7 @@ export function AppShell({ children }: AppShellProps) {
           <div className="min-w-0 flex-1 font-mono leading-none">
             <p className="truncate text-center text-xs font-bold uppercase">{currentLink?.label ?? contextGroup?.label ?? "ERP Suite"}</p>
             {/* Empresa y ejercicio activos siempre visibles en móvil. */}
-            <p className="mt-1 truncate text-center text-[0.62rem] text-chrome-active-foreground/75" data-testid="mobile-active-company">
+            <p className="mt-1 truncate text-center text-xs text-chrome-active-foreground/75" data-testid="mobile-active-company">
               {activeCompanyName ? `${activeCompanyName}${activeFiscalYearCode ? ` · ${activeFiscalYearCode}` : ""}` : "ERP Suite"}
             </p>
           </div>
@@ -253,10 +253,10 @@ export function AppShell({ children }: AppShellProps) {
             >
               <div className="flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
                 <div className="flex items-center gap-2">
-                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-[0.62rem] font-black text-primary">ER</div>
+                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-primary">ER</div>
                   <div>
                     <p className="font-mono text-xs font-bold">ERP Suite</p>
-                    <p className="font-mono text-[0.62rem] text-chrome-active-foreground/75">Menú principal</p>
+                    <p className="font-mono text-xs text-chrome-active-foreground/75">Menú principal</p>
                   </div>
                 </div>
                 <button
@@ -271,7 +271,7 @@ export function AppShell({ children }: AppShellProps) {
 
               <div className="flex min-h-0 flex-1 flex-col p-2">
                 <div className="mb-2 border border-window-dark-shadow bg-window-panel p-2 shadow-[inset_1px_1px_0_var(--window-highlight)]">
-                  <p className="mb-1 font-mono text-[0.58rem] font-bold uppercase tracking-[0.06em] text-window-muted">Paleta de interfaz</p>
+                  <p className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.06em] text-window-muted">Paleta de interfaz</p>
                   <ThemeSwitcher />
                 </div>
                 <details className="mb-2 border border-window-dark-shadow bg-window-panel p-2 shadow-[inset_1px_1px_0_var(--window-highlight)]">

@@ -84,7 +84,7 @@ export function KeyboardHelpButton({ className, compact = false, onOpen }: { cla
   return (
     <Button
       aria-keyshortcuts="F1"
-      className={cn(compact ? "h-6 px-1.5 text-[0.58rem]" : "w-full", className)}
+      className={cn(compact ? "h-6 px-1.5 text-xs" : "w-full", className)}
       onClick={() => {
         onOpen?.();
         openKeyboardHelp();
@@ -352,7 +352,7 @@ export function KeyboardShortcuts() {
               <dl className="mt-1 divide-y divide-window-shadow/60">
                 {group.shortcuts.map(([shortcut, description]) => (
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2 py-1.5" key={shortcut}>
-                    <dt><kbd className="inline-block border border-window-dark-shadow bg-window-panel px-1 py-0.5 font-mono text-[0.62rem] font-bold shadow-[inset_1px_1px_0_var(--window-highlight)]">{shortcut}</kbd></dt>
+                    <dt><kbd className="inline-block border border-window-dark-shadow bg-window-panel px-1 py-0.5 font-mono text-xs font-bold shadow-[inset_1px_1px_0_var(--window-highlight)]">{shortcut}</kbd></dt>
                     <dd className="text-xs leading-4 text-window-muted">{description}</dd>
                   </div>
                 ))}

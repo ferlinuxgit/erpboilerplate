@@ -203,7 +203,16 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
   const exactKeys = new Set<string>();
 
   const matchedRules = input.rules.filter((rule) => matchRule(rule, movement));
-  const rulePartnerIds = new Set(matchedRules.map((rule) => rule.partnerId).filter((id): id is string => Boolean(id)));
+  // Reglas de contrapartida ("concepto contiene X → cliente/proveedor"): sus facturas abiertas se
+  // proponen aunque el concepto no traiga el nombre, y la propuesta cuenta como uso de la regla.
+  const ruleByPartner = new Map<string, RuleCandidate>();
+  for (const rule of matchedRules) if (rule.partnerId && !ruleByPartner.has(rule.partnerId)) ruleByPartner.set(rule.partnerId, rule);
+  const rulePartnerIds = new Set(ruleByPartner.keys());
+  const ruleFor = (partnerId: string | null) => (partnerId ? ruleByPartner.get(partnerId) : undefined);
+  const ruleNote = (partnerId: string | null) => {
+    const rule = ruleFor(partnerId);
+    return rule ? ` Regla «${rule.name}».` : "";
+  };
   const accountRules = matchedRules.filter((rule) => rule.accountId);
   for (const rule of accountRules) {
     suggestions.push({
@@ -241,7 +250,8 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
     });
   }
 
-  // Remesas SEPA confirmadas: el banco suele cargar el total de la remesa en un único apunte.
+  // Remesas SEPA confirmadas (transferencias a proveedores) o cobradas (adeudos a clientes): el
+  // banco suele cargar o abonar el total de la remesa en un único apunte.
   const byRemittance = new Map<string, ExistingPaymentCandidate[]>();
   for (const payment of payments) {
     if (!payment.remittanceId) continue;
@@ -258,7 +268,9 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
       key: `remittance:${remittanceId}`,
       kind: "REMITTANCE",
       title: `Remesa SEPA ${number}`,
-      detail: `${items.length} pagos a proveedores que suman el importe del cargo.`,
+      detail: kind === "customer"
+        ? `${items.length} recibos domiciliados cobrados que suman el importe del abono.`
+        : `${items.length} pagos a proveedores que suman el importe del cargo.`,
       score,
       confidence: "alta",
       safe: false,
@@ -286,10 +298,11 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
       key,
       kind: "INVOICE",
       title: `${exact ? "" : "Pago parcial de "}${kind === "customer" ? "factura" : "factura de proveedor"} ${invoice.number}`,
-      detail: `${invoice.partnerName} · pendiente ${invoice.outstanding.toFixed(2)}${invoice.dueDate ? ` · vence ${invoice.dueDate.toISOString().slice(0, 10)}` : ""}. Se registrará el ${kind === "customer" ? "cobro" : "pago"} con la fecha del movimiento.`,
+      detail: `${invoice.partnerName} · pendiente ${invoice.outstanding.toFixed(2)}${invoice.dueDate ? ` · vence ${invoice.dueDate.toISOString().slice(0, 10)}` : ""}. Se registrará el ${kind === "customer" ? "cobro" : "pago"} con la fecha del movimiento.${ruleNote(invoice.partnerId)}`,
       score,
       confidence: confidenceOf(score),
       safe: false,
+      ruleId: ruleFor(invoice.partnerId)?.id,
       allocations: [{ type: allocationTypeFor(kind, "invoice"), targetId: invoice.id, amount: centsToNumber(Math.min(outstandingCents, targetCents)), label: invoice.number }],
     });
   }
@@ -333,10 +346,11 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
         key,
         kind: "SPLIT",
         title: `${subset.length} facturas de ${first.partnerName}`,
-        detail: `${subset.map((invoice) => invoice.number).join(", ")} suman exactamente el importe.`,
+        detail: `${subset.map((invoice) => invoice.number).join(", ")} suman exactamente el importe.${ruleNote(first.partnerId)}`,
         score,
         confidence: confidenceOf(score),
         safe: false,
+        ruleId: ruleFor(first.partnerId)?.id,
         allocations: subset.map((invoice) => ({ type: allocationTypeFor(kind, "invoice"), targetId: invoice.id, amount: invoice.outstanding, label: invoice.number })),
       });
       continue;
@@ -358,10 +372,11 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
       key: `fifo:${partnerKey}`,
       kind: "SPLIT",
       title: `Repartir entre las facturas más antiguas de ${first.partnerName}`,
-      detail: `${allocations.map((allocation) => `${allocation.label} (${allocation.amount.toFixed(2)})`).join(", ")}; la última queda cobrada en parte.`,
+      detail: `${allocations.map((allocation) => `${allocation.label} (${allocation.amount.toFixed(2)})`).join(", ")}; la última queda cobrada en parte.${ruleNote(first.partnerId)}`,
       score,
       confidence: confidenceOf(score),
       safe: false,
+      ruleId: ruleFor(first.partnerId)?.id,
       allocations,
     });
   }

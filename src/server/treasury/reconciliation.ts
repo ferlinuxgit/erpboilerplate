@@ -242,7 +242,7 @@ export async function importBankCsv(input: Actor & { bankAccountId: string; cont
  * si una falla (p. ej. periodo bloqueado) se cuenta como omitida y el resto continúa.
  */
 export async function autoReconcileBankTransactions(companyId: string, actor: { tenantId: string; actorUserId: string }) {
-  const [pending, existingMatches] = await Promise.all([db
+  const [pending, existingMatches, allocated] = await Promise.all([db
     .select({
       id: bankTransaction.id,
       amount: bankTransaction.amount,
@@ -257,10 +257,16 @@ export async function autoReconcileBankTransactions(companyId: string, actor: { 
     .from(bankTransaction)
     .innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
     .where(and(eq(bankAccount.companyId, companyId), eq(bankTransaction.reconciliationStatus, "RECONCILED"))),
+  // Cobros/pagos ya repartidos en la mesa de conciliación: tampoco son candidatos.
+  db
+    .select({ invoicePaymentId: bankTransactionAllocation.invoicePaymentId, supplierPaymentId: bankTransactionAllocation.supplierInvoicePaymentId })
+    .from(bankTransactionAllocation)
+    .where(eq(bankTransactionAllocation.companyId, companyId)),
   ]);
 
-  const usedInvoicePayments = new Set(existingMatches.map((row) => row.invoicePaymentId).filter((id): id is string => Boolean(id)));
-  const usedSupplierPayments = new Set(existingMatches.map((row) => row.supplierPaymentId).filter((id): id is string => Boolean(id)));
+  const usedRows = [...existingMatches, ...allocated];
+  const usedInvoicePayments = new Set(usedRows.map((row) => row.invoicePaymentId).filter((id): id is string => Boolean(id)));
+  const usedSupplierPayments = new Set(usedRows.map((row) => row.supplierPaymentId).filter((id): id is string => Boolean(id)));
   const normalizeReference = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
 
   let reconciled = 0;

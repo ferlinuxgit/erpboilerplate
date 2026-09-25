@@ -233,7 +233,7 @@ export function AccountPicker({
               return (
                 <Fragment key={account.id}>
                   {showHeader ? (
-                    <li aria-hidden="true" className="border-b border-window-shadow px-2 pb-0.5 pt-1 font-mono text-[0.62rem] font-bold uppercase tracking-[0.08em] text-window-muted" role="presentation">
+                    <li aria-hidden="true" className="border-b border-window-shadow px-2 pb-0.5 pt-1 font-mono text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground" role="presentation">
                       {groupLabels[account.group]}
                     </li>
                   ) : null}
@@ -250,7 +250,7 @@ export function AccountPicker({
                       {account.group === "suggested" ? <span className="ml-1 font-normal">(sugerida)</span> : null}
                     </span>
                     {account.matchedAlias || hints.length > 0 ? (
-                      <span className={cn("text-[0.7rem]", active ? "text-primary-foreground" : "text-muted-foreground")}>
+                      <span className={cn("text-xs", active ? "text-primary-foreground" : "text-muted-foreground")}>
                         {account.matchedAlias ? `Coincide con «${account.matchedAlias}»` : hints.join(", ")}
                       </span>
                     ) : null}

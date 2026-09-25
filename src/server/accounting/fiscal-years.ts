@@ -440,10 +440,19 @@ export async function openNextFiscalYear(input: Actor & { fromFiscalYearId: stri
       created = true;
     }
 
-    // Series por ejercicio: se copian prefijo y formato, y el siguiente número para no reutilizar
-    // numeraciones (la reserva de número usa el máximo de todas las series del mismo tipo).
+    // Series por ejercicio: se copian todas (código, nombre, prefijo, formato, por defecto y activa) y
+    // el siguiente número para no reutilizar numeraciones (la reserva usa el máximo de cada serie).
     const sourceSeries = await tx
-      .select({ type: documentSeries.type, prefix: documentSeries.prefix, format: documentSeries.format, nextNumber: documentSeries.nextNumber })
+      .select({
+        type: documentSeries.type,
+        code: documentSeries.code,
+        name: documentSeries.name,
+        prefix: documentSeries.prefix,
+        format: documentSeries.format,
+        nextNumber: documentSeries.nextNumber,
+        isDefault: documentSeries.isDefault,
+        isActive: documentSeries.isActive,
+      })
       .from(documentSeries)
       .where(and(eq(documentSeries.companyId, input.companyId), eq(documentSeries.fiscalYearId, source.id)));
     let seriesCreated = 0;

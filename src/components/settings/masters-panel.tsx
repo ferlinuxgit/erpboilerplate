@@ -4,33 +4,16 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { defaultSeriesFormat, previewSeriesFormat } from "@/lib/document-series-format";
 import { parseDecimalInput } from "@/lib/format";
+import { DocumentSeriesPanel } from "@/components/settings/document-series-panel";
 import { PaymentMethodsPanel } from "@/components/settings/payment-methods-panel";
 import { Button } from "@/components/ui/button";
 import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
-import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { PercentInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-
-type DocumentSeriesRow = {
-  id: string;
-  type: string;
-  prefix: string;
-  format: string;
-  nextNumber: number;
-};
-
-type SeriesPayload = { type: "SALES_INVOICE"; prefix: string; format: string; nextNumber: number };
-/** 409 body of `PATCH /api/document-series` when the new next number would skip numbers. */
-type SeriesGap = { from: number; to: number; skipped: number; reasonRequired?: boolean };
-type SeriesGapPrompt = { gap: SeriesGap; payload: SeriesPayload };
-
-const MIN_GAP_REASON_LENGTH = 5;
 
 type CodeNameRow = { id: string; code: string; name: string };
 type TaxKind = "VAT" | "SURCHARGE" | "WITHHOLDING" | "OTHER";
@@ -78,7 +61,6 @@ function hasErrors(errors: FieldErrors) {
 
 export function MastersPanel() {
   const [pending, setPending] = useState<string | null>(null);
-  const [seriesLoading, setSeriesLoading] = useState(true);
   const [categoryCode, setCategoryCode] = useState("");
   const [categoryName, setCategoryName] = useState("");
   const [unitCode, setUnitCode] = useState("");
@@ -91,48 +73,10 @@ export function MastersPanel() {
   const [units, setUnits] = useState<CodeNameRow[]>([]);
   const [taxes, setTaxes] = useState<TaxRow[]>([]);
   const [catalogVersion, setCatalogVersion] = useState(0);
-  const [invoiceSeriesPrefix, setInvoiceSeriesPrefix] = useState("FA");
-  const [invoiceSeriesFormat, setInvoiceSeriesFormat] = useState(defaultSeriesFormat);
-  const [invoiceSeriesNextNumber, setInvoiceSeriesNextNumber] = useState("1");
   const [fieldErrors, setFieldErrors] = useState<Record<string, FieldErrors>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string | null>>({});
   const [taxToDelete, setTaxToDelete] = useState<TaxRow | null>(null);
-  const [seriesGapPrompt, setSeriesGapPrompt] = useState<SeriesGapPrompt | null>(null);
-  const [gapReason, setGapReason] = useState("");
-  const [gapReasonError, setGapReasonError] = useState<string | undefined>(undefined);
   const loading = pending !== null;
-
-  const invoiceSeriesPreview = previewSeriesFormat(
-    invoiceSeriesFormat,
-    invoiceSeriesPrefix,
-    Number(invoiceSeriesNextNumber) || 1,
-  );
-
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadSeries() {
-      try {
-        const response = await fetch("/api/document-series");
-        if (!response.ok) return;
-        const rows = (await response.json()) as DocumentSeriesRow[];
-        const invoiceSeries = rows.find((row) => row.type === "SALES_INVOICE");
-        if (!invoiceSeries || ignore) return;
-        setInvoiceSeriesPrefix(invoiceSeries.prefix);
-        setInvoiceSeriesFormat(invoiceSeries.format ?? defaultSeriesFormat);
-        setInvoiceSeriesNextNumber(String(invoiceSeries.nextNumber));
-      } catch {
-        if (!ignore) toast.error("No se pudo cargar la serie de facturas. Recarga la página para intentarlo de nuevo.");
-      } finally {
-        if (!ignore) setSeriesLoading(false);
-      }
-    }
-
-    void loadSeries();
-    return () => {
-      ignore = true;
-    };
-  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -197,78 +141,6 @@ export function MastersPanel() {
     return true;
   };
 
-  const saveSeries = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const nextNumber = Number(invoiceSeriesNextNumber);
-    const errors: FieldErrors = {
-      prefix: !invoiceSeriesPrefix.trim() ? "Indica el prefijo (por ejemplo, FA)." : invoiceSeriesPrefix.trim().length > 20 ? "El prefijo no puede superar 20 caracteres." : undefined,
-      format: !invoiceSeriesFormat.trim() ? "Indica el formato; puedes usar los botones de abajo." : invoiceSeriesFormat.trim().length > 80 ? "El formato no puede superar 80 caracteres." : undefined,
-      nextNumber: !Number.isInteger(nextNumber) || nextNumber < 1 ? "Indica un número entero mayor que 0." : undefined,
-    };
-    if (rejectInvalid("series", errors)) return;
-    void sendSeries({
-      type: "SALES_INVOICE",
-      prefix: invoiceSeriesPrefix,
-      format: invoiceSeriesFormat,
-      nextNumber: nextNumber || 1,
-    });
-  };
-
-  /**
-   * Saves the invoice series. If the new next number would leave a gap the API answers 409
-   * with `code: "SERIES_GAP"`: we explain it and resend with `confirmGap` and the reason.
-   */
-  const sendSeries = async (payload: SeriesPayload, confirmation?: { gapReason: string }) => {
-    const fallback = "No se pudo guardar la numeración de facturas.";
-    setPending("series");
-    setFormError("series", null);
-    try {
-      const response = await fetch("/api/document-series", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify(confirmation ? { ...payload, confirmGap: true, gapReason: confirmation.gapReason } : payload),
-      });
-      if (response.status === 409) {
-        const body = (await response.clone().json().catch(() => null)) as { code?: string; message?: string; gap?: SeriesGap } | null;
-        if (body?.code === "SERIES_GAP" && body.gap) {
-          setSeriesGapPrompt({ gap: body.gap, payload });
-          if (confirmation) setGapReasonError(body.message ?? "Revisa el motivo del salto.");
-          else { setGapReason(""); setGapReasonError(undefined); }
-          return;
-        }
-      }
-      if (!response.ok) throw new Error(await readApiError(response, fallback));
-      const saved = (await response.json().catch(() => null)) as DocumentSeriesRow | null;
-      if (saved?.nextNumber) setInvoiceSeriesNextNumber(String(saved.nextNumber));
-      setSeriesGapPrompt(null);
-      toast.success(confirmation ? "Numeración de facturas guardada. El salto queda registrado en la auditoría." : "Numeración de facturas guardada.");
-    } catch (error) {
-      const message = errorMessage(error, fallback);
-      if (confirmation) setGapReasonError(message);
-      else setFormError("series", message);
-      toast.error(message);
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const confirmSeriesGap = () => {
-    if (!seriesGapPrompt) return;
-    const reason = gapReason.trim();
-    if (reason.length < MIN_GAP_REASON_LENGTH) {
-      setGapReasonError(`Explica el motivo del salto (al menos ${MIN_GAP_REASON_LENGTH} caracteres).`);
-      return;
-    }
-    setGapReasonError(undefined);
-    void sendSeries(seriesGapPrompt.payload, { gapReason: reason });
-  };
-
-  const cancelSeriesGap = () => {
-    if (pending === "series") return;
-    setSeriesGapPrompt(null);
-    setGapReasonError(undefined);
-  };
-
   const createCodeName = (event: React.FormEvent<HTMLFormElement>, kind: "category" | "unit") => {
     event.preventDefault();
     const code = kind === "category" ? categoryCode : unitCode;
@@ -331,68 +203,7 @@ export function MastersPanel() {
 
   return (
     <div className="space-y-3">
-      <form aria-labelledby="masters-series-title" className={panelClass} noValidate onSubmit={saveSeries}>
-        <div className="space-y-0.5">
-          <h3 className="font-mono text-sm font-bold" id="masters-series-title">Numeración de facturas</h3>
-          <p className="text-xs text-muted-foreground">Define el formato correlativo para las nuevas facturas de venta.</p>
-        </div>
-        <div className="grid gap-2 md:grid-cols-4">
-          <AccessibleField error={fieldErrors.series?.prefix} id="masters-series-prefix" label="Prefijo" required>
-            <Input
-              id="masters-series-prefix"
-              aria-label="Prefijo factura"
-              className="font-mono"
-              disabled={seriesLoading}
-              value={invoiceSeriesPrefix}
-              onChange={(event) => setInvoiceSeriesPrefix(event.target.value)}
-            />
-          </AccessibleField>
-          <AccessibleField className="md:col-span-2" error={fieldErrors.series?.format} helperText="Combina texto y los códigos de abajo." id="masters-series-format" label="Formato" required>
-            <Input
-              id="masters-series-format"
-              aria-label="Formato factura"
-              className="font-mono"
-              disabled={seriesLoading}
-              placeholder="{PREFIX}{YYYY}-{NUMBER:6}"
-              value={invoiceSeriesFormat}
-              onChange={(event) => setInvoiceSeriesFormat(event.target.value)}
-            />
-          </AccessibleField>
-          <AccessibleField error={fieldErrors.series?.nextNumber} helperText="Número que tendrá la próxima factura." id="masters-series-next-number" label="Siguiente número" required>
-            <Input
-              id="masters-series-next-number"
-              aria-label="Siguiente número factura"
-              className="text-right tabular-nums"
-              disabled={seriesLoading}
-              inputMode="numeric"
-              value={invoiceSeriesNextNumber}
-              onChange={(event) => setInvoiceSeriesNextNumber(event.target.value.replace(/\D/g, ""))}
-            />
-          </AccessibleField>
-        </div>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Insertar código en el formato">
-          {["{PREFIX}", "{YYYY}", "{YY}", "{NUMBER:6}", "{NUMBER:4}"].map((token) => (
-            <Button
-              key={token}
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => setInvoiceSeriesFormat((current) => `${current}${token}`)}
-            >
-              {token}
-            </Button>
-          ))}
-        </div>
-        <p className="border border-window-shadow bg-card px-2.5 py-2 text-xs" data-testid="invoice-series-preview">
-          Vista previa: <span className="font-mono font-bold">{invoiceSeriesPreview}</span>
-        </p>
-        <FormErrorMessage>{formErrors.series}</FormErrorMessage>
-        <div className="flex justify-end">
-          <SubmitButton disabled={loading || seriesLoading} pending={pending === "series"}>
-            Guardar numeración
-          </SubmitButton>
-        </div>
-      </form>
+      <DocumentSeriesPanel />
 
       {(["category", "unit"] as const).map((kind) => {
         const isCategory = kind === "category";
@@ -527,60 +338,6 @@ export function MastersPanel() {
           {taxes.length === 0 ? <p className="py-2 text-xs text-muted-foreground">Sin impuestos configurados. Crea el primero (por ejemplo, IVA general 21 %) con el formulario de arriba.</p> : null}
         </div>
       </section>
-
-      <Dialog
-        description="La numeración de las facturas debe ser correlativa. Revisa el salto antes de confirmarlo."
-        initialFocusId="series-gap-reason"
-        onClose={cancelSeriesGap}
-        open={seriesGapPrompt !== null}
-        size="sm"
-        title="¿Saltar números de factura?"
-      >
-        {seriesGapPrompt ? (
-          <form
-            className="space-y-3"
-            data-testid="series-gap-dialog"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              confirmSeriesGap();
-            }}
-          >
-            <p className="text-sm">
-              Ahora la próxima factura sería la número <strong className="font-mono">{seriesGapPrompt.gap.from}</strong>. Si la
-              cambias a la <strong className="font-mono">{seriesGapPrompt.gap.to}</strong>, quedarán{" "}
-              <strong>
-                {seriesGapPrompt.gap.skipped} {seriesGapPrompt.gap.skipped === 1 ? "número sin usar" : "números sin usar"}
-              </strong>
-              {seriesGapPrompt.gap.skipped > 1 ? ` (del ${seriesGapPrompt.gap.from} al ${seriesGapPrompt.gap.to - 1})` : ` (el ${seriesGapPrompt.gap.from})`}.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Hacienda puede pedir explicaciones por los huecos en la numeración. Hazlo solo si es intencionado, por ejemplo al
-              continuar la numeración de otro programa. El motivo quedará guardado en el registro de auditoría.
-            </p>
-            <AccessibleField error={gapReasonError} id="series-gap-reason" label="Motivo del salto" required>
-              <Textarea
-                id="series-gap-reason"
-                maxLength={500}
-                placeholder="Por ejemplo: continuamos la numeración del programa anterior, que llegó a la factura 119."
-                value={gapReason}
-                onChange={(event) => {
-                  setGapReason(event.target.value);
-                  if (gapReasonError) setGapReasonError(undefined);
-                }}
-              />
-            </AccessibleField>
-            <DialogFooter>
-              <Button disabled={pending === "series"} onClick={cancelSeriesGap} type="button" variant="outline">
-                Cancelar
-              </Button>
-              <Button data-testid="series-gap-confirm" disabled={pending === "series"} type="submit">
-                {pending === "series" ? "Guardando…" : "Confirmar salto"}
-              </Button>
-            </DialogFooter>
-          </form>
-        ) : null}
-      </Dialog>
 
       <DestructiveActionDialog
         confirmLabel="Eliminar impuesto"

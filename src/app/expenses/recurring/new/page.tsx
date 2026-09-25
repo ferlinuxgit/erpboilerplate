@@ -35,12 +35,7 @@ export default async function NewRecurringExpensePage() {
           initial={{
             name: "",
             supplierPartnerId: "",
-            expenseAccountId: "",
-            description: "",
-            amount: null,
-            taxRate: 21,
-            retentionRate: 0,
-            taxDeductiblePct: 100,
+            lines: [{ expenseAccountId: "", description: "", amount: null, taxRate: 21, retentionRate: 0, taxDeductiblePct: 100 }],
             issueMode: "DRAFT",
             schedule: defaultScheduleDraft(todayDateInput(ctx.company.timezone || undefined)),
           }}
@@ -53,6 +48,7 @@ export default async function NewRecurringExpensePage() {
               defaultExpenseAccountId: supplier.defaults.defaultExpenseAccountId,
               defaultRetentionRate: supplier.defaults.defaultRetentionRate,
               defaultTaxDeductiblePct: supplier.defaults.defaultTaxDeductiblePct,
+              paymentTermsDays: supplier.defaults.paymentTermsDays,
             },
           }))}
         />

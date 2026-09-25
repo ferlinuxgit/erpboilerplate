@@ -41,19 +41,19 @@ export function sepaId(value: string) {
   return sepaText(value, 35).replace(/ /g, "");
 }
 
-function escapeXml(value: string) {
+export function escapeXml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
-function isoDate(date: Date) {
+export function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function isoDateTime(date: Date) {
+export function isoDateTime(date: Date) {
   return date.toISOString().slice(0, 19);
 }
 
-function amountText(cents: number) {
+export function amountText(cents: number) {
   return (cents / 100).toFixed(2);
 }
 

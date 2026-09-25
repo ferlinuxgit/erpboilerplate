@@ -20,8 +20,10 @@ import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { logger } from "@/lib/logger";
 import { recordAudit } from "@/server/audit";
 import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
+import { computeDueDate as computeSupplierDueDate } from "@/lib/supplier-defaults";
 import { computeDueDate, todayDateInput } from "@/server/invoices/due-dates";
-import { invoiceLifecycle } from "@/server/invoices/lifecycle";
+import { assertSelectableSeries } from "@/server/documents/series";
+import { invoiceLifecycle, isSalesVatTreatment } from "@/server/invoices/lifecycle";
 import { resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods";
 import {
   createDraftInvoiceInTransaction,
@@ -43,7 +45,13 @@ import {
   type RecurringSchedule,
 } from "@/server/recurring/schedule";
 import { isAutomaticMode, type RecurringIssueMode, type RecurringKind, type RecurringTemplateInput } from "@/server/recurring/schemas";
-import { mapSalesLineTaxes } from "@/server/sales/service";
+import {
+  reconcileTemplateLineTaxes,
+  resolveRecurringLineTaxes,
+  summarizeLineTaxes,
+  templateTaxesForTotals,
+  templateTaxesFromInvoiceLine,
+} from "@/server/recurring/taxes";
 import { createExpenseInvoice } from "@/server/supplier-invoices/service";
 
 /**
@@ -78,7 +86,7 @@ function normalizeTemplateInput(input: RecurringTemplateInput) {
     retentionRate: line.retentionRate ?? 0,
     ...(input.kind === "EXPENSE"
       ? { expenseAccountId: line.expenseAccountId?.trim() || null, taxDeductiblePct: line.taxDeductiblePct ?? 100 }
-      : {}),
+      : { taxes: reconcileTemplateLineTaxes({ taxRate: line.taxRate, retentionRate: line.retentionRate ?? 0, taxes: line.taxes ?? null }) }),
   }));
   const startDay = Number(input.startDate.slice(8, 10));
   return {
@@ -95,6 +103,8 @@ function normalizeTemplateInput(input: RecurringTemplateInput) {
     issueMode: input.issueMode,
     lines,
     notes: input.notes?.trim() || null,
+    seriesId: input.kind === "SALES_INVOICE" ? input.seriesId?.trim() || null : null,
+    vatTreatment: input.kind === "SALES_INVOICE" ? input.vatTreatment ?? null : null,
   };
 }
 
@@ -107,6 +117,7 @@ async function assertTemplateReferences(client: DbClient, companyId: string, val
       .limit(1);
     if (!owned) throw new HttpError(404, "Cliente no encontrado (o inactivo) en la empresa activa.");
     await assertItemsBelongToCompany(client, companyId, values.lines.map((line) => line.itemId));
+    if (values.seriesId) await assertSelectableSeries(client, companyId, values.seriesId, ["SALES_INVOICE"]);
     return;
   }
   const [supplier] = await client
@@ -295,9 +306,9 @@ export async function deleteRecurringTemplate(actor: RecurringActor, id: string)
   });
 }
 
-/** Importe estimado de cada emisión (base + IVA − retención) para listas y confirmaciones. */
+/** Importe estimado de cada emisión (base + impuestos − retenciones) para listas y confirmaciones. */
 export function estimateTemplateTotal(lines: RecurringTemplateLine[]) {
-  return calculateInvoiceTotals(lines.map((line) => ({ ...line, discountPct: line.discountPct ?? 0 }))).totalAmount;
+  return calculateInvoiceTotals(lines.map((line) => ({ ...line, discountPct: line.discountPct ?? 0, taxes: templateTaxesForTotals(line) }))).totalAmount;
 }
 
 export type RecurringTemplateListRow = {
@@ -426,7 +437,17 @@ export async function getRecurringTemplateDetail(companyId: string, id: string) 
 /** Valores iniciales del formulario a partir de una factura existente ("Hacer recurrente"). */
 export async function recurringPrefillFromInvoice(companyId: string, invoiceId: string) {
   const [source] = await db
-    .select({ id: invoice.id, number: invoice.number, customerId: invoice.customerId, customerName: customer.name, invoiceType: invoice.invoiceType, notes: invoice.notes, issueDate: invoice.issueDate })
+    .select({
+      id: invoice.id,
+      number: invoice.number,
+      customerId: invoice.customerId,
+      customerName: customer.name,
+      invoiceType: invoice.invoiceType,
+      notes: invoice.notes,
+      issueDate: invoice.issueDate,
+      vatTreatment: invoice.vatTreatment,
+      seriesId: invoice.seriesId,
+    })
     .from(invoice)
     .innerJoin(customer, eq(customer.id, invoice.customerId))
     .where(and(eq(invoice.id, invoiceId), eq(invoice.companyId, companyId)))
@@ -439,10 +460,13 @@ export async function recurringPrefillFromInvoice(companyId: string, invoiceId: 
     customerId: source.customerId,
     name: `${source.customerName} · recurrente`,
     notes: source.notes ?? "",
+    vatTreatment: source.vatTreatment,
+    seriesId: source.seriesId,
     lines: lines.map((line) => {
-      const taxes = line.taxes ?? null;
-      const vat = taxes ? taxes.filter((item) => item.operation === "ADD" && (item.kind ?? "VAT") === "VAT").reduce((sum, item) => sum + item.rate, 0) : Number(line.taxRate ?? 0);
-      const retention = taxes ? taxes.filter((item) => item.operation === "SUBTRACT").reduce((sum, item) => sum + item.rate, 0) : Number(line.retentionRate ?? 0);
+      // Impuestos exactos de la línea (IVA, recargo de equivalencia, retenciones…) para copiarlos tal cual.
+      const taxes = templateTaxesFromInvoiceLine(line.taxes);
+      const vat = taxes ? summarizeLineTaxes(taxes).taxRate : Number(line.taxRate ?? 0);
+      const retention = taxes ? summarizeLineTaxes(taxes).retentionRate : Number(line.retentionRate ?? 0);
       return {
         itemId: line.itemId ?? null,
         description: line.description,
@@ -451,6 +475,7 @@ export async function recurringPrefillFromInvoice(companyId: string, invoiceId: 
         discountPct: Number(line.discountPct ?? 0),
         taxRate: vat,
         retentionRate: retention,
+        taxes,
       };
     }),
   };
@@ -574,7 +599,8 @@ async function generateInvoicePeriod(template: TemplateRow, periodDate: string, 
       discountPct: line.discountPct ?? 0,
       taxRate: line.taxRate,
       retentionRate: line.retentionRate,
-      taxes: mapSalesLineTaxes(line, companyTaxes),
+      // Impuestos exactos de la plantilla (recargo, retenciones por línea…) o IVA + recargo + IRPF.
+      taxes: resolveRecurringLineTaxes(line, companyTaxes, { equivalenceSurcharge: billing.equivalenceSurcharge }),
     }));
     const draft = await createDraftInvoiceInTransaction(tx, actor, {
       customerId,
@@ -582,8 +608,9 @@ async function generateInvoicePeriod(template: TemplateRow, periodDate: string, 
       dueDate: computeDueDate(issueDate, billing.termsDays),
       paymentMethods,
       lines,
-      vatTreatment: null,
+      vatTreatment: isSalesVatTreatment(locked.vatTreatment) ? locked.vatTreatment : null,
       notes: locked.notes ? renderPeriodText(locked.notes, periodDate) : null,
+      seriesId: locked.seriesId,
       auditPayload: { origin: "recurring", recurringTemplateId: locked.id, periodDate },
     });
     let issued = false;
@@ -640,6 +667,24 @@ function expenseIdempotencyKey(templateId: string, periodDate: string) {
   return `recurring:${templateId}:${periodDate}`;
 }
 
+/**
+ * Vencimiento de un gasto recurrente: fecha del periodo + días de pago del proveedor. Sin días
+ * configurados no se inventa un vencimiento (igual que en el alta manual de gastos).
+ */
+export function recurringExpenseDueDate(periodDate: string, paymentTermsDays: number | null | undefined) {
+  return computeSupplierDueDate(new Date(`${periodDate}T00:00:00.000Z`), paymentTermsDays);
+}
+
+async function supplierPaymentTermsDays(companyId: string, supplierPartnerId: string | null) {
+  if (!supplierPartnerId) return null;
+  const [row] = await db
+    .select({ paymentTermsDays: partner.paymentTermsDays })
+    .from(partner)
+    .where(and(eq(partner.id, supplierPartnerId), eq(partner.companyId, companyId)))
+    .limit(1);
+  return row?.paymentTermsDays ?? null;
+}
+
 async function generateExpensePeriod(template: TemplateRow, periodDate: string, companyContext: CompanyContext): Promise<GenerationOutcome> {
   const lines = renderLines(template.lines, periodDate);
   const notes = template.notes ? renderPeriodText(template.notes, periodDate) : null;
@@ -648,6 +693,7 @@ async function generateExpensePeriod(template: TemplateRow, periodDate: string, 
   if (template.issueMode === "POST") {
     try {
       const fiscalYearId = await resolveFiscalYearId(db, companyContext.companyId, periodDate);
+      const dueDate = recurringExpenseDueDate(periodDate, await supplierPaymentTermsDays(companyContext.companyId, template.supplierPartnerId));
       // Idempotente por clave: si un intento anterior ya la registró, devuelve la misma factura.
       const created = await createExpenseInvoice({
         tenantId: companyContext.tenantId,
@@ -656,6 +702,7 @@ async function generateExpensePeriod(template: TemplateRow, periodDate: string, 
         actorUserId: template.createdByUserId ?? companyContext.ownerId,
         supplierPartnerId: template.supplierPartnerId ?? undefined,
         issueDate: new Date(`${periodDate}T00:00:00.000Z`),
+        ...(dueDate ? { dueDate } : {}),
         notes: notes ?? undefined,
         lines: toExpenseLines(lines),
         idempotencyKey: expenseIdempotencyKey(template.id, periodDate),
@@ -785,6 +832,7 @@ export async function confirmPendingExpenseRun(
     return typeof override === "number" && Number.isFinite(override) && override >= 0 ? { ...line, unitPrice: Math.round(override * 100) / 100 } : line;
   });
   let created: { id: string; number: string };
+  const dueDate = recurringExpenseDueDate(pending.run.periodDate, await supplierPaymentTermsDays(actor.companyId, pending.template.supplierPartnerId));
   try {
     created = await createExpenseInvoice({
       tenantId: actor.tenantId,
@@ -794,6 +842,7 @@ export async function confirmPendingExpenseRun(
       supplierPartnerId: pending.template.supplierPartnerId ?? undefined,
       supplierDocumentNumber: input.supplierDocumentNumber?.trim() || undefined,
       issueDate: new Date(`${pending.run.periodDate}T00:00:00.000Z`),
+      ...(dueDate ? { dueDate } : {}),
       notes: pending.run.payload.notes ?? undefined,
       lines: toExpenseLines(lines),
       idempotencyKey: expenseIdempotencyKey(pending.template.id, pending.run.periodDate),

@@ -19,6 +19,24 @@ describe("command palette search", () => {
     ["banco", "/treasury"],
     ["gasto", "/expenses/new"],
     ["ticket", "/expenses/new"],
+    ["remesa", "/treasury/remittances/new"],
+    ["remesa", "/treasury/remittances"],
+    ["sepa", "/treasury/remittances/new"],
+    ["devolución", "/treasury/remittances"],
+    ["recurrente", "/invoices/recurring/new"],
+    ["recurrente", "/expenses/recurring/new"],
+    ["norma 43", "/treasury/import"],
+    ["extracto", "/treasury/import"],
+    ["psd2", "/treasury/bank-connections"],
+    ["gestor", "/accounting/gestor"],
+    ["recuento", "/inventory/count"],
+    ["recordar", "/invoices/collections"],
+    ["morosos", "/invoices/collections"],
+    ["email", "/invoices"],
+    ["presentado", "/fiscal"],
+    ["glosario", "/fiscal/glossary"],
+    ["ocr", "/expenses/inbox"],
+    ["verifactu", "/fiscal/verifactu"],
   ])("finds «%s» → %s among the first results", (query, href) => {
     expect(top(query, 4)).toContain(href);
   });
@@ -32,6 +50,17 @@ describe("command palette search", () => {
       "/accounting/entries",
       "/treasury/forecast",
       "/fiscal/verifactu",
+      "/invoices/collections",
+      "/invoices/recurring",
+      "/expenses/inbox",
+      "/expenses/recurring",
+      "/inventory/count",
+      "/treasury/import",
+      "/treasury/rules",
+      "/treasury/remittances",
+      "/treasury/bank-connections",
+      "/accounting/gestor",
+      "/fiscal/glossary",
     ]));
     expect(new Set(hrefs).size).toBe(hrefs.length);
     expect(top("calendario fiscal", 1)).toEqual(["/fiscal/calendar"]);
@@ -42,6 +71,25 @@ describe("command palette search", () => {
   it("ignores accents and case and prefers modules over actions on equal score", () => {
     expect(top("INVENTARIO", 1)).toEqual(["/inventory"]);
     expect(top("tesoreria", 1)).toEqual(["/treasury"]);
+  });
+
+  it("names ambiguous sub-pages in full and offers the new tasks as actions", () => {
+    const labels = buildNavigationCommands().map((command) => command.label);
+    expect(labels).toEqual(expect.arrayContaining(["Facturas recurrentes", "Gastos recurrentes", "Glosario fiscal", "Paquete para el gestor"]));
+    expect(labels).not.toContain("Recurrentes");
+    expect(quickActions.map((action) => action.label)).toEqual(expect.arrayContaining([
+      "Enviar factura por email",
+      "Recordar cobros",
+      "Nueva factura recurrente",
+      "Nuevo gasto recurrente",
+      "Hacer recuento",
+      "Importar extracto bancario",
+      "Conciliar banco",
+      "Nueva remesa SEPA",
+      "Conectar banco",
+      "Marcar modelo como presentado",
+    ]));
+    expect(top("paquete gestor", 1)).toEqual(["/accounting/gestor"]);
   });
 
   it("returns nothing for an empty query or unrelated text", () => {

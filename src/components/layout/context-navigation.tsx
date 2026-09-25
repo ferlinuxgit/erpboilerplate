@@ -3,19 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { filterContextLinks, getContextGroup, isActiveRoute } from "@/components/layout/navigation-config";
+import { filterContextLinks, getActiveContextHref, getContextGroup } from "@/components/layout/navigation-config";
 import { cn } from "@/lib/utils";
-
-function isLinkActive(pathname: string, href: string, exact?: boolean) {
-  if (exact) return pathname === href;
-  return isActiveRoute(pathname, href);
-}
 
 export function ContextNavigation({ businessType, keyboardMode = false }: { businessType?: string | null; keyboardMode?: boolean }) {
   const pathname = usePathname();
   const group = getContextGroup(pathname);
   if (!group) return null;
   const links = filterContextLinks(group, { businessType });
+  const activeHref = getActiveContextHref(pathname, links);
 
   return (
     <div
@@ -23,7 +19,7 @@ export function ContextNavigation({ businessType, keyboardMode = false }: { busi
       data-testid="context-navigation"
     >
       <div className="flex h-9 min-w-0 items-stretch overflow-x-auto [scrollbar-width:thin] lg:h-8">
-        <p className="hidden shrink-0 items-center border-r border-window-shadow bg-window-panel px-3 font-mono text-[0.65rem] font-bold uppercase tracking-[0.08em] text-window-muted lg:flex">
+        <p className="hidden shrink-0 items-center border-r border-window-shadow bg-window-panel px-3 font-mono text-xs font-bold uppercase tracking-[0.08em] text-window-muted lg:flex">
           {keyboardMode ? `${group.code} · ${group.label}` : group.label}
         </p>
         <nav
@@ -48,12 +44,12 @@ export function ContextNavigation({ businessType, keyboardMode = false }: { busi
         >
           <span className="sr-only">Desplaza horizontalmente para ver todas las secciones.</span>
           {links.map((link) => {
-            const active = isLinkActive(pathname, link.href, link.exact);
+            const active = link.href === activeHref;
             return (
               <Link
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative inline-flex shrink-0 items-center border-r border-window-shadow px-3 font-mono text-[0.72rem] font-semibold text-window-muted outline-none transition-none hover:bg-window-highlight hover:text-window-text focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
+                  "relative inline-flex shrink-0 items-center border-r border-window-shadow px-3 font-mono text-xs font-semibold text-window-muted outline-none transition-none hover:bg-window-highlight hover:text-window-text focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
                   active &&
                     "bg-window-highlight text-window-text shadow-[inset_0_-3px_0_var(--chrome-active)]",
                 )}

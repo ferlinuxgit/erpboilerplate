@@ -50,7 +50,7 @@ export async function getCompanySetupState(companyId: string, fiscalYearId: stri
     db
       .select({ prefix: documentSeries.prefix, nextNumber: documentSeries.nextNumber })
       .from(documentSeries)
-      .where(and(eq(documentSeries.companyId, companyId), eq(documentSeries.fiscalYearId, fiscalYearId), eq(documentSeries.type, "SALES_INVOICE")))
+      .where(and(eq(documentSeries.companyId, companyId), eq(documentSeries.fiscalYearId, fiscalYearId), eq(documentSeries.type, "SALES_INVOICE"), eq(documentSeries.isDefault, true)))
       .limit(1),
     db.select({ total: count(), firstIban: sql<string | null>`min(${bankAccount.iban})` }).from(bankAccount).where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.isActive, true))),
     db.select({ total: count() }).from(customer).where(eq(customer.companyId, companyId)),
@@ -181,7 +181,7 @@ export async function saveOnboardingStep(actor: OnboardingActor, payload: Onboar
       const [series] = await tx
         .select({ id: documentSeries.id, prefix: documentSeries.prefix, nextNumber: documentSeries.nextNumber })
         .from(documentSeries)
-        .where(and(eq(documentSeries.companyId, actor.companyId), eq(documentSeries.fiscalYearId, actor.fiscalYearId), eq(documentSeries.type, "SALES_INVOICE")))
+        .where(and(eq(documentSeries.companyId, actor.companyId), eq(documentSeries.fiscalYearId, actor.fiscalYearId), eq(documentSeries.type, "SALES_INVOICE"), eq(documentSeries.isDefault, true)))
         .limit(1);
       if (series && series.prefix !== invoicePrefix) {
         // Cambiar el prefijo con facturas ya numeradas rompería la correlación de la serie.

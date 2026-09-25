@@ -32,7 +32,7 @@ export default async function RecurringExpenseDetailPage({ params }: { params: P
   const canEdit = can(ctx.membership.role, "expense.write");
   const [accounts, suppliers] = canEdit ? await Promise.all([listPostingAccounts(ctx.company.id), listSupplierPartners(ctx.company.id)]) : [[], []];
   const currencyCode = ctx.company.baseCurrencyCode;
-  const line = template.lines[0];
+  const hasLines = template.lines.length > 0;
   const issueMode = template.issueMode === "POST" ? "POST" : "DRAFT";
 
   return (
@@ -63,7 +63,7 @@ export default async function RecurringExpenseDetailPage({ params }: { params: P
         <RecurringRunHistory currencyCode={currencyCode} runs={detail.runs} />
       </PageSection>
 
-      {canEdit && line ? (
+      {canEdit && hasLines ? (
         <PageSection title="Editar" description="Los cambios se aplican a los próximos periodos.">
           <RecurringExpenseForm
             accounts={accounts.filter((account) => account.type === "EXPENSE" || account.code.startsWith("6")).map((account) => ({ id: account.id, code: account.code, name: account.name }))}
@@ -71,12 +71,14 @@ export default async function RecurringExpenseDetailPage({ params }: { params: P
             initial={{
               name: template.name,
               supplierPartnerId: template.supplierPartnerId ?? "",
-              expenseAccountId: line.expenseAccountId ?? "",
-              description: line.description,
-              amount: line.unitPrice * line.quantity,
-              taxRate: line.taxRate,
-              retentionRate: line.retentionRate,
-              taxDeductiblePct: line.taxDeductiblePct ?? 100,
+              lines: template.lines.map((line) => ({
+                expenseAccountId: line.expenseAccountId ?? "",
+                description: line.description,
+                amount: Math.round(line.unitPrice * line.quantity * 100) / 100,
+                taxRate: line.taxRate,
+                retentionRate: line.retentionRate,
+                taxDeductiblePct: line.taxDeductiblePct ?? 100,
+              })),
               issueMode,
               schedule: scheduleDraftFromTemplate(template),
             }}
@@ -89,6 +91,7 @@ export default async function RecurringExpenseDetailPage({ params }: { params: P
                 defaultExpenseAccountId: supplier.defaults.defaultExpenseAccountId,
                 defaultRetentionRate: supplier.defaults.defaultRetentionRate,
                 defaultTaxDeductiblePct: supplier.defaults.defaultTaxDeductiblePct,
+                paymentTermsDays: supplier.defaults.paymentTermsDays,
               },
             }))}
             templateId={template.id}

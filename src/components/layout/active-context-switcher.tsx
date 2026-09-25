@@ -16,7 +16,7 @@ import { Select } from "@/components/ui/select";
 
 const NEW_FISCAL_YEAR_VALUE = "__new-fiscal-year";
 /** El panel de apertura y cierre de ejercicios vive en Contabilidad. */
-const FISCAL_YEAR_PANEL_HREF = "/accounting";
+const FISCAL_YEAR_PANEL_HREF = "/accounting#ejercicio";
 
 function contextValue(companyId: string, fiscalYearId: string) {
   return `${companyId}:${fiscalYearId}`;
@@ -56,7 +56,7 @@ export function ActiveContextSwitcher({ compact = false, onChanged }: { compact?
   }, []);
 
   if (loading) {
-    return <p className={compact ? "font-mono text-[0.65rem] text-chrome-active-foreground/75" : "text-xs text-muted-foreground"}>Cargando empresa…</p>;
+    return <p className={compact ? "font-mono text-xs text-chrome-active-foreground/75" : "text-xs text-muted-foreground"}>Cargando empresa…</p>;
   }
 
   async function switchTenant(nextTenantId: string) {
@@ -131,7 +131,7 @@ export function ActiveContextSwitcher({ compact = false, onChanged }: { compact?
       {showTenantSelector ? (
         <Select
           aria-label="Espacio de trabajo activo"
-          className={compact ? "h-7 w-28 border-white/50 bg-window-highlight px-1.5 text-[0.7rem] text-window-text xl:w-36" : undefined}
+          className={compact ? "h-7 w-28 border-white/50 bg-window-highlight px-1.5 text-xs text-window-text xl:w-36" : undefined}
           disabled={saving}
           onChange={(event) => void switchTenant(event.target.value)}
           value={tenantId}
@@ -146,7 +146,7 @@ export function ActiveContextSwitcher({ compact = false, onChanged }: { compact?
       <Select
         aria-busy={saving || undefined}
         aria-label="Empresa y ejercicio activos"
-        className={compact ? "h-7 w-44 border-white/50 bg-window-highlight px-1.5 text-[0.7rem] text-window-text xl:w-60" : undefined}
+        className={compact ? "h-7 w-44 border-white/50 bg-window-highlight px-1.5 text-xs text-window-text xl:w-60" : undefined}
         disabled={saving}
         onChange={(event) => void switchContext(event.target.value)}
         title="Se aplica al elegir"
@@ -170,7 +170,7 @@ export function ActiveContextSwitcher({ compact = false, onChanged }: { compact?
         <option value={NEW_FISCAL_YEAR_VALUE}>Nuevo ejercicio… (abrir en Contabilidad)</option>
       </Select>
       {saving ? <span className="sr-only" role="status">Cambiando de contexto…</span> : null}
-      {error ? <p className={compact ? "max-w-40 truncate border border-white/60 bg-destructive px-1 font-mono text-[0.65rem] text-destructive-foreground" : "text-xs text-destructive"} role="alert" title={error}>{error}</p> : null}
+      {error ? <p className={compact ? "max-w-40 truncate border border-white/60 bg-destructive px-1 font-mono text-xs text-destructive-foreground" : "text-xs text-destructive"} role="alert" title={error}>{error}</p> : null}
     </div>
   );
 }

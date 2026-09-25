@@ -22,7 +22,7 @@ import { postCreditNote, postSalesInvoice } from "@/server/accounting/auto-post"
 import { recordAudit } from "@/server/audit";
 import { getCompanyDefaultsStatus, type CompanyDefaultsStatus } from "@/server/company/defaults";
 import { createCustomerWithPartner } from "@/server/customers/service";
-import { reserveSeriesNumber } from "@/server/documents/series";
+import { assertSelectableSeries, reserveSeriesNumberDetailed } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
 import { computeDueDate, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
@@ -426,10 +426,12 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     }
   }
 
-  const number = await reserveSeriesNumber(tx, {
+  // Serie elegida en el borrador (validada: empresa, tipo y ejercicio de la fecha) o la de por defecto.
+  const { number, seriesId } = await reserveSeriesNumberDetailed(tx, {
     companyId: actor.companyId,
     type: isCreditNote ? "CREDIT_NOTE" : "SALES_INVOICE",
     referenceDate: row.issueDate,
+    seriesId: row.seriesId,
     ...(isCreditNote ? { createIfMissing: { prefix: "R-" } } : {}),
   });
 
@@ -438,6 +440,7 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     .update(invoice)
     .set({
       number,
+      seriesId,
       status: "SENT",
       // Una rectificativa no se cobra: queda aplicada contra la factura original.
       paymentStatus: isCreditNote ? "PAID" : "PENDING",
@@ -497,6 +500,7 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     entityId: row.id,
     payload: {
       number,
+      seriesId,
       provisionalNumber: row.number,
       issueDate: row.issueDate.toISOString(),
       totalAmount: totals.totalAmount,
@@ -522,6 +526,8 @@ export type DraftInvoiceInput = {
   lines: CalculatedLine[];
   vatTreatment: SalesVatTreatmentCode | null;
   notes?: string | null;
+  /** Serie de numeración (ya validada); null = la serie por defecto. */
+  seriesId?: string | null;
   source?: { salesQuoteId?: string | null; salesOrderId?: string | null; deliveryNoteId?: string | null };
   auditPayload?: Record<string, unknown>;
 };
@@ -550,6 +556,7 @@ export async function createDraftInvoiceInTransaction(tx: DbClient, actor: Invoi
       status: "DRAFT",
       vatTreatment: input.vatTreatment,
       notes: input.notes?.trim() || null,
+      seriesId: input.seriesId || null,
       salesQuoteId: input.source?.salesQuoteId ?? null,
       salesOrderId: input.source?.salesOrderId ?? null,
       deliveryNoteId: input.source?.deliveryNoteId ?? null,
@@ -572,6 +579,7 @@ export async function createDraftInvoiceInTransaction(tx: DbClient, actor: Invoi
       totalAmount: totals.totalAmount,
       lineCount: input.lines.length,
       vatTreatment: input.vatTreatment,
+      ...(input.seriesId ? { seriesId: input.seriesId } : {}),
       ...(input.source ? { source: input.source } : {}),
     },
   }, tx);
@@ -605,6 +613,8 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
   const totals = calculateInvoiceTotals(lines);
   if (totals.totalAmount <= 0) throw new HttpError(400, "Debes informar una fecha válida e importe mayor de 0.");
   if (customerId) await assertActiveCustomer(db, actor.companyId, customerId);
+  const seriesId = input.seriesId?.trim() || null;
+  if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
   if (mode === "issue") await ensureCompanyDefaults(actor);
 
   return db.transaction(async (tx) => {
@@ -634,6 +644,7 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
       lines,
       vatTreatment: input.vatTreatment ?? null,
       notes: input.notes,
+      seriesId,
       auditPayload: { mode },
     });
 
@@ -714,12 +725,14 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
       throw new HttpError(400, "Debes seleccionar un cliente activo de la empresa.");
     });
   }
+  const seriesId = input.seriesId === undefined ? undefined : input.seriesId?.trim() || null;
   if (input.issue) await ensureCompanyDefaults(actor);
 
   return db.transaction(async (tx) => {
     const row = await lockInvoice(tx, actor.companyId, invoiceId);
     if (!row) return null;
     if (invoiceLifecycle(row) !== "DRAFT") throw new HttpError(409, ISSUED_EDIT_MESSAGE);
+    if (seriesId) await assertSelectableSeries(tx, actor.companyId, seriesId, [row.invoiceType === "CREDIT_NOTE" ? "CREDIT_NOTE" : "SALES_INVOICE"]);
     const nextIssueDate = issueDate ?? row.issueDate;
     const nextDueDate = input.dueDate !== undefined ? dueDate : row.dueDate;
     if (nextDueDate && nextDueDate < nextIssueDate) throw new HttpError(400, "El vencimiento no puede ser anterior a la fecha de emisión.");
@@ -733,6 +746,7 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
         ...(paymentMethods ? paymentMethodColumns(paymentMethods) : {}),
         ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
         ...(input.vatTreatment !== undefined ? { vatTreatment: input.vatTreatment ?? null } : {}),
+        ...(seriesId !== undefined ? { seriesId } : {}),
         ...(totals ? { totalAmount: money(totals.totalAmount) } : {}),
         updatedAt: new Date(),
       })
@@ -757,6 +771,7 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
         dueDate: input.dueDate !== undefined ? dueDate?.toISOString() ?? null : undefined,
         totalAmount: totals?.totalAmount,
         vatTreatment: input.vatTreatment,
+        ...(seriesId !== undefined ? { seriesId } : {}),
       },
     }, tx);
 
@@ -821,6 +836,8 @@ export async function updateCreditNoteDraft(actor: InvoiceActor, creditNoteId: s
   const shouldIssue = input.issue === true;
   if (input.lines) await assertItemsBelongToCompany(db, actor.companyId, input.lines.map((line) => line.itemId));
   const extraLines = input.lines ? await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: false }) : [];
+  const seriesId = input.seriesId === undefined ? undefined : input.seriesId?.trim() || null;
+  if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["CREDIT_NOTE"]);
   if (shouldIssue) await ensureCompanyDefaults(actor);
 
   return db.transaction(async (tx) => {
@@ -847,6 +864,7 @@ export async function updateCreditNoteDraft(actor: InvoiceActor, creditNoteId: s
         rectificationType: input.type as RectificationType,
         rectificationDescription: description,
         notes: `Rectifica la factura ${original.number}. ${description}`,
+        ...(seriesId !== undefined ? { seriesId } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(invoice.id, row.id), eq(invoice.companyId, actor.companyId)));
@@ -877,6 +895,8 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
   const shouldIssue = input.issue !== false;
   if (input.lines) await assertItemsBelongToCompany(db, actor.companyId, input.lines.map((line) => line.itemId));
   const extraLines = input.lines ? await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: false }) : [];
+  const seriesId = input.seriesId?.trim() || null;
+  if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["CREDIT_NOTE"]);
   if (shouldIssue) await ensureCompanyDefaults(actor);
 
   return db.transaction(async (tx) => {
@@ -913,6 +933,7 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
         rectificationDescription: reasonLabel,
         vatTreatment: original.vatTreatment,
         notes: `Rectifica la factura ${original.number}. ${reasonLabel}`,
+        seriesId,
       })
       .returning({ id: invoice.id, number: invoice.number, status: invoice.status });
     await writeLines(tx, created.id, lines, true);
@@ -982,6 +1003,8 @@ export async function duplicateInvoice(actor: InvoiceActor, invoiceId: string, o
         status: "DRAFT",
         vatTreatment: source.vatTreatment,
         notes: source.notes,
+        // Misma serie que la original (al emitir se usa la del ejercicio de la nueva fecha).
+        seriesId: source.seriesId,
       })
       .returning({ id: invoice.id, number: invoice.number, status: invoice.status });
     await replaceInvoicePaymentMethods(tx, created.id, paymentMethods);

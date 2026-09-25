@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         bankTransactionId: parsed.data.bankTransactionId,
       },
     );
-    return NextResponse.json(applied, { status: 201 });
+    return NextResponse.json({ payment: applied.payment, application: applied.application }, { status: 201 });
   } catch (error) {
     // Factura inexistente (404), borrador/anulada (409), saldo superado (400), periodo bloqueado, etc.
     return handleRouteError(error, "invoice-payments.create", "No se pudo registrar el cobro. Inténtalo de nuevo.");

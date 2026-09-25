@@ -53,6 +53,15 @@ npm run db:migrate
 
 Rollback mínimo: restaura snapshot/backup de la base antes del deploy; las migraciones no deben revertirse manualmente en producción sin una migración inversa revisada. Ver [Rollback y backup/restore](#rollback-y-backuprestore).
 
+### Nota de la migración 0031 (roles)
+
+Desde la 0031 el rol **Miembro** puede operar (clientes, facturas, gastos, compras, stock, bancos); antes era de solo lectura, y ese comportamiento lo tiene ahora el rol **Solo lectura** (`VIEWER`). Si una instalación tiene miembros que deben seguir sin poder escribir, ejecuta **después** de aplicar la migración (en una transacción aparte, porque Postgres no permite usar un valor de enum en la misma transacción en que se crea):
+
+```sql
+UPDATE membership SET role = 'VIEWER' WHERE role = 'MEMBER';
+UPDATE invitation SET role = 'VIEWER' WHERE role = 'MEMBER' AND "acceptedAt" IS NULL;
+```
+
 ## Health/readiness
 
 La app expone endpoints JSON seguros para operaciones y balanceadores:
@@ -140,3 +149,12 @@ Las facturas y gastos recurrentes y los recordatorios de cobro automáticos se p
   - `POST` también está disponible, pero pasa por la comprobación CSRF de `src/proxy.ts`: envía además `x-csrf-token: x` y la cookie `csrf-token=x`, o usa `GET`.
 - El envío de emails usa el SMTP de «Integraciones opcionales». Sin SMTP, las recurrencias se generan igualmente (las de «emitir y enviar» quedan emitidas con un aviso) y los recordatorios automáticos no se envían.
 - "Hoy" se calcula en la zona horaria de cada empresa (`company.timezone`, por defecto Europe/Madrid).
+
+## Tesorería: conexión bancaria PSD2 y remesas SEPA
+
+- **Conexión bancaria (GoCardless Bank Account Data, antes Nordigen)**: define `GOCARDLESS_SECRET_ID` y `GOCARDLESS_SECRET_KEY` (panel de GoCardless › *User secrets*) y un `APP_URL` público: el banco devuelve al usuario a `$APP_URL/treasury/bank-connections/callback`. Sin credenciales la pantalla *Tesorería › Conexión con el banco* se muestra desactivada con una explicación.
+  - Los identificadores del proveedor (requisition, acuerdo y cuentas) se guardan cifrados con AES-256-GCM. La clave se deriva de `BANK_CONNECTIONS_ENCRYPTION_KEY` (o, si no existe, de `JWT_SECRET`): si la cambias, hay que volver a conectar los bancos. El token de acceso de GoCardless solo vive en memoria del servidor y se renueva solo.
+  - La sincronización automática la hace el worker de recurrencias (`npm run recurring:worker`) cada `BANK_SYNC_INTERVAL_HOURS` (6 h por defecto; GoCardless permite 4 lecturas de movimientos al día por cuenta). Solo se importan movimientos contabilizados (*booked*), deduplicados por su `transactionId`.
+  - El consentimiento PSD2 dura 90 días: la pantalla avisa 14 días antes y el usuario lo renueva desde allí.
+- **Remesas de cobros (adeudos SEPA CORE, pain.008.001.02)**: cada empresa necesita su *identificador de acreedor SEPA* (Ajustes › Empresa) y un mandato firmado por cliente (ficha del cliente › Domiciliación bancaria). No requiere configuración del servidor.
+- Cambios de esquema de este bloque: columna `company.sepaCreditorId`, tablas `sepa_mandate`, `sepa_direct_debit_remittance`, `sepa_direct_debit_item`, `bank_connection`, `bank_connection_account` y el valor `PSD2` en el check `bank_transaction_import_source_valid`. Genera y aplica la migración (`npm run db:generate` + `npm run db:migrate`).

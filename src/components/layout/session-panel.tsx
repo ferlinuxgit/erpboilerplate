@@ -50,15 +50,15 @@ export function SessionPanel({ className, onNavigate }: { className?: string; on
     >
       <span
         aria-hidden="true"
-        className="grid size-7 shrink-0 place-items-center border border-window-dark-shadow bg-window-highlight font-mono text-[0.65rem] font-black text-primary"
+        className="grid size-7 shrink-0 place-items-center border border-window-dark-shadow bg-window-highlight font-mono text-xs font-black text-primary"
       >
         {user ? initials(user.name) : "··"}
       </span>
       <div className="min-w-0 flex-1 leading-tight">
-        <p className="truncate font-mono text-[0.7rem] font-bold text-window-text" title={user?.email}>
+        <p className="truncate font-mono text-xs font-bold text-window-text" title={user?.email}>
           {user?.name ?? "Sesión activa"}
         </p>
-        <p className="truncate font-mono text-[0.62rem] text-window-muted">
+        <p className="truncate font-mono text-xs text-window-muted">
           {user ? statusLabel(roleLabels, user.role) : "Cargando…"}
         </p>
       </div>

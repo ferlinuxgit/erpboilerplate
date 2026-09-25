@@ -20,6 +20,9 @@ const paymentMethodReferenceSchema = z
 
 const paymentMethodIdsSchema = z.array(paymentMethodReferenceSchema).max(12, "No puedes seleccionar más de 12 formas de pago.");
 
+/** Serie de numeración elegida (vacío o null = la serie por defecto). */
+const seriesIdSchema = z.string().trim().max(80, "La serie seleccionada no es válida.").nullable().optional();
+
 export const invoiceLineSchema = invoiceLineFormSchema;
 
 export const createInvoiceSchema = z.object({
@@ -33,6 +36,7 @@ export const createInvoiceSchema = z.object({
   totalAmount: z.number().optional(),
   notes: z.string().trim().max(2000, "Las notas no pueden superar 2.000 caracteres.").optional().or(z.literal("")),
   vatTreatment: salesVatTreatmentSchema.optional().nullable(),
+  seriesId: seriesIdSchema,
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea."),
   /** "draft" guarda un borrador editable; "issue" (por defecto, compatible con integraciones) emite. */
   mode: z.enum(["draft", "issue"]).optional(),
@@ -58,6 +62,7 @@ export const updateDraftInvoiceSchema = z.object({
   status: invoiceStatusSchema.optional(),
   notes: z.string().trim().max(2000, "Las notas no pueden superar 2.000 caracteres.").optional().or(z.literal("")),
   vatTreatment: salesVatTreatmentSchema.optional().nullable(),
+  seriesId: seriesIdSchema,
   totalAmount: z.number().optional(),
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea.").optional(),
   /** Tras guardar, emitir la factura en la misma operación. */
@@ -77,7 +82,7 @@ export const issuedInvoiceEditSchema = z.object({
 
 /** Campos que siguen siendo editables en una factura emitida. */
 export const ISSUED_EDITABLE_FIELDS = ["notes", "paymentMethodIds", "paymentMethodId"] as const;
-export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "totalAmount"] as const;
+export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "totalAmount", "seriesId"] as const;
 
 export const creditNoteLineSchema = z.object({
   itemId: z.string().trim().optional().nullable(),
@@ -103,6 +108,8 @@ export const createCreditNoteSchema = z.object({
    * SUBSTITUTION: líneas correctas que sustituyen a las de la factura original.
    */
   lines: z.array(creditNoteLineSchema).max(200).optional(),
+  /** Serie de rectificativas elegida (si la empresa tiene varias). Vacío = la serie por defecto. */
+  seriesId: seriesIdSchema,
   /** false guarda la rectificativa como borrador. */
   issue: z.boolean().optional(),
 }).superRefine((value, ctx) => {

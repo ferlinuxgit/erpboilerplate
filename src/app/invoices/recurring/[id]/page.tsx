@@ -9,6 +9,8 @@ import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
+import { db } from "@/lib/db";
+import { listSelectableSeries } from "@/server/documents/series";
 import { formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { issueModeLabels } from "@/server/recurring/schemas";
@@ -28,7 +30,9 @@ export default async function RecurringInvoiceDetailPage({ params }: { params: P
   if (!detail || detail.template.kind !== "SALES_INVOICE") notFound();
   const { template } = detail;
   const canEdit = can(ctx.membership.role, "invoice.create");
-  const customers = canEdit ? await listRecurringCustomerOptions(ctx.company.id) : [];
+  const [customers, invoiceSeries] = canEdit
+    ? await Promise.all([listRecurringCustomerOptions(ctx.company.id), listSelectableSeries(db, ctx.company.id, ctx.fiscalYear.id, "SALES_INVOICE")])
+    : [[], []];
   const currencyCode = ctx.company.baseCurrencyCode;
   const lastPeriod = detail.runs[0]?.periodDate ?? null;
   const issueMode = template.issueMode === "ISSUE" || template.issueMode === "ISSUE_AND_EMAIL" ? template.issueMode : "DRAFT";
@@ -65,6 +69,7 @@ export default async function RecurringInvoiceDetailPage({ params }: { params: P
         <PageSection title="Editar" description="Los cambios se aplican a las próximas facturas; las ya generadas no se modifican.">
           <RecurringInvoiceForm
             customers={customers}
+            invoiceSeries={invoiceSeries}
             generated={{ lastPeriod, count: template.occurrencesGenerated }}
             initial={{
               name: template.name,
@@ -74,6 +79,8 @@ export default async function RecurringInvoiceDetailPage({ params }: { params: P
               issueMode,
               schedule: scheduleDraftFromTemplate(template),
               sourceInvoiceId: template.sourceInvoiceId,
+              seriesId: template.seriesId,
+              vatTreatment: template.vatTreatment,
             }}
             templateId={template.id}
             wasAutomatic={issueMode !== "DRAFT"}

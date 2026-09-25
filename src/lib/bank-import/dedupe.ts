@@ -2,6 +2,31 @@ import type { ImportedMovement, SkippedRow } from "@/lib/bank-import/types";
 
 export type ExistingMovement = { postedAt: Date; amount: string | number; description: string; balanceAfter?: string | number | null };
 
+/**
+ * Deduplicación por identificador del banco (sincronización PSD2): cada movimiento trae un
+ * `transactionId` estable en `reference`. Es duplicado si ya está guardado o si se repite en el
+ * mismo lote; los movimientos sin referencia no se importan (no se podrían deduplicar).
+ */
+export function planReferenceImport(existingReferences: Iterable<string>, incoming: ImportedMovement[]) {
+  const seen = new Set(existingReferences);
+  const toInsert: ImportedMovement[] = [];
+  const duplicates: SkippedRow[] = [];
+  for (const movement of incoming) {
+    const reference = movement.reference?.trim();
+    if (!reference) {
+      duplicates.push({ line: movement.line, reason: "El banco no identificó el movimiento: se omite para no duplicarlo." });
+      continue;
+    }
+    if (seen.has(reference)) {
+      duplicates.push({ line: movement.line, reason: "Ya estaba sincronizado." });
+      continue;
+    }
+    seen.add(reference);
+    toInsert.push(movement);
+  }
+  return { toInsert, duplicates };
+}
+
 function baseKey(postedAt: Date, amount: string | number, description: string) {
   return `${postedAt.getTime()}|${Number(amount).toFixed(2)}|${description.replace(/\s+/g, " ").trim().toLocaleLowerCase("es-ES")}`;
 }

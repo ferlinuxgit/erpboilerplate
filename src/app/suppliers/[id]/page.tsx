@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
+import { SupplierInvoiceDefaultsSummary } from "@/components/suppliers/supplier-invoice-defaults-summary";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -42,9 +43,14 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   const [method] = supplier.paymentMethodId
     ? await db.select({ name: paymentMethod.name }).from(paymentMethod).where(eq(paymentMethod.id, supplier.paymentMethodId)).limit(1)
     : [];
-  const [account] = supplier.defaultAccountId
-    ? await db.select({ code: accountChart.code, name: accountChart.name }).from(accountChart).where(eq(accountChart.id, supplier.defaultAccountId)).limit(1)
-    : [];
+  const [[account], [expenseAccount]] = await Promise.all([
+    supplier.defaultAccountId
+      ? db.select({ code: accountChart.code, name: accountChart.name }).from(accountChart).where(and(eq(accountChart.id, supplier.defaultAccountId), eq(accountChart.companyId, ctx.company.id))).limit(1)
+      : Promise.resolve([]),
+    supplier.defaultExpenseAccountId
+      ? db.select({ code: accountChart.code, name: accountChart.name }).from(accountChart).where(and(eq(accountChart.id, supplier.defaultExpenseAccountId), eq(accountChart.companyId, ctx.company.id))).limit(1)
+      : Promise.resolve([]),
+  ]);
 
   return (
     <PageShell>
@@ -108,16 +114,17 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <Card>
           <CardHeader>
             <CardTitle>Condiciones</CardTitle>
-            <CardDescription>Valores por defecto para facturas recibidas.</CardDescription>
+            <CardDescription>Forma de pago y cuenta del proveedor.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <p>Días de pago: {supplier.paymentTermsDays ?? 30}</p>
             <p>Método: {method?.name ?? "Sin método por defecto"}</p>
-            <p>Cuenta: {account ? `${account.code} - ${account.name}` : "Cuenta por defecto de empresa"}</p>
+            <p>Cuenta del proveedor: {account ? `${account.code} · ${account.name}` : "Cuenta por defecto de la empresa"}</p>
             <p>Moneda: {supplier.currencyCode}</p>
           </CardContent>
         </Card>
       </section>
+
+      <SupplierInvoiceDefaultsSummary editHref={`/suppliers/${supplier.id}/edit`} expenseAccount={expenseAccount ?? null} supplier={supplier} />
 
       <PageSection title="Facturas recientes" description="Últimas facturas recibidas de este proveedor, con o sin pedido asociado.">
         {activity.invoices.length === 0 ? (

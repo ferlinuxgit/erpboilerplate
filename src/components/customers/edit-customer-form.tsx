@@ -7,6 +7,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
 import { CountrySelectField, CustomerBillingFields } from "@/components/customers/customer-billing-fields";
+import { DUNNING_OPT_OUT_HELP, DUNNING_OPT_OUT_LABEL, saveDunningOptOut } from "@/components/customers/dunning-opt-out-toggle";
 import { ViesCheck, type ViesSnapshot } from "@/components/customers/vies-check";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -35,9 +36,21 @@ export type EditCustomerDefaults = {
   equivalenceSurcharge: boolean;
 };
 
-export function EditCustomerForm({ defaults, id, vies }: { id: string; defaults: EditCustomerDefaults; vies?: ViesSnapshot | null }) {
+export function EditCustomerForm({
+  defaults,
+  dunningOptOut,
+  id,
+  vies,
+}: {
+  id: string;
+  defaults: EditCustomerDefaults;
+  vies?: ViesSnapshot | null;
+  /** Exclusión de recordatorios de cobro; `undefined` = el usuario no puede cambiarla (se oculta). */
+  dunningOptOut?: boolean;
+}) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [optOut, setOptOut] = useState(dunningOptOut ?? false);
   const {
     control,
     register,
@@ -78,6 +91,14 @@ export function EditCustomerForm({ defaults, id, vies }: { id: string; defaults:
 
       if (!response.ok) {
         throw new Error(await readApiError(response, "No se pudo actualizar el cliente."));
+      }
+      if (dunningOptOut !== undefined && optOut !== dunningOptOut) {
+        try {
+          await saveDunningOptOut(id, optOut);
+        } catch (optOutError) {
+          // Los datos del cliente ya se guardaron: se avisa solo de la preferencia.
+          toast.error(errorMessage(optOutError, "Cliente guardado, pero no se pudo cambiar la preferencia de recordatorios."));
+        }
       }
 
       toast.success("Cliente actualizado correctamente.");
@@ -133,6 +154,21 @@ export function EditCustomerForm({ defaults, id, vies }: { id: string; defaults:
         </div>
       ) : null}
       <CustomerBillingFields errors={errors} register={register} />
+      {dunningOptOut !== undefined ? (
+        <div className="space-y-1 md:col-span-6" data-testid="customer-edit-dunning-opt-out">
+          <label className="flex items-center gap-2 font-mono text-xs font-bold" htmlFor="customer-dunning-opt-out">
+            <input
+              aria-describedby="customer-dunning-opt-out-help"
+              checked={optOut}
+              id="customer-dunning-opt-out"
+              type="checkbox"
+              onChange={(event) => setOptOut(event.target.checked)}
+            />
+            {DUNNING_OPT_OUT_LABEL}
+          </label>
+          <p className="text-xs text-muted-foreground" id="customer-dunning-opt-out-help">{DUNNING_OPT_OUT_HELP}</p>
+        </div>
+      ) : null}
       <FormErrorMessage className="md:col-span-6">{submitError}</FormErrorMessage>
       <FormActions className="md:col-span-6">
         <SubmitButton pending={isSubmitting}>Guardar cambios</SubmitButton>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterContextLinks, filterNavigationGroups, getContextGroup, isActiveRoute, navGroups, navigationLinks } from "@/components/layout/navigation-config";
+import { contextGroups, filterContextLinks, filterNavigationGroups, getActiveContextHref, getContextGroup, isActiveRoute, navGroups, navigationLinks } from "@/components/layout/navigation-config";
 
 describe("purchase navigation active state", () => {
   const purchaseLinks = {
@@ -79,5 +79,65 @@ describe("navigation adapted to the business and the role", () => {
     expect(navigationLinks.find((link) => link.href === "/fiscal")?.label).toBe("Fiscalidad");
     expect(getContextGroup("/fiscal/calendar")?.label).toBe("Fiscalidad");
     expect(getContextGroup("/reporting")?.links.length).toBeGreaterThan(1);
+  });
+});
+
+describe("context tabs for the newer pages", () => {
+  const activeTab = (pathname: string) => {
+    const group = getContextGroup(pathname);
+    if (!group) return null;
+    const href = getActiveContextHref(pathname, group.links);
+    return group.links.find((link) => link.href === href)?.label ?? null;
+  };
+  const sidebarItem = (pathname: string) => navigationLinks.filter((link) => isActiveRoute(pathname, link.href)).map((link) => link.href);
+
+  it.each([
+    ["/invoices", "Facturas", "/invoices"],
+    ["/invoices/new", "Facturas", "/invoices"],
+    ["/invoices/inv-1", "Facturas", "/invoices"],
+    ["/invoices/collections", "Cobros pendientes", "/invoices"],
+    ["/invoices/collections/settings", "Cobros pendientes", "/invoices"],
+    ["/invoices/recurring", "Recurrentes", "/invoices"],
+    ["/invoices/recurring/new", "Recurrentes", "/invoices"],
+    ["/sales/new", "Presupuestos", "/sales/quotes"],
+    ["/expenses", "Facturas de proveedor", "/expenses"],
+    ["/expenses/exp-1", "Facturas de proveedor", "/expenses"],
+    ["/expenses/inbox", "Bandeja OCR", "/expenses"],
+    ["/expenses/recurring/rec-1", "Recurrentes", "/expenses"],
+    ["/inventory", "Existencias", "/inventory"],
+    ["/inventory/count", "Recuento", "/inventory"],
+    ["/treasury", "Resumen", "/treasury"],
+    ["/treasury/import", "Importar extracto", "/treasury"],
+    ["/treasury/rules", "Reglas", "/treasury"],
+    ["/treasury/remittances/new", "Remesas", "/treasury"],
+    ["/treasury/remittances/rem-1", "Remesas", "/treasury"],
+    ["/treasury/bank-connections", "Conexión bancaria", "/treasury"],
+    ["/treasury/bank-accounts/acc-1", "Cuentas bancarias", "/treasury"],
+    ["/accounting/gestor", "Paquete para el gestor", "/accounting"],
+    ["/accounting", "Resumen", "/accounting"],
+    ["/fiscal", "Modelos", "/fiscal"],
+    ["/fiscal/verifactu", "VERI*FACTU", "/fiscal"],
+    ["/fiscal/glossary", "Glosario", "/fiscal"],
+  ])("%s highlights the «%s» tab and the %s sidebar item only", (pathname, tab, sidebarHref) => {
+    expect(activeTab(pathname)).toBe(tab);
+    expect(sidebarItem(pathname)).toEqual([sidebarHref]);
+  });
+
+  it("never highlights two context tabs at once", () => {
+    for (const group of contextGroups) {
+      for (const link of group.links) {
+        for (const pathname of [link.href, `${link.href}/new`]) {
+          const matches = group.links.filter((candidate) => candidate.href === getActiveContextHref(pathname, group.links));
+          expect(matches.length, pathname).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it("offers the stock count inside Inventario, which stays out of the menu of service businesses", () => {
+    const inventory = getContextGroup("/inventory/count");
+    expect(inventory && filterContextLinks(inventory, { businessType: "products" }).map((link) => link.href)).toContain("/inventory/count");
+    const services = filterNavigationGroups(navGroups, { businessType: "services", role: "OWNER" }).flatMap((group) => group.links.map((link) => link.href));
+    expect(services).not.toContain("/inventory");
   });
 });

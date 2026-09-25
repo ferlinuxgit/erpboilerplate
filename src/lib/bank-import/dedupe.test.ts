@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { planImport } from "@/lib/bank-import/dedupe";
+import { planImport, planReferenceImport } from "@/lib/bank-import/dedupe";
 import type { ImportedMovement } from "@/lib/bank-import/types";
 
 const day = new Date(Date.UTC(2026, 8, 5));
@@ -34,5 +34,21 @@ describe("duplicate detection on import", () => {
     const rows = [movement(2, -12.5, "COMISION", 100), movement(3, -12.5, "COMISION", 87.5)];
     const stored = rows.map((row) => ({ postedAt: row.postedAt, amount: row.amount, description: row.description, balanceAfter: row.balanceAfter }));
     expect(planImport(stored, rows).toInsert).toEqual([]);
+  });
+});
+
+describe("duplicate detection by bank transaction id (PSD2 sync)", () => {
+  const withReference = (line: number, reference: string | null) => ({ ...movement(line, -294, "RECIBO TGSS"), reference });
+
+  it("keeps identical same-day movements with different bank ids and skips the ones already synced", () => {
+    const plan = planReferenceImport(["tx-1"], [withReference(1, "tx-1"), withReference(2, "tx-2"), withReference(3, "tx-3")]);
+    expect(plan.toInsert.map((row) => row.reference)).toEqual(["tx-2", "tx-3"]);
+    expect(plan.duplicates).toEqual([{ line: 1, reason: "Ya estaba sincronizado." }]);
+  });
+
+  it("skips repeated ids inside the same batch and movements without id", () => {
+    const plan = planReferenceImport([], [withReference(1, "tx-9"), withReference(2, "tx-9"), withReference(3, null)]);
+    expect(plan.toInsert).toHaveLength(1);
+    expect(plan.duplicates.map((row) => row.line)).toEqual([2, 3]);
   });
 });

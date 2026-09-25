@@ -5,13 +5,13 @@ import Link from "next/link";
 import { CreateInvoiceForm } from "@/components/create-invoice-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { companySettings, customer, documentSeries, partner, paymentMethod, tax } from "@/db/schema";
+import { companySettings, customer, partner, paymentMethod, tax } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
-import { formatSeriesNumber } from "@/lib/document-series-format";
 import { canManageCustomers, canManageInvoices } from "@/lib/rbac";
+import { listSelectableSeries } from "@/server/documents/series";
 
 export const metadata: Metadata = { title: "Nueva factura" };
 
@@ -44,21 +44,9 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
     .leftJoin(partner, eq(partner.id, customer.partnerId))
     .where(and(eq(customer.companyId, tenantContext.company.id), eq(customer.status, "ACTIVE")))
     .orderBy(asc(customer.name));
-  const [[invoiceSeries], taxes, paymentMethods, [settings]] = await Promise.all([db
-    .select({
-      format: documentSeries.format,
-      nextNumber: documentSeries.nextNumber,
-      prefix: documentSeries.prefix,
-    })
-    .from(documentSeries)
-    .where(
-      and(
-        eq(documentSeries.companyId, tenantContext.company.id),
-        eq(documentSeries.fiscalYearId, tenantContext.fiscalYear.id),
-        eq(documentSeries.type, "SALES_INVOICE"),
-      ),
-    )
-    .limit(1), db.select({
+  const [invoiceSeries, taxes, paymentMethods, [settings]] = await Promise.all([
+    // Series activas de facturas del ejercicio (la de por defecto primero) para el selector y la vista previa.
+    listSelectableSeries(db, tenantContext.company.id, tenantContext.fiscalYear.id, "SALES_INVOICE"), db.select({
       id: tax.id,
       name: tax.name,
       rate: tax.rate,
@@ -73,14 +61,6 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       isDefault: paymentMethod.isDefault,
     }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name)),
     db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, tenantContext.company.id)).limit(1)]);
-  const nextInvoiceNumberPreview = invoiceSeries
-    ? formatSeriesNumber({
-        format: invoiceSeries.format,
-        nextNumber: invoiceSeries.nextNumber,
-        prefix: invoiceSeries.prefix,
-        referenceDate: new Date(`${defaultIssueDate}T12:00:00.000Z`),
-      })
-    : null;
 
   return (
     <PageShell>
@@ -114,7 +94,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}
-            nextInvoiceNumberPreview={nextInvoiceNumberPreview}
+            invoiceSeries={invoiceSeries}
             paymentMethods={paymentMethods}
             taxes={taxes.map((configuredTax) => ({
               ...configuredTax,

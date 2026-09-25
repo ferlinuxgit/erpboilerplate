@@ -25,7 +25,7 @@ export function CommandPaletteButton({ className, compact = false, onOpen }: { c
   return (
     <Button aria-keyshortcuts="Control+K Meta+K" className={cn("justify-between text-window-muted", className)} onClick={() => { onOpen?.(); openCommandPalette(); }} type="button" variant="outline">
       <span className="flex items-center gap-2"><MagnifyingGlass aria-hidden="true" />{compact ? "Buscar" : "Buscar o crear…"}</span>
-      {!compact ? <kbd className="border border-window-shadow bg-window-panel px-1 py-0.5 font-mono text-[0.58rem] text-window-muted">CTRL K</kbd> : null}
+      {!compact ? <kbd className="border border-window-shadow bg-window-panel px-1 py-0.5 font-mono text-xs text-window-muted">CTRL K</kbd> : null}
     </Button>
   );
 }
@@ -215,7 +215,7 @@ export function GlobalCommandPalette() {
           value={query}
         />
       </div>
-      <p className="mt-1 font-mono text-[0.6rem] text-window-muted" id="global-command-help">
+      <p className="mt-1 font-mono text-xs text-window-muted" id="global-command-help">
         ↑↓ seleccionar · Enter abrir · Esc cerrar{isSearching ? " · Buscando registros…" : ""}
       </p>
       <p aria-live="polite" className="sr-only">
@@ -224,7 +224,7 @@ export function GlobalCommandPalette() {
       <div aria-label="Resultados" className="mt-2 max-h-[24rem] space-y-3 overflow-y-auto pr-1" id="global-command-results" role="listbox">
         {sections.map((section, sectionIndex) => (
           <div aria-labelledby={`global-command-group-${section.id}`} key={section.id} role="group">
-            <p className="mb-1 border-b border-window-shadow pb-0.5 font-mono text-[0.62rem] font-bold uppercase tracking-[0.08em] text-window-muted" id={`global-command-group-${section.id}`} role="presentation">
+            <p className="mb-1 border-b border-window-shadow pb-0.5 font-mono text-xs font-bold uppercase tracking-[0.08em] text-window-muted" id={`global-command-group-${section.id}`} role="presentation">
               {section.title}
             </p>
             <div className="grid gap-px border border-window-dark-shadow bg-window-dark-shadow sm:grid-cols-2">
@@ -252,10 +252,10 @@ export function GlobalCommandPalette() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-bold">{item.label}</span>
-                      {item.description ? <span className="block truncate text-[0.68rem] opacity-75">{item.description}</span> : null}
+                      {item.description ? <span className="block truncate text-xs opacity-75">{item.description}</span> : null}
                     </span>
                     {keyboardMode && item.code ? (
-                      <kbd className="shrink-0 border border-window-shadow px-1 font-mono text-[0.6rem] opacity-75" title={`Atajo: G y después ${item.code}`}>G {item.code}</kbd>
+                      <kbd className="shrink-0 border border-window-shadow px-1 font-mono text-xs opacity-75" title={`Atajo: G y después ${item.code}`}>G {item.code}</kbd>
                     ) : null}
                   </div>
                 );

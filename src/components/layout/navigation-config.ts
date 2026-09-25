@@ -115,7 +115,18 @@ export type ContextGroup = {
   roots: string[];
   label: string;
   code: string;
-  links: Array<{ href: string; label: string; exact?: boolean; keywords?: string; productsOnly?: boolean }>;
+  links: ContextLink[];
+};
+
+export type ContextLink = {
+  href: string;
+  label: string;
+  /** Solo activa en la ruta exacta (p. ej. "Resumen" en `/treasury`). */
+  exact?: boolean;
+  keywords?: string;
+  productsOnly?: boolean;
+  /** Nombre completo en la paleta de comandos cuando la pestaña es ambigua fuera de su grupo ("Recurrentes"). */
+  commandLabel?: string;
 };
 
 export const contextGroups: ContextGroup[] = [
@@ -129,8 +140,8 @@ export const contextGroups: ContextGroup[] = [
       { href: "/sales/orders", label: "Pedidos" },
       { href: "/sales/delivery-notes", label: "Albaranes", productsOnly: true },
       { href: "/invoices", label: "Facturas" },
-      { href: "/invoices/recurring", label: "Recurrentes", keywords: "facturas recurrentes periódicas cuotas mensuales suscripción" },
-      { href: "/invoices/collections", label: "Cobros pendientes", keywords: "recordatorio reclamar cobro vencidas morosos antigüedad deuda" },
+      { href: "/invoices/collections", label: "Cobros pendientes", keywords: "recordatorio recordar reclamar cobro cobros vencidas morosos antigüedad deuda impagadas dunning" },
+      { href: "/invoices/recurring", label: "Recurrentes", commandLabel: "Facturas recurrentes", keywords: "facturas recurrentes recurrente periódicas cuotas mensuales suscripción iguala" },
     ],
   },
   {
@@ -141,8 +152,9 @@ export const contextGroups: ContextGroup[] = [
       { href: "/suppliers", label: "Proveedores" },
       { href: "/purchases/orders", label: "Pedidos" },
       { href: "/purchases/receipts", label: "Recepciones", productsOnly: true },
-      { href: "/expenses", label: "Gastos y facturas recibidas" },
-      { href: "/expenses/recurring", label: "Gastos recurrentes", keywords: "alquiler cuota autónomos seguridad social suscripción periódico" },
+      { href: "/expenses", label: "Facturas de proveedor", keywords: "gastos facturas recibidas tickets" },
+      { href: "/expenses/inbox", label: "Bandeja OCR", commandLabel: "Bandeja OCR de facturas recibidas", keywords: "bandeja ocr escanear subir pdf foto revisar facturas recibidas lote" },
+      { href: "/expenses/recurring", label: "Recurrentes", commandLabel: "Gastos recurrentes", keywords: "gastos recurrentes recurrente alquiler cuota autónomos seguridad social suscripción periódico" },
       { href: "/purchases/payments", label: "Pagos" },
     ],
   },
@@ -155,6 +167,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/inventory/items", label: "Artículos", keywords: "productos servicios catálogo precios" },
       { href: "/inventory/warehouses", label: "Almacenes" },
       { href: "/inventory/movements", label: "Movimientos de stock", keywords: "entradas salidas ajustes traspasos" },
+      { href: "/inventory/count", label: "Recuento", commandLabel: "Recuento de inventario", keywords: "recuento inventario físico contar existencias diferencias ajuste" },
     ],
   },
   {
@@ -166,6 +179,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/accounting/accounts", label: "Plan contable", keywords: "pgc cuentas 572 430 400" },
       { href: "/accounting/entries", label: "Asientos", keywords: "libro diario apuntes" },
       { href: "/accounting/reports", label: "Estados financieros", keywords: "balance pérdidas y ganancias resultado sumas y saldos" },
+      { href: "/accounting/gestor", label: "Paquete para el gestor", keywords: "gestor gestoría asesor exportar enviar zip trimestre cierre documentación" },
     ],
   },
   {
@@ -176,7 +190,11 @@ export const contextGroups: ContextGroup[] = [
       { href: "/treasury", label: "Resumen", exact: true },
       { href: "/treasury/bank-accounts", label: "Cuentas bancarias", keywords: "banco iban" },
       { href: "/treasury/bank-transactions", label: "Movimientos bancarios", keywords: "extracto importar csv banco" },
+      { href: "/treasury/import", label: "Importar extracto", commandLabel: "Importar extracto bancario", keywords: "importar extracto norma 43 n43 cuaderno 43 csv excel banco movimientos" },
       { href: "/treasury/reconciliation", label: "Conciliación", keywords: "conciliar casar punteo banco cobros pagos" },
+      { href: "/treasury/rules", label: "Reglas", commandLabel: "Reglas de conciliación", keywords: "reglas automáticas conciliación categorizar banco" },
+      { href: "/treasury/remittances", label: "Remesas", commandLabel: "Remesas SEPA", keywords: "remesa remesas sepa pagos cobros domiciliación recibos adeudos transferencias xml devolución devoluciones" },
+      { href: "/treasury/bank-connections", label: "Conexión bancaria", keywords: "conectar banco psd2 open banking sincronizar automática agregador" },
       { href: "/treasury/forecast", label: "Previsión", keywords: "previsión de tesorería liquidez futuro dinero" },
     ],
   },
@@ -189,6 +207,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos vencimientos trimestre fechas hacienda" },
       { href: "/fiscal/verifactu", label: "VERI*FACTU", keywords: "verifactu registro aeat facturación antifraude" },
       { href: "/fiscal/settings", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo" },
+      { href: "/fiscal/glossary", label: "Glosario", commandLabel: "Glosario fiscal", keywords: "glosario ayuda qué es términos 303 555 recargo irpf devolución" },
     ],
   },
   {
@@ -252,6 +271,19 @@ export function filterContextLinks(group: ContextGroup, audience: NavigationAudi
 export function isActiveRoute(pathname: string, href: string) {
   if (href === "/sales/quotes" && (pathname === "/sales/new" || pathname.startsWith("/sales/new/"))) return true;
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * Pestaña de contexto activa: la más específica que coincide. Así "Recurrentes"
+ * (`/invoices/recurring/…`) no enciende también "Facturas" (`/invoices`).
+ */
+export function getActiveContextHref(pathname: string, links: readonly Pick<ContextLink, "href" | "exact">[]): string | null {
+  let best: string | null = null;
+  for (const link of links) {
+    const matches = link.exact ? pathname === link.href : isActiveRoute(pathname, link.href);
+    if (matches && (best === null || link.href.length > best.length)) best = link.href;
+  }
+  return best;
 }
 
 export function getContextGroup(pathname: string) {

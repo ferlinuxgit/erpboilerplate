@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
     ensureCompanyDefaults: vi.fn(async () => undefined),
     createExpenseInvoice: vi.fn(),
     sendInvoiceEmail: vi.fn(),
+    resolveCustomerBillingDefaults: vi.fn(async () => ({ countryCode: "ES", termsDays: 30, vatTreatment: "DOMESTIC", retentionRate: null, equivalenceSurcharge: false, paymentMethodIds: [] })),
   };
 });
 
@@ -58,14 +59,13 @@ vi.mock("@/server/invoices/service", () => ({
   ensureCompanyDefaults: mocks.ensureCompanyDefaults,
   issueInvoiceInTransaction: mocks.issueInvoiceInTransaction,
   loadStoredLines: vi.fn(async () => []),
-  resolveCustomerBillingDefaults: vi.fn(async () => ({ countryCode: "ES", termsDays: 30, vatTreatment: "DOMESTIC", retentionRate: null, equivalenceSurcharge: false, paymentMethodIds: [] })),
+  resolveCustomerBillingDefaults: mocks.resolveCustomerBillingDefaults,
 }));
 vi.mock("@/server/invoice-email/service", () => ({ sendInvoiceEmail: mocks.sendInvoiceEmail }));
-vi.mock("@/server/sales/service", () => ({ mapSalesLineTaxes: vi.fn(() => []) }));
 vi.mock("@/server/supplier-invoices/service", () => ({ createExpenseInvoice: mocks.createExpenseInvoice }));
 
 import { HttpError } from "@/lib/http";
-import { runDueRecurringTemplates } from "@/server/recurring/service";
+import { recurringExpenseDueDate, runDueRecurringTemplates } from "@/server/recurring/service";
 
 const now = new Date("2026-09-25T08:00:00.000Z");
 
@@ -210,7 +210,8 @@ describe("runDueRecurringTemplates", () => {
   it("gasto en modo registrar: usa una clave de idempotencia por plantilla y periodo", async () => {
     const row = template({ issueMode: "POST" });
     mocks.createExpenseInvoice.mockResolvedValue({ id: "si-1", number: "FR-1" });
-    mocks.queues.select.push([candidate(row)], [{ id: "fy-2026" }], [row], [{ ...row, nextRunDate: "2026-10-01" }]);
+    // candidatos, ejercicio fiscal, días de pago del proveedor, bloqueo, recarga
+    mocks.queues.select.push([candidate(row)], [{ id: "fy-2026" }], [{ paymentTermsDays: 30 }], [row], [{ ...row, nextRunDate: "2026-10-01" }]);
     mocks.queues.insert.push([{ id: "run-1" }]);
 
     const summary = await runDueRecurringTemplates({ now });
@@ -218,5 +219,110 @@ describe("runDueRecurringTemplates", () => {
     expect(summary.generated).toBe(1);
     expect(mocks.createExpenseInvoice).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: "recurring:tpl-1:2026-09-01", supplierPartnerId: "sup-1", fiscalYearId: "fy-2026" }));
     expect(insertedValues()[0]).toMatchObject({ status: "GENERATED", supplierInvoiceId: "si-1", payload: null });
+  });
+
+  it("gasto con varias líneas: registra todas (cuenta, IVA, IRPF y % deducible por línea) con el vencimiento del proveedor", async () => {
+    const row = template({
+      issueMode: "POST",
+      lines: [
+        { description: "Alquiler {mes}", quantity: 1, unitPrice: 650, taxRate: 21, retentionRate: 19, expenseAccountId: "acc-621", taxDeductiblePct: 100 },
+        { description: "Comunidad {mes}", quantity: 1, unitPrice: 40, taxRate: 0, retentionRate: 0, expenseAccountId: "acc-622", taxDeductiblePct: 100 },
+        { description: "Plaza de garaje", quantity: 1, unitPrice: 90, taxRate: 21, retentionRate: 0, expenseAccountId: "acc-621", taxDeductiblePct: 50 },
+      ],
+    });
+    mocks.createExpenseInvoice.mockResolvedValueOnce({ id: "si-2", number: "FR-2" });
+    mocks.queues.select.push([candidate(row)], [{ id: "fy-2026" }], [{ paymentTermsDays: 15 }], [row], [{ ...row, nextRunDate: "2026-10-01" }]);
+    mocks.queues.insert.push([{ id: "run-2" }]);
+
+    await runDueRecurringTemplates({ now });
+
+    const input = mocks.createExpenseInvoice.mock.calls[0]?.[0] as { lines: Array<Record<string, unknown>>; dueDate?: Date };
+    expect(input.lines).toEqual([
+      { description: "Alquiler septiembre", quantity: 1, unitPrice: 650, taxRate: 21, retentionRate: 19, taxDeductiblePct: 100, expenseAccountId: "acc-621" },
+      { description: "Comunidad septiembre", quantity: 1, unitPrice: 40, taxRate: 0, retentionRate: 0, taxDeductiblePct: 100, expenseAccountId: "acc-622" },
+      { description: "Plaza de garaje", quantity: 1, unitPrice: 90, taxRate: 21, retentionRate: 0, taxDeductiblePct: 50, expenseAccountId: "acc-621" },
+    ]);
+    expect(input.dueDate).toEqual(new Date("2026-09-16T12:00:00.000Z"));
+  });
+
+  it("gasto de un proveedor sin días de pago: no inventa vencimiento", async () => {
+    const row = template({ issueMode: "POST" });
+    mocks.createExpenseInvoice.mockResolvedValueOnce({ id: "si-3", number: "FR-3" });
+    mocks.queues.select.push([candidate(row)], [{ id: "fy-2026" }], [{ paymentTermsDays: null }], [row], [{ ...row, nextRunDate: "2026-10-01" }]);
+    mocks.queues.insert.push([{ id: "run-3" }]);
+
+    await runDueRecurringTemplates({ now });
+
+    expect(mocks.createExpenseInvoice.mock.calls[0]?.[0]).not.toHaveProperty("dueDate");
+  });
+
+  it("factura: copia los impuestos exactos de cada línea (recargo y retención distinta por línea), la serie y el tratamiento de IVA", async () => {
+    const row = template({
+      kind: "SALES_INVOICE",
+      customerId: "cus-1",
+      supplierPartnerId: null,
+      seriesId: "series-tickets",
+      vatTreatment: "DOMESTIC",
+      lines: [
+        {
+          description: "Género {mes}",
+          quantity: 2,
+          unitPrice: 100,
+          taxRate: 21,
+          retentionRate: 0,
+          taxes: [
+            { taxId: "tax-iva21", name: "IVA 21 %", rate: 21, kind: "VAT", operation: "ADD" },
+            { taxId: "tax-re52", name: "Recargo 5,2 %", rate: 5.2, kind: "SURCHARGE", operation: "ADD" },
+          ],
+        },
+        {
+          description: "Asesoría",
+          quantity: 1,
+          unitPrice: 300,
+          taxRate: 21,
+          retentionRate: 15,
+          taxes: [
+            { taxId: "tax-iva21", name: "IVA 21 %", rate: 21, kind: "VAT", operation: "ADD" },
+            { taxId: "tax-irpf15", name: "IRPF 15 %", rate: 15, kind: "WITHHOLDING", operation: "SUBTRACT" },
+          ],
+        },
+      ],
+    });
+    const companyTaxes = [
+      { id: "tax-iva21", name: "IVA 21 %", rate: "21.000", kind: "VAT", operation: "ADD", isDefault: true, isActive: true },
+      { id: "tax-re52", name: "Recargo 5,2 %", rate: "5.200", kind: "SURCHARGE", operation: "ADD", isDefault: false, isActive: true },
+      { id: "tax-irpf15", name: "IRPF 15 %", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT", isDefault: false, isActive: true },
+    ];
+    mocks.queues.select.push([candidate(row)], [{ id: "fy-2026" }], [row], companyTaxes, [{ ...row, nextRunDate: "2026-10-01" }]);
+    mocks.queues.insert.push([{ id: "run-1" }]);
+
+    await runDueRecurringTemplates({ now });
+
+    const draft = (mocks.createDraftInvoiceInTransaction.mock.calls[0] as unknown[] | undefined)?.[2] as { lines: Array<{ taxes: Array<{ id: string | null; rate: number; kind: string }> }>; seriesId: string; vatTreatment: string };
+    expect(draft.seriesId).toBe("series-tickets");
+    expect(draft.vatTreatment).toBe("DOMESTIC");
+    expect(draft.lines[0]?.taxes.map((tax) => [tax.id, tax.kind, tax.rate])).toEqual([["tax-iva21", "VAT", 21], ["tax-re52", "SURCHARGE", 5.2]]);
+    expect(draft.lines[1]?.taxes.map((tax) => [tax.id, tax.kind, tax.rate])).toEqual([["tax-iva21", "VAT", 21], ["tax-irpf15", "WITHHOLDING", 15]]);
+  });
+
+  it("factura antigua (solo IVA e IRPF): añade el recargo si el cliente está en recargo de equivalencia", async () => {
+    const row = template({ kind: "SALES_INVOICE", customerId: "cus-1", supplierPartnerId: null, lines: [{ description: "Género", quantity: 1, unitPrice: 100, taxRate: 10, retentionRate: 0 }] });
+    mocks.resolveCustomerBillingDefaults.mockResolvedValueOnce({ countryCode: "ES", termsDays: 30, vatTreatment: "DOMESTIC", retentionRate: null, equivalenceSurcharge: true, paymentMethodIds: [] });
+    mocks.queues.select.push([candidate(row)], [{ id: "fy-2026" }], [row], [], [{ ...row, nextRunDate: "2026-10-01" }]);
+    mocks.queues.insert.push([{ id: "run-1" }]);
+
+    await runDueRecurringTemplates({ now });
+
+    const draft = (mocks.createDraftInvoiceInTransaction.mock.calls[0] as unknown[] | undefined)?.[2] as { lines: Array<{ taxes: Array<{ kind: string; rate: number }> }>; vatTreatment: string | null };
+    expect(draft.lines[0]?.taxes.map((tax) => [tax.kind, tax.rate])).toEqual([["VAT", 10], ["SURCHARGE", 1.4]]);
+    expect(draft.vatTreatment).toBeNull();
+  });
+});
+
+describe("recurringExpenseDueDate", () => {
+  it("suma los días de pago del proveedor a la fecha del periodo", () => {
+    expect(recurringExpenseDueDate("2026-01-31", 30)).toEqual(new Date("2026-03-02T12:00:00.000Z"));
+    expect(recurringExpenseDueDate("2026-09-01", 0)).toEqual(new Date("2026-09-01T12:00:00.000Z"));
+    expect(recurringExpenseDueDate("2026-09-01", null)).toBeUndefined();
   });
 });

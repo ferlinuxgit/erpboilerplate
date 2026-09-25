@@ -7,7 +7,9 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { customer, partner } from "@/db/schema";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
+import { isCustomerDunningOptedOut } from "@/server/dunning/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -60,6 +62,8 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
     .limit(1);
   if (!rows[0]) notFound();
   const data = rows[0];
+  // Preferencia de recordatorios de cobro (misma que en «Cobros pendientes»): solo si puede cambiarla.
+  const dunningOptOut = can(ctx.membership.role, "invoice.write") ? await isCustomerDunningOptedOut(ctx.company.id, data.id) : undefined;
 
   return (
     <PageShell>
@@ -96,6 +100,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
             equivalenceSurcharge: data.equivalenceSurcharge,
           }}
           vies={{ status: data.viesStatus, name: data.viesName, checkedAt: data.viesCheckedAt }}
+          dunningOptOut={dunningOptOut}
         />
       </PageSection>
     </PageShell>

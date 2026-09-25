@@ -1,8 +1,8 @@
 import ExcelJS from "exceljs";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
 import { bankAccount, bankTransaction } from "@/db/schema";
-import { planImport } from "@/lib/bank-import/dedupe";
+import { planImport, planReferenceImport } from "@/lib/bank-import/dedupe";
 import { looksLikeNorma43, matchesSpanishIban, parseNorma43, type Norma43Result } from "@/lib/bank-import/norma43";
 import { applyMapping, decodeText, guessMapping, parseDelimited, validateMapping, type BankImportMapping } from "@/lib/bank-import/tabular";
 import type { ImportedMovement, SkippedRow } from "@/lib/bank-import/types";
@@ -222,20 +222,36 @@ export async function commitBankImport(
   };
 }
 
-/** Inserta movimientos ya leídos: deduplicación (ver `planImport`) y periodos bloqueados por fila. */
-export async function importMovements(actor: Omit<TreasuryActor, "activeFiscalYearId">, bankAccountId: string, movements: ImportedMovement[], importSource: StatementFormat) {
+/**
+ * Inserta movimientos ya leídos: deduplicación y periodos bloqueados por fila.
+ * - Extractos (CSV/Excel/Norma 43): por fecha, importe, concepto y saldo (ver `planImport`).
+ * - PSD2: por el identificador del banco guardado en `reference` (ver `planReferenceImport`).
+ */
+export async function importMovements(actor: Omit<TreasuryActor, "activeFiscalYearId">, bankAccountId: string, movements: ImportedMovement[], importSource: StatementFormat | "PSD2") {
   if (movements.length === 0) return { importedIds: [] as string[], duplicates: [] as SkippedRow[], locked: [] as SkippedRow[] };
   const times = movements.map((movement) => movement.postedAt.getTime());
   return db.transaction(async (tx) => {
-    const existing = await tx
-      .select({ postedAt: bankTransaction.postedAt, amount: bankTransaction.amount, description: bankTransaction.description, balanceAfter: bankTransaction.balanceAfter })
-      .from(bankTransaction)
-      .where(and(
-        eq(bankTransaction.bankAccountId, bankAccountId),
-        gte(bankTransaction.postedAt, new Date(Math.min(...times))),
-        lte(bankTransaction.postedAt, new Date(Math.max(...times))),
-      ));
-    const plan = planImport(existing, movements);
+    let plan: { toInsert: ImportedMovement[]; duplicates: SkippedRow[] };
+    if (importSource === "PSD2") {
+      const references = [...new Set(movements.map((movement) => movement.reference?.trim()).filter((value): value is string => Boolean(value)))];
+      const existing = references.length
+        ? await tx
+          .select({ reference: bankTransaction.reference })
+          .from(bankTransaction)
+          .where(and(eq(bankTransaction.bankAccountId, bankAccountId), eq(bankTransaction.importSource, "PSD2"), inArray(bankTransaction.reference, references)))
+        : [];
+      plan = planReferenceImport(existing.map((row) => row.reference ?? ""), movements);
+    } else {
+      const existing = await tx
+        .select({ postedAt: bankTransaction.postedAt, amount: bankTransaction.amount, description: bankTransaction.description, balanceAfter: bankTransaction.balanceAfter })
+        .from(bankTransaction)
+        .where(and(
+          eq(bankTransaction.bankAccountId, bankAccountId),
+          gte(bankTransaction.postedAt, new Date(Math.min(...times))),
+          lte(bankTransaction.postedAt, new Date(Math.max(...times))),
+        ));
+      plan = planImport(existing, movements);
+    }
     const importedIds: string[] = [];
     const locked: SkippedRow[] = [];
     const lockByDay = new Map<number, string | null>();

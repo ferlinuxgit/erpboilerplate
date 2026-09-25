@@ -37,6 +37,7 @@ vi.mock("@/server/treasury/bank-payments", () => ({
   removeTreasurySupplierPayment: mocks.removeTreasurySupplierPayment,
 }));
 vi.mock("@/server/treasury/reconciliation", () => ({ unreconcileBankTransaction: mocks.unreconcileBankTransaction }));
+vi.mock("@/server/sepa/direct-debits", () => ({ returnedItemForMovement: vi.fn(async () => null) }));
 vi.mock("@/server/treasury/rules", () => ({ createReconciliationRule: mocks.createReconciliationRule }));
 vi.mock("@/server/invoices/sql", () => ({}));
 

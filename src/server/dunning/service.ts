@@ -151,6 +151,16 @@ export async function sendPaymentRemindersBulk(actor: EmailActor, invoiceIds: st
   return results;
 }
 
+/** ¿El cliente está excluido de los recordatorios de cobro? (mismo dato que la lista de cobros). */
+export async function isCustomerDunningOptedOut(companyId: string, customerId: string) {
+  const [row] = await db
+    .select({ id: dunningCustomerOptOut.id })
+    .from(dunningCustomerOptOut)
+    .where(and(eq(dunningCustomerOptOut.companyId, companyId), eq(dunningCustomerOptOut.customerId, customerId)))
+    .limit(1);
+  return Boolean(row);
+}
+
 export async function setCustomerDunningOptOut(actor: { tenantId: string; companyId: string; actorUserId: string }, customerId: string, optOut: boolean) {
   const [owned] = await db
     .select({ id: customer.id, name: customer.name })

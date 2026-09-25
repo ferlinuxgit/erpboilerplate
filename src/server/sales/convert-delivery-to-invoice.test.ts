@@ -158,7 +158,11 @@ vi.mock("@/lib/db", () => {
 });
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSalesInvoice: mocks.postSalesInvoice, postCreditNote: mocks.postCreditNote }));
-vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: mocks.reserveSeriesNumber }));
+vi.mock("@/server/documents/series", () => ({
+  reserveSeriesNumber: mocks.reserveSeriesNumber,
+  reserveSeriesNumberDetailed: async (...args: unknown[]) => ({ number: await (mocks.reserveSeriesNumber as (...callArgs: unknown[]) => Promise<string>)(...args), seriesId: "series-default" }),
+  assertSelectableSeries: vi.fn(async () => ({ id: "series-default" })),
+}));
 vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: mocks.assertFiscalPeriodOpen }));
 vi.mock("@/server/company/defaults", () => ({ getCompanyDefaultsStatus: vi.fn(async () => ({ ready: true, groups: [] })) }));
 vi.mock("@/server/seeds/apply", () => ({ applyCompanyTemplate: vi.fn(async () => undefined) }));

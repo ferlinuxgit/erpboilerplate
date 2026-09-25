@@ -7,6 +7,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, InlineAlert, PageHeader, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
+import { db } from "@/lib/db";
+import { listSelectableSeries } from "@/server/documents/series";
 import { todayDateInput } from "@/server/invoices/due-dates";
 import { occurrenceDate } from "@/server/recurring/schedule";
 import { listRecurringCustomerOptions, recurringPrefillFromInvoice } from "@/server/recurring/service";
@@ -19,9 +21,10 @@ export default async function NewRecurringInvoicePage({ searchParams }: { search
   const query = await searchParams;
   const invoiceId = Array.isArray(query.invoiceId) ? query.invoiceId[0] : query.invoiceId;
   const today = todayDateInput(ctx.company.timezone || undefined);
-  const [customers, prefill] = await Promise.all([
+  const [customers, prefill, invoiceSeries] = await Promise.all([
     listRecurringCustomerOptions(ctx.company.id),
     invoiceId ? recurringPrefillFromInvoice(ctx.company.id, invoiceId) : Promise.resolve(null),
+    listSelectableSeries(db, ctx.company.id, ctx.fiscalYear.id, "SALES_INVOICE"),
   ]);
   // Desde una factura, la primera emisión propuesta es el mismo día del mes siguiente (la actual ya existe).
   const startDate = prefill ? occurrenceDate({ startDate: today, dayOfMonth: Number(today.slice(8, 10)), intervalMonths: 1 }, 1) : today;
@@ -33,6 +36,8 @@ export default async function NewRecurringInvoicePage({ searchParams }: { search
     issueMode: "DRAFT",
     schedule: defaultScheduleDraft(startDate),
     sourceInvoiceId: prefill?.sourceInvoiceId ?? null,
+    seriesId: prefill?.seriesId ?? null,
+    vatTreatment: prefill?.vatTreatment ?? null,
   };
 
   return (
@@ -51,7 +56,7 @@ export default async function NewRecurringInvoicePage({ searchParams }: { search
           title="Todavía no hay clientes"
         />
       ) : (
-        <RecurringInvoiceForm customers={customers} initial={initial} />
+        <RecurringInvoiceForm customers={customers} initial={initial} invoiceSeries={invoiceSeries} />
       )}
     </PageShell>
   );

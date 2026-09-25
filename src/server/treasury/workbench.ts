@@ -11,6 +11,8 @@ import {
   invoicePayment,
   partner,
   payment,
+  sepaDirectDebitItem,
+  sepaDirectDebitRemittance,
   sepaRemittance,
   sepaRemittanceItem,
   supplierInvoice,
@@ -48,6 +50,7 @@ import {
   type RuleCandidate,
   type Suggestion,
 } from "@/server/treasury/matching";
+import { returnedItemForMovement } from "@/server/sepa/direct-debits";
 import { unreconcileBankTransaction } from "@/server/treasury/reconciliation";
 import { createReconciliationRule, type RulePayload } from "@/server/treasury/rules";
 
@@ -79,7 +82,11 @@ export type WorkbenchMovement = {
 
 export type WorkbenchInvoiceOption = OpenInvoiceCandidate & { href: string };
 
-async function usedPaymentIds(client: DbClient, companyId: string) {
+/**
+ * Cobros (invoicePayment) y pagos (supplierInvoicePayment) ya conciliados con algún movimiento:
+ * por la columna del movimiento (conciliación antigua 1:1) o por una partida de la mesa.
+ */
+export async function usedPaymentIds(client: DbClient, companyId: string) {
   const [matched, allocated] = await Promise.all([
     client
       .select({ invoicePaymentId: bankTransaction.matchedInvoicePaymentId, supplierPaymentId: bankTransaction.matchedSupplierPaymentId })
@@ -171,11 +178,16 @@ async function listCandidatePayments(companyId: string, from: Date, to: Date): P
         partnerName: customer.name,
         amount: invoicePayment.amountApplied,
         postedAt: payment.postedAt,
+        // Cobros de una remesa de adeudos cobrada: el banco abona el total en un único apunte.
+        remittanceId: sepaDirectDebitRemittance.id,
+        remittanceNumber: sepaDirectDebitRemittance.number,
       })
       .from(invoicePayment)
       .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
       .innerJoin(invoice, eq(invoice.id, invoicePayment.invoiceId))
       .innerJoin(customer, eq(customer.id, invoice.customerId))
+      .leftJoin(sepaDirectDebitItem, eq(sepaDirectDebitItem.paymentId, payment.id))
+      .leftJoin(sepaDirectDebitRemittance, and(eq(sepaDirectDebitRemittance.id, sepaDirectDebitItem.remittanceId), eq(sepaDirectDebitRemittance.status, "COLLECTED")))
       .where(and(eq(invoicePayment.companyId, companyId), gte(payment.postedAt, from), lte(payment.postedAt, to))),
     db
       .select({
@@ -200,6 +212,43 @@ async function listCandidatePayments(companyId: string, from: Date, to: Date): P
     ...customerRows.filter((row) => !used.customer.has(row.id)).map((row) => ({ ...row, kind: "customer" as const, amount: Number(row.amount) })),
     ...supplierRows.filter((row) => !used.supplier.has(row.id)).map((row) => ({ ...row, kind: "supplier" as const, amount: Number(row.amount) })),
   ];
+}
+
+/**
+ * Candidatos para conciliar a mano un movimiento pendiente con un cobro/pago ya registrado del
+ * mismo importe (API antigua `GET /api/treasury/reconcile`). Excluye los ya conciliados con otro
+ * movimiento, tanto 1:1 como repartidos en la mesa de conciliación.
+ */
+export async function listManualMatchCandidates(companyId: string, transactionId: string) {
+  const [row] = await db
+    .select({ id: bankTransaction.id, amount: bankTransaction.amount, status: bankTransaction.reconciliationStatus })
+    .from(bankTransaction)
+    .innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
+    .where(and(eq(bankTransaction.id, transactionId), eq(bankAccount.companyId, companyId)))
+    .limit(1);
+  if (!row) return null;
+  const kind: "customer" | "supplier" = Number(row.amount) >= 0 ? "customer" : "supplier";
+  if (row.status === "RECONCILED") return { kind, candidates: [] };
+  const amount = (Math.abs(toCents(row.amount)) / 100).toFixed(2);
+  const used = await usedPaymentIds(db, companyId);
+  if (kind === "customer") {
+    const rows = await db
+      .select({ id: invoicePayment.id, number: payment.number, counterparty: customer.name, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
+      .from(invoicePayment)
+      .innerJoin(invoice, eq(invoice.id, invoicePayment.invoiceId))
+      .innerJoin(customer, eq(customer.id, invoice.customerId))
+      .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
+      .where(and(eq(invoicePayment.companyId, companyId), eq(invoicePayment.amountApplied, amount)));
+    return { kind, candidates: rows.filter((candidate) => !used.customer.has(candidate.id)) };
+  }
+  const rows = await db
+    .select({ id: supplierInvoicePayment.id, number: supplierPayment.number, counterparty: partner.name, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
+    .from(supplierInvoicePayment)
+    .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoicePayment.supplierInvoiceId))
+    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
+    .where(and(eq(supplierInvoicePayment.companyId, companyId), eq(supplierInvoicePayment.amountApplied, amount)));
+  return { kind, candidates: rows.filter((candidate) => !used.supplier.has(candidate.id)) };
 }
 
 export async function listRuleCandidates(companyId: string, client: DbClient = db): Promise<RuleCandidate[]> {
@@ -493,6 +542,10 @@ export function applyAllocations(actor: TreasuryActor, input: ApplyAllocationsIn
 export async function undoReconciliationInTx(client: DbClient, actor: Omit<TreasuryActor, "activeFiscalYearId">, transactionId: string, now = new Date()) {
   const movement = await lockPendingMovement(client, actor.companyId, transactionId);
   if (movement.status !== "RECONCILED") throw new AccountingRuleError(409, "NOT_RECONCILED", "El movimiento ya está pendiente de conciliar.");
+  const returned = await returnedItemForMovement(client, actor.companyId, movement.id);
+  if (returned) {
+    throw new AccountingRuleError(409, "RETURN_MOVEMENT", `Este cargo es la devolución del recibo ${returned.endToEndId}: gestiónalo desde su remesa de cobros.`);
+  }
   const allocations = await client
     .select({
       id: bankTransactionAllocation.id,

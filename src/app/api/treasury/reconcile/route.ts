@@ -1,8 +1,6 @@
-import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { bankAccount, bankTransaction, customer, invoice, invoicePayment, partner, payment, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -10,7 +8,7 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
 import { reconcileBankTransaction } from "@/server/treasury/reconciliation";
-import { acceptSafeSuggestions, undoReconciliationInTx } from "@/server/treasury/workbench";
+import { acceptSafeSuggestions, listManualMatchCandidates, undoReconciliationInTx } from "@/server/treasury/workbench";
 
 const manualSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("match"), transactionId: z.string().min(1), kind: z.enum(["customer", "supplier"]), matchId: z.string().min(1) }),
@@ -24,30 +22,9 @@ export async function GET(request: Request) {
   if (!can(ctx.membership.role, "treasury.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
   const transactionId = new URL(request.url).searchParams.get("transactionId");
   if (!transactionId) return NextResponse.json({ message: "Movimiento obligatorio." }, { status: 400 });
-  const [row] = await db.select({ id: bankTransaction.id, amount: bankTransaction.amount, status: bankTransaction.reconciliationStatus })
-    .from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
-    .where(and(eq(bankTransaction.id, transactionId), eq(bankAccount.companyId, ctx.company.id))).limit(1);
-  if (!row) return NextResponse.json({ message: "Movimiento no encontrado." }, { status: 404 });
-  if (row.status === "RECONCILED") return NextResponse.json({ kind: Number(row.amount) >= 0 ? "customer" : "supplier", candidates: [] });
-
-  const amount = Math.abs(Number(row.amount)).toFixed(2);
-  const used = await db.select({ invoicePaymentId: bankTransaction.matchedInvoicePaymentId, supplierPaymentId: bankTransaction.matchedSupplierPaymentId })
-    .from(bankTransaction).innerJoin(bankAccount, eq(bankAccount.id, bankTransaction.bankAccountId))
-    .where(and(eq(bankAccount.companyId, ctx.company.id), eq(bankTransaction.reconciliationStatus, "RECONCILED")));
-  if (Number(row.amount) >= 0) {
-    const usedIds = new Set(used.map((entry) => entry.invoicePaymentId).filter(Boolean));
-    const candidates = (await db.select({ id: invoicePayment.id, number: payment.number, counterparty: customer.name, amount: invoicePayment.amountApplied, postedAt: payment.postedAt })
-      .from(invoicePayment).innerJoin(invoice, eq(invoice.id, invoicePayment.invoiceId)).innerJoin(customer, eq(customer.id, invoice.customerId)).innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
-      .where(and(eq(invoicePayment.companyId, ctx.company.id), eq(invoicePayment.amountApplied, amount))))
-      .filter((candidate) => !usedIds.has(candidate.id));
-    return NextResponse.json({ kind: "customer", candidates });
-  }
-  const usedIds = new Set(used.map((entry) => entry.supplierPaymentId).filter(Boolean));
-  const candidates = (await db.select({ id: supplierInvoicePayment.id, number: supplierPayment.number, counterparty: partner.name, amount: supplierInvoicePayment.amountApplied, postedAt: supplierPayment.postedAt })
-    .from(supplierInvoicePayment).innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierInvoicePayment.supplierInvoiceId)).innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId)).innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
-    .where(and(eq(supplierInvoicePayment.companyId, ctx.company.id), eq(supplierInvoicePayment.amountApplied, amount))))
-    .filter((candidate) => !usedIds.has(candidate.id));
-  return NextResponse.json({ kind: "supplier", candidates });
+  const result = await listManualMatchCandidates(ctx.company.id, transactionId);
+  if (!result) return NextResponse.json({ message: "Movimiento no encontrado." }, { status: 404 });
+  return NextResponse.json(result);
 }
 
 export async function POST() {

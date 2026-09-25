@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { BusinessTypeForm } from "@/components/company/business-type-form";
 import { CompanyProfileForm, type CompanyProfileFormValues } from "@/components/company/company-profile-form";
 import { PdfSettingsForm } from "@/components/company/pdf-settings-form";
+import { SepaCreditorForm } from "@/components/company/sepa-creditor-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { company, companySettings } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
@@ -79,6 +80,9 @@ export default async function CompanySettingsPage() {
       </PageSection>
       <PageSection title="Actividad" description="Qué vendes: ocultamos inventario, albaranes y recepciones si solo prestas servicios.">
         <BusinessTypeForm initialValue={parseBusinessType(pdfSettings?.businessType)} />
+      </PageSection>
+      <PageSection title="Cobro de recibos domiciliados (SEPA)" description="Necesario para generar remesas de adeudos directos desde Tesorería.">
+        <SepaCreditorForm initialValue={row.sepaCreditorId} vatNumber={row.vatNumber} />
       </PageSection>
       <PageSection title="Diseño y contenido de PDFs" description="Decide qué información pública aparece al generar facturas y documentos comerciales, incluidos los ya creados.">
         <PdfSettingsForm initialValues={pdfSettings ? pdfDisplaySettingsFrom(pdfSettings) : defaultPdfDisplaySettings} />

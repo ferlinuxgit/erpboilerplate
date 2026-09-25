@@ -50,6 +50,16 @@ const areas = [
     description: "Paga varias facturas de proveedor a la vez.",
   },
   {
+    href: "/treasury/direct-debits",
+    title: "Remesas de cobros",
+    description: "Cobra recibos domiciliados (adeudos SEPA).",
+  },
+  {
+    href: "/treasury/bank-connections",
+    title: "Conexión con el banco",
+    description: "Trae los movimientos solos (PSD2).",
+  },
+  {
     href: "/treasury/bank-accounts",
     title: "Cuentas bancarias",
     description: "Bancos, IBAN y saldos.",

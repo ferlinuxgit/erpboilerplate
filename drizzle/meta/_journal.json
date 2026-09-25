@@ -225,6 +225,13 @@
       "when": 1790351698570,
       "tag": "0031_ux_overhaul",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790354603314,
+      "tag": "0032_series_sepa_psd2",
+      "breakpoints": true
     }
   ]
 }

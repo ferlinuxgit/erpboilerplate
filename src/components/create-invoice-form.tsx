@@ -26,6 +26,7 @@ import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-acti
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { countriesForSelect } from "@/lib/countries";
+import { formatSeriesNumber } from "@/lib/document-series-format";
 import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { defaultLineTaxIds } from "@/server/invoices/default-taxes";
@@ -76,13 +77,31 @@ type CreatedInvoicePayload = {
 
 type SubmitMode = "draft" | "issue";
 
+/** Serie de facturas seleccionable (activa en el ejercicio), con su siguiente número efectivo. */
+export type InvoiceSeriesOption = {
+  id: string;
+  code: string;
+  name: string;
+  prefix: string;
+  format: string;
+  nextNumber: number;
+  isDefault: boolean;
+};
+
+/** Número que tendría la próxima factura de la serie en esa fecha (solo orientativo: se asigna al emitir). */
+export function seriesNumberPreview(series: InvoiceSeriesOption | null | undefined, issueDate: string | null | undefined) {
+  if (!series) return null;
+  const referenceDate = issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? new Date(`${issueDate}T12:00:00.000Z`) : undefined;
+  return formatSeriesNumber({ format: series.format, nextNumber: series.nextNumber, prefix: series.prefix, referenceDate });
+}
+
 export function CreateInvoiceForm({
   canCreateCustomer,
   companyPaymentTermsDays,
   customers,
   defaultIssueDate,
   initialCustomerId,
-  nextInvoiceNumberPreview,
+  invoiceSeries = [],
   paymentMethods,
   taxes,
 }: {
@@ -92,7 +111,8 @@ export function CreateInvoiceForm({
   customers: CustomerOption[];
   defaultIssueDate: string;
   initialCustomerId?: string;
-  nextInvoiceNumberPreview?: string | null;
+  /** Series activas de facturas del ejercicio (la de por defecto primero). */
+  invoiceSeries?: InvoiceSeriesOption[];
   paymentMethods: InvoicePaymentMethodOption[];
   taxes: InvoiceTaxOption[];
 }) {
@@ -114,6 +134,7 @@ export function CreateInvoiceForm({
   const [pendingIssueValues, setPendingIssueValues] = useState<CreateInvoicePayload | null>(null);
   const initialCustomer = customers.find((customer) => customer.id === initialCustomerId) ?? null;
   const termsFor = (customer: CustomerOption | null | undefined) => effectivePaymentTermsDays(customer?.paymentTermsDays, companyPaymentTermsDays);
+  const defaultSeries = invoiceSeries.find((series) => series.isDefault) ?? invoiceSeries[0] ?? null;
   const defaultPaymentMethodIds = useMemo(() => paymentMethods.filter((method) => method.isDefault).map((method) => method.id), [paymentMethods]);
   const {
     control,
@@ -133,6 +154,7 @@ export function CreateInvoiceForm({
       totalAmount: 0,
       notes: "",
       paymentMethodIds: defaultPaymentMethodIds,
+      seriesId: defaultSeries?.id ?? null,
       lines: [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(taxes, initialCustomer) }],
     },
   });
@@ -163,6 +185,9 @@ export function CreateInvoiceForm({
   const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
   const watchedIssueDate = useWatch({ control, name: "issueDate" });
   const watchedDueDate = useWatch({ control, name: "dueDate" });
+  const selectedSeriesId = useWatch({ control, name: "seriesId" });
+  const selectedSeries = invoiceSeries.find((series) => series.id === selectedSeriesId) ?? defaultSeries;
+  const nextInvoiceNumberPreview = seriesNumberPreview(selectedSeries, watchedIssueDate);
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
@@ -430,9 +455,26 @@ export function CreateInvoiceForm({
       </section>
       <div className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3">
         <p className="font-mono text-xs font-bold">Número automático</p>
+        {invoiceSeries.length > 1 ? (
+          <AccessibleField
+            helperText="Usa series distintas para tickets, facturas de exportación…"
+            id="invoice-series"
+            label="Serie"
+          >
+            <Select data-testid="invoice-series-select" id="invoice-series" {...register("seriesId")}>
+              {invoiceSeries.map((series) => (
+                <option key={series.id} value={series.id}>
+                  {series.name} ({series.code}){series.isDefault ? " · por defecto" : ""}
+                </option>
+              ))}
+            </Select>
+          </AccessibleField>
+        ) : (
+          <input type="hidden" {...register("seriesId")} />
+        )}
         <p className="text-xs text-muted-foreground" data-testid="invoice-number-preview">
           {nextInvoiceNumberPreview
-            ? `Al emitir tendrá el siguiente número de la serie (previsto: ${nextInvoiceNumberPreview}). Los borradores no consumen número.`
+            ? `Al emitir tendrá el siguiente número de la serie${invoiceSeries.length > 1 && selectedSeries ? ` «${selectedSeries.name}»` : ""} (previsto: ${nextInvoiceNumberPreview}). Los borradores no consumen número.`
             : "Al emitir se asignará el siguiente número correlativo. Los borradores no consumen número."}
         </p>
       </div>

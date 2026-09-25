@@ -26,7 +26,7 @@ type BankTransactionPayload = {
   valueDate?: Date | null;
   balanceAfter?: string | null;
   reference?: string | null;
-  importSource?: "MANUAL" | "CSV" | "XLSX" | "NORMA43" | null;
+  importSource?: "MANUAL" | "CSV" | "XLSX" | "NORMA43" | "PSD2" | null;
 };
 
 export async function listTreasury(companyId: string) {

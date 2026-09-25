@@ -104,6 +104,8 @@ export default async function AccountingPage() {
       </section>
       {lifecycle ? (
         <PageSection
+          className="scroll-mt-24"
+          id="ejercicio"
           title="Ejercicio contable"
           description="Abre el ejercicio siguiente y cierra el actual para trasladar los saldos."
         >

@@ -181,3 +181,28 @@ describe("split validation", () => {
     expect(resolutionOf([{ type: "CUSTOMER_INVOICE" }, { type: "ACCOUNT" }])).toBe("MIXED");
   });
 });
+
+describe("counterparty rules and direct debit remittances", () => {
+  const partnerRule: RuleCandidate = { ...rule, id: "rule-partner", name: "Cuotas gimnasio", conceptContains: "cuota", direction: "IN", maxAmount: null, accountId: null, accountLabel: null, partnerId: "p-gym", partnerName: "Gimnasio Norte" };
+
+  it("proposes the invoices of the rule's counterparty even if the concept does not name it, and counts the rule", () => {
+    const movement = { id: "m-1", amount: 60, description: "ABONO CUOTA SEPTIEMBRE", postedAt: day("2026-09-05") };
+    const invoices = [invoice({ id: "gym-1", partnerId: "p-gym", partnerName: "Gimnasio Norte", outstanding: 60 }), invoice({ id: "other", partnerId: "p-2", partnerName: "Otro Cliente", outstanding: 60 })];
+    const [best] = rankSuggestions(movement, { payments: [], invoices, rules: [partnerRule] });
+    expect(best.allocations).toEqual([expect.objectContaining({ type: "CUSTOMER_INVOICE", targetId: "gym-1", amount: 60 })]);
+    expect(best.ruleId).toBe("rule-partner");
+    expect(best.detail).toContain("Regla «Cuotas gimnasio»");
+  });
+
+  it("suggests matching a single bank credit to a collected direct debit remittance", () => {
+    const movement = { id: "m-2", amount: 181.5, description: "ABONO REMESA ADE20260929", postedAt: day("2026-09-29") };
+    const payments = [
+      payment({ id: "ip-1", number: "REC-1", amount: 121, postedAt: day("2026-09-29"), remittanceId: "dd-1", remittanceNumber: "ADE20260929" }),
+      payment({ id: "ip-2", number: "REC-2", amount: 60.5, postedAt: day("2026-09-29"), remittanceId: "dd-1", remittanceNumber: "ADE20260929" }),
+    ];
+    const [best] = rankSuggestions(movement, { payments, invoices: [], rules: [] });
+    expect(best.kind).toBe("REMITTANCE");
+    expect(best.detail).toContain("recibos domiciliados");
+    expect(best.allocations.map((allocation) => [allocation.type, allocation.targetId])).toEqual([["CUSTOMER_PAYMENT", "ip-1"], ["CUSTOMER_PAYMENT", "ip-2"]]);
+  });
+});

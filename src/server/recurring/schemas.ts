@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { salesVatTreatmentSchema } from "@/server/invoices/schemas";
 import { isDateInput, RECURRING_FREQUENCIES } from "@/server/recurring/schedule";
 
 /** Validación de plantillas recurrentes (compartida por API y formularios). */
@@ -30,6 +31,15 @@ export function isAutomaticMode(mode: string) {
 
 const pct = (message: string) => z.number({ error: message }).min(0, message).max(100, message);
 
+/** Impuesto exacto de una línea (copiado de la factura de origen): IVA, recargo, retención u otro. */
+export const recurringLineTaxSchema = z.object({
+  taxId: z.string().trim().max(80).nullable().optional().transform((value) => value || null),
+  name: z.string().trim().min(1).max(120),
+  rate: z.number().min(0, "El tipo del impuesto no es válido.").max(100, "El tipo del impuesto no es válido."),
+  kind: z.string().trim().min(1).max(30),
+  operation: z.enum(["ADD", "SUBTRACT"]),
+});
+
 export const recurringLineSchema = z.object({
   itemId: z.string().trim().max(80).optional().nullable(),
   description: z.string().trim().min(1, "Escribe el concepto de la línea.").max(500, "El concepto no puede superar 500 caracteres."),
@@ -40,6 +50,8 @@ export const recurringLineSchema = z.object({
   retentionRate: pct("La retención debe estar entre 0 y 100 %.").default(0),
   expenseAccountId: z.string().trim().max(80).optional().nullable(),
   taxDeductiblePct: pct("El IVA deducible debe estar entre 0 y 100 %.").optional(),
+  /** Solo facturas: impuestos exactos de la línea. Sin ellos se usan el IVA y la retención. */
+  taxes: z.array(recurringLineTaxSchema).max(12).optional().nullable(),
 });
 
 const dateSchema = z.string().trim().refine(isDateInput, "Indica una fecha válida.");
@@ -60,6 +72,9 @@ export const recurringTemplateSchema = z.object({
   lines: z.array(recurringLineSchema).min(1, "Añade al menos una línea.").max(50, "Como máximo 50 líneas."),
   notes: z.string().trim().max(2000, "Las notas no pueden superar 2.000 caracteres.").optional().nullable(),
   sourceInvoiceId: z.string().trim().max(80).optional().nullable(),
+  /** Solo facturas: serie de numeración (vacío = la serie por defecto) y tratamiento de IVA. */
+  seriesId: z.string().trim().max(80).optional().nullable(),
+  vatTreatment: salesVatTreatmentSchema.optional().nullable(),
 }).superRefine((value, ctx) => {
   if (value.kind === "SALES_INVOICE" && !value.customerId) ctx.addIssue({ code: "custom", path: ["customerId"], message: "Elige el cliente." });
   if (value.kind === "EXPENSE" && !value.supplierPartnerId) ctx.addIssue({ code: "custom", path: ["supplierPartnerId"], message: "Elige el proveedor." });
