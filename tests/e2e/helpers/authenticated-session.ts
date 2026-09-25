@@ -56,7 +56,8 @@ export async function completeOnboarding(page: Page, legalName: string, options:
   await page.getByRole("button", { name: "Guardar y seguir" }).click();
 
   await expect(page.getByText("Paso 2 de 4")).toBeVisible();
-  await page.getByLabel("Dirección fiscal").fill("Calle Mayor 1");
+  // The step form is also named "Dirección fiscal" (aria-labelledby its title): target the field.
+  await page.getByRole("textbox", { name: "Dirección fiscal" }).fill("Calle Mayor 1");
   await page.getByLabel("Código postal").fill("28013");
   await page.getByLabel("Ciudad").fill("Madrid");
   await page.getByLabel("Provincia").fill("Madrid");

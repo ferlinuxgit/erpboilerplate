@@ -44,7 +44,7 @@ test("setup wizard saves each step, only finishes from the last one and points t
   expect((await stepSave).ok()).toBe(true);
   await expect(page.getByText("Paso 2 de 4")).toBeVisible();
 
-  await page.getByLabel("Dirección fiscal").fill("Calle Mayor 1");
+  await page.getByRole("textbox", { name: "Dirección fiscal" }).fill("Calle Mayor 1");
   await page.getByLabel("Código postal").fill("28013");
   await page.getByLabel("Ciudad").fill("Madrid");
   await page.getByLabel("Provincia").fill("Madrid");
