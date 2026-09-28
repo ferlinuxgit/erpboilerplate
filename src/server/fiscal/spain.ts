@@ -493,7 +493,7 @@ async function fetchSupplierThirdPartyOperations(companyId: string, start: Date,
 }
 
 /** Saldos del periodo de 477, 472, 4751 y 473 (incluye subcuentas), sin asientos de cierre/apertura. */
-async function fetchAccountingTaxBalances(companyId: string, start: Date, endExclusive: Date) {
+export async function fetchAccountingTaxBalances(companyId: string, start: Date, endExclusive: Date) {
   const group = sql<string>`case
     when ${accountChart.code} like '477%' then '477'
     when ${accountChart.code} like '472%' then '472'

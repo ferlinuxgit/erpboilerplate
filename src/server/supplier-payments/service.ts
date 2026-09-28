@@ -128,7 +128,7 @@ export async function registerSupplierPayment(actor: PaymentActor, input: Regist
 
     const supplierPartnerId = ownedInvoice?.supplierPartnerId ?? input.supplierPartnerId ?? "";
     const [ownedSupplier] = await tx
-      .select({ id: partner.id })
+      .select({ id: partner.id, name: partner.name })
       .from(partner)
       .where(and(
         eq(partner.id, supplierPartnerId),
@@ -205,7 +205,7 @@ export async function registerSupplierPayment(actor: PaymentActor, input: Regist
       actorUserId: actor.actorUserId,
       supplierPaymentId: createdPayment.id,
       postedAt: input.postedAt,
-      reference: (input.reference || (ownedInvoice ? `Pago factura proveedor ${ownedInvoice.number}` : `Pago a cuenta de proveedor ${ownedSupplier.id}`)).slice(0, 200),
+      reference: (input.reference || (ownedInvoice ? `Pago factura proveedor ${ownedInvoice.number}` : `Pago a cuenta · ${ownedSupplier.name}`)).slice(0, 200),
       amount: amountCents / 100,
       paymentMethodId: methodId,
       bankAccountId: input.bankAccountId || null,

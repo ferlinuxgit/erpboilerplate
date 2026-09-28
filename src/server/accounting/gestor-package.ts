@@ -22,6 +22,7 @@ async function loadJournalLines(companyId: string, from: Date, toExclusive: Date
       number: journalEntry.number,
       postedAt: journalEntry.postedAt,
       reference: journalEntry.reference,
+      concept: journalLine.concept,
       isAutomatic: journalEntry.isAutomatic,
       sourceType: journalEntry.sourceType,
       reversesEntryId: journalEntry.reversesEntryId,
@@ -35,13 +36,14 @@ async function loadJournalLines(companyId: string, from: Date, toExclusive: Date
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
     .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
     .where(and(eq(journalEntry.companyId, companyId), gte(journalEntry.postedAt, from), lt(journalEntry.postedAt, toExclusive)))
-    .orderBy(asc(journalEntry.postedAt), asc(journalEntry.number), asc(journalLine.id));
+    .orderBy(asc(journalEntry.postedAt), asc(journalEntry.number), asc(journalLine.lineNumber), asc(journalLine.id));
   // Dentro de cada asiento, primero las líneas al debe (presentación habitual del libro diario).
   return rows.map((row) => ({
     entryId: row.entryId,
     number: row.number,
     postedAt: row.postedAt,
-    reference: row.reference,
+    // Concepto del apunte (tercero y documento); los asientos antiguos sin él usan la referencia.
+    reference: row.concept ?? row.reference,
     origin: journalEntryOriginLabel(row),
     accountCode: row.accountCode,
     accountName: row.accountName,

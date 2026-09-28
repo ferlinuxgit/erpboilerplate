@@ -71,7 +71,10 @@ describe("applyEsSeeds", () => {
     });
 
     expect(inserts.some((entry) => entry.table === companySettings)).toBe(true);
-    expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "4300" && entry.values.isPostable === true)).toBe(true);
+    // Las cuentas del PGC son de grupo; se apunta en su subcuenta de 8 dígitos (4300 → 43000000).
+    expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "4300" && entry.values.isPostable === false)).toBe(true);
+    expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "43000000" && entry.values.isPostable === true && entry.values.parentCode === "4300")).toBe(true);
+    expect(inserts.some((entry) => entry.table === accountChart && entry.values.code === "47700000" && entry.values.isPostable === true)).toBe(true);
     expect(inserts.some((entry) => entry.table === journal && entry.values.code === "VEN")).toBe(true);
     expect(inserts.some((entry) => entry.table === tax)).toBe(true);
     // Withholdings subtract (IRPF), surcharges add, and 21 % VAT is the default.

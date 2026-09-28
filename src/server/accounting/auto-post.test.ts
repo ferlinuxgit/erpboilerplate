@@ -1,82 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => {
-  /** Cliente Drizzle simulado: cada `select` consume la siguiente respuesta de la cola. */
-  const createDbClientMock = (selectResults: unknown[][] = []) => {
-    const insertedValues: unknown[] = [];
-    const makeChain = () => {
-      const chain: Record<string, unknown> = {};
-      for (const method of ["from", "where", "limit", "innerJoin", "leftJoin", "orderBy", "groupBy", "for"]) {
-        chain[method] = vi.fn(() => chain);
-      }
-      chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
-        Promise.resolve(selectResults.shift() ?? []).then(resolve, reject);
-      return chain;
-    };
-    const client = {
-      selectResults,
-      insertedValues,
-      select: vi.fn(() => makeChain()),
-      insert: vi.fn(() => ({
-        values: vi.fn((values: unknown) => {
-          insertedValues.push(values);
-          const result = Promise.resolve(undefined);
-          return Object.assign(result, { returning: vi.fn(async () => [{ id: "journal-entry-1" }]) });
-        }),
-      })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn(async () => []),
-        })),
-      })),
-    };
-    return client;
-  };
-
-  return {
-    createDbClientMock,
-    db: createDbClientMock(),
-    ensureDefaultJournal: vi.fn(async () => ({ id: "journal-1" })),
-    reserveJournalEntryNumber: vi.fn(async () => "AS000001"),
-    recordAudit: vi.fn(async () => undefined),
-  };
-});
-
-vi.mock("@/lib/db", () => ({ db: mocks.db }));
-vi.mock("@/server/accounting/service", () => ({ ensureDefaultJournal: mocks.ensureDefaultJournal }));
-vi.mock("@/server/accounting/numbers", () => ({ reserveJournalEntryNumber: mocks.reserveJournalEntryNumber }));
-vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
+// Funciones puras del motor de asientos; los asientos contra base de datos (subcuentas, conceptos,
+// terceros, bancos, 555, prorrata…) están en `subaccounts.integration.test.ts` con PGlite.
+vi.mock("@/lib/db", () => ({ db: {} }));
 
 import {
+  buildSalesInvoiceLines,
   buildSupplierInvoiceLines,
   normalizePostingLines,
-  postBankTransaction,
-  postCustomerPayment,
-  postSalesInvoice,
-  postSupplierInvoice,
   resolvePostingSettings,
+  withLineDocument,
 } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
-
-const accountRows = [
-  { id: "customer-account", code: "4300" },
-  { id: "supplier-account", code: "4100" },
-  { id: "sales-account", code: "700" },
-  { id: "purchase-account", code: "600" },
-  { id: "bank-account", code: "572" },
-  { id: "vat-output-account", code: "477" },
-  { id: "vat-input-account", code: "472" },
-  { id: "withholding-payable-account", code: "4751" },
-  { id: "withholding-receivable-account", code: "473" },
-  { id: "suspense-account", code: "555" },
-];
-
-const baseInput = { tenantId: "tenant-1", companyId: "company-1", actorUserId: "user-1", postedAt: new Date("2026-05-09") };
-
-function journalLinesOf(tx: ReturnType<typeof mocks.createDbClientMock>) {
-  // insertedValues[0] = cabecera del asiento, [1] = líneas.
-  return tx.insertedValues[1] as Array<{ accountId: string; debit: string; credit: string }>;
-}
 
 function totals(lines: Array<{ debit: string; credit: string }>) {
   const cents = (value: string) => Math.round(Number(value) * 100);
@@ -219,131 +154,42 @@ describe("buildSupplierInvoiceLines", () => {
   });
 });
 
-describe("accounting auto posting", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("resolvePostingSettings: cuenta de ventas por actividad", () => {
+  it("empresas de servicios venden en 705 salvo que hayan configurado otra cuenta", () => {
+    expect(resolvePostingSettings({ businessType: "services" }, "ES").codes.sales).toBe("705");
+    expect(resolvePostingSettings({ businessType: "services", defaultSalesAccountCode: "700" }, "ES").codes.sales).toBe("705");
+    expect(resolvePostingSettings({ businessType: "services", defaultSalesAccountCode: "7050001" }, "ES").codes.sales).toBe("7050001");
+    expect(resolvePostingSettings({ businessType: "products" }, "ES").codes.sales).toBe("700");
+    expect(resolvePostingSettings({ businessType: "both" }, "ES").codes.sales).toBe("700");
   });
+});
 
-  it("posts sales withholdings to 473 (Hacienda Pública, retenciones y pagos a cuenta)", async () => {
-    const tx = mocks.createDbClientMock([[], [{ countryCode: "ES" }], accountRows]);
-
-    await postSalesInvoice({
-      ...baseInput,
-      invoiceId: "invoice-1",
-      reference: "Factura FAC-1",
-      subtotal: 100,
-      taxAmount: 21,
-      retentionAmount: 15,
-      totalAmount: 106,
-      dbClient: tx as never,
-    });
-
-    expect(journalLinesOf(tx)).toEqual([
-      expect.objectContaining({ accountId: "customer-account", debit: "106.00", credit: "0.00" }),
-      expect.objectContaining({ accountId: "withholding-receivable-account", debit: "15.00", credit: "0.00" }),
-      expect.objectContaining({ accountId: "sales-account", debit: "0.00", credit: "100.00" }),
-      expect.objectContaining({ accountId: "vat-output-account", debit: "0.00", credit: "21.00" }),
+describe("buildSalesInvoiceLines con varias cuentas de ventas", () => {
+  it("reparte la base por cuenta y cuadra el redondeo en la de mayor importe", () => {
+    const lines = normalizePostingLines(buildSalesInvoiceLines(
+      { customer: "c", sales: "700", vatOutput: "477", withholdingReceivable: "c" },
+      { subtotal: 100, taxAmount: 21, totalAmount: 121 },
+      [{ accountId: "705", subtotal: 66.67 }, { accountId: "700", subtotal: 33.34 }],
+    ));
+    expect(lines).toEqual([
+      { accountId: "c", debit: "121.00", credit: "0.00" },
+      { accountId: "705", debit: "0.00", credit: "66.66" },
+      { accountId: "700", debit: "0.00", credit: "33.34" },
+      { accountId: "477", debit: "0.00", credit: "21.00" },
     ]);
   });
+});
 
-  it("uses the supplied transaction client for every database write", async () => {
-    const tx = mocks.createDbClientMock([[], [{ countryCode: "ES" }], accountRows]);
-
-    await postSalesInvoice({
-      ...baseInput,
-      invoiceId: "invoice-1",
-      reference: "Factura FAC-1",
-      subtotal: 100,
-      taxAmount: 21,
-      totalAmount: 121,
-      dbClient: tx as never,
-    });
-
-    expect(mocks.db.select).not.toHaveBeenCalled();
-    expect(mocks.db.insert).not.toHaveBeenCalled();
-    expect(tx.insert).toHaveBeenCalledTimes(2);
-    expect(mocks.ensureDefaultJournal).toHaveBeenCalledWith("company-1", tx);
-    expect(mocks.reserveJournalEntryNumber).toHaveBeenCalledWith(tx, "company-1");
-    expect(mocks.recordAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "accounting.autopost.salesInvoice", entityName: "invoice", entityId: "invoice-1" }),
-      tx,
+describe("withLineDocument", () => {
+  it("pone concepto, tercero y documento en todas las líneas y el vencimiento solo en la del tercero", () => {
+    const dueDate = new Date("2026-06-08");
+    const lines = withLineDocument(
+      [{ accountId: "430", debit: 10, credit: 0 }, { accountId: "700", debit: 0, credit: 10, concept: "Propio" }],
+      { concept: "Fra. 1 · Pérez", partnerId: "p1", documentType: "invoice", documentNumber: "1", documentId: "i1", dueDate },
+      ["430"],
     );
-  });
-
-  it("fails with a clear message when a required account is missing", async () => {
-    const tx = mocks.createDbClientMock([[], [{ countryCode: "ES" }], accountRows.filter((row) => row.code !== "477")]);
-    await expect(postSalesInvoice({
-      ...baseInput,
-      invoiceId: "invoice-1",
-      reference: "Factura FAC-1",
-      subtotal: 100,
-      taxAmount: 21,
-      totalAmount: 121,
-      dbClient: tx as never,
-    })).rejects.toThrow("477");
-  });
-
-  it("posts supplier invoices applying the company prorrata from settings", async () => {
-    const tx = mocks.createDbClientMock([[{ prorrataPct: "50" }], [{ countryCode: "ES" }], accountRows]);
-
-    await postSupplierInvoice({
-      ...baseInput,
-      supplierInvoiceId: "supplier-invoice-1",
-      reference: "Gasto luz",
-      subtotal: 100,
-      taxAmount: 21,
-      retentionAmount: 0,
-      totalAmount: 121,
-      vatTreatment: "DOMESTIC",
-      expenseLines: [{ accountId: "expense-account", subtotal: 100, taxAmount: 21, taxDeductiblePct: 100 }],
-      dbClient: tx as never,
-    });
-
-    expect(journalLinesOf(tx)).toEqual([
-      expect.objectContaining({ accountId: "expense-account", debit: "110.50" }),
-      expect.objectContaining({ accountId: "vat-input-account", debit: "10.50" }),
-      expect.objectContaining({ accountId: "supplier-account", credit: "121.00" }),
-    ]);
-  });
-
-  it("posts customer payments to the ledger account of the payment method's bank", async () => {
-    const tx = mocks.createDbClientMock([
-      [],
-      [{ countryCode: "ES" }],
-      accountRows,
-      [{ bankAccountId: "bank-1" }],
-      [{ accountId: "bank-ledger-5720001" }],
-    ]);
-
-    await postCustomerPayment({ ...baseInput, paymentId: "payment-1", reference: "Cobro", amount: 50, paymentMethodId: "method-1", dbClient: tx as never });
-
-    expect(journalLinesOf(tx)).toEqual([
-      expect.objectContaining({ accountId: "bank-ledger-5720001", debit: "50.00" }),
-      expect.objectContaining({ accountId: "customer-account", credit: "50.00" }),
-    ]);
-  });
-
-  it("falls back to the default bank account when the payment method has no linked bank", async () => {
-    const tx = mocks.createDbClientMock([[], [{ countryCode: "ES" }], accountRows, [{ bankAccountId: null }]]);
-
-    await postCustomerPayment({ ...baseInput, paymentId: "payment-1", reference: "Cobro", amount: 50, paymentMethodId: "cash", dbClient: tx as never });
-
-    expect(journalLinesOf(tx)[0]).toEqual(expect.objectContaining({ accountId: "bank-account", debit: "50.00" }));
-  });
-
-  it("posts unapplied bank movements against 555 instead of customers or suppliers", async () => {
-    const deposit = mocks.createDbClientMock([[], [{ countryCode: "ES" }], accountRows, []]);
-    await postBankTransaction({ ...baseInput, bankTransactionId: "bt-1", bankAccountId: "bank-1", reference: "Ingreso", amount: 80, dbClient: deposit as never });
-    expect(journalLinesOf(deposit)).toEqual([
-      expect.objectContaining({ accountId: "bank-account", debit: "80.00" }),
-      expect.objectContaining({ accountId: "suspense-account", credit: "80.00" }),
-    ]);
-
-    const charge = mocks.createDbClientMock([[], [{ countryCode: "ES" }], accountRows, [{ accountId: "bank-ledger-5720001" }]]);
-    await postBankTransaction({ ...baseInput, bankTransactionId: "bt-2", bankAccountId: "bank-1", reference: "Comisión", amount: -3.5, dbClient: charge as never });
-    expect(journalLinesOf(charge)).toEqual([
-      expect.objectContaining({ accountId: "suspense-account", debit: "3.50" }),
-      expect.objectContaining({ accountId: "bank-ledger-5720001", credit: "3.50" }),
-    ]);
+    expect(lines[0]).toMatchObject({ concept: "Fra. 1 · Pérez", partnerId: "p1", documentId: "i1", dueDate });
+    expect(lines[1]).toMatchObject({ concept: "Propio", partnerId: "p1", dueDate: null });
+    expect(normalizePostingLines(lines)[0]).toMatchObject({ concept: "Fra. 1 · Pérez", debit: "10.00" });
   });
 });

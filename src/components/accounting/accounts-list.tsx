@@ -19,6 +19,8 @@ type AccountRow = {
   level: number;
   isPostable: boolean;
   isActive: boolean;
+  /** Tercero dueño de la subcuenta (clientes 430…, proveedores 400…/410…). */
+  partnerName?: string | null;
   debit: number;
   credit: number;
   balance: number;
@@ -38,6 +40,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
           <p className="truncate font-medium">
             {account.code} - {account.name}
           </p>
+          {account.partnerName ? <p className="truncate text-xs text-muted-foreground">Subcuenta de {account.partnerName}</p> : null}
           <Link
             className="text-sm text-link underline-offset-4 hover:underline"
             href={`/accounting/ledger/${account.id}`}
@@ -46,7 +49,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
           </Link>
         </div>
       ),
-      exportValue: (account) => `${account.code} - ${account.name}`,
+      exportValue: (account) => `${account.code} - ${account.name}${account.partnerName ? ` (${account.partnerName})` : ""}`,
       sortValue: (account) => account.code,
     },
     {
@@ -65,6 +68,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
           <StatusBadge tone={account.isActive ? "success" : "neutral"}>
             {account.isActive ? "Activa" : "Inactiva"}
           </StatusBadge>
+          {account.partnerName ? <StatusBadge tone="info">Tercero</StatusBadge> : null}
         </div>
       ),
       exportValue: (account) =>
@@ -95,7 +99,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
       exportFileName="plan-contable.csv"
       getRowId={(account) => account.id}
       getSearchText={(account) =>
-        `${account.code} ${account.name} ${account.type} ${account.isActive ? "activa" : "inactiva"} ${account.isPostable ? "admite apuntes" : "grupo"}`
+        `${account.code} ${account.name} ${account.partnerName ?? ""} ${account.type} ${account.isActive ? "activa" : "inactiva"} ${account.isPostable ? "admite apuntes" : "grupo"}`
       }
       items={rows}
       pageSize={16}
@@ -106,6 +110,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
             <p className="font-medium">
               {account.code} - {account.name}
             </p>
+            {account.partnerName ? <p className="text-xs text-muted-foreground">Subcuenta de {account.partnerName}</p> : null}
             <p className="text-sm text-muted-foreground">
               {statusLabel(accountTypeLabels, account.type)} · Saldo{" "}
               {formatBalance(account.balance)}
@@ -130,7 +135,7 @@ export function AccountsList({ canManage, rows }: AccountsListProps) {
           </div>
         </div>
       )}
-      searchPlaceholder="Buscar código, nombre, tipo, activa, admite apuntes…"
+      searchPlaceholder="Buscar código, nombre, cliente o proveedor, tipo…"
       testId="account-chart-list"
       title="Plan general contable"
     />

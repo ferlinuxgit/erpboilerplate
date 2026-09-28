@@ -31,6 +31,8 @@ import { invoiceQuantityProblem, isOrderFullyInvoiced, quantitiesByOrderLine } f
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { computeDueDate, supplierDefaultsFromRow } from "@/lib/supplier-defaults";
 import { postSupplierInvoice, reverseAutomaticEntries } from "@/server/accounting/auto-post";
+import { AccountingRuleError } from "@/server/accounting/errors";
+import { ensureSubaccount, syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
@@ -294,17 +296,18 @@ async function getDefaultExpenseAccountId(companyId: string, client: DbClient) {
     .where(eq(companySettings.companyId, companyId))
     .limit(1);
   const defaultCode = settings?.defaultPurchaseAccountCode ?? "600";
-  const [defaultAccount] = await client
-    .select({ id: accountChart.id })
-    .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.code, defaultCode), eq(accountChart.isPostable, true)))
-    .limit(1);
-  if (defaultAccount) return defaultAccount.id;
+  // Subcuenta de la cuenta de compras por defecto (600 → 60000000), creada desde el PGC si falta.
+  try {
+    return (await ensureSubaccount(companyId, defaultCode, client)).id;
+  } catch (error) {
+    if (!(error instanceof AccountingRuleError)) throw error;
+  }
 
   const [firstExpenseAccount] = await client
     .select({ id: accountChart.id })
     .from(accountChart)
     .where(and(eq(accountChart.companyId, companyId), eq(accountChart.type, "EXPENSE"), eq(accountChart.isPostable, true)))
+    .orderBy(accountChart.code)
     .limit(1);
   return firstExpenseAccount?.id;
 }
@@ -455,6 +458,7 @@ async function resolveSupplier(input: {
     if (concurrent) return { id: concurrent.id, identityKey: buildSupplierIdentityKey({ partnerId: concurrent.id, name: concurrent.name, taxId: supplierTaxId, countryCode: supplierCountryCode }) };
   }
   if (!created) throw new Error("No se pudo resolver el proveedor de forma concurrente.");
+  await syncPartnerSubaccounts(input.client, input.companyId, created.id);
   return { id: created.id, identityKey: buildSupplierIdentityKey({ partnerId: created.id, name: created.name, taxId: supplierTaxId, countryCode: supplierCountryCode }) };
 }
 

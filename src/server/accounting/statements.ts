@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { accountChart, journalEntry, journalLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { toCents } from "@/server/accounting/money";
-import { buildFinancialStatements, type StatementAccountRow } from "@/server/accounting/statements-model";
+import { buildFinancialStatements, groupTrialBalance, type StatementAccountRow } from "@/server/accounting/statements-model";
 
 /** Asientos del ciclo de ejercicio (mismos valores que `FISCAL_YEAR_SOURCE`). */
 const LIFECYCLE_SOURCES = ["fiscalYearRegularization", "fiscalYearClosing", "fiscalYearOpening"] as const;
@@ -59,5 +59,17 @@ export async function getFinancialStatements(
   countryCode: string,
   range: { yearStart: Date; from: Date; toExclusive: Date },
 ) {
-  return buildFinancialStatements(await loadStatementAccountRows(companyId, range), countryCode);
+  const [rows, groupNames] = await Promise.all([
+    loadStatementAccountRows(companyId, range),
+    db
+      .select({ code: accountChart.code, name: accountChart.name })
+      .from(accountChart)
+      .where(and(eq(accountChart.companyId, companyId), sql`length(${accountChart.code}) = 3`)),
+  ]);
+  const statements = buildFinancialStatements(rows, countryCode);
+  return {
+    ...statements,
+    // Sumas y saldos con subtotales por cuenta de 3 dígitos (clientes 430 con todas sus subcuentas…).
+    trialBalanceGroups: groupTrialBalance(statements.trialBalance, new Map(groupNames.map((row) => [row.code, row.name]))),
+  };
 }

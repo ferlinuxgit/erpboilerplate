@@ -6,7 +6,7 @@ import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui
 import { requireUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { getJournalEntry, listPostingAccounts } from "@/server/accounting/service";
+import { getJournalEntry, listPartnerOptions, listPostingAccounts } from "@/server/accounting/service";
 
 export default async function EditJournalEntryPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireUserSession();
@@ -15,7 +15,7 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
   const { id } = await params;
   const entry = await getJournalEntry(ctx.company.id, id);
   if (!entry) notFound();
-  const accounts = await listPostingAccounts(ctx.company.id);
+  const [accounts, partners] = await Promise.all([listPostingAccounts(ctx.company.id), listPartnerOptions(ctx.company.id)]);
   const lockReason = journalEntryLockReason(entry);
 
   return (
@@ -32,7 +32,14 @@ export default async function EditJournalEntryPage({ params }: { params: Promise
           accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))}
           defaultPostedAt={entry.postedAt.toISOString().slice(0, 10)}
           defaultReference={entry.reference ?? ""}
-          defaultLines={entry.lines.map((line) => ({ accountId: line.accountId, debit: Number(line.debit) ? line.debit.toString() : "", credit: Number(line.credit) ? line.credit.toString() : "" }))}
+          partners={partners}
+          defaultLines={entry.lines.map((line) => ({
+            accountId: line.accountId,
+            debit: Number(line.debit) ? line.debit.toString() : "",
+            credit: Number(line.credit) ? line.credit.toString() : "",
+            concept: line.concept ?? "",
+            partnerId: line.partnerId ?? "",
+          }))}
         />
       </PageSection>
       )}

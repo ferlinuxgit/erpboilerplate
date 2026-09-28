@@ -43,8 +43,8 @@ describe("journal entry form client validation", () => {
     ];
     expect(calculateJournalTotals(lines)).toMatchObject({ totalDebit: 1234.56, isBalanced: true });
     expect(normalizeJournalLinesForSubmit(lines)).toEqual([
-      { accountId: "cash", debit: "1234.56", credit: "" },
-      { accountId: "sales", debit: "", credit: "1234.56" },
+      { accountId: "cash", debit: "1234.56", credit: "", concept: null, partnerId: null },
+      { accountId: "sales", debit: "", credit: "1234.56", concept: null, partnerId: null },
     ]);
   });
 

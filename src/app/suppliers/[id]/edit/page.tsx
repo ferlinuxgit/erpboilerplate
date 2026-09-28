@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { formatDecimalInput } from "@/lib/format";
 import { parseSupplierVatTreatment } from "@/lib/supplier-defaults";
 import { ensureUserTenant } from "@/lib/tenant";
+import { isSupplierKind } from "@/server/accounting/subaccounts-model";
 import { getSupplier } from "@/server/suppliers/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -40,6 +41,7 @@ export default async function EditSupplierPage({ params }: { params: Promise<{ i
       .where(and(eq(accountChart.companyId, ctx.company.id), eq(accountChart.isPostable, true))),
   ]);
   if (!data) notFound();
+  const currentAccount = data.defaultAccountId ? supplierAccounts.find((account) => account.id === data.defaultAccountId) : undefined;
 
   return (
     <PageShell>
@@ -69,9 +71,9 @@ export default async function EditSupplierPage({ params }: { params: Promise<{ i
           defaultStatus={data.isActive ? "ACTIVE" : "INACTIVE"}
           defaultPaymentTermsDays={data.paymentTermsDays}
           defaultPaymentMethodId={data.paymentMethodId}
-          defaultAccountId={data.defaultAccountId}
+          defaultSupplierKind={isSupplierKind(data.supplierKind) ? data.supplierKind : null}
+          accountLabel={currentAccount ? `${currentAccount.code} · ${currentAccount.name}` : null}
           defaultCurrencyCode={data.currencyCode}
-          defaultAccounts={supplierAccounts.filter((account) => account.code.startsWith("410"))}
           expenseAccounts={supplierAccounts.filter((account) => account.code.startsWith("6") || account.code.startsWith("2"))}
           invoiceDefaults={{
             expenseAccountId: data.defaultExpenseAccountId ?? "",

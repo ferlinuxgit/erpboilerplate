@@ -2,7 +2,8 @@ import { eq, sql } from "drizzle-orm";
 
 import { accountChart, company, companySettings, documentSeries, fiscalYear, journal, tax } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
-import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
+import { getCompanyTemplate, type CompanyTemplate, type CompanyTemplateAccount } from "@/lib/company-templates";
+import { canonicalSubaccountCode, natureForAccountType, normalizeSubaccountLength } from "@/server/accounting/subaccounts-model";
 import { recordAudit } from "@/server/audit";
 
 type ApplyEsSeedsInput = {
@@ -97,18 +98,26 @@ async function applyTemplateRows(
     }
 
     if (input.template.accounts.length > 0) {
+      const [lengthRow] = await tx
+        .select({ subaccountLength: companySettings.subaccountLength })
+        .from(companySettings)
+        .where(eq(companySettings.companyId, input.companyId))
+        .limit(1);
+      const plan = buildTemplateChart(input.template.accounts, normalizeSubaccountLength(lengthRow?.subaccountLength));
+      // Cuentas del PGC (1–4 dígitos): siempre de agrupación, sin apuntes.
       await tx.insert(accountChart).values(
-        input.template.accounts.map((entry) => ({
+        plan.groups.map((entry) => ({
           companyId: input.companyId,
           code: entry.code,
           name: entry.name,
           type: entry.type,
           parentCode: entry.parentCode ?? null,
           level: entry.level ?? entry.code.length,
-          isPostable: entry.isPostable ?? true,
+          isPostable: false,
           isActive: entry.isActive ?? false,
           source: entry.source ?? input.template.id,
           templateVersion: entry.templateVersion ?? null,
+          nature: natureForAccountType(entry.type),
         })),
       ).onConflictDoUpdate({
         target: [accountChart.companyId, accountChart.code],
@@ -122,6 +131,24 @@ async function applyTemplateRows(
           templateVersion: sql`excluded."templateVersion"`,
         },
       });
+      // Subcuenta canónica de cada cuenta de último nivel (477 → 47700000): son las que admiten apuntes.
+      if (plan.subaccounts.length > 0) {
+        await tx.insert(accountChart).values(
+          plan.subaccounts.map((entry) => ({
+            companyId: input.companyId,
+            code: entry.code,
+            name: entry.name,
+            type: entry.type,
+            parentCode: entry.parentCode,
+            level: entry.code.length,
+            isPostable: true,
+            isActive: entry.isActive,
+            source: entry.source,
+            templateVersion: entry.templateVersion,
+            nature: natureForAccountType(entry.type),
+          })),
+        ).onConflictDoNothing();
+      }
     }
 
     if (input.template.taxes.length > 0) {
@@ -179,4 +206,39 @@ async function applyTemplateRows(
 
 export async function applyEsSeeds(input: ApplyEsSeedsInput) {
   return applyCompanyTemplate({ ...input, countryCode: "ES" });
+}
+
+/**
+ * Plan contable de una plantilla (función pura): las cuentas del PGC quedan como cuentas de grupo y
+ * cada cuenta de último nivel (las que la plantilla marca como imputables) recibe su subcuenta
+ * canónica de `subaccountLength` dígitos con el mismo nombre.
+ */
+export function buildTemplateChart(accounts: readonly CompanyTemplateAccount[], subaccountLength: number) {
+  const groups = accounts.filter((entry) => entry.code.length < subaccountLength);
+  const seen = new Set<string>();
+  const subaccounts: Array<{
+    code: string;
+    name: string;
+    type: CompanyTemplateAccount["type"];
+    parentCode: string;
+    isActive: boolean;
+    source: string;
+    templateVersion: string | null;
+  }> = [];
+  for (const entry of groups) {
+    if (entry.isPostable === false) continue;
+    const code = canonicalSubaccountCode(entry.code, subaccountLength);
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    subaccounts.push({
+      code,
+      name: entry.name,
+      type: entry.type,
+      parentCode: entry.code,
+      isActive: entry.isActive ?? false,
+      source: entry.source ?? "template",
+      templateVersion: entry.templateVersion ?? null,
+    });
+  }
+  return { groups, subaccounts };
 }

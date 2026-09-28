@@ -28,6 +28,7 @@ import {
   reverseAutomaticEntries,
 } from "@/server/accounting/auto-post";
 import { AccountingRuleError, isAccountingRuleError } from "@/server/accounting/errors";
+import { sameCanonicalAccount } from "@/server/accounting/subaccounts-model";
 import { recordAudit } from "@/server/audit";
 import { resolveOpenPostingDate } from "@/server/fiscal/locks";
 import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
@@ -368,7 +369,8 @@ async function assertAssignableAccounts(client: DbClient, companyId: string, ban
     if (account.code === settings.codes.suspense || account.code.startsWith(settings.codes.suspense)) {
       throw new AccountingRuleError(422, "ACCOUNT_SUSPENSE", "La cuenta 555 es justo la de «pendiente de identificar»: elige la cuenta real del gasto o ingreso.");
     }
-    if (account.id === bankLedgerId || (!bankLedgerId && account.code === settings.codes.bank)) {
+    // El banco por defecto (572) se compara por su subcuenta canónica (57200000), no por el código exacto.
+    if (account.id === bankLedgerId || (!bankLedgerId && sameCanonicalAccount(account.code, settings.codes.bank))) {
       throw new AccountingRuleError(422, "ACCOUNT_SAME_BANK", "No puedes asignar un movimiento a la propia cuenta del banco.");
     }
   }

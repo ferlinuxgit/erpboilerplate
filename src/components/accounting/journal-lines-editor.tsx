@@ -10,15 +10,20 @@ import {
 } from "@/components/accounting/journal-entry-utils";
 import { AccountPicker } from "@/components/ui/account-picker";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/number-input";
+import { Select } from "@/components/ui/select";
 import { formatAmount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export type JournalAccountOption = { id: string; code: string; name: string };
+export type JournalPartnerOption = { id: string; name: string };
 
 type JournalLinesEditorProps = {
   accounts: JournalAccountOption[];
+  /** Terceros para el campo opcional «Tercero» de cada línea (sin terceros no se muestra). */
+  partners?: JournalPartnerOption[];
   lines: JournalFormLine[];
   onChange: (lines: JournalFormLine[]) => void;
   /** id del mensaje de error del formulario (se enlaza con aria-describedby). */
@@ -29,7 +34,7 @@ type JournalLinesEditorProps = {
  * Líneas del asiento: cuenta con buscador (sin cuenta por defecto), debe y haber con formato
  * español ("1.234,56") y el cuadre en vivo.
  */
-export function JournalLinesEditor({ accounts, errorId, lines, onChange }: JournalLinesEditorProps) {
+export function JournalLinesEditor({ accounts, errorId, lines, onChange, partners = [] }: JournalLinesEditorProps) {
   const totals = calculateJournalTotals(lines);
   const balanced = totals.isBalanced;
 
@@ -73,7 +78,40 @@ export function JournalLinesEditor({ accounts, errorId, lines, onChange }: Journ
                 value={line.credit}
               />
             </div>
-            <div className="flex items-end">
+            <div className={cn("grid gap-3 md:col-span-4", partners.length > 0 ? "md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" : "")}>
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor={`journal-line-${index}-concept`}>Concepto de la línea {index + 1}</Label>
+                <Input
+                  id={`journal-line-${index}-concept`}
+                  maxLength={200}
+                  onChange={(event) => {
+                    const concept = event.currentTarget.value;
+                    update(index, (current) => ({ ...current, concept }));
+                  }}
+                  placeholder={index > 0 && lines[index - 1]?.concept ? lines[index - 1]?.concept : "Si lo dejas vacío se usa la referencia"}
+                  value={line.concept ?? ""}
+                />
+              </div>
+              {partners.length > 0 ? (
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor={`journal-line-${index}-partner`}>Tercero de la línea {index + 1}</Label>
+                  <Select
+                    id={`journal-line-${index}-partner`}
+                    onChange={(event) => {
+                      const partnerId = event.currentTarget.value;
+                      update(index, (current) => ({ ...current, partnerId }));
+                    }}
+                    value={line.partnerId ?? ""}
+                  >
+                    <option value="">Sin tercero</option>
+                    {partners.map((partner) => (
+                      <option key={partner.id} value={partner.id}>{partner.name}</option>
+                    ))}
+                  </Select>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-end md:col-start-4 md:row-start-1">
               <Button
                 aria-label={`Eliminar la línea ${index + 1}`}
                 disabled={lines.length <= 2}
@@ -89,7 +127,7 @@ export function JournalLinesEditor({ accounts, errorId, lines, onChange }: Journ
           </div>
         ))}
       </div>
-      <Button onClick={() => onChange([...lines, emptyJournalLine()])} type="button" variant="outline">
+      <Button onClick={() => onChange([...lines, emptyJournalLine(lines[lines.length - 1])])} type="button" variant="outline">
         <Plus aria-hidden="true" />
         Añadir línea
       </Button>

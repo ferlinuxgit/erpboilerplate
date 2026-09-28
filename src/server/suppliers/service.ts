@@ -7,6 +7,7 @@ import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { HttpError } from "@/lib/http";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { calculateSupplierBalance } from "@/lib/supplier-balance";
+import { syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { createSupplierSchema, updateSupplierSchema } from "@/server/schemas/forms";
 
@@ -42,7 +43,7 @@ function supplierValues(input: CreateSupplierInput | UpdateSupplierInput) {
     isActive: "status" in input && input.status ? input.status === "ACTIVE" : true,
     paymentTermsDays: "paymentTermsDays" in input ? input.paymentTermsDays : 30,
     paymentMethodId: cleanOptional("paymentMethodId" in input ? input.paymentMethodId : undefined),
-    defaultAccountId: cleanOptional("defaultAccountId" in input ? input.defaultAccountId : undefined),
+    supplierKind: input.supplierKind === undefined ? undefined : input.supplierKind ?? null,
     currencyCode: ("currencyCode" in input ? input.currencyCode : "EUR").trim().toUpperCase(),
     // Claves ausentes = no se tocan (integraciones que no conocen estos campos no los borran).
     defaultExpenseAccountId: input.defaultExpenseAccountId === undefined ? undefined : cleanOptional(input.defaultExpenseAccountId),
@@ -88,6 +89,7 @@ export async function listSuppliers(dbClient: DbClient, companyId: string) {
         paymentTermsDays: partner.paymentTermsDays,
         paymentMethodId: partner.paymentMethodId,
         defaultAccountId: partner.defaultAccountId,
+        supplierKind: partner.supplierKind,
         defaultExpenseAccountId: partner.defaultExpenseAccountId,
         defaultRetentionRate: partner.defaultRetentionRate,
         defaultTaxDeductiblePct: partner.defaultTaxDeductiblePct,
@@ -149,6 +151,7 @@ export async function getSupplier(dbClient: DbClient, companyId: string, id: str
       paymentTermsDays: partner.paymentTermsDays,
       paymentMethodId: partner.paymentMethodId,
       defaultAccountId: partner.defaultAccountId,
+      supplierKind: partner.supplierKind,
       defaultExpenseAccountId: partner.defaultExpenseAccountId,
       defaultRetentionRate: partner.defaultRetentionRate,
       defaultTaxDeductiblePct: partner.defaultTaxDeductiblePct,
@@ -190,7 +193,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
         countryCode: values.countryCode,
         paymentTermsDays: values.paymentTermsDays,
         paymentMethodId: values.paymentMethodId,
-        defaultAccountId: values.defaultAccountId,
+        supplierKind: values.supplierKind,
         defaultExpenseAccountId: values.defaultExpenseAccountId,
         defaultRetentionRate: values.defaultRetentionRate,
         defaultTaxDeductiblePct: values.defaultTaxDeductiblePct,
@@ -201,6 +204,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
       })
       .where(and(eq(partner.id, existing.id), eq(partner.companyId, companyId)))
       .returning({ id: partner.id, number: partner.number, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
+    await syncPartnerSubaccounts(dbClient, companyId, existing.id);
     return updated;
   }
 
@@ -223,7 +227,7 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
       countryCode: values.countryCode,
       paymentTermsDays: values.paymentTermsDays,
       paymentMethodId: values.paymentMethodId,
-      defaultAccountId: values.defaultAccountId,
+      supplierKind: values.supplierKind,
       defaultExpenseAccountId: values.defaultExpenseAccountId,
       defaultRetentionRate: values.defaultRetentionRate,
       defaultTaxDeductiblePct: values.defaultTaxDeductiblePct,
@@ -232,6 +236,8 @@ export async function createSupplierWithPartner(dbClient: DbClient, companyId: s
       isActive: true,
     })
     .returning({ id: partner.id, number: partner.number, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
+  // Subcuenta 400/410 del proveedor (40000001…), fuente de verdad de sus asientos.
+  await syncPartnerSubaccounts(dbClient, companyId, created.id);
   return created;
 }
 
@@ -261,7 +267,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
       countryCode: values.countryCode,
       paymentTermsDays: values.paymentTermsDays,
       paymentMethodId: values.paymentMethodId,
-      defaultAccountId: values.defaultAccountId,
+      supplierKind: values.supplierKind,
       defaultExpenseAccountId: values.defaultExpenseAccountId,
       defaultRetentionRate: values.defaultRetentionRate,
       defaultTaxDeductiblePct: values.defaultTaxDeductiblePct,
@@ -272,6 +278,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
     })
     .where(and(eq(partner.id, id), eq(partner.companyId, companyId), inArray(partner.type, ["SUPPLIER", "BOTH"])))
     .returning({ id: partner.id, number: partner.number, name: partner.name, email: partner.email, phone: partner.phone, taxId: partner.taxId, city: partner.city, province: partner.province, countryCode: partner.countryCode, isActive: partner.isActive });
+  if (updated) await syncPartnerSubaccounts(dbClient, companyId, updated.id);
   return updated;
 }
 

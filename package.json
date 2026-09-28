@@ -18,6 +18,7 @@
     "ocr:worker": "tsx scripts/ocr-worker.ts",
     "verifactu:worker": "tsx scripts/verifactu-worker.ts",
     "recurring:worker": "tsx scripts/recurring-worker.ts",
+    "accounting:reclassify": "tsx scripts/accounting-reclassify.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:verify": "node scripts/verify-clean-db-migrations.mjs",

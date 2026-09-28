@@ -114,11 +114,15 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <Card>
           <CardHeader>
             <CardTitle>Condiciones</CardTitle>
-            <CardDescription>Forma de pago y cuenta del proveedor.</CardDescription>
+            <CardDescription>Forma de pago, tipo y subcuenta contable del proveedor.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <p>Método: {method?.name ?? "Sin método por defecto"}</p>
-            <p>Cuenta del proveedor: {account ? `${account.code} · ${account.name}` : "Cuenta por defecto de la empresa"}</p>
+            <p>
+              Subcuenta contable:{" "}
+              {account && supplier.defaultAccountId ? <Link className="font-mono text-link hover:underline" href={`/accounting/ledger/${supplier.defaultAccountId}`}>{account.code}</Link> : "Se crea con su primera factura"}
+            </p>
+            <p>Tipo de proveedor: {supplier.supplierKind === "SERVICES" ? "Servicios / acreedores (410)" : supplier.supplierKind === "GOODS" ? "Mercaderías (400)" : "Según la actividad de la empresa"}</p>
             <p>Moneda: {supplier.currencyCode}</p>
           </CardContent>
         </Card>

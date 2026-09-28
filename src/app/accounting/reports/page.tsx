@@ -60,7 +60,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
     from: period.from,
     toExclusive: period.toExclusive,
   });
-  const { balanceSheet, incomeStatement, trialBalance, totals } = statements;
+  const { balanceSheet, incomeStatement, trialBalance, trialBalanceGroups, totals } = statements;
   const dates = periodDateKeys(period);
   const ledgerHref = (accountId: string) => `/accounting/ledger/${accountId}?from=${dates.from}&to=${dates.to}`;
   const money = (value: number) => formatMoney(value, currency);
@@ -152,7 +152,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
 
       <PageSection
         title="Balance de sumas y saldos"
-        description="Saldo inicial, movimientos del periodo y saldo final de cada cuenta."
+        description="Saldo inicial, movimientos del periodo y saldo final de cada subcuenta, con el subtotal de su cuenta de 3 dígitos."
         actions={<HelpTerm term="sumas-y-saldos">¿Qué es?</HelpTerm>}
       >
         {trialBalance.length === 0 ? (
@@ -170,17 +170,26 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {trialBalance.map((row) => (
-                  <TableRow key={row.accountId}>
-                    <TableCell>
-                      <Link className="link" href={ledgerHref(row.accountId)}>{row.code}</Link> {row.name}
-                    </TableCell>
-                    <TableCell className="text-right">{formatBalance(row.opening, currency)}</TableCell>
-                    <TableCell className="text-right">{money(row.debit)}</TableCell>
-                    <TableCell className="text-right">{money(row.credit)}</TableCell>
-                    <TableCell className="text-right">{formatBalance(row.closing, currency)}</TableCell>
-                  </TableRow>
-                ))}
+                {trialBalanceGroups.flatMap((group) => [
+                  <TableRow className="bg-muted/40 font-medium" key={`group-${group.code}`}>
+                    <TableCell>{group.code} {group.name}</TableCell>
+                    <TableCell className="text-right">{formatBalance(group.opening, currency)}</TableCell>
+                    <TableCell className="text-right">{money(group.debit)}</TableCell>
+                    <TableCell className="text-right">{money(group.credit)}</TableCell>
+                    <TableCell className="text-right">{formatBalance(group.closing, currency)}</TableCell>
+                  </TableRow>,
+                  ...group.accounts.map((row) => (
+                    <TableRow key={row.accountId}>
+                      <TableCell className="pl-6">
+                        <Link className="link" href={ledgerHref(row.accountId)}>{row.code}</Link> {row.name}
+                      </TableCell>
+                      <TableCell className="text-right">{formatBalance(row.opening, currency)}</TableCell>
+                      <TableCell className="text-right">{money(row.debit)}</TableCell>
+                      <TableCell className="text-right">{money(row.credit)}</TableCell>
+                      <TableCell className="text-right">{formatBalance(row.closing, currency)}</TableCell>
+                    </TableRow>
+                  )),
+                ])}
               </TableBody>
               <TableFooter>
                 <TableRow>

@@ -44,7 +44,7 @@ export function CreateAccountForm({ onCancel, onSuccess, redirectHref }: CreateA
         }
       } catch (e) { setError(errorMessage(e, "No se pudo crear la cuenta.")); } finally { setLoading(false); }
     }}>
-      <AccessibleField id="account-code" label="Código" required><Input id="account-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="4300" required /></AccessibleField>
+      <AccessibleField id="account-code" label="Código" required helperText="Subcuenta de 8 dígitos (p. ej. 62900001) para apuntar en ella; un código más corto (p. ej. 629) crea la cuenta de grupo y su subcuenta 62900000."><Input id="account-code" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} placeholder="62900001" required /></AccessibleField>
       <AccessibleField id="account-name" label="Nombre" required><Input id="account-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Clientes" required /></AccessibleField>
       <AccessibleField id="account-type" label="Tipo" required><Select id="account-type" value={type} onChange={(e) => setType(e.target.value as (typeof accountTypes)[number])}>{accountTypes.map((option) => <option key={option} value={option}>{statusLabel(accountTypeLabels, option)}</option>)}</Select></AccessibleField>
       <div className="flex gap-2 self-end md:justify-end">{onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Crear cuenta"}</Button></div>

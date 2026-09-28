@@ -40,7 +40,6 @@ export default async function NewSupplierPage() {
       <PageSection title="Datos del proveedor" description="Informa identidad fiscal, domicilio y contacto. El número de proveedor se asignará automáticamente.">
         {canCreateSupplier ? (
           <CreateSupplierForm
-            defaultAccounts={supplierAccounts.filter((account) => account.code.startsWith("410"))}
             expenseAccounts={supplierAccounts.filter((account) => account.code.startsWith("6") || account.code.startsWith("2"))}
             paymentMethods={paymentMethods}
             redirectHref="/suppliers"

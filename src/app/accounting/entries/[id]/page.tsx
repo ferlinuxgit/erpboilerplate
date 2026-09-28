@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { JournalLineDocument } from "@/components/accounting/journal-line-document";
 import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -9,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
-import { getJournalEntry, listAccounts } from "@/server/accounting/service";
+import { getJournalEntry } from "@/server/accounting/service";
 
 function sourceHref(sourceType: string | null, sourceId: string | null) {
   if (!sourceId) return null;
@@ -22,10 +23,9 @@ function sourceHref(sourceType: string | null, sourceId: string | null) {
 export default async function JournalEntryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("accounting.read");
   const { id } = await params;
-  const [entry, accounts] = await Promise.all([getJournalEntry(ctx.company.id, id), listAccounts(ctx.company.id)]);
+  const entry = await getJournalEntry(ctx.company.id, id);
   if (!entry) notFound();
 
-  const accountById = new Map(accounts.map((account) => [account.id, account]));
   const debit = entry.lines.reduce((sum, line) => sum + Number(line.debit), 0);
   const credit = entry.lines.reduce((sum, line) => sum + Number(line.credit), 0);
   const difference = debit - credit;
@@ -69,31 +69,38 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
         />
       </section>
 
-      <PageSection title="Apuntes contables" description="Detalle del debe y el haber por cuenta.">
+      <PageSection title="Apuntes contables" description="Cuenta, concepto, tercero, documento y vencimiento de cada apunte.">
         <div className="overflow-x-auto rounded-[2px] border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Cuenta</TableHead>
                 <TableHead>Nombre</TableHead>
+                <TableHead>Concepto</TableHead>
+                <TableHead>Tercero</TableHead>
+                <TableHead>Documento</TableHead>
+                <TableHead>Vencimiento</TableHead>
                 <TableHead className="text-right">Debe</TableHead>
                 <TableHead className="text-right">Haber</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entry.lines.map((line) => {
-                const account = accountById.get(line.accountId);
-                return (
-                  <TableRow key={line.id}>
-                    <TableCell>
-                      {account ? <Link className="font-mono font-semibold text-link hover:underline" href={`/accounting/ledger/${account.id}`}>{account.code}</Link> : "—"}
-                    </TableCell>
-                    <TableCell className="font-medium">{account?.name ?? "Cuenta no disponible"}</TableCell>
-                    <TableCell className="text-right font-mono">{Number(line.debit) > 0 ? formatMoney(line.debit, ctx.company.baseCurrencyCode) : "—"}</TableCell>
-                    <TableCell className="text-right font-mono">{Number(line.credit) > 0 ? formatMoney(line.credit, ctx.company.baseCurrencyCode) : "—"}</TableCell>
-                  </TableRow>
-                );
-              })}
+              {entry.lines.map((line) => (
+                <TableRow key={line.id}>
+                  <TableCell>
+                    <Link className="font-mono font-semibold text-link hover:underline" href={`/accounting/ledger/${line.accountId}`}>{line.accountCode}</Link>
+                  </TableCell>
+                  <TableCell className="font-medium">{line.accountName}</TableCell>
+                  <TableCell>{line.concept ?? "—"}</TableCell>
+                  <TableCell>{line.partnerName ?? "—"}</TableCell>
+                  <TableCell>
+                    <JournalLineDocument documentId={line.documentId} documentNumber={line.documentNumber} documentType={line.documentType} />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{line.dueDate ? formatDate(line.dueDate) : "—"}</TableCell>
+                  <TableCell className="text-right font-mono">{Number(line.debit) > 0 ? formatMoney(line.debit, ctx.company.baseCurrencyCode) : "—"}</TableCell>
+                  <TableCell className="text-right font-mono">{Number(line.credit) > 0 ? formatMoney(line.credit, ctx.company.baseCurrencyCode) : "—"}</TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </div>

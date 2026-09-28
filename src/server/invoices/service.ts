@@ -465,6 +465,8 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     taxAmount: totals.taxAmount,
     retentionAmount: totals.retentionAmount,
     totalAmount: totals.totalAmount,
+    // Base de cada línea con su artículo: la venta va a la cuenta de ventas del artículo (700/705…).
+    lines: lines.map((line, index) => ({ itemId: line.itemId ?? null, subtotal: totals.lines[index]?.subtotal ?? 0 })),
     dbClient: tx,
   };
   if (isCreditNote && original) {

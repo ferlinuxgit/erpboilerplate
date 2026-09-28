@@ -9,6 +9,7 @@ import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { CUSTOMER_HAS_DOCUMENTS_MESSAGE, normalizeIban, type customerBillingSchema } from "@/server/customers/schemas";
 import { isSalesVatTreatment } from "@/server/invoices/lifecycle";
 import { creditedByInvoiceSubquery, invoiceIsDraftSql, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
+import { syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { createCustomerSchema, updateCustomerSchema } from "@/server/schemas/forms";
 
@@ -137,6 +138,8 @@ export async function createCustomerWithPartner(dbClient: DbClient, companyId: s
       partnerId: customer.partnerId,
     });
 
+  // Subcuenta 430 del cliente (43000001…), fuente de verdad de sus asientos.
+  await syncPartnerSubaccounts(dbClient, companyId, partnerId);
   return { ...createdCustomer, number: partnerRecord.number };
 }
 
@@ -223,6 +226,7 @@ export async function updateCustomerWithPartner(
     .where(and(eq(customer.id, customerId), eq(customer.companyId, companyId)))
     .returning();
 
+  if (partnerId) await syncPartnerSubaccounts(dbClient, companyId, partnerId);
   return updatedCustomer;
 }
 

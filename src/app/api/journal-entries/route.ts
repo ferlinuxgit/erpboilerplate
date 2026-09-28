@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "accounting.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const payload = (await readJsonBody(request)) as { postedAt?: string; reference?: string; lines?: Array<{ accountId: string; debit: string; credit: string }> } | null;
+  const payload = (await readJsonBody(request)) as { postedAt?: string; reference?: string; lines?: Array<{ accountId: string; debit: string; credit: string; concept?: string | null; partnerId?: string | null }> } | null;
   if (!payload) return invalidJsonResponse();
 
   if (!payload.postedAt || !Array.isArray(payload.lines)) return NextResponse.json({ message: "Indica la fecha y las líneas del asiento." }, { status: 400 });

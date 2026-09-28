@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 // ACCOUNTANT = gestor/asesor externo; VIEWER = solo lectura (ver `src/lib/rbac.ts`).
 export const membershipRoleEnum = pgEnum("membership_role", ["OWNER", "ADMIN", "MEMBER", "ACCOUNTANT", "VIEWER"]);
@@ -140,6 +140,8 @@ export const fiscalYear = pgTable(
     endsAt: timestamp("endsAt", { withTimezone: true, mode: "date" }).notNull(),
     isClosed: boolean("isClosed").notNull().default(false),
     closedAt: timestamp("closedAt", { withTimezone: true, mode: "date" }),
+    // Siguiente número de asiento del ejercicio (numeración AS-<código>/000001 que se reinicia cada ejercicio).
+    nextJournalEntryNumber: integer("nextJournalEntryNumber").notNull().default(1),
   },
   (table) => [unique("fiscal_year_company_code_unique").on(table.companyId, table.code), index("fiscal_year_company_dates_idx").on(table.companyId, table.startsAt, table.endsAt)],
 );
@@ -348,12 +350,17 @@ export const companySettings = pgTable("company_settings", {
   pdfShowTaxBreakdown: boolean("pdfShowTaxBreakdown").notNull().default(true),
   // Qué vende la empresa: "products", "services" o "both". Adapta navegación y avisos del panel.
   businessType: text("businessType").notNull().default("both"),
+  // Longitud fija de las subcuentas (donde se apunta): 8 por defecto, de 8 a 12. Solo se puede
+  // cambiar mientras la empresa no tenga asientos.
+  subaccountLength: integer("subaccountLength").notNull().default(8),
   // Puesta en marcha: completada con el asistente o pospuesta por el usuario (no se vuelve a redirigir).
   onboardingCompletedAt: timestamp("onboardingCompletedAt", { withTimezone: true, mode: "date" }),
   onboardingDismissedAt: timestamp("onboardingDismissedAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [
+  check("company_settings_subaccount_length_valid", sql`${table.subaccountLength} BETWEEN 8 AND 12`),
+]);
 
 export const partner = pgTable("partner", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -373,7 +380,12 @@ export const partner = pgTable("partner", {
   countryCode: text("countryCode").notNull().default("ES"),
   paymentTermsDays: integer("paymentTermsDays"),
   paymentMethodId: text("paymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
+  // Subcuenta contable del tercero (430xxxxx cliente; 400xxxxx/410xxxxx proveedor). La crea y
+  // mantiene el sistema: es la que usan todos los asientos automáticos del tercero.
   defaultAccountId: text("defaultAccountId").references(() => accountChart.id, { onDelete: "set null" }),
+  // Tipo de proveedor: GOODS (mercaderías → 400) o SERVICES (servicios/acreedores → 410).
+  // null = según el tipo de negocio de la empresa.
+  supplierKind: text("supplierKind"),
   // Valores por defecto de las facturas recibidas de este proveedor (OCR y alta manual).
   // Cuenta de gasto habitual (grupo 6/2). null = el usuario la elige en cada factura.
   defaultExpenseAccountId: text("defaultExpenseAccountId").references((): AnyPgColumn => accountChart.id, { onDelete: "set null" }),
@@ -388,6 +400,7 @@ export const partner = pgTable("partner", {
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
+  check("partner_supplier_kind_valid", sql`${table.supplierKind} IS NULL OR ${table.supplierKind} IN ('GOODS', 'SERVICES')`),
   check("partner_default_vat_treatment_valid", sql`${table.defaultVatTreatment} IS NULL OR ${table.defaultVatTreatment} IN ('DOMESTIC', 'INTRA_EU', 'REVERSE_CHARGE', 'IMPORT', 'NOT_SUBJECT')`),
   unique("partner_company_number_unique").on(table.companyId, table.number),
   index("partner_company_name_idx").on(table.companyId, table.name),
@@ -928,15 +941,24 @@ export const accountChart = pgTable(
     type: accountTypeEnum("type").notNull(),
     parentCode: text("parentCode"),
     level: integer("level").notNull().default(3),
+    // Solo las subcuentas (código de la longitud de la empresa) admiten apuntes; el resto son de grupo.
     isPostable: boolean("isPostable").notNull().default(true),
     isActive: boolean("isActive").notNull().default(false),
     source: text("source").notNull().default("manual"),
     templateVersion: text("templateVersion"),
+    // Naturaleza del saldo: DEBIT (deudora), CREDIT (acreedora) o MIXED. null = según el tipo.
+    nature: text("nature"),
+    // Cuenta bloqueada: no admite apuntes manuales nuevos.
+    isBlocked: boolean("isBlocked").notNull().default(false),
+    // Tercero dueño de la subcuenta (430xxxxx, 400xxxxx, 410xxxxx).
+    partnerId: text("partnerId").references((): AnyPgColumn => partner.id, { onDelete: "set null" }),
   },
   (table) => [
     unique("account_chart_company_code_unique").on(table.companyId, table.code),
     index("account_chart_company_active_idx").on(table.companyId, table.isActive),
     index("account_chart_company_postable_idx").on(table.companyId, table.isPostable),
+    index("account_chart_partner_idx").on(table.partnerId),
+    check("account_chart_nature_valid", sql`${table.nature} IS NULL OR ${table.nature} IN ('DEBIT', 'CREDIT', 'MIXED')`),
   ],
 );
 
@@ -945,6 +967,8 @@ export const journalEntry = pgTable("journal_entry", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   number: text("number").notNull(),
   journalId: text("journalId").notNull().references(() => journal.id, { onDelete: "restrict" }),
+  // Ejercicio del asiento (por fecha). null = asientos sin ejercicio (datos antiguos fuera de rango).
+  fiscalYearId: text("fiscalYearId").references(() => fiscalYear.id, { onDelete: "set null" }),
   postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }).notNull(),
   reference: text("reference"),
   sourceType: text("sourceType"),
@@ -954,7 +978,11 @@ export const journalEntry = pgTable("journal_entry", {
   reversesEntryId: text("reversesEntryId"),
 }, (table) => [
   unique("journal_entry_company_number_unique").on(table.companyId, table.number),
+  // Numeración por ejercicio (AS-2026/000001). Los números antiguos (AS000001) son únicos por empresa,
+  // así que también cumplen esta restricción.
+  unique("journal_entry_company_year_number_unique").on(table.companyId, table.fiscalYearId, table.number),
   index("journal_entry_company_date_idx").on(table.companyId, table.postedAt),
+  index("journal_entry_fiscal_year_idx").on(table.companyId, table.fiscalYearId),
   index("journal_entry_source_idx").on(table.companyId, table.sourceType, table.sourceId),
   // Idempotencia del ciclo de ejercicio: un único asiento vigente de regularización, cierre y apertura por ejercicio.
   uniqueIndex("journal_entry_fiscal_year_lifecycle_unique")
@@ -968,9 +996,31 @@ export const journalLine = pgTable("journal_line", {
   accountId: text("accountId").notNull().references(() => accountChart.id, { onDelete: "restrict" }),
   debit: numeric("debit", { precision: 12, scale: 2 }).notNull().default("0"),
   credit: numeric("credit", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Orden de la línea dentro del asiento (1, 2, 3…).
+  lineNumber: integer("lineNumber"),
+  // Concepto del apunte («Fra. FA-2026/000049 · Pérez S.L.»).
+  concept: text("concept"),
+  // Tercero y documento de origen del apunte.
+  partnerId: text("partnerId").references((): AnyPgColumn => partner.id, { onDelete: "set null" }),
+  // invoice | supplierInvoice | payment | supplierPayment | bankTransaction | fiscalYear…
+  documentType: text("documentType"),
+  documentNumber: text("documentNumber"),
+  documentId: text("documentId"),
+  // Vencimiento (apuntes de clientes y proveedores).
+  dueDate: date("dueDate", { mode: "date" }),
+  // Punteo (fase 3): cuándo y en qué punteo se marcó el apunte.
+  reconciledAt: timestamp("reconciledAt", { withTimezone: true, mode: "date" }),
+  reconciliationId: text("reconciliationId"),
+  // Casación (fase 3): apuntes de cargo y abono de un mismo documento.
+  matchingId: text("matchingId"),
+  // Centro de coste (analítica, fase 6).
+  costCenterId: text("costCenterId"),
 }, (table) => [
   index("journal_line_entry_idx").on(table.journalEntryId),
   index("journal_line_account_idx").on(table.accountId),
+  index("journal_line_account_entry_idx").on(table.accountId, table.journalEntryId),
+  index("journal_line_partner_idx").on(table.partnerId),
+  index("journal_line_matching_idx").on(table.matchingId),
   check("journal_line_valid_amounts", sql`${table.debit} >= 0 AND ${table.credit} >= 0 AND ((${table.debit} > 0 AND ${table.credit} = 0) OR (${table.credit} > 0 AND ${table.debit} = 0))`),
 ]);
 

@@ -232,6 +232,13 @@
       "when": 1790354603314,
       "tag": "0032_series_sepa_psd2",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790591054888,
+      "tag": "0033_accounting_subaccounts",
+      "breakpoints": true
     }
   ]
 }

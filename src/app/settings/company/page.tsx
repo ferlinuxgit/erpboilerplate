@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { BusinessTypeForm } from "@/components/company/business-type-form";
+import { SubaccountLengthForm } from "@/components/company/subaccount-length-form";
 import { CompanyProfileForm, type CompanyProfileFormValues } from "@/components/company/company-profile-form";
 import { PdfSettingsForm } from "@/components/company/pdf-settings-form";
 import { SepaCreditorForm } from "@/components/company/sepa-creditor-form";
@@ -11,6 +12,7 @@ import { company, companySettings } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { parseBusinessType } from "@/lib/company-readiness";
 import { db } from "@/lib/db";
+import { companyHasJournalEntries } from "@/server/accounting/subaccounts";
 import { defaultPdfDisplaySettings } from "@/lib/pdf-settings";
 
 function toFormValues(row: typeof company.$inferSelect): CompanyProfileFormValues {
@@ -61,10 +63,12 @@ export default async function CompanySettingsPage() {
       showPaymentMethod: companySettings.pdfShowPaymentMethod,
       showTaxBreakdown: companySettings.pdfShowTaxBreakdown,
       businessType: companySettings.businessType,
+      subaccountLength: companySettings.subaccountLength,
     }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
   ]);
 
   if (!row) notFound();
+  const hasEntries = await companyHasJournalEntries(ctx.company.id);
 
   return (
     <PageShell>
@@ -80,6 +84,9 @@ export default async function CompanySettingsPage() {
       </PageSection>
       <PageSection title="Actividad" description="Qué vendes: ocultamos inventario, albaranes y recepciones si solo prestas servicios.">
         <BusinessTypeForm initialValue={parseBusinessType(pdfSettings?.businessType)} />
+      </PageSection>
+      <PageSection title="Contabilidad" description="Longitud fija de las subcuentas donde se apunta (clientes 430…, proveedores 400/410…, IVA 477…).">
+        <SubaccountLengthForm initialValue={pdfSettings?.subaccountLength ?? 8} locked={hasEntries} />
       </PageSection>
       <PageSection title="Cobro de recibos domiciliados (SEPA)" description="Necesario para generar remesas de adeudos directos desde Tesorería.">
         <SepaCreditorForm initialValue={row.sepaCreditorId} vatNumber={row.vatNumber} />

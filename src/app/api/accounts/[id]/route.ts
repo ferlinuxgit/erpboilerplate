@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { deleteAccount, getAccount, updateAccount } from "@/server/accounting/service";
@@ -22,14 +22,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "accounting.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const payload = (await readJsonBody(request)) as { code?: string; name?: string; type?: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED" } | null;
+  const payload = (await readJsonBody(request)) as { code?: string; name?: string; type?: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED"; isBlocked?: boolean } | null;
   if (!payload) return invalidJsonResponse();
 
   if (!payload.code?.trim() || !payload.name?.trim() || !payload.type) return NextResponse.json({ message: "Datos invalidos." }, { status: 400 });
   const { id } = await params;
-  const updated = await updateAccount(ctx.company.id, ctx.tenant.id, session.user.id, id, { code: payload.code.trim(), name: payload.name.trim(), type: payload.type });
-  if (!updated) return NextResponse.json({ message: "Cuenta no encontrada." }, { status: 404 });
-  return NextResponse.json(updated);
+  try {
+    const updated = await updateAccount(ctx.company.id, ctx.tenant.id, session.user.id, id, {
+      code: payload.code.trim(),
+      name: payload.name.trim(),
+      type: payload.type,
+      ...(typeof payload.isBlocked === "boolean" ? { isBlocked: payload.isBlocked } : {}),
+    });
+    if (!updated) return NextResponse.json({ message: "Cuenta no encontrada." }, { status: 404 });
+    return NextResponse.json(updated);
+  } catch (error) {
+    return handleRouteError(error, "accounts.update", "No se pudo guardar la cuenta. Inténtalo de nuevo.");
+  }
 }
 
 export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {

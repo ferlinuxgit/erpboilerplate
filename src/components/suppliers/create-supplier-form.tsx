@@ -29,14 +29,15 @@ type CreateSupplierFormProps = {
   /** Cuentas imputables para elegir la cuenta de gasto habitual. */
   expenseAccounts?: Array<{ id: string; code: string; name: string }>;
   paymentMethods?: Array<{ id: string; name: string }>;
-  defaultAccounts?: Array<{ id: string; code: string; name: string }>;
 };
+
+const ACCOUNT_HELP = "Su subcuenta se crea sola al guardar: mercaderías → 400 + número; servicios → 410 + número.";
 
 const paymentTermsRegisterOptions = {
   setValueAs: (value: unknown) => (typeof value === "number" ? value : value === "" || value === null || value === undefined ? Number.NaN : Number(value)),
 } as const;
 
-export function CreateSupplierForm({ defaultAccounts = [], expenseAccounts = [], onCreated, paymentMethods = [], redirectHref }: CreateSupplierFormProps = {}) {
+export function CreateSupplierForm({ expenseAccounts = [], onCreated, paymentMethods = [], redirectHref }: CreateSupplierFormProps = {}) {
   type CreateSupplierPayload = z.input<typeof createSupplierSchema>;
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export function CreateSupplierForm({ defaultAccounts = [], expenseAccounts = [],
       phone: "",
       paymentTermsDays: 30,
       paymentMethodId: "",
-      defaultAccountId: "",
+      supplierKind: null,
       currencyCode: "EUR",
     },
   });
@@ -151,10 +152,11 @@ export function CreateSupplierForm({ defaultAccounts = [], expenseAccounts = [],
           {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
         </Select>
       </AccessibleField>
-      <AccessibleField id="supplier-default-account" label="Cuenta del proveedor" error={errors.defaultAccountId?.message} helperText="Dónde se anota lo que le debes (grupo 410). Déjalo en la general salvo que tu gestor use subcuentas.">
-        <Select id="supplier-default-account" {...register("defaultAccountId")}>
-          <option value="">General de la empresa (410)</option>
-          {defaultAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
+      <AccessibleField id="supplier-kind" label="Tipo de proveedor" error={errors.supplierKind?.message} helperText={ACCOUNT_HELP}>
+        <Select id="supplier-kind" {...register("supplierKind", { setValueAs: (value: unknown) => (value === "GOODS" || value === "SERVICES" ? value : null) })}>
+          <option value="">Según la actividad de la empresa</option>
+          <option value="GOODS">Mercaderías (400)</option>
+          <option value="SERVICES">Servicios / acreedores (410)</option>
         </Select>
       </AccessibleField>
       <AccessibleField id="supplier-currency" label="Moneda" required error={errors.currencyCode?.message} helperText="Código ISO de 3 letras (EUR, USD…).">

@@ -43,7 +43,10 @@ export const updateCustomerSchema = createCustomerSchema.extend({
 export const createSupplierSchema = createCustomerSchema.extend({
   paymentTermsDays: z.number().int("Los días de pago deben ser enteros.").min(0, "Los días de pago no pueden ser negativos.").max(365, "Los días de pago no pueden superar 365.").default(30),
   paymentMethodId: z.string().trim().optional().or(z.literal("")),
+  // Obsoleto: la subcuenta del proveedor (400/410 + número) la crea y mantiene el sistema. Se ignora.
   defaultAccountId: z.string().trim().optional().or(z.literal("")),
+  // Tipo de proveedor: mercaderías (400) o servicios/acreedores (410). Ausente = no se toca.
+  supplierKind: z.enum(["GOODS", "SERVICES"]).nullable().optional(),
   currencyCode: z.string().trim().length(3, "La moneda debe ser un código ISO de 3 letras.").default("EUR"),
   // Valores habituales de sus facturas (se proponen al registrarlas, siempre editables).
   defaultExpenseAccountId: z.string().trim().optional().or(z.literal("")),

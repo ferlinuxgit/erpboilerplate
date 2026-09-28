@@ -38,9 +38,11 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
   await registerAndSignIn(page, `accounting-${testInfo.workerIndex}-${Date.now()}@example.com`);
   await page.goto("/accounting");
 
-  await createAccount(page, "1000", "Caja", "ASSET");
-  await createAccount(page, "7000", "Ventas", "REVENUE");
-  await createAccount(page, "4770", "IVA repercutido", "LIABILITY");
+  // Subcuentas de 8 dígitos (longitud por defecto): solo en ellas se puede apuntar. Su cadena de
+  // cuentas de grupo del PGC (5 → 57 → 570…) se crea sola.
+  await createAccount(page, "57000001", "Caja", "ASSET");
+  await createAccount(page, "70000001", "Ventas", "REVENUE");
+  await createAccount(page, "47700001", "IVA repercutido", "LIABILITY");
 
   await expect(page.getByRole("link", { name: "Ver mayor" }).first()).toBeVisible();
   await page.goto("/accounting/entries/new");
@@ -49,12 +51,12 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
   await expect(dateInput).not.toHaveValue("");
   await dateInput.fill("2026-05-09");
   await page.getByLabel("Referencia").fill("E2E-BALANCE");
-  await pickAccount(page, 1, "1000", "Caja");
+  await pickAccount(page, 1, "57000001", "Caja");
   await page.getByLabel("Debe").first().fill("100");
-  await pickAccount(page, 2, "7000", "Ventas");
+  await pickAccount(page, 2, "70000001", "Ventas");
   await page.getByLabel("Haber").nth(1).fill("80");
   await page.getByRole("button", { name: "Añadir línea" }).click();
-  await pickAccount(page, 3, "4770", "IVA repercutido");
+  await pickAccount(page, 3, "47700001", "IVA repercutido");
   await page.getByLabel("Haber").nth(2).fill("19");
 
   await expect(page.getByText(/\| Descuadrado/)).toBeVisible();

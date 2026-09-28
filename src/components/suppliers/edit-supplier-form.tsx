@@ -22,6 +22,8 @@ import { updateSupplierSchema } from "@/server/schemas/forms";
 
 type UpdateSupplierPayload = z.input<typeof updateSupplierSchema>;
 
+const ACCOUNT_HELP = "Su subcuenta se crea sola al guardar: mercaderías → 400 + número; servicios → 410 + número.";
+
 const paymentTermsRegisterOptions = {
   setValueAs: (value: unknown) => (typeof value === "number" ? value : value === "" || value === null || value === undefined ? Number.NaN : Number(value)),
 } as const;
@@ -32,8 +34,8 @@ export function EditSupplierForm({
   defaultCity,
   defaultCountryCode,
   defaultCurrencyCode,
-  defaultAccountId,
-  defaultAccounts = [],
+  accountLabel,
+  defaultSupplierKind,
   defaultEmail,
   defaultName,
   defaultPaymentMethodId,
@@ -62,10 +64,12 @@ export function EditSupplierForm({
   defaultStatus: "ACTIVE" | "INACTIVE";
   defaultPaymentTermsDays: number | null;
   defaultPaymentMethodId: string | null;
-  defaultAccountId: string | null;
+  /** Tipo de proveedor guardado (null = según la actividad de la empresa). */
+  defaultSupplierKind: "GOODS" | "SERVICES" | null;
+  /** Subcuenta actual del proveedor («40000007 · Suministros Norte»), solo lectura. */
+  accountLabel: string | null;
   defaultCurrencyCode: string;
   paymentMethods?: Array<{ id: string; name: string }>;
-  defaultAccounts?: Array<{ id: string; code: string; name: string }>;
   expenseAccounts?: Array<{ id: string; code: string; name: string }>;
   invoiceDefaults?: SupplierInvoiceDefaultsDraft;
 }) {
@@ -93,7 +97,7 @@ export function EditSupplierForm({
       status: defaultStatus,
       paymentTermsDays: defaultPaymentTermsDays ?? 30,
       paymentMethodId: defaultPaymentMethodId ?? "",
-      defaultAccountId: defaultAccountId ?? "",
+      supplierKind: defaultSupplierKind,
       currencyCode: defaultCurrencyCode,
     },
   });
@@ -175,10 +179,11 @@ export function EditSupplierForm({
           {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
         </Select>
       </AccessibleField>
-      <AccessibleField id="supplier-default-account" label="Cuenta del proveedor" error={errors.defaultAccountId?.message} helperText="Dónde se anota lo que le debes (grupo 410). Déjalo en la general salvo que tu gestor use subcuentas.">
-        <Select id="supplier-default-account" {...register("defaultAccountId")}>
-          <option value="">General de la empresa (410)</option>
-          {defaultAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
+      <AccessibleField id="supplier-kind" label="Tipo de proveedor" error={errors.supplierKind?.message} helperText={accountLabel ? `Subcuenta actual: ${accountLabel}. Si cambias el tipo se crea su subcuenta del nuevo grupo; la anterior conserva su histórico.` : ACCOUNT_HELP}>
+        <Select id="supplier-kind" {...register("supplierKind", { setValueAs: (value: unknown) => (value === "GOODS" || value === "SERVICES" ? value : null) })}>
+          <option value="">Según la actividad de la empresa</option>
+          <option value="GOODS">Mercaderías (400)</option>
+          <option value="SERVICES">Servicios / acreedores (410)</option>
         </Select>
       </AccessibleField>
       <AccessibleField id="supplier-currency" label="Moneda" required error={errors.currencyCode?.message} helperText="Código ISO de 3 letras (EUR, USD…).">

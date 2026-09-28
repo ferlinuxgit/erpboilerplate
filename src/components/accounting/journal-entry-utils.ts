@@ -5,6 +5,10 @@ export type JournalFormLine = {
   /** Texto tal como lo escribe el usuario ("1.234,56" o "1234.56"). */
   debit: string;
   credit: string;
+  /** Concepto del apunte; vacío = el de la línea anterior o la referencia del asiento. */
+  concept?: string;
+  /** Tercero del apunte (opcional). */
+  partnerId?: string;
 };
 
 export type JournalTotals = {
@@ -34,9 +38,10 @@ function centsToDecimal(cents: number) {
   return Number((cents / 100).toFixed(2));
 }
 
-export function emptyJournalLine(): JournalFormLine {
+export function emptyJournalLine(previous?: JournalFormLine): JournalFormLine {
   // Sin cuenta por defecto: el usuario la elige siempre (nunca se asigna una en silencio).
-  return { accountId: "", debit: "", credit: "" };
+  // El concepto se copia de la línea anterior, como en ContaPlus o Sage.
+  return { accountId: "", debit: "", credit: "", concept: previous?.concept ?? "", partnerId: "" };
 }
 
 export function calculateJournalTotals(lines: JournalFormLine[]): JournalTotals {
@@ -118,5 +123,11 @@ export function normalizeJournalLinesForSubmit(lines: JournalFormLine[]) {
     const cents = parseMoneyToCents(value);
     return !cents || Number.isNaN(cents) ? "" : (cents / 100).toFixed(2);
   };
-  return lines.map((line) => ({ accountId: line.accountId, debit: normalize(line.debit), credit: normalize(line.credit) }));
+  return lines.map((line) => ({
+    accountId: line.accountId,
+    debit: normalize(line.debit),
+    credit: normalize(line.credit),
+    concept: line.concept?.trim() || null,
+    partnerId: line.partnerId?.trim() || null,
+  }));
 }

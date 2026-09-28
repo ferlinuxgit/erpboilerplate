@@ -3,11 +3,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { JournalLineDocument } from "@/components/accounting/journal-line-document";
 import { HelpTerm } from "@/components/help/help-term";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { accountChart } from "@/db/schema";
+import { accountChart, partner } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { balanceSide, formatBalance, formatDate, formatMoney } from "@/lib/format";
@@ -27,8 +28,9 @@ function dateParam(value: string | string[] | undefined) {
 
 async function loadAccount(companyId: string, accountId: string) {
   const [account] = await db
-    .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name })
+    .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name, partnerName: partner.name, partnerTaxId: partner.taxId })
     .from(accountChart)
+    .leftJoin(partner, eq(partner.id, accountChart.partnerId))
     .where(and(eq(accountChart.id, accountId), eq(accountChart.companyId, companyId)))
     .limit(1);
   return account ?? null;
@@ -81,7 +83,7 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
           { label: `Mayor ${account.code}` },
         ]}
         title={`${account.code} · ${account.name}`}
-        description={rangeLabel ? `Libro mayor ${rangeLabel}, con el saldo anterior y el saldo acumulado.` : "Libro mayor: todos los movimientos de la cuenta con su saldo acumulado."}
+        description={`${account.partnerName ? `Subcuenta de ${account.partnerName}${account.partnerTaxId ? ` (${account.partnerTaxId})` : ""}. ` : ""}${rangeLabel ? `Libro mayor ${rangeLabel}, con el saldo anterior y el saldo acumulado.` : "Libro mayor: todos los movimientos de la cuenta con su saldo acumulado."}`}
         actions={rangeLabel ? <Link className={buttonVariants({ variant: "outline" })} href={`/accounting/ledger/${account.id}`}>Ver todo el histórico</Link> : undefined}
       />
 
@@ -110,6 +112,9 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
                   <TableHead>Fecha</TableHead>
                   <TableHead>Asiento</TableHead>
                   <TableHead>Referencia</TableHead>
+                  <TableHead>Concepto</TableHead>
+                  <TableHead>Tercero</TableHead>
+                  <TableHead>Documento</TableHead>
                   <TableHead className="text-right">Debe</TableHead>
                   <TableHead className="text-right">Haber</TableHead>
                   <TableHead className="text-right">Saldo</TableHead>
@@ -131,6 +136,11 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
                           {label}
                         </Link>
                       </TableCell>
+                      <TableCell>{row.concept ?? "—"}</TableCell>
+                      <TableCell>{row.partnerName ?? "—"}</TableCell>
+                      <TableCell>
+                        <JournalLineDocument documentId={row.documentId} documentNumber={row.documentNumber} documentType={row.documentType} />
+                      </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{Number(row.debit) ? formatMoney(row.debit, currency) : "—"}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{Number(row.credit) ? formatMoney(row.credit, currency) : "—"}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{formatBalance(row.balance, currency)}</TableCell>
@@ -140,14 +150,14 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
                 {from ? (
                   <TableRow>
                     <TableCell className="whitespace-nowrap">{formatDate(from.date)}</TableCell>
-                    <TableCell colSpan={4}>Saldo anterior</TableCell>
+                    <TableCell colSpan={7}>Saldo anterior</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{formatBalance(openingBalance, currency)}</TableCell>
                   </TableRow>
                 ) : null}
               </TableBody>
               <TableFooter>
                 <TableRow>
-                  <TableCell colSpan={3}>Total</TableCell>
+                  <TableCell colSpan={6}>Total</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{formatMoney(totalDebit, currency)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{formatMoney(totalCredit, currency)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{formatBalance(balanceCents / 100, currency)}</TableCell>

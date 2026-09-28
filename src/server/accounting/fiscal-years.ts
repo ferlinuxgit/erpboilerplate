@@ -2,9 +2,10 @@ import { and, asc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 
 import { accountChart, documentSeries, fiscalYear, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
-import { createAutomaticEntry, loadPostingSettings, reverseAutomaticEntries, type PostingLine } from "@/server/accounting/auto-post";
+import { createAutomaticEntry, loadPostingSettings, reverseAutomaticEntries, withLineDocument, type PostingLine } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { centsToAmount, sumCents, toCents } from "@/server/accounting/money";
+import { ensureSubaccount } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
 import { fiscalYearEndExclusive } from "@/server/fiscal/locks";
 
@@ -184,17 +185,21 @@ async function findActiveLifecycleEntry(client: DbClient, companyId: string, sou
   return entry ?? null;
 }
 
+/** Subcuenta de 129 "Resultado del ejercicio" (12900000), creada desde el PGC si falta. */
 async function findResultAccountId(client: DbClient, companyId: string) {
-  const [resultAccount] = await client
-    .select({ id: accountChart.id })
-    .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.isPostable, true), sql`${accountChart.code} like '129%'`))
-    .orderBy(accountChart.code)
-    .limit(1);
-  if (!resultAccount) {
-    throw new AccountingRuleError(422, "ACCOUNT_MISSING", "Falta la cuenta 129 \"Resultado del ejercicio\" en el plan contable. Créala antes de cerrar.");
+  try {
+    return (await ensureSubaccount(companyId, "129", client)).id;
+  } catch (error) {
+    if (error instanceof AccountingRuleError && error.code === "ACCOUNT_MISSING") {
+      throw new AccountingRuleError(422, "ACCOUNT_MISSING", "Falta la cuenta 129 \"Resultado del ejercicio\" en el plan contable. Créala antes de cerrar.");
+    }
+    throw error;
   }
-  return resultAccount.id;
+}
+
+/** Apuntes de los asientos del ciclo del ejercicio: concepto y documento (el ejercicio). */
+function fiscalYearLines(lines: PostingLine[], year: { id: string; code: string }, concept: string) {
+  return withLineDocument(lines, { concept, partnerId: null, documentType: "fiscalYear", documentNumber: year.code, documentId: year.id, dueDate: null });
 }
 
 type Actor = { companyId: string; tenantId: string; actorUserId: string };
@@ -221,7 +226,7 @@ async function ensureOpeningEntry(client: DbClient, actor: Actor, sourceYear: Fi
     entityId: targetYear.id,
     sourceType: FISCAL_YEAR_SOURCE.opening,
     sourceId: targetYear.id,
-    lines: buildOpeningLines(closingLines),
+    lines: fiscalYearLines(buildOpeningLines(closingLines), targetYear, `Apertura ejercicio ${targetYear.code}`),
   });
   return { entryId: created.id, number: created.number, created: true };
 }
@@ -283,7 +288,7 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
           entityId: year.id,
           sourceType: FISCAL_YEAR_SOURCE.regularization,
           sourceId: year.id,
-          lines: regularizationLines,
+          lines: fiscalYearLines(regularizationLines, year, `Regularización ejercicio ${year.code}`),
         });
         regularizationEntryId = created.id;
       }
@@ -317,7 +322,7 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
           entityId: year.id,
           sourceType: FISCAL_YEAR_SOURCE.closing,
           sourceId: year.id,
-          lines: closingLines,
+          lines: fiscalYearLines(closingLines, year, `Cierre ejercicio ${year.code}`),
         });
         closingEntryId = created.id;
       }

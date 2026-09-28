@@ -333,7 +333,7 @@ async function payables(companyId: string, now: Date) {
 
 /**
  * Ledger balance of the bank accounts (accounts linked to each bank account plus the
- * company's default bank account, 572 unless configured), with its monthly evolution.
+ * company's default bank account, 572 unless configured) and their subaccounts, with its monthly evolution.
  */
 async function bankBalances(companyId: string, months: ReturnType<typeof lastMonths>) {
   const windowStart = months[0].start;
@@ -343,9 +343,11 @@ async function bankBalances(companyId: string, months: ReturnType<typeof lastMon
     .from(accountChart)
     .where(and(
       eq(accountChart.companyId, companyId),
+      // Subcuentas (57200000…) de la cuenta de bancos por defecto y de las vinculadas a cada banco,
+      // aunque el vínculo apunte a una cuenta de grupo (572) o a datos anteriores a las subcuentas.
       or(
-        inArray(accountChart.id, db.select({ id: sql`${bankAccount.accountId}` }).from(bankAccount).where(and(eq(bankAccount.companyId, companyId), sql`${bankAccount.accountId} is not null`))),
-        sql`${accountChart.code} = ${defaultBankCode}`,
+        sql`${accountChart.code} like (${defaultBankCode} || '%')`,
+        sql`exists (select 1 from "bank_account" ba inner join "account_chart" linked on linked."id" = ba."accountId" where ba."companyId" = ${companyId} and ${accountChart.code} like (linked."code" || '%'))`,
       ),
     ));
   const monthKey = sql<string>`case when ${journalEntry.postedAt} < ${windowStart} then 'opening' else ${monthOf(journalEntry.postedAt)} end`;

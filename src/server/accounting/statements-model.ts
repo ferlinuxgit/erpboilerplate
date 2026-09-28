@@ -44,6 +44,45 @@ export type TrialBalanceRow = {
   closing: number;
 };
 
+/** Subtotal de sumas y saldos de una cuenta de grupo (3 dígitos) con sus subcuentas. */
+export type TrialBalanceGroupRow = {
+  code: string;
+  name: string;
+  opening: number;
+  debit: number;
+  credit: number;
+  closing: number;
+  accounts: TrialBalanceRow[];
+};
+
+/**
+ * Sumas y saldos con subtotales por cuenta de grupo (función pura): cada subcuenta se suma en el
+ * grupo de `groupLength` dígitos de su código (43000001 → 430). Los importes se suman en céntimos.
+ */
+export function groupTrialBalance(rows: TrialBalanceRow[], names: ReadonlyMap<string, string>, groupLength = 3): TrialBalanceGroupRow[] {
+  const toCentsValue = (value: number) => Math.round(value * 100);
+  const groups = new Map<string, { opening: number; debit: number; credit: number; closing: number; accounts: TrialBalanceRow[] }>();
+  for (const row of [...rows].sort((a, b) => a.code.localeCompare(b.code))) {
+    const code = row.code.slice(0, groupLength);
+    const group = groups.get(code) ?? { opening: 0, debit: 0, credit: 0, closing: 0, accounts: [] };
+    group.opening += toCentsValue(row.opening);
+    group.debit += toCentsValue(row.debit);
+    group.credit += toCentsValue(row.credit);
+    group.closing += toCentsValue(row.closing);
+    group.accounts.push(row);
+    groups.set(code, group);
+  }
+  return [...groups.entries()].map(([code, group]) => ({
+    code,
+    name: names.get(code) ?? group.accounts[0]?.name ?? code,
+    opening: cents(group.opening),
+    debit: cents(group.debit),
+    credit: cents(group.credit),
+    closing: cents(group.closing),
+    accounts: group.accounts,
+  }));
+}
+
 export type FinancialStatements = {
   incomeStatement: {
     revenue: StatementLine[];
