@@ -84,7 +84,19 @@ jobs:
           APP_URL: http://127.0.0.1:3001
           E2E_ALLOWED_SKIPS: ""
           E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erpboilerplate_e2e
-        run: npm run test:e2e
+        # Three sequential shards, each with a fresh `next dev` server: the dev server's
+        # memory grows with every compiled route and a single 40-test run exhausted the
+        # runner ("The operation was canceled" / exit 143 with no failing test).
+        run: |
+          status=0
+          for shard in 1/3 2/3 3/3; do
+            echo "::group::e2e shard $shard"
+            npm run test:e2e -- --shard="$shard" || status=1
+            pkill -f "next dev" || true
+            pkill -f "next-server" || true
+            echo "::endgroup::"
+          done
+          exit $status
       - name: Upload Playwright HTML report
         if: always()
         uses: actions/upload-artifact@v4
