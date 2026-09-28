@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { buildListSearch, LIST_PARAM, type ServerListState } from "@/lib/list-params";
+import { restoreVisibleHeaders } from "@/lib/resource-list-columns";
 import { cn } from "@/lib/utils";
 
 export type { ServerListState };
@@ -172,6 +173,8 @@ type SavedView = {
   searchQuery: string;
   sort: { header: string; direction: SortDirection } | null;
   visibleHeaders: string[];
+  /** Every column header when the view was saved (absent in older data). */
+  knownHeaders?: string[];
   pageSize: number;
   filters: Record<string, string>;
 };
@@ -289,22 +292,17 @@ export function ResourceList<TItem>({
           const parsed = JSON.parse(stored) as {
             views?: SavedView[];
             visibleHeaders?: string[];
+            knownHeaders?: string[];
             pageSize?: number;
           };
           setSavedViews(parsed.views ?? []);
           if (parsed.visibleHeaders?.length) {
-            const availableHeaders = new Set(columnHeadersKey.split("\u001f"));
-            const restoredHeaders = parsed.visibleHeaders.filter((header) =>
-              availableHeaders.has(header),
-            );
-            const alwaysVisibleHeaders = alwaysVisibleHeadersKey
-              .split("\u001f")
-              .filter(Boolean);
             setVisibleHeaders(
-              new Set(
-                restoredHeaders.length > 0
-                  ? [...restoredHeaders, ...alwaysVisibleHeaders]
-                  : availableHeaders,
+              restoreVisibleHeaders(
+                columnHeadersKey.split("\u001f"),
+                alwaysVisibleHeadersKey.split("\u001f").filter(Boolean),
+                parsed.visibleHeaders,
+                parsed.knownHeaders,
               ),
             );
           }
@@ -363,11 +361,13 @@ export function ResourceList<TItem>({
       JSON.stringify({
         views: savedViews,
         visibleHeaders: [...visibleHeaders],
+        knownHeaders: columnHeadersKey.split("\u001f"),
         pageSize: activePageSize,
       }),
     );
   }, [
     activePageSize,
+    columnHeadersKey,
     preferencesLoaded,
     savedViews,
     storageKey,
@@ -658,6 +658,7 @@ export function ResourceList<TItem>({
       searchQuery,
       sort,
       visibleHeaders: [...visibleHeaders],
+      knownHeaders: columns.map((column) => column.header),
       pageSize: activePageSize,
       filters: activeFilters,
     };
@@ -676,18 +677,12 @@ export function ResourceList<TItem>({
     setSearchQuery(view.searchQuery);
     setSort(view.sort);
     setActiveFilters(view.filters ?? {});
-    const availableHeaders = new Set(columns.map((column) => column.header));
-    const restoredHeaders = view.visibleHeaders.filter((header) =>
-      availableHeaders.has(header),
-    );
-    const alwaysVisibleHeaders = columns
-      .filter((column) => column.alwaysVisible)
-      .map((column) => column.header);
     setVisibleHeaders(
-      new Set(
-        restoredHeaders.length > 0
-          ? [...restoredHeaders, ...alwaysVisibleHeaders]
-          : availableHeaders,
+      restoreVisibleHeaders(
+        columns.map((column) => column.header),
+        columns.filter((column) => column.alwaysVisible).map((column) => column.header),
+        view.visibleHeaders,
+        view.knownHeaders,
       ),
     );
     setActivePageSize(view.pageSize);
