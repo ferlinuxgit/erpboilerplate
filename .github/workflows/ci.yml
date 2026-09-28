@@ -63,6 +63,18 @@ jobs:
           done
           curl -fsS http://127.0.0.1:3000/api/health
           curl -fsS http://127.0.0.1:3000/api/readyz
+      - name: Prepare e2e environment
+        run: |
+          # The smoke step's `next start` child can outlive its npm wrapper and keep
+          # hundreds of MB during the e2e run.
+          pkill -f "next start" || true
+          pkill -f "next-server" || true
+          # Installed by `playwright install --with-deps`; under memory pressure it
+          # SIGTERMs processes, which surfaced as random "exit code 143" e2e aborts.
+          sudo systemctl stop low-memory-monitor 2>/dev/null || true
+          # Run e2e against the CI Postgres service (a dedicated database) instead of
+          # the in-process PGlite: every test company now seeds ~1.600 PGC subaccounts.
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE erpboilerplate_e2e"
       - name: Playwright e2e
         env:
           # Keep Playwright on a separate port from the smoke server above. The
@@ -71,6 +83,7 @@ jobs:
           PORT: "3001"
           APP_URL: http://127.0.0.1:3001
           E2E_ALLOWED_SKIPS: ""
+          E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erpboilerplate_e2e
         run: npm run test:e2e
       - name: Upload Playwright HTML report
         if: always()
