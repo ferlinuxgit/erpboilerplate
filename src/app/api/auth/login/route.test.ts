@@ -96,6 +96,26 @@ describe("POST /api/auth/login", () => {
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", ipAddress: "203.0.113.10" }));
   });
 
+  it("uses a browser-session cookie by default and a 30-day cookie with «Mantener la sesión iniciada»", async () => {
+    userRows.current = [{ id: "user-1", name: "Ana", email: "ana@example.com", emailVerified: true, password: "$argon2id$real" }];
+    argon2Mock.verify.mockResolvedValue(true);
+    const values = vi.fn(async () => undefined);
+    insertMock.mockReturnValue({ values });
+    const expiresAt = (call: number) => (values.mock.calls[call] as unknown as [{ expiresAt: Date }])[0].expiresAt.getTime();
+    const { POST } = await import("@/app/api/auth/login/route");
+    const day = 24 * 60 * 60 * 1000;
+
+    const shortLived = await POST(loginRequest("ana@example.com", "correct-password"));
+    expect(shortLived.headers.get("set-cookie")).not.toMatch(/Max-Age/i);
+    expect(expiresAt(0) - Date.now()).toBeLessThan(day);
+
+    const remembered = await POST(loginRequest("ana@example.com", "correct-password", { remember: true }));
+    expect(remembered.headers.get("set-cookie")).toMatch(/Max-Age=2592000/i);
+    expect(expiresAt(1) - Date.now()).toBeGreaterThan(29 * day);
+    insertMock.mockReset();
+    insertMock.mockImplementation(() => ({ values: vi.fn(async () => undefined) }));
+  });
+
   it("answers 403 with a machine-readable code so the form can offer to resend the verification email", async () => {
     userRows.current = [{ id: "user-1", name: "Ana", email: "ana@example.com", emailVerified: false, password: "$argon2id$real" }];
     argon2Mock.verify.mockResolvedValue(true);

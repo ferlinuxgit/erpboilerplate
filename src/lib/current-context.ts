@@ -3,7 +3,7 @@ import { cache } from "react";
 
 import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { getActiveContextCookies } from "@/lib/active-context";
-import { getUserSession } from "@/lib/current-user";
+import { getUserSession, redirectToLoginIfPageRequest } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { ForbiddenError, UnauthorizedError } from "@/lib/http";
 import { can, type PermissionKey } from "@/lib/rbac";
@@ -47,6 +47,7 @@ export async function requireContext(permission?: PermissionKey): Promise<Authen
 const resolveRequestContext = cache(async function resolveRequestContext(): Promise<AuthenticatedContext> {
   const session = await getUserSession();
   if (!session?.user) {
+    await redirectToLoginIfPageRequest();
     throw new UnauthorizedError();
   }
   const fallbackContext = await ensureUserTenant({

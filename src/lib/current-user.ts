@@ -66,12 +66,22 @@ export const getUserSession = cache(async function getUserSession() {
  */
 export async function requireUserSession() {
   const session = await getUserSession();
+  if (!session?.user) await redirectToLogin();
+  return session!;
+}
 
-  if (!session?.user) {
-    const requestHeaders = await headers();
-    const hadSessionCookie = Boolean((await cookies()).get(AUTH_TOKEN_COOKIE)?.value);
-    redirect(loginPathWithNext(requestHeaders.get(REQUEST_PATH_HEADER), hadSessionCookie ? SESSION_EXPIRED_REASON : undefined));
-  }
+async function redirectToLogin(): Promise<never> {
+  const requestHeaders = await headers();
+  const hadSessionCookie = Boolean((await cookies()).get(AUTH_TOKEN_COOKIE)?.value);
+  redirect(loginPathWithNext(requestHeaders.get(REQUEST_PATH_HEADER), hadSessionCookie ? SESSION_EXPIRED_REASON : undefined));
+}
 
-  return session;
+/**
+ * Sin sesión en una página (o server action) redirige al login en lugar de lanzar un
+ * 401 que Next mostraría como pantalla de error. En `/api/*` no hace nada: el route
+ * handler responde 401 en JSON.
+ */
+export async function redirectToLoginIfPageRequest() {
+  const path = (await headers()).get(REQUEST_PATH_HEADER);
+  if (path && !path.startsWith("/api/")) await redirectToLogin();
 }

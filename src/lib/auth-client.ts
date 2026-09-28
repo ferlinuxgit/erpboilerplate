@@ -6,6 +6,8 @@ type AuthEmailPayload = {
   name?: string;
   /** Ruta de retorno solicitada; el servidor la valida y decide el destino final. */
   next?: string | null;
+  /** «Mantener la sesión iniciada» (30 días en lugar de 8 h). */
+  remember?: boolean;
 };
 
 type AuthClientResult = {
@@ -107,7 +109,7 @@ export const authClient = {
   signUp: {
     email: (payload: AuthEmailPayload & { name: string }) => authRequest("/api/auth/register", payload),
   },
-  verifyTwoFactor: (payload: { challengeId: string; code: string; next?: string | null }) => authRequest("/api/auth/verify-two-factor", payload),
+  verifyTwoFactor: (payload: { challengeId: string; code: string; next?: string | null; remember?: boolean }) => authRequest("/api/auth/verify-two-factor", payload),
   resendVerification: (payload: { email: string; next?: string | null }) => authRequest("/api/auth/resend-verification", payload),
   requestPasswordReset: (payload: { email: string }) => authRequest("/api/auth/forgot-password", payload),
   resetPassword: (payload: { token: string; password: string }) => authRequest("/api/auth/reset-password", payload),

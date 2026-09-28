@@ -103,5 +103,6 @@ export async function POST(request: Request) {
   }
 
   const authUser = { id: row.id, name: row.name, email: row.email };
-  return respondWithNewSession(authUser, request, await resolvePostAuthDestination(authUser.id, (body as { next?: unknown } | null)?.next));
+  const { next, remember } = (body ?? {}) as { next?: unknown; remember?: unknown };
+  return respondWithNewSession(authUser, request, await resolvePostAuthDestination(authUser.id, next), remember === true);
 }

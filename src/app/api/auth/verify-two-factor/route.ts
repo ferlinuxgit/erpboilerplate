@@ -8,7 +8,7 @@ import { readJsonBody } from "@/lib/http";
 import { resolvePostAuthDestination, respondWithNewSession } from "@/server/auth/session";
 
 export async function POST(request: Request) {
-  const body = await readJsonBody(request) as { challengeId?: unknown; code?: unknown; next?: unknown } | null;
+  const body = await readJsonBody(request) as { challengeId?: unknown; code?: unknown; next?: unknown; remember?: unknown } | null;
   const challengeId = typeof body?.challengeId === "string" ? body.challengeId : "";
   const code = typeof body?.code === "string" ? body.code.trim() : "";
   if (!/^[0-9]{6}$/.test(code) || !/^[0-9a-f-]{36}$/i.test(challengeId)) {
@@ -31,5 +31,5 @@ export async function POST(request: Request) {
   const [consumed] = await db.delete(verification).where(eq(verification.id, record.id)).returning({ id: verification.id });
   if (!consumed) return NextResponse.json({ error: "El código ya fue utilizado." }, { status: 401 });
 
-  return respondWithNewSession(authUser, request, await resolvePostAuthDestination(authUser.id, body?.next));
+  return respondWithNewSession(authUser, request, await resolvePostAuthDestination(authUser.id, body?.next), body?.remember === true);
 }

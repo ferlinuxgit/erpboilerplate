@@ -4,6 +4,12 @@ const encoder = new TextEncoder();
 
 export const AUTH_TOKEN_COOKIE = "erp_auth_token";
 export const AUTH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 8;
+/** Duración de la sesión con «Mantener la sesión iniciada». */
+export const REMEMBERED_AUTH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+
+export function authTokenMaxAgeSeconds(remember: boolean) {
+  return remember ? REMEMBERED_AUTH_TOKEN_MAX_AGE_SECONDS : AUTH_TOKEN_MAX_AGE_SECONDS;
+}
 /** Cabecera interna (fijada por `src/proxy.ts`) con la ruta solicitada, para `?next=`. */
 export const REQUEST_PATH_HEADER = "x-erp-request-path";
 
@@ -122,13 +128,17 @@ export function hashAuthToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export function getAuthCookieOptions() {
+/**
+ * Sin «mantener sesión» la cookie es de sesión del navegador (se borra al cerrarlo;
+ * el token caduca igualmente a las 8 h). Con ella persiste 30 días.
+ */
+export function getAuthCookieOptions(remember = false) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: AUTH_TOKEN_MAX_AGE_SECONDS,
+    ...(remember ? { maxAge: REMEMBERED_AUTH_TOKEN_MAX_AGE_SECONDS } : {}),
   };
 }
 

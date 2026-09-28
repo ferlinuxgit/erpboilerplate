@@ -46,6 +46,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [verifyingTwoFactor, setVerifyingTwoFactor] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   // Email pendiente de verificar: tras registrarse (pantalla "Revisa tu correo") o al intentar entrar.
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
@@ -127,6 +128,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
       email: parsed.email,
       password: parsed.password,
       next: safeNext,
+      remember,
     });
 
     if (signInError) {
@@ -152,7 +154,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
     if (!twoFactorChallenge) return;
     setFormError(null);
     setVerifyingTwoFactor(true);
-    const { data, error } = await authClient.verifyTwoFactor({ challengeId: twoFactorChallenge, code: twoFactorCode, next: safeNext });
+    const { data, error } = await authClient.verifyTwoFactor({ challengeId: twoFactorChallenge, code: twoFactorCode, next: safeNext, remember });
     if (error) {
       setVerifyingTwoFactor(false);
       setFormError(error.message ?? "No se pudo verificar el código.");
@@ -316,6 +318,15 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
               {errors.password ? <p className="text-sm text-destructive" id="password-error">{errors.password.message}</p> : null}
               {mode === "sign-up" && !errors.password ? <p className="text-sm text-muted-foreground">Mínimo 8 caracteres.</p> : null}
             </div>
+            {mode === "sign-in" ? (
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm" htmlFor="remember-session">
+                  <input checked={remember} id="remember-session" onChange={(event) => setRemember(event.target.checked)} type="checkbox" />
+                  Mantener la sesión iniciada
+                </label>
+                <p className="text-xs text-muted-foreground">Durante 30 días en este dispositivo. No lo marques en un ordenador compartido.</p>
+              </div>
+            ) : null}
             <Button aria-busy={isSubmitting || undefined} className="w-full" disabled={isSubmitting} type="submit">
               {isSubmitting ? content.pending : content.cta}
             </Button>

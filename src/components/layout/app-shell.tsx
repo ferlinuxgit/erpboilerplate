@@ -11,6 +11,7 @@ import { ContextNavigation } from "@/components/layout/context-navigation";
 import { FormNavigationGuard } from "@/components/layout/form-navigation-guard";
 import { useKeyboardPreferences } from "@/components/layout/keyboard-preferences";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { SessionExpiryWatcher } from "@/components/layout/session-expiry-watcher";
 import { SessionPanel } from "@/components/layout/session-panel";
 import { ThemeSwitcher } from "@/components/layout/theme-switcher";
 import {
@@ -179,6 +180,7 @@ export function AppShell({ children }: AppShellProps) {
       </a>
       <GlobalCommandPalette />
       <FormNavigationGuard />
+      <SessionExpiryWatcher />
       <KeyboardShortcuts />
 
       <aside
