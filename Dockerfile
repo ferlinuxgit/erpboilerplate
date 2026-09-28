@@ -21,12 +21,15 @@ ARG NEXT_PUBLIC_SENTRY_DSN=
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# `build:docker` skips `tsc --noEmit`: the full typecheck no longer fits in the 1 GB
+# heap of memory-limited deploy hosts (it ran out of memory with exit 134). CI runs
+# typecheck, lint and tests on every push, so only green commits reach main.
 RUN DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build" \
     JWT_SECRET="build-placeholder-minimum-32-characters" \
     APP_URL="$APP_ORIGIN" \
     NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID="$APP_PUBLIC_STRIPE_PRICE_ID" \
     NEXT_PUBLIC_SENTRY_DSN="$NEXT_PUBLIC_SENTRY_DSN" \
-    npm run build
+    npm run build:docker
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
