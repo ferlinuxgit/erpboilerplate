@@ -78,7 +78,11 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
 
   await expect(page.getByText(/Asiento .* creado/)).toBeVisible();
   await expect(page.getByText(/E2E-BALANCE/)).toBeVisible();
-  await page.getByRole("link", { name: "Ver mayor" }).first().click();
-  await expect(page.getByText(/E2E-BALANCE/)).toBeVisible();
+  // Open the ledger of the posted subaccount itself: with 8-digit subaccounts the chart also
+  // contains its group accounts (5, 57, 570…), whose own ledgers have no lines.
+  await page.goto("/accounting/accounts?sel=57000001");
+  await page.getByTestId("account-detail").getByRole("link", { name: "Ver mayor" }).click();
+  await expect(page).toHaveURL(/\/accounting\/ledger\//);
+  await expect(page.getByText(/E2E-BALANCE/).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Ver asiento E2E-BALANCE" })).toBeVisible();
 });
