@@ -23,9 +23,14 @@ test("series de facturas: crear una serie de tickets y elegirla al crear la fact
   const seriesSelect = page.getByTestId("invoice-series-select");
   await expect(seriesSelect).toBeVisible();
   await expect(seriesSelect.locator("option:checked")).toContainText("por defecto");
-  await seriesSelect.selectOption({ label: "Tickets (T)" });
-  await expect(page.getByTestId("invoice-number-preview")).toContainText("«Tickets»");
-  await expect(page.getByTestId("invoice-number-preview")).toContainText("T-");
+  const preview = page.getByTestId("invoice-number-preview");
+  // A selection made before hydration is lost (the controlled select re-renders with the
+  // default series): retry until the preview reflects the chosen series.
+  await expect(async () => {
+    await seriesSelect.selectOption({ label: "Tickets (T)" });
+    await expect(preview).toContainText("«Tickets»", { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  await expect(preview).toContainText("T-");
 });
 
 test("ficha del cliente: no enviar recordatorios de cobro", async ({ page }) => {
