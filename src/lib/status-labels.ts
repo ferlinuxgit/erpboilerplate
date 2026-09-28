@@ -142,6 +142,8 @@ export const auditActionLabels: Record<string, string> = {
   "accounting.account.create": "Cuenta contable creada",
   "accounting.account.update": "Cuenta contable modificada",
   "accounting.account.deactivate": "Cuenta contable desactivada",
+  "accounting.account.block": "Cuenta contable bloqueada",
+  "accounting.account.unblock": "Cuenta contable desbloqueada",
   "accounting.entry.create": "Asiento creado",
   "accounting.entry.update": "Asiento modificado",
   "accounting.entry.reverse": "Asiento anulado (contraasiento)",

@@ -22,8 +22,9 @@ async function createAccount(page: Page, code: string, name: string, type: strin
   await page.getByLabel("Nombre").fill(name);
   await page.getByLabel("Tipo").selectOption(type);
   await page.getByRole("button", { name: "Crear cuenta" }).click();
-  await expect(page).toHaveURL(/\/accounting$/);
-  await expect(page.getByText(new RegExp(`${code}.*${name}`)).first()).toBeVisible();
+  // Tras el alta se vuelve al plan contable con la cuenta seleccionada y su ficha abierta.
+  await expect(page).toHaveURL(new RegExp(`/accounting/accounts\\?(.*&)?sel=${code}`));
+  await expect(page.getByTestId("account-detail").getByRole("heading", { name: new RegExp(`${code} · ${name}`) })).toBeVisible();
 }
 
 /** Elige una cuenta en el selector con buscador (combobox) de la línea indicada. */
@@ -44,7 +45,7 @@ test("journal entry form creates a balanced multi-line entry and exposes ledger 
   await createAccount(page, "70000001", "Ventas", "REVENUE");
   await createAccount(page, "47700001", "IVA repercutido", "LIABILITY");
 
-  await expect(page.getByRole("link", { name: "Ver mayor" }).first()).toBeVisible();
+  await expect(page.getByTestId("account-detail").getByRole("link", { name: "Ver mayor" })).toBeVisible();
   await page.goto("/accounting/entries/new");
   const dateInput = page.getByLabel("Fecha");
   // La fecha llega rellenada con la de hoy; se cambia a una fecha concreta del ejercicio.

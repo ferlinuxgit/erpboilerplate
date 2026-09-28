@@ -1,13 +1,22 @@
 import { CreateAccountForm } from "@/components/accounting/create-account-form";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { requireUserSession } from "@/lib/current-user";
+import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
-import { ensureUserTenant } from "@/lib/tenant";
+import { listGroupAccounts } from "@/server/accounting/chart-tree";
+import { getSubaccountLength } from "@/server/accounting/subaccounts";
 
-export default async function NewAccountPage() {
-  const session = await requireUserSession();
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+type SearchParams = Promise<{ parent?: string | string[] }>;
+
+export default async function NewAccountPage({ searchParams }: { searchParams: SearchParams }) {
+  const ctx = await requireContext("accounting.read");
   const canWriteAccounting = can(ctx.membership.role, "accounting.write");
+  const query = await searchParams;
+  const parentParam = Array.isArray(query.parent) ? query.parent[0] : query.parent;
+  const defaultParentCode = parentParam && /^\d{1,20}$/.test(parentParam) ? parentParam : null;
+  const [parentOptions, subaccountLength] = canWriteAccounting
+    ? await Promise.all([listGroupAccounts(ctx.company.id), getSubaccountLength(ctx.company.id)])
+    : [[], 8];
+  const backHref = defaultParentCode ? `/accounting/accounts?sel=${defaultParentCode}` : "/accounting/accounts";
 
   return (
     <PageShell>
@@ -15,13 +24,13 @@ export default async function NewAccountPage() {
         eyebrow="Contabilidad"
         title="Nueva cuenta"
         description={`Añade una cuenta al plan contable de ${ctx.company.name}.`}
-        backHref="/accounting"
-        backLabel="Volver a contabilidad"
+        backHref={backHref}
+        backLabel="Volver al plan contable"
       />
 
-      <PageSection title="Datos de la cuenta" description="Informa código, nombre y tipo contable.">
+      <PageSection title="Datos de la cuenta" description="Elige la cuenta padre para proponer la siguiente subcuenta libre, o escribe el código.">
         {canWriteAccounting ? (
-          <CreateAccountForm redirectHref="/accounting" />
+          <CreateAccountForm defaultParentCode={defaultParentCode} parentOptions={parentOptions} subaccountLength={subaccountLength} />
         ) : (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite crear cuentas contables." />
         )}

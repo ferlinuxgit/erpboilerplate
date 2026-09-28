@@ -113,6 +113,15 @@ describe("contraste de los tokens de globals.css", () => {
     expect(worstOnSurfaces(tokens, hexToRgb(resolveToken(tokens, "muted-foreground")))).toBeGreaterThanOrEqual(4.5);
   });
 
+  // Plan contable: insignias D/A y filas de grupo (texto de ventana sobre el panel) y colores de
+  // grupo del PGC (--chart-1..5), que siempre van acompañados del dígito del grupo en texto.
+  it.each(themes)("%s: texto de ventana sobre el panel de grupo ≥ 4,5:1 y colores de grupo definidos", (_, tokens) => {
+    const panel = hexToRgb(resolveToken(tokens, "window-panel"));
+    expect(contrastRatio(hexToRgb(resolveToken(tokens, "window-text")), panel)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(hexToRgb(resolveToken(tokens, "muted-foreground")), panel)).toBeGreaterThanOrEqual(4.5);
+    for (const index of [1, 2, 3, 4, 5]) expect(() => resolveToken(tokens, `chart-${index}`)).not.toThrow();
+  });
+
   it("el desplazamiento suave respeta prefers-reduced-motion", () => {
     expect(css).toMatch(/@media \(prefers-reduced-motion: no-preference\)\s*\{\s*html\s*\{\s*scroll-behavior: smooth;/);
     expect(css).not.toMatch(/html\s*\{\s*@apply font-sans;\s*scroll-behavior/);

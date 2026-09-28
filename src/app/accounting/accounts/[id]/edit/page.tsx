@@ -17,7 +17,7 @@ export default async function EditAccountPage({ params }: { params: Promise<{ id
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Contabilidad" title="Editar cuenta" description={`${account.code} - ${account.name}`} backHref="/accounting" backLabel="Volver a contabilidad" />
+      <PageHeader eyebrow="Contabilidad" title="Editar cuenta" description={`${account.code} - ${account.name}`} backHref={`/accounting/accounts?sel=${account.code}`} backLabel="Volver al plan contable" />
       <PageSection title="Datos de la cuenta" description="Actualiza código, nombre y tipo contable.">
         <EditAccountForm id={account.id} defaultCode={account.code} defaultName={account.name} defaultType={account.type} />
       </PageSection>

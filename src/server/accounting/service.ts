@@ -4,6 +4,7 @@ import { accountChart, company, fiscalYear, journalEntry, journalLine, partner }
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
 import { AccountingRuleError } from "@/server/accounting/errors";
+import { toCents } from "@/server/accounting/money";
 import { ensureJournal } from "@/server/accounting/journals";
 import { validateJournalLines, type JournalLineInput } from "@/server/accounting/journal-validation";
 import { reserveJournalEntryNumber } from "@/server/accounting/numbers";
@@ -58,7 +59,16 @@ export function aggregateAccountTotals<T extends { code: string; debitCents: num
   });
 }
 
-export async function listAccounts(companyId: string) {
+/**
+ * Plan contable plano con sumas por cuenta (agregadas por prefijo en los grupos).
+ * Con `range` las sumas son del periodo y `opening` es el saldo anterior (sin cierre y apertura,
+ * como los estados financieros); sin él, todo el histórico.
+ */
+export async function listAccounts(companyId: string, range?: { from: Date; toExclusive: Date }) {
+  const lifecycle = sql`coalesce(${journalEntry.sourceType}, '') in ('fiscalYearRegularization', 'fiscalYearClosing', 'fiscalYearOpening')`;
+  const closingOpening = sql`coalesce(${journalEntry.sourceType}, '') in ('fiscalYearClosing', 'fiscalYearOpening')`;
+  const inPeriod = range ? sql`${journalEntry.postedAt} >= ${range.from} and ${journalEntry.postedAt} < ${range.toExclusive} and not ${lifecycle}` : sql`true`;
+  const beforePeriod = range ? sql`${journalEntry.postedAt} < ${range.from} and not ${closingOpening}` : sql`false`;
   const rows = await db
     .select({
       id: accountChart.id,
@@ -77,28 +87,34 @@ export async function listAccounts(companyId: string) {
       partnerId: accountChart.partnerId,
       partnerName: partner.name,
       partnerNumber: partner.number,
-      debit: sql<string>`coalesce(sum(${journalLine.debit}), '0')`,
-      credit: sql<string>`coalesce(sum(${journalLine.credit}), '0')`,
-      entries: sql<number>`count(${journalLine.id})`.mapWith(Number),
+      opening: sql<string>`coalesce(sum(case when ${beforePeriod} then ${journalLine.debit} - ${journalLine.credit} else 0 end), '0')`,
+      debit: sql<string>`coalesce(sum(case when ${inPeriod} then ${journalLine.debit} else 0 end), '0')`,
+      credit: sql<string>`coalesce(sum(case when ${inPeriod} then ${journalLine.credit} else 0 end), '0')`,
+      entries: sql<number>`count(case when ${journalLine.id} is not null and ${inPeriod} then 1 end)`.mapWith(Number),
     })
     .from(accountChart)
     .leftJoin(journalLine, eq(journalLine.accountId, accountChart.id))
+    .leftJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
     .leftJoin(partner, eq(partner.id, accountChart.partnerId))
     .where(eq(accountChart.companyId, companyId))
     .groupBy(accountChart.id, partner.id)
     .orderBy(accountChart.code);
 
+  // El saldo inicial se agrega como un importe más (en el debe) y se separa después.
+  const openings = aggregateAccountTotals(rows.map((row) => ({ code: row.code, debitCents: toCents(row.opening), creditCents: 0, entries: 0 })));
   const aggregated = aggregateAccountTotals(rows.map((row) => ({
     ...row,
-    debitCents: Math.round(Number(row.debit) * 100),
-    creditCents: Math.round(Number(row.credit) * 100),
+    debitCents: toCents(row.debit),
+    creditCents: toCents(row.credit),
   })));
-  return aggregated.map(({ debitCents, creditCents, ...row }) => {
+  return aggregated.map(({ debitCents, creditCents, ...row }, index) => {
+    const openingCents = openings[index]?.debitCents ?? 0;
     const debit = debitCents / 100;
     const credit = creditCents / 100;
-    const balance = (debitCents - creditCents) / 100;
+    const balance = (openingCents + debitCents - creditCents) / 100;
     return {
       ...row,
+      opening: openingCents / 100,
       debit,
       credit,
       balance,
@@ -187,6 +203,40 @@ export async function updateAccount(
     }
     const [updated] = await tx.update(accountChart).set(changes).where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, id))).returning();
     await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.account.update", entityName: "accountChart", entityId: id, payload: { before: { code: current.code }, ...payload } }, tx);
+    return updated;
+  });
+}
+
+/**
+ * Bloquea o desbloquea una subcuenta: bloqueada no admite apuntes manuales nuevos (los automáticos
+ * y el histórico no cambian). Las cuentas de grupo no admiten apuntes, así que no se bloquean.
+ */
+export async function setAccountBlocked(companyId: string, tenantId: string, actorUserId: string, id: string, blocked: boolean) {
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ id: accountChart.id, code: accountChart.code, isPostable: accountChart.isPostable })
+      .from(accountChart)
+      .where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, id)))
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (!current.isPostable) {
+      throw new AccountingRuleError(422, "ACCOUNT_GROUP_BLOCK", "Solo se pueden bloquear subcuentas: una cuenta de grupo no admite apuntes.");
+    }
+    const [updated] = await tx
+      .update(accountChart)
+      .set({ isBlocked: blocked })
+      .where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, id)))
+      .returning({ id: accountChart.id, code: accountChart.code, isBlocked: accountChart.isBlocked });
+    await recordAudit({
+      tenantId,
+      companyId,
+      actorUserId,
+      action: blocked ? "accounting.account.block" : "accounting.account.unblock",
+      entityName: "accountChart",
+      entityId: id,
+      payload: { code: current.code },
+    }, tx);
     return updated;
   });
 }

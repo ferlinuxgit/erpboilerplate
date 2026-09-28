@@ -35,8 +35,9 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType, onC
         });
         if (!response.ok) throw new Error(await readApiError(response, "No se pudo actualizar la cuenta."));
         toast.success("Cuenta actualizada correctamente.");
+        const updated: { code?: string } = await response.json();
         if (onSuccess) onSuccess();
-        else { router.push("/accounting"); router.refresh(); }
+        else { router.push(`/accounting/accounts?sel=${encodeURIComponent(updated.code ?? code)}`); router.refresh(); }
       } catch (submissionError) {
         const message = errorMessage(submissionError, "No se pudo actualizar la cuenta.");
         setError(message);

@@ -17,6 +17,7 @@ import {
   listAccounts,
   listJournalEntries,
 } from "@/server/accounting/service";
+import { resolveChartPeriod } from "@/server/accounting/chart-tree";
 import { getFiscalYearLifecycle } from "@/server/accounting/fiscal-years";
 import { getCompanyDefaultsStatus } from "@/server/company/defaults";
 
@@ -50,9 +51,10 @@ const areas = [
 
 export default async function AccountingPage() {
   const ctx = await requireContext("accounting.read");
+  const period = await resolveChartPeriod(ctx.company.id, { activeFiscalYearId: ctx.fiscalYear.id });
   const [[balance], accounts, entries, defaultsStatus, lifecycle] = await Promise.all([
     getTrialBalance(ctx.company.id),
-    listAccounts(ctx.company.id),
+    listAccounts(ctx.company.id, period.range),
     listJournalEntries(ctx.company.id),
     getCompanyDefaultsStatus({
       companyId: ctx.company.id,
@@ -64,6 +66,10 @@ export default async function AccountingPage() {
   const canWrite = can(ctx.membership.role, "accounting.write");
   const difference = Number(balance?.debit ?? 0) - Number(balance?.credit ?? 0);
   const currency = ctx.company.baseCurrencyCode;
+  const busiestAccounts = accounts
+    .filter((account) => account.isPostable && account.entries > 0)
+    .sort((a, b) => b.entries - a.entries || a.code.localeCompare(b.code))
+    .slice(0, 8);
 
   return (
     <PageShell>
@@ -147,13 +153,24 @@ export default async function AccountingPage() {
         </div>
       </PageSection>
       <PageSection
-        title="Cuentas recientes"
-        description="Acceso directo a las últimas cuentas activas del plan."
+        title="Cuentas con más movimiento"
+        description={`Subcuentas con más apuntes del ${period.year ? `ejercicio ${period.year.code}` : "año"} y su saldo.`}
         actions={<Link className={buttonVariants({ variant: "ghost", size: "sm" })} href="/accounting/accounts">Ver plan completo</Link>}
       >
-        <div className="divide-y border-y">
-          {accounts.filter((account) => account.isActive).slice(0, 8).map((account) => <div className="grid items-center gap-2 py-3 sm:grid-cols-[1fr_auto_auto]" key={account.id}><span className="font-medium">{account.code} · {account.name}</span><span className="text-sm text-muted-foreground">{formatBalance(account.balance, currency)}</span><Link className="text-sm font-medium text-link hover:underline" href={`/accounting/ledger/${account.id}`}>Ver mayor</Link></div>)}
-        </div>
+        {busiestAccounts.length === 0 ? (
+          <p className="py-3 text-sm text-muted-foreground">Todavía no hay apuntes en este ejercicio.</p>
+        ) : (
+          <div className="divide-y border-y">
+            {busiestAccounts.map((account) => (
+              <div className="grid items-center gap-2 py-3 sm:grid-cols-[1fr_auto_auto_auto]" key={account.id}>
+                <Link className="font-medium hover:underline" href={`/accounting/accounts?sel=${account.code}`}>{account.code} · {account.name}</Link>
+                <span className="text-sm text-muted-foreground">{account.entries} {account.entries === 1 ? "apunte" : "apuntes"}</span>
+                <span className="text-sm text-muted-foreground">{formatBalance(account.balance, currency)}</span>
+                <Link className="text-sm font-medium text-link hover:underline" href={`/accounting/ledger/${account.id}?from=${period.keys.from}&to=${period.keys.to}`}>Ver mayor</Link>
+              </div>
+            ))}
+          </div>
+        )}
       </PageSection>
       <PageSection
         title="Actividad reciente"

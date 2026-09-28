@@ -60,6 +60,20 @@ export function canonicalSubaccountCode(code: string, length: number): string | 
   return trimmed.padEnd(length, "0");
 }
 
+/**
+ * Atajo del punto (ContaPlus/Sage): «43.1» → 43000001, «572.» → 57200000, «4.12» → 40000012.
+ * El punto se rellena con ceros hasta la longitud de subcuenta. null si no es un atajo válido.
+ */
+export function expandDotShortcut(value: string, length: number): string | null {
+  const match = /^(\d+)\.(\d*)$/.exec(value.trim());
+  if (!match) return null;
+  const [, prefix, suffix] = match;
+  if (prefix.length + suffix.length > length) return null;
+  const sequence = Number(suffix || "0");
+  if (sequence === 0) return canonicalSubaccountCode(prefix, length);
+  return partnerSubaccountCode(prefix, sequence, length);
+}
+
 /** Prefijos estrictos de un código (1, 12, 123…), del más corto al más largo. */
 export function ancestorCodes(code: string): string[] {
   const prefixes: string[] = [];
