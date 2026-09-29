@@ -26,7 +26,7 @@ import {
   supplierPaymentLineDocument,
   type LineDocument,
 } from "@/server/accounting/posting-context";
-import { ensurePartnerSubaccount, ensureSubaccount, loadChartContext, toPostableAccountId } from "@/server/accounting/subaccounts";
+import { CASH_ACCOUNT_CODE, ensurePartnerSubaccount, ensureSubaccount, loadChartContext, toPostableAccountId } from "@/server/accounting/subaccounts";
 import { isCanonicalSubaccountCode, type PartnerAccountRole } from "@/server/accounting/subaccounts-model";
 import { recordAudit } from "@/server/audit";
 
@@ -178,7 +178,8 @@ export async function resolveAccounts<R extends AccountRole>(companyId: string, 
 }
 
 /**
- * Subcuenta (grupo 57) asociada a una cuenta bancaria o a la cuenta bancaria de una forma de pago.
+ * Subcuenta (grupo 57) asociada a una cuenta bancaria o a la cuenta bancaria de una forma de pago;
+ * una forma de pago en efectivo sin banco va a caja (57000000).
  * Si el banco está vinculado a una cuenta de grupo (572) se usa su subcuenta canónica.
  * Devuelve null si no hay vínculo y debe usarse la cuenta de bancos por defecto.
  */
@@ -215,11 +216,13 @@ async function lookupBankLedgerAccountId(
   let bankAccountId = source.bankAccountId ?? null;
   if (!bankAccountId && source.paymentMethodId) {
     const [method] = await client
-      .select({ bankAccountId: paymentMethod.bankAccountId })
+      .select({ bankAccountId: paymentMethod.bankAccountId, type: paymentMethod.type })
       .from(paymentMethod)
       .where(and(eq(paymentMethod.id, source.paymentMethodId), eq(paymentMethod.companyId, companyId)))
       .limit(1);
     bankAccountId = method?.bankAccountId ?? null;
+    // Efectivo sin banco asociado: caja (570 → 57000000), no bancos.
+    if (!bankAccountId && method?.type === "CASH") return (await ensureSubaccount(companyId, CASH_ACCOUNT_CODE, client)).id;
   }
   if (!bankAccountId) return null;
   const [linked] = await client

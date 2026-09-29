@@ -5,6 +5,7 @@ import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getActiveContextCookies, getActiveTenantCookie } from "@/lib/active-context";
 import type { AppRole } from "@/lib/rbac";
+import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
 
 /** Nombre provisional de la empresa y del espacio hasta que el usuario lo indique en la puesta en marcha. */
 export const DEFAULT_COMPANY_NAME = "Mi empresa";
@@ -270,6 +271,8 @@ async function ensureUserTenantInternal(user: { id: string; name: string }, pref
         countryCode: company.countryCode,
         baseCurrencyCode: company.baseCurrencyCode,
       });
+
+    await ensureCashPaymentMethod(tx, createdCompanies[0].id);
 
     const createdFiscalYears = await tx
       .insert(fiscalYear)

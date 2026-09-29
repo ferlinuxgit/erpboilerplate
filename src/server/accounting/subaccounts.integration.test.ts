@@ -50,6 +50,7 @@ import {
   postSupplierInvoice,
   postSupplierPayment,
 } from "@/server/accounting/auto-post";
+import { runBankSubaccountAssignment } from "@/server/accounting/bank-subaccounts";
 import { closeFiscalYear } from "@/server/accounting/fiscal-years";
 import { reclassifyCompany, runReclassification } from "@/server/accounting/reclassify";
 import { createAccount, createJournalEntry, listAccounts, updateSubaccountLength } from "@/server/accounting/service";
@@ -58,6 +59,8 @@ import { createCustomerWithPartner } from "@/server/customers/service";
 import { fetchAccountingTaxBalances } from "@/server/fiscal/spain";
 import { applyEsSeeds } from "@/server/seeds/apply";
 import { createSupplierWithPartner } from "@/server/suppliers/service";
+import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
+import { createBankAccount } from "@/server/treasury/service";
 
 const TENANT = "tenant-1";
 const USER = "user-1";
@@ -585,7 +588,7 @@ describe("motor de asientos contra base de datos", () => {
     ]);
   });
 
-  it("cobro con forma de pago vinculada a un banco: subcuenta del banco; sin vínculo: 57200000; movimiento sin identificar a 555", async () => {
+  it("cobro con forma de pago vinculada a un banco: subcuenta del banco; en efectivo: caja 57000000; movimiento sin identificar a 555", async () => {
     const bankLedger = await createAccount(companyId, TENANT, USER, { code: "57200001", name: "Banco Uno", type: "ASSET" });
     const [bank] = await state.db.insert(schema.bankAccount).values({ companyId, iban: "ES7620770024003102575766", bankName: "Banco Uno", accountId: bankLedger.id }).returning();
     const [linked] = await state.db.insert(schema.paymentMethod).values({ companyId, code: "TR", name: "Transferencia", bankAccountId: bank.id }).returning();
@@ -597,7 +600,7 @@ describe("motor de asientos contra base de datos", () => {
     await postCustomerPayment({ ...actor(companyId), paymentId: "eng-pay-1", postedAt: new Date(Date.UTC(2026, 1, 3)), reference: "Cobro", amount: 50, paymentMethodId: linked.id });
     await postCustomerPayment({ ...actor(companyId), paymentId: "eng-pay-2", postedAt: new Date(Date.UTC(2026, 1, 4)), reference: "Cobro", amount: 56, paymentMethodId: cash.id });
     expect((await entryLines((await entryBySource(companyId, "payment", "eng-pay-1")).id))[0].code).toBe("57200001");
-    expect((await entryLines((await entryBySource(companyId, "payment", "eng-pay-2")).id))[0].code).toBe("57200000");
+    expect((await entryLines((await entryBySource(companyId, "payment", "eng-pay-2")).id))[0].code).toBe("57000000");
 
     const [movement] = await state.db.insert(schema.bankTransaction).values({ bankAccountId: bank.id, postedAt: new Date(Date.UTC(2026, 1, 5)), amount: "-3.50", description: "Comisión mantenimiento" }).returning();
     await postBankTransaction({ ...actor(companyId), bankTransactionId: movement.id, bankAccountId: bank.id, postedAt: new Date(Date.UTC(2026, 1, 5)), reference: "Comisión", amount: -3.5 });
@@ -607,6 +610,54 @@ describe("motor de asientos contra base de datos", () => {
       ["57200001", "0.00", "3.50"],
     ]);
     expect(movementLines[0]).toMatchObject({ concept: "Mov. banco · Comisión mantenimiento", documentType: "bankTransaction" });
+  });
+
+  it("una subcuenta 572 por banco y migración de los cobros de la 572 genérica (efectivo a caja)", async () => {
+    const bankCo = "banks";
+    await createCompany(bankCo);
+    await applyEsSeeds({ tenantId: TENANT, companyId: bankCo, actorUserId: USER, activeFiscalYearId: `${bankCo}-fy2026` });
+    const client = await createCustomerWithPartner(state.db, bankCo, customerInput("Cliente Bancos", "B12345674"));
+    await state.db.insert(invoice).values({ id: "bk-inv", companyId: bankCo, customerId: client.id, number: "FA-1", issueDate: new Date(Date.UTC(2026, 1, 1)), totalAmount: "300.00", status: "SENT", issuedAt: new Date() });
+
+    // Datos anteriores: bancos sin subcuenta y cobros contabilizados en la 57200000 genérica.
+    const [bbva] = await state.db.insert(schema.bankAccount).values({ companyId: bankCo, iban: "ES7620770024003102575766", bankName: "BBVA" }).returning();
+    const [transfer] = await state.db.insert(schema.paymentMethod).values({ companyId: bankCo, code: "TR-BBVA", name: "Transferencia · BBVA", bankAccountId: bbva.id }).returning();
+    const [cash] = await state.db.insert(schema.paymentMethod).values({ companyId: bankCo, code: "CAJA", name: "Caja", type: "CASH" }).returning();
+    await state.db.insert(payment).values([
+      { id: "bk-pay-1", companyId: bankCo, number: "CO-1", invoiceId: "bk-inv", paymentMethodId: transfer.id, amount: "100.00", postedAt: new Date(Date.UTC(2026, 1, 3)) },
+      { id: "bk-pay-2", companyId: bankCo, number: "CO-2", invoiceId: "bk-inv", paymentMethodId: cash.id, amount: "20.00", postedAt: new Date(Date.UTC(2026, 1, 4)) },
+    ]);
+    await postCustomerPayment({ ...actor(bankCo), paymentId: "bk-pay-1", postedAt: new Date(Date.UTC(2026, 1, 3)), reference: "Cobro", amount: 100, paymentMethodId: transfer.id });
+    await postCustomerPayment({ ...actor(bankCo), paymentId: "bk-pay-2", postedAt: new Date(Date.UTC(2026, 1, 4)), reference: "Cobro", amount: 20 });
+    expect((await entryLines((await entryBySource(bankCo, "payment", "bk-pay-1")).id))[0].code).toBe("57200000");
+    expect((await entryLines((await entryBySource(bankCo, "payment", "bk-pay-2")).id))[0].code).toBe("57200000");
+
+    // Un banco nuevo estrena su propia subcuenta.
+    const caixa = await createBankAccount(bankCo, TENANT, USER, { iban: "ES9121000418450200051332", bankName: "La Caixa" });
+    expect((await state.db.select().from(accountChart).where(eq(accountChart.id, caixa.accountId as string)))[0]).toMatchObject({ code: "57200001", name: "La Caixa ···1332" });
+
+    const dryRun = await runBankSubaccountAssignment(state.db, { apply: false, companyId: bankCo });
+    expect(dryRun.movedLines).toHaveLength(2);
+    expect((await entryLines((await entryBySource(bankCo, "payment", "bk-pay-1")).id))[0].code).toBe("57200000");
+
+    const applied = await runBankSubaccountAssignment(state.db, { apply: true, companyId: bankCo });
+    expect(applied.banks).toEqual([{ bankName: "BBVA", iban: bbva.iban, from: null, to: "57200002" }]);
+    expect(applied.cashPaymentMethodCreated).toBe(false);
+    expect((await entryLines((await entryBySource(bankCo, "payment", "bk-pay-1")).id))[0].code).toBe("57200002");
+    expect((await entryLines((await entryBySource(bankCo, "payment", "bk-pay-2")).id))[0].code).toBe("57000000");
+    expect(applied.remainingGenericLines).toBe(0);
+
+    const again = await runBankSubaccountAssignment(state.db, { apply: true, companyId: bankCo });
+    expect(again.banks).toEqual([]);
+    expect(again.movedLines).toEqual([]);
+  });
+
+  it("crea la forma de pago «Efectivo» si la empresa no tiene ninguna en efectivo", async () => {
+    await createCompany("cash-co");
+    expect(await ensureCashPaymentMethod(state.db, "cash-co")).toMatchObject({ created: true });
+    expect(await ensureCashPaymentMethod(state.db, "cash-co")).toMatchObject({ created: false });
+    const methods = await state.db.select().from(schema.paymentMethod).where(eq(schema.paymentMethod.companyId, "cash-co"));
+    expect(methods).toEqual([expect.objectContaining({ code: "EFECTIVO", name: "Efectivo", type: "CASH", bankAccountId: null })]);
   });
 
   it("sin plan contable ni plantilla del país falla con un mensaje claro", async () => {

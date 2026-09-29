@@ -40,6 +40,8 @@ describe("ensureUserTenant", () => {
         [{ id: "tenant-1", name: "Concurrent User Tenant", slug: "concurrent-user-tenant" }],
         [{ id: "membership-1", role: "OWNER" }],
         [{ id: "company-1", name: "Concurrent User Company", countryCode: "ES", baseCurrencyCode: "EUR" }],
+        // Forma de pago «Efectivo» de la empresa nueva.
+        [{ id: "cash-method-1" }],
         [{ id: "fiscal-year-1", code: "2026" }],
       ];
       let insertIndex = 0;

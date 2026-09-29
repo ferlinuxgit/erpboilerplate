@@ -4,6 +4,7 @@ import { accountChart, bankAccount, bankTransaction, paymentMethod } from "@/db/
 import { db, type DbClient } from "@/lib/db";
 import { postBankTransaction, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
+import { ensureBankSubaccount } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { isValidBic, normalizeBic } from "@/lib/bank-import/iban";
@@ -111,9 +112,14 @@ async function assertBankLedgerAccount(client: DbClient, companyId: string, acco
 
 export async function createBankAccount(companyId: string, tenantId: string, actorUserId: string, payload: BankAccountPayload) {
   return db.transaction(async (tx) => {
-    const accountId = await assertBankLedgerAccount(tx, companyId, payload.accountId);
+    const chosenAccountId = await assertBankLedgerAccount(tx, companyId, payload.accountId);
     const bic = normalizeBankBic(payload.bic) ?? null;
-    const [created] = await tx.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName, accountId, bic }).returning();
+    let [created] = await tx.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName, accountId: chosenAccountId, bic }).returning();
+    // Sin cuenta elegida, cada banco estrena su propia subcuenta 572 (57200001, 57200002…).
+    if (!chosenAccountId) {
+      const own = await ensureBankSubaccount(tx, companyId, created);
+      [created] = await tx.update(bankAccount).set({ accountId: own.id }).where(eq(bankAccount.id, created.id)).returning();
+    }
     await tx.insert(paymentMethod).values({
       companyId,
       bankAccountId: created.id,
@@ -131,12 +137,19 @@ export async function updateBankAccount(companyId: string, tenantId: string, act
   return db.transaction(async (tx) => {
     const accountId = payload.accountId === undefined ? undefined : await assertBankLedgerAccount(tx, companyId, payload.accountId);
     const bic = normalizeBankBic(payload.bic);
-    const [updated] = await tx
+    let [updated] = await tx
       .update(bankAccount)
-      .set({ iban: payload.iban, bankName: payload.bankName, ...(accountId === undefined ? {} : { accountId }), ...(bic === undefined ? {} : { bic }) })
+      .set({ iban: payload.iban, bankName: payload.bankName, ...(accountId ? { accountId } : {}), ...(bic === undefined ? {} : { bic }) })
       .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)))
       .returning();
     if (!updated) return null;
+    // Sin cuenta elegida: su subcuenta propia (se conserva la que ya tenga y se renombra con el banco).
+    if (!accountId) {
+      const own = await ensureBankSubaccount(tx, companyId, updated);
+      if (own.id !== updated.accountId) {
+        [updated] = await tx.update(bankAccount).set({ accountId: own.id }).where(eq(bankAccount.id, id)).returning();
+      }
+    }
     await tx.update(paymentMethod)
       .set({ bankAccountNumber: updated.iban, updatedAt: new Date() })
       .where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id)));

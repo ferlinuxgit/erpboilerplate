@@ -1,6 +1,6 @@
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 
-import { accountChart, company, companySettings, journalEntry, partner } from "@/db/schema";
+import { accountChart, bankAccount, company, companySettings, journalEntry, partner } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { getCompanyTemplate } from "@/lib/company-templates";
 import { AccountingRuleError } from "@/server/accounting/errors";
@@ -144,7 +144,7 @@ async function insertSubaccount(
   companyId: string,
   context: ChartContext,
   code: string,
-  options: { name?: string | null; partnerId?: string | null; baseLabel: string },
+  options: { name?: string | null; partnerId?: string | null; baseLabel: string; source?: string },
 ): Promise<SubaccountRef> {
   const parent = await ensureAncestors(client, companyId, context, code);
   if (!parent) {
@@ -165,7 +165,7 @@ async function insertSubaccount(
       level: code.length,
       isPostable: true,
       isActive: true,
-      source: options.partnerId ? "partner" : "subaccount",
+      source: options.source ?? (options.partnerId ? "partner" : "subaccount"),
       nature: natureForAccountType(parent.type),
       partnerId: options.partnerId ?? null,
     })
@@ -397,6 +397,65 @@ export async function ensurePartnerSubaccount(
     await setDefault(created.id);
     return created;
   });
+}
+
+/** Grupo de las subcuentas de cada banco (572 «Bancos e instituciones de crédito c/c vista, euros»). */
+export const BANK_SUBACCOUNT_PREFIX = "572";
+/** Grupo de caja: cobros y pagos en efectivo (570 «Caja, euros»). */
+export const CASH_ACCOUNT_CODE = "570";
+
+export function bankSubaccountName(bank: { bankName: string; iban: string }) {
+  const iban = bank.iban.replace(/\s+/g, "");
+  return iban.length >= 4 ? `${bank.bankName.trim()} ···${iban.slice(-4)}` : bank.bankName.trim();
+}
+
+/**
+ * Subcuenta propia de una cuenta bancaria (57200001, 57200002…), como hacen los programas de
+ * contabilidad: el mayor de cada banco se puntea contra su extracto. Conserva la que ya tiene si
+ * es una subcuenta de 572 solo suya (no la genérica 57200000 ni la de otro banco) y le pone el
+ * nombre del banco si la creó el sistema. No enlaza el banco: devuelve la subcuenta.
+ */
+export async function ensureBankSubaccount(
+  client: DbClient,
+  companyId: string,
+  bank: { id: string; bankName: string; iban: string; accountId: string | null },
+): Promise<SubaccountRef> {
+  const context = await loadChartContext(companyId, client);
+  const length = context.subaccountLength;
+  const generic = canonicalSubaccountCode(BANK_SUBACCOUNT_PREFIX, length);
+  const name = bankSubaccountName(bank);
+
+  if (bank.accountId) {
+    const [current] = await client
+      .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name, source: accountChart.source })
+      .from(accountChart)
+      .where(and(eq(accountChart.companyId, companyId), eq(accountChart.id, bank.accountId)))
+      .limit(1);
+    const [shared] = current
+      ? await client
+          .select({ id: bankAccount.id })
+          .from(bankAccount)
+          .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.accountId, current.id), ne(bankAccount.id, bank.id)))
+          .limit(1)
+      : [];
+    if (current && !shared && current.code !== generic && current.code.startsWith("57") && isCanonicalSubaccountCode(current.code, length)) {
+      if (current.source === "bank" && current.name !== name) {
+        await client.update(accountChart).set({ name }).where(eq(accountChart.id, current.id));
+        return { id: current.id, code: current.code, name };
+      }
+      return { id: current.id, code: current.code, name: current.name };
+    }
+  }
+
+  const inRange = await client
+    .select({ code: accountChart.code })
+    .from(accountChart)
+    .where(and(eq(accountChart.companyId, companyId), like(accountChart.code, `${BANK_SUBACCOUNT_PREFIX}%`), sql`length(${accountChart.code}) = ${length}`));
+  const code = nextFreePartnerSubaccountCode(BANK_SUBACCOUNT_PREFIX, length, inRange.map((entry) => entry.code));
+  if (!code) {
+    throw new AccountingRuleError(422, "BANK_ACCOUNT_RANGE_FULL", `No quedan subcuentas libres en la cuenta ${BANK_SUBACCOUNT_PREFIX}. Amplía la longitud de las subcuentas.`);
+  }
+  return insertSubaccount(client, companyId, context, code, { name, baseLabel: BANK_SUBACCOUNT_PREFIX, source: "bank" });
 }
 
 /**

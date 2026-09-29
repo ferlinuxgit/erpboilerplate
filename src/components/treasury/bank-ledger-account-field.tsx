@@ -19,12 +19,12 @@ export function BankLedgerAccountField({
 }) {
   return (
     <AccessibleField
-      helperText="Cuenta de tesorería donde se contabilizan los cobros, pagos y movimientos de este banco. Si la dejas vacía se usa la cuenta de bancos por defecto (572)."
+      helperText="Subcuenta de tesorería donde se contabilizan los cobros, pagos y movimientos de este banco. Si no eliges ninguna, el banco tiene su propia subcuenta 572 (57200001, 57200002…) con su nombre."
       id={id}
       label="Cuenta contable"
     >
       <Select id={id} onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">Cuenta por defecto (572)</option>
+        <option value="">Subcuenta propia del banco (automática)</option>
         {options.map((option) => (
           <option key={option.id} value={option.id}>
             {option.code} · {option.name}
