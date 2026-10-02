@@ -216,6 +216,8 @@ export async function createDirectDebitRemittance(
       .limit(1);
     if (!account) throw new AccountingRuleError(404, "BANK_ACCOUNT_NOT_FOUND", "Cuenta bancaria no encontrada.");
     if (!account.isActive) throw new AccountingRuleError(409, "BANK_ACCOUNT_ARCHIVED", "La cuenta bancaria está archivada.");
+    const accountIban = account.iban;
+    if (!accountIban) throw new AccountingRuleError(422, "BANK_ACCOUNT_NO_IBAN", "Las remesas SEPA necesitan una cuenta bancaria con IBAN (no una pasarela de pago).");
     const [owner] = await tx
       .select({ name: company.name, legalName: company.legalName, sepaCreditorId: company.sepaCreditorId })
       .from(company)
@@ -302,7 +304,7 @@ export async function createDirectDebitRemittance(
       messageId: number,
       createdAt: now,
       collectionDate: input.collectionDate,
-      creditor: { name: owner?.legalName || owner?.name || "Empresa", creditorId: creditor.creditorId, iban: account.iban, bic: account.bic },
+      creditor: { name: owner?.legalName || owner?.name || "Empresa", creditorId: creditor.creditorId, iban: accountIban, bic: account.bic },
       debits: prepared.map((item) => ({
         endToEndId: item.endToEndId,
         amount: item.amount,

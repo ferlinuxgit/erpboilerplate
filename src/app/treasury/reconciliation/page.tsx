@@ -76,9 +76,11 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
             canWrite={canWrite}
             currencyCode={currency}
             customerInvoices={workbench.customerInvoices}
+            feeAccountId={workbench.feeAccount?.id ?? null}
             focusId={focusId}
             movements={workbench.movements}
             supplierInvoices={workbench.supplierInvoices}
+            transferAccounts={workbench.transferAccounts}
             truncated={workbench.movements.length >= 100}
           />
         )}

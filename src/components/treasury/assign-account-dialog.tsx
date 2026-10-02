@@ -26,11 +26,16 @@ const QUICK_ACCOUNTS = [
   { code: "551", label: "Aportación o retirada del socio" },
 ];
 
+/** Otra cuenta de tesorería de la empresa: banco o pasarela de pago, con su subcuenta 57x. */
+export type TransferAccountOption = { bankAccountId: string; ledgerAccountId: string; name: string; kind: "BANK" | "PAYMENT_PROVIDER" };
+
 type Props = {
   open: boolean;
   onClose: () => void;
   movement: { id: string; amount: number; description: string };
   accounts: AccountOption[];
+  /** Traspasos: dinero que llega de una pasarela (Stripe…) o que se mueve entre tus bancos. */
+  transferAccounts?: TransferAccountOption[];
   currencyCode: string;
   onSubmit: (input: { accountId: string; remember: RememberRule | null }) => Promise<void>;
 };
@@ -39,12 +44,21 @@ type Props = {
  * "Asignar a cuenta": para movimientos sin factura (comisiones, cuotas, impuestos…). Se
  * contabiliza Banco ↔ cuenta elegida y se anula el apunte en 555 «Pendiente de identificar».
  */
-export function AssignAccountDialog({ accounts, currencyCode, movement, onClose, onSubmit, open }: Props) {
+export function AssignAccountDialog({ accounts, currencyCode, movement, onClose, onSubmit, open, transferAccounts = [] }: Props) {
   const quick = useMemo(
     () => QUICK_ACCOUNTS.map((entry) => ({ ...entry, account: findAccountForCode(accounts, entry.code) })).filter((entry) => entry.account),
     [accounts],
   );
-  const suggestedId = useMemo(() => findAccountForCode(accounts, suggestAccountCodeFromText(movement.description))?.id, [accounts, movement.description]);
+  // Una pasarela citada en el concepto («STRIPE PAYMENTS…») es casi seguro un traspaso desde ella.
+  const transferSuggestion = useMemo(() => {
+    const text = movement.description.toLocaleLowerCase("es");
+    return transferAccounts.find((account) => account.kind === "PAYMENT_PROVIDER" && text.includes(account.name.toLocaleLowerCase("es")))?.ledgerAccountId;
+  }, [movement.description, transferAccounts]);
+  const suggestedId = useMemo(
+    () => transferSuggestion ?? findAccountForCode(accounts, suggestAccountCodeFromText(movement.description))?.id,
+    [accounts, movement.description, transferSuggestion],
+  );
+  const isDeposit = movement.amount >= 0;
   const [accountId, setAccountId] = useState(suggestedId ?? "");
   const [remember, setRemember] = useState(true);
   const [concept, setConcept] = useState(() => proposeRuleConcept(movement.description));
@@ -82,9 +96,33 @@ export function AssignAccountDialog({ accounts, currencyCode, movement, onClose,
       onClose={() => { if (!saving) onClose(); }}
       open={open}
       size="lg"
-      title="Asignar a cuenta"
+      title="Asignar a cuenta o traspaso"
     >
       <div className="space-y-3">
+        {transferAccounts.length ? (
+          <div className="space-y-1">
+            <p className="text-xs font-bold">Traspaso entre tus cuentas</p>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Traspaso entre tus cuentas">
+              {transferAccounts.map((account) => (
+                <Button
+                  aria-pressed={accountId === account.ledgerAccountId}
+                  key={account.bankAccountId}
+                  onClick={() => setAccountId(account.ledgerAccountId)}
+                  size="sm"
+                  type="button"
+                  variant={accountId === account.ledgerAccountId ? "default" : "outline"}
+                >
+                  {isDeposit ? `Desde ${account.name}` : `A ${account.name}`}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isDeposit
+                ? "Para el ingreso de Stripe, PayPal… o de otro banco tuyo: no es un cobro nuevo, las facturas ya se cobraron allí."
+                : "Para el dinero que pasas a otra cuenta tuya."}
+            </p>
+          </div>
+        ) : null}
         {quick.length ? (
           <div className="flex flex-wrap gap-1" role="group" aria-label="Cuentas habituales">
             {quick.map((entry) => (

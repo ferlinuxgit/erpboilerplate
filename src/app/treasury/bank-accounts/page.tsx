@@ -16,23 +16,25 @@ export default async function BankAccountsPage() {
       <PageHeader
         eyebrow="Tesorería"
         title="Cuentas bancarias"
-        description="Cuentas financieras de la empresa y acceso a sus movimientos."
+        description="Bancos y pasarelas de pago (Stripe, PayPal…) de la empresa, cada uno con su subcuenta contable."
         backHref="/treasury"
         backLabel="Volver al resumen"
         actions={
           canManage ? (
-            <Link
-              className={buttonVariants()}
-              href="/treasury/bank-accounts/new"
-            >
-              Nueva cuenta
-            </Link>
+            <>
+              <Link className={buttonVariants({ variant: "outline" })} href="/treasury/bank-accounts/new?kind=provider">
+                Nueva pasarela de pago
+              </Link>
+              <Link className={buttonVariants()} href="/treasury/bank-accounts/new">
+                Nueva cuenta
+              </Link>
+            </>
           ) : null
         }
       />
       <PageSection
         title="Cuentas"
-        description="Busca por banco o IBAN y abre el detalle de cada cuenta."
+        description="Busca por nombre o IBAN y abre el detalle de cada cuenta."
       >
         <BankAccountsList canManage={canManage} rows={rows} />
       </PageSection>

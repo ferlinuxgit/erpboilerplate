@@ -17,6 +17,8 @@ import { todayDateInput } from "@/server/invoices/due-dates";
 type PaymentMethodOption = {
   id: string;
   name: string;
+  /** Pasarela de pago (Stripe, PayPal…) en la que entra el cobro, si la forma de pago cobra en una. */
+  providerName?: string | null;
 };
 
 type RegisterInvoicePaymentDialogProps = {
@@ -70,6 +72,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
     setIsOpen(true);
   }
   const hasPaymentMethods = paymentMethods.length > 0;
+  const selectedProvider = paymentMethods.find((method) => method.id === selectedPaymentMethodId)?.providerName ?? null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -151,7 +154,15 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
             </Select>
           </AccessibleField>
 
-          <AccessibleField error={fieldErrors.amount} helperText="Propuesto: el saldo pendiente. Puedes cambiarlo para un cobro parcial." id={amountId} label="Importe cobrado" required>
+          <AccessibleField
+            error={fieldErrors.amount}
+            helperText={selectedProvider
+              ? `Regístralo por el total que pagó el cliente, aunque ${selectedProvider} te ingrese menos: su comisión se contabiliza aparte (con su factura mensual) y el ingreso en el banco se concilia como traspaso.`
+              : "Propuesto: el saldo pendiente. Puedes cambiarlo para un cobro parcial."}
+            id={amountId}
+            label="Importe cobrado"
+            required
+          >
             <MoneyInput id={amountId} value={amount} onChange={(event) => setAmount(event.target.value)} />
           </AccessibleField>
 

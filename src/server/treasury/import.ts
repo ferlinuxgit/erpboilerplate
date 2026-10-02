@@ -147,7 +147,7 @@ export async function previewBankImport(companyId: string, input: { bankAccountI
   const account = await loadImportAccount(companyId, input.bankAccountId);
   const source = await readStatementFile(input.file);
   const saved = source.format !== "NORMA43" && !input.mapping && savedMappingFits(account.importMapping, source.table) ? account.importMapping : null;
-  const parsed = parseSource(source, account.iban, { mapping: input.mapping ?? saved, norma43AccountIndex: input.norma43AccountIndex });
+  const parsed = parseSource(source, account.iban ?? "", { mapping: input.mapping ?? saved, norma43AccountIndex: input.norma43AccountIndex });
   return {
     format: source.format,
     fileName: input.file.name,
@@ -163,7 +163,7 @@ export async function previewBankImport(companyId: string, input: { bankAccountI
           finalBalance: entry.finalBalance,
           startDate: entry.startDate,
           endDate: entry.endDate,
-          matchesAccount: matchesSpanishIban(entry, account.iban),
+          matchesAccount: matchesSpanishIban(entry, account.iban ?? ""),
         }))
       : [],
     norma43AccountIndex: parsed.norma43AccountIndex,
@@ -193,7 +193,7 @@ export async function commitBankImport(
   const account = await loadImportAccount(actor.companyId, input.bankAccountId);
   if (!account.isActive) throw new AccountingRuleError(409, "BANK_ACCOUNT_ARCHIVED", "La cuenta bancaria está archivada. Reactívala para importar movimientos.");
   const source = await readStatementFile(input.file);
-  const parsed = parseSource(source, account.iban, { mapping: input.mapping, norma43AccountIndex: input.norma43AccountIndex });
+  const parsed = parseSource(source, account.iban ?? "", { mapping: input.mapping, norma43AccountIndex: input.norma43AccountIndex });
   if ("invalidMapping" in parsed && parsed.invalidMapping) throw new AccountingRuleError(422, "IMPORT_MAPPING", parsed.warnings.join(" "));
 
   const importSource = source.format;

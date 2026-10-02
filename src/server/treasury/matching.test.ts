@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findExactSubset,
+  isLikelyFee,
   matchRule,
   nameSimilarity,
   proposeRuleConcept,
@@ -204,5 +205,57 @@ describe("counterparty rules and direct debit remittances", () => {
     expect(best.kind).toBe("REMITTANCE");
     expect(best.detail).toContain("recibos domiciliados");
     expect(best.allocations.map((allocation) => [allocation.type, allocation.targetId])).toEqual([["CUSTOMER_PAYMENT", "ip-1"], ["CUSTOMER_PAYMENT", "ip-2"]]);
+  });
+});
+
+describe("pasarelas de pago y comisiones descontadas", () => {
+  const fee = { id: "acc-626", label: "62600000 · Servicios bancarios" };
+  const stripe = { bankAccountId: "stripe", ledgerAccountId: "acc-572-stripe", name: "Stripe", kind: "PAYMENT_PROVIDER" as const };
+  const movement = (amount: number, description: string) => ({ id: "m-1", bankAccountId: "bbva", amount, description, postedAt: day("2026-09-05") });
+
+  it("isLikelyFee: hasta un 5 % + 0,50 € es comisión; más es un cobro parcial", () => {
+    expect(isLikelyFee(10_000, 9_825)).toBe(true);
+    expect(isLikelyFee(10_000, 9_450)).toBe(true);
+    expect(isLikelyFee(10_000, 9_000)).toBe(false);
+    expect(isLikelyFee(10_000, 10_000)).toBe(false);
+  });
+
+  it("un ingreso que cita la pasarela se propone como traspaso desde ella", () => {
+    const [first] = rankSuggestions(movement(512.3, "TRANSF STRIPE PAYMENTS EUROPE LTD"), { ...empty, transferAccounts: [stripe] });
+    expect(first).toMatchObject({ kind: "TRANSFER", title: "Traspaso desde Stripe", confidence: "alta" });
+    expect(first.allocations).toEqual([{ type: "ACCOUNT", targetId: "acc-572-stripe", amount: 512.3, label: "Stripe" }]);
+  });
+
+  it("no propone traspasar un movimiento a su propia cuenta", () => {
+    const own = { ...movement(50, "STRIPE"), bankAccountId: "stripe" };
+    expect(rankSuggestions(own, { ...empty, transferAccounts: [stripe] }).some((suggestion) => suggestion.kind === "TRANSFER")).toBe(false);
+  });
+
+  it("factura de 100 € y el banco ingresa 98,25 €: cobro por el total y 1,75 € a comisiones", () => {
+    const open = invoice({ id: "inv-1", number: "FA-2026/000070", outstanding: 100 });
+    const [first] = rankSuggestions(movement(98.25, "Abono TPV FA-2026/000070"), { ...empty, invoices: [open], feeAccount: fee });
+    expect(first.kind).toBe("FEE");
+    expect(first.allocations).toEqual([
+      { type: "CUSTOMER_INVOICE", targetId: "inv-1", amount: 100, label: "FA-2026/000070" },
+      { type: "ACCOUNT", targetId: "acc-626", amount: -1.75, label: fee.label },
+    ]);
+    expect(validateAllocations(98.25, first.allocations)).toEqual([]);
+  });
+
+  it("cobro ya registrado por el total: se concilia con la comisión como diferencia", () => {
+    const registered = payment({ id: "ip-1", number: "CO000009", invoiceNumber: "FA-2026/000071", amount: 100, postedAt: day("2026-09-04") });
+    const suggestions = rankSuggestions(movement(98.25, "Transferencia Cliente Ejemplo FA-2026/000071"), { ...empty, payments: [registered], feeAccount: fee });
+    const withFee = suggestions.find((suggestion) => suggestion.kind === "FEE");
+    expect(withFee?.allocations).toEqual([
+      { type: "CUSTOMER_PAYMENT", targetId: "ip-1", amount: 100, label: "CO000009" },
+      { type: "ACCOUNT", targetId: "acc-626", amount: -1.75, label: fee.label },
+    ]);
+  });
+
+  it("sin cuenta de comisiones o con una diferencia grande sigue siendo un cobro parcial", () => {
+    const open = invoice({ id: "inv-2", number: "FA-2026/000072", outstanding: 100 });
+    const text = "Pago FA-2026/000072";
+    expect(rankSuggestions(movement(98.25, text), { ...empty, invoices: [open] }).some((suggestion) => suggestion.kind === "FEE")).toBe(false);
+    expect(rankSuggestions(movement(60, text), { ...empty, invoices: [open], feeAccount: fee }).some((suggestion) => suggestion.kind === "FEE")).toBe(false);
   });
 });

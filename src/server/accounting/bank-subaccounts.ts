@@ -18,7 +18,7 @@ export type BankSubaccountReport = {
   companyName: string;
   applied: boolean;
   cashPaymentMethodCreated: boolean;
-  banks: Array<{ bankName: string; iban: string; from: string | null; to: string }>;
+  banks: Array<{ bankName: string; iban: string | null; from: string | null; to: string }>;
   movedLines: Array<{ entry: string; concept: string | null; amount: string; from: string; to: string }>;
   /** Apuntes que siguen en la subcuenta genérica de bancos (sin banco ni efectivo identificable). */
   remainingGenericLines: number;
@@ -189,7 +189,7 @@ export function formatBankSubaccountReport(report: BankSubaccountReport) {
   const out = [`== ${report.companyName} (${report.companyId}) · ${report.applied ? "APLICADO" : "ENSAYO (sin cambios)"}`];
   out.push(report.cashPaymentMethodCreated ? "  + Forma de pago «Efectivo» creada (se contabiliza en caja 57000000)." : "  · Ya tenía forma de pago en efectivo.");
   if (report.banks.length === 0) out.push("  · Todos los bancos tenían ya su subcuenta propia.");
-  for (const bank of report.banks) out.push(`  + ${bank.bankName} ···${bank.iban.replace(/\s+/g, "").slice(-4)}: ${bank.from ?? "sin subcuenta (572 genérica)"} → ${bank.to}`);
+  for (const bank of report.banks) out.push(`  + ${bank.iban ? `${bank.bankName} ···${bank.iban.replace(/\s+/g, "").slice(-4)}` : bank.bankName}: ${bank.from ?? "sin subcuenta (572 genérica)"} → ${bank.to}`);
   for (const line of report.movedLines) out.push(`    ${line.entry} ${line.amount.padStart(10)}  ${line.from} → ${line.to}  ${line.concept ?? ""}`);
   out.push(`  Apuntes movidos: ${report.movedLines.length} · siguen en la 572 genérica: ${report.remainingGenericLines}`);
   return out.join("\n");

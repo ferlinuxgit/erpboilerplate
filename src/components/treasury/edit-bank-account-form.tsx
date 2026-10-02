@@ -17,6 +17,7 @@ export function EditBankAccountForm({
   defaultBankName,
   defaultIban,
   defaultBic = "",
+  kind = "BANK",
   ledgerAccounts = [],
   onCancel,
   onSuccess,
@@ -26,6 +27,7 @@ export function EditBankAccountForm({
   defaultBankName: string;
   defaultIban: string;
   defaultBic?: string | null;
+  kind?: "BANK" | "PAYMENT_PROVIDER";
   ledgerAccounts?: LedgerAccountOption[];
   onCancel?: () => void;
   onSuccess?: () => void;
@@ -36,6 +38,7 @@ export function EditBankAccountForm({
   const [accountId, setAccountId] = useState(defaultAccountId ?? "");
   const [bic, setBic] = useState(defaultBic ?? "");
   const [loading, setLoading] = useState(false);
+  const isProvider = kind === "PAYMENT_PROVIDER";
   const [error, setError] = useState<string | null>(null);
 
   return (
@@ -49,7 +52,7 @@ export function EditBankAccountForm({
           const res = await fetch(`/api/bank-accounts/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-            body: JSON.stringify({ bankName, iban, accountId: accountId || null, bic: bic.trim() || null }),
+            body: JSON.stringify({ bankName, iban: isProvider ? null : iban, accountId: accountId || null, bic: isProvider ? null : bic.trim() || null }),
           });
           if (!res.ok) throw new Error(await readApiError(res, "No se pudo guardar la cuenta bancaria."));
           toast.success("Cuenta bancaria actualizada.", { description: "Los próximos cobros, pagos y movimientos usarán la cuenta contable elegida." });
@@ -64,10 +67,10 @@ export function EditBankAccountForm({
         }
       }}
     >
-      <AccessibleField id={`edit-bank-name-${id}`} label="Banco" required><Input id={`edit-bank-name-${id}`} value={bankName} onChange={(e) => setBankName(e.target.value)} required /></AccessibleField>
-      <AccessibleField helperText={ibanHelperText(iban)} id={`edit-bank-iban-${id}`} label="IBAN" required><Input id={`edit-bank-iban-${id}`} value={iban} onChange={(e) => setIban(e.target.value)} required /></AccessibleField>
+      <AccessibleField id={`edit-bank-name-${id}`} label={isProvider ? "Nombre" : "Banco"} required><Input id={`edit-bank-name-${id}`} value={bankName} onChange={(e) => setBankName(e.target.value)} required /></AccessibleField>
+      {isProvider ? null : <AccessibleField helperText={ibanHelperText(iban)} id={`edit-bank-iban-${id}`} label="IBAN" required><Input id={`edit-bank-iban-${id}`} value={iban} onChange={(e) => setIban(e.target.value)} required /></AccessibleField>}
       <BankLedgerAccountField id={`edit-bank-ledger-${id}`} onChange={setAccountId} options={ledgerAccounts} value={accountId} />
-      <AccessibleField helperText="Opcional. Se usa en las remesas SEPA (p. ej. CAIXESBBXXX)." id={`edit-bank-bic-${id}`} label="BIC / SWIFT"><Input autoComplete="off" id={`edit-bank-bic-${id}`} maxLength={11} value={bic} onChange={(e) => setBic(e.target.value.toUpperCase())} /></AccessibleField>
+      {isProvider ? null : <AccessibleField helperText="Opcional. Se usa en las remesas SEPA (p. ej. CAIXESBBXXX)." id={`edit-bank-bic-${id}`} label="BIC / SWIFT"><Input autoComplete="off" id={`edit-bank-bic-${id}`} maxLength={11} value={bic} onChange={(e) => setBic(e.target.value.toUpperCase())} /></AccessibleField>}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}<Button type="submit" disabled={loading} aria-busy={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button></div>
       {error ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>

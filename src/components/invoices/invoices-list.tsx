@@ -37,7 +37,7 @@ type InvoiceListRow = {
 
 type InvoicesListProps = {
   rows: InvoiceListRow[];
-  paymentMethods: Array<{ id: string; name: string }>;
+  paymentMethods: Array<{ id: string; name: string; providerName?: string | null }>;
   currencyCode?: string;
   /** Server pagination state; `rows` is then only the current page. */
   server?: ServerListState;

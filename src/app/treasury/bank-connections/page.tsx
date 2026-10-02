@@ -46,7 +46,7 @@ export default async function BankConnectionsPage({ searchParams }: { searchPara
       ) : (
         <PageSection title="Bancos conectados" description="Estado del permiso, última sincronización y cuenta de destino de cada cuenta del banco.">
           <BankConnectionsManager
-            accounts={accounts.filter((account) => account.isActive).map((account) => ({ id: account.id, bankName: account.bankName, iban: account.iban }))}
+            accounts={accounts.flatMap((account) => (account.isActive && account.iban ? [{ id: account.id, bankName: account.bankName, iban: account.iban }] : []))}
             canWrite={can(ctx.membership.role, "treasury.write")}
             connections={connections}
           />

@@ -4,7 +4,7 @@
  */
 
 export type PaymentMethodOption = { id: string; name: string; type: string; bankAccountId: string | null; isDefault: boolean };
-export type BankAccountOption = { id: string; bankName: string; iban: string; isActive: boolean };
+export type BankAccountOption = { id: string; bankName: string; iban: string | null; isActive: boolean };
 
 /** Cuenta que corresponde a una forma de pago: la suya si está activa o, si solo hay una cuenta activa, esa. */
 export function bankAccountForMethod(method: PaymentMethodOption | undefined, accounts: readonly BankAccountOption[]) {

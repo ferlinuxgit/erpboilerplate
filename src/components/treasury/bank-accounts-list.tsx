@@ -5,11 +5,13 @@ import Link from "next/link";
 import { BankAccountRowActions } from "@/components/treasury/bank-account-row-actions";
 import { ResourceList, type ResourceListColumn } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { treasuryAccountDetail } from "@/lib/treasury-accounts";
 
 type BankAccountRow = {
   id: string;
   bankName: string;
-  iban: string;
+  iban: string | null;
+  kind?: "BANK" | "PAYMENT_PROVIDER";
   accountCode?: string | null;
   accountName?: string | null;
   isActive?: boolean;
@@ -32,10 +34,10 @@ const columns = (canManage: boolean): ResourceListColumn<BankAccountRow>[] => [
     sortValue: (account) => account.bankName,
   },
   {
-    header: "IBAN",
-    cell: (account) => account.iban,
-    exportValue: (account) => account.iban,
-    sortValue: (account) => account.iban,
+    header: "IBAN / tipo",
+    cell: (account) => treasuryAccountDetail(account),
+    exportValue: (account) => treasuryAccountDetail(account),
+    sortValue: (account) => treasuryAccountDetail(account),
   },
   {
     header: "Cuenta contable",
@@ -68,7 +70,7 @@ export function BankAccountsList({ canManage = true, rows }: BankAccountsListPro
       emptyTitle="Sin cuentas bancarias."
       exportFileName="cuentas-bancarias.csv"
       getRowId={(account) => account.id}
-      getSearchText={(account) => [account.bankName, account.iban, account.accountCode ?? ""].join(" ")}
+      getSearchText={(account) => [account.bankName, treasuryAccountDetail(account), account.accountCode ?? ""].join(" ")}
       items={rows}
       renderMobileCard={(account) => (
         <div className="space-y-3">
@@ -77,7 +79,7 @@ export function BankAccountsList({ canManage = true, rows }: BankAccountsListPro
               <Link className="font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link>
               <StatusBadge tone={account.isActive === false ? "neutral" : "success"}>{account.isActive === false ? "Archivada" : "Activa"}</StatusBadge>
             </div>
-            <p className="break-all text-sm text-muted-foreground">{account.iban}</p>
+            <p className="break-all text-sm text-muted-foreground">{treasuryAccountDetail(account)}</p>
             <p className="text-xs text-muted-foreground">Cuenta contable: {ledgerLabel(account)}</p>
           </div>
           {canManage ? <BankAccountRowActions account={account} /> : null}

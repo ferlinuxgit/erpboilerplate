@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { treasuryAccountDetail } from "@/lib/treasury-accounts";
 import { bankTransactionStats, recentBankTransactions } from "@/server/treasury/bank-transaction-list";
 import { getCurrentBankBalances } from "@/server/treasury/forecast";
 import { getBankAccount } from "@/server/treasury/service";
@@ -40,7 +41,7 @@ export default async function BankAccountDetailPage({ params }: { params: Promis
       <PageHeader
         eyebrow="Tesorería · Cuenta"
         title={account.bankName}
-        description={`${account.iban} · Cuenta contable ${account.accountCode ? `${account.accountCode} ${account.accountName ?? ""}` : "572 (por defecto)"}`}
+        description={`${treasuryAccountDetail(account)} · Cuenta contable ${account.accountCode ? `${account.accountCode} ${account.accountName ?? ""}` : "572 (por defecto)"}`}
         backHref="/treasury/bank-accounts"
         backLabel="Volver a cuentas bancarias"
         meta={<StatusBadge tone={account.isActive ? "success" : "neutral"}>{account.isActive ? "Activa" : "Archivada"}</StatusBadge>}

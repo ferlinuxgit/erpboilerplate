@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, like } from "drizzle-orm";
+import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
@@ -60,7 +60,9 @@ import { fetchAccountingTaxBalances } from "@/server/fiscal/spain";
 import { applyEsSeeds } from "@/server/seeds/apply";
 import { createSupplierWithPartner } from "@/server/suppliers/service";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
-import { createBankAccount } from "@/server/treasury/service";
+import { createBankAccount, recordBankTransaction } from "@/server/treasury/service";
+import { applyAllocations, getReconciliationWorkbench } from "@/server/treasury/workbench";
+import type { DbClient } from "@/lib/db";
 
 const TENANT = "tenant-1";
 const USER = "user-1";
@@ -650,6 +652,59 @@ describe("motor de asientos contra base de datos", () => {
     const again = await runBankSubaccountAssignment(state.db, { apply: true, companyId: bankCo });
     expect(again.banks).toEqual([]);
     expect(again.movedLines).toEqual([]);
+  });
+
+  it("pasarela Stripe: cobro por el total en Stripe, traspaso al banco y comisión descontada a 626", async () => {
+    const co = "gateway";
+    await createCompany(co);
+    await applyEsSeeds({ tenantId: TENANT, companyId: co, actorUserId: USER, activeFiscalYearId: `${co}-fy2026` });
+    const client = await createCustomerWithPartner(state.db, co, customerInput("Cliente Stripe", "B12345674"));
+    const treasuryActor = { tenantId: TENANT, companyId: co, actorUserId: USER, activeFiscalYearId: `${co}-fy2026` };
+    const balanceOf = async (code: string) => {
+      const [row] = await state.db
+        .select({ net: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)::text` })
+        .from(journalLine)
+        .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
+        .where(and(eq(accountChart.companyId, co), eq(accountChart.code, code)));
+      return Number(row.net);
+    };
+
+    const bbva = await createBankAccount(co, TENANT, USER, { iban: "ES7620770024003102575766", bankName: "BBVA" });
+    const [stripeMethod] = await state.db.insert(schema.paymentMethod).values({ companyId: co, code: "STRIPE", name: "Stripe", type: "CARD" }).returning();
+    const stripe = await createBankAccount(co, TENANT, USER, { kind: "PAYMENT_PROVIDER", bankName: "Stripe", paymentMethodId: stripeMethod.id });
+    expect(stripe).toMatchObject({ kind: "PAYMENT_PROVIDER", iban: null });
+    expect((await state.db.select().from(accountChart).where(eq(accountChart.id, stripe.accountId as string)))[0]).toMatchObject({ code: "57200002", name: "Stripe" });
+    expect((await state.db.select().from(schema.paymentMethod).where(eq(schema.paymentMethod.id, stripeMethod.id)))[0].bankAccountId).toBe(stripe.id);
+    // La pasarela no crea otra forma de pago: usa «Stripe».
+    expect(await state.db.select().from(schema.paymentMethod).where(eq(schema.paymentMethod.bankAccountId, stripe.id))).toHaveLength(1);
+
+    // 1. Cobro de la factura de 100 € con Stripe: por el total, en la subcuenta de Stripe.
+    await state.db.insert(invoice).values({ id: "gw-inv-1", companyId: co, customerId: client.id, number: "FA-G1", issueDate: new Date(Date.UTC(2026, 2, 1)), totalAmount: "100.00", status: "SENT", issuedAt: new Date() });
+    await postSalesInvoice({ ...actor(co), invoiceId: "gw-inv-1", postedAt: new Date(Date.UTC(2026, 2, 1)), reference: "FA-G1", subtotal: 82.64, taxAmount: 17.36, totalAmount: 100 });
+    await state.db.insert(payment).values({ id: "gw-pay-1", companyId: co, number: "CO-G1", invoiceId: "gw-inv-1", paymentMethodId: stripeMethod.id, amount: "100.00", postedAt: new Date(Date.UTC(2026, 2, 2)) });
+    await postCustomerPayment({ ...actor(co), paymentId: "gw-pay-1", postedAt: new Date(Date.UTC(2026, 2, 2)), reference: "Cobro FA-G1", amount: 100, paymentMethodId: stripeMethod.id });
+    expect(await balanceOf("57200002")).toBe(100);
+
+    // 2. Stripe ingresa 98,25 € en el BBVA: traspaso Stripe → BBVA. Quedan 1,75 € de comisión en Stripe.
+    const payout = await state.db.transaction((tx: DbClient) => recordBankTransaction(co, TENANT, USER, { bankAccountId: bbva.id, amount: "98.25", description: "STRIPE PAYMENTS EUROPE", postedAt: new Date(Date.UTC(2026, 2, 5)) }, tx));
+    const workbench = await getReconciliationWorkbench(co);
+    const proposal = workbench.movements.find((movement) => movement.id === payout.id)?.suggestions[0];
+    expect(proposal).toMatchObject({ kind: "TRANSFER", title: "Traspaso desde Stripe" });
+    await applyAllocations(treasuryActor, { transactionId: payout.id, allocations: proposal!.allocations });
+    expect(await balanceOf("57200001")).toBe(98.25);
+    expect(await balanceOf("57200002")).toBeCloseTo(1.75, 2);
+    expect(await balanceOf("55500000")).toBe(0);
+
+    // 3. Cobro directo al banco con la comisión descontada (TPV): factura de 50 €, ingreso de 48,80 €.
+    await state.db.insert(invoice).values({ id: "gw-inv-2", companyId: co, customerId: client.id, number: "FA-G2", issueDate: new Date(Date.UTC(2026, 2, 6)), totalAmount: "50.00", status: "SENT", issuedAt: new Date() });
+    await postSalesInvoice({ ...actor(co), invoiceId: "gw-inv-2", postedAt: new Date(Date.UTC(2026, 2, 6)), reference: "FA-G2", subtotal: 41.32, taxAmount: 8.68, totalAmount: 50 });
+    const tpv = await state.db.transaction((tx: DbClient) => recordBankTransaction(co, TENANT, USER, { bankAccountId: bbva.id, amount: "48.80", description: "ABONO TPV FA-G2", postedAt: new Date(Date.UTC(2026, 2, 7)) }, tx));
+    const feeProposal = (await getReconciliationWorkbench(co)).movements.find((movement) => movement.id === tpv.id)?.suggestions.find((suggestion) => suggestion.kind === "FEE");
+    expect(feeProposal?.allocations.map((allocation) => [allocation.type, allocation.amount])).toEqual([["CUSTOMER_INVOICE", 50], ["ACCOUNT", -1.2]]);
+    await applyAllocations(treasuryActor, { transactionId: tpv.id, allocations: feeProposal!.allocations });
+    expect(await balanceOf("57200001")).toBeCloseTo(147.05, 2);
+    expect(await balanceOf("62600000")).toBeCloseTo(1.2, 2);
+    expect((await state.db.select({ status: invoice.paymentStatus }).from(invoice).where(eq(invoice.id, "gw-inv-2")))[0].status).toBe("PAID");
   });
 
   it("crea la forma de pago «Efectivo» si la empresa no tiene ninguna en efectivo", async () => {

@@ -79,3 +79,12 @@ export function resolutionOf(allocations: Pick<AllocationInput, "type">[]): "PAY
   if (accounts === 0) return "PAYMENT";
   return accounts === allocations.length ? "ACCOUNT" : "MIXED";
 }
+
+/**
+ * Diferencia máxima que se interpreta como comisión descontada de un cobro: 5 % + 0,50 €
+ * (Stripe ≈ 1,5 % + 0,25 €, PayPal ≈ 3,4 % + 0,35 €, TPV < 1 %). Más es un cobro parcial.
+ */
+export function isLikelyFee(grossCents: number, netCents: number) {
+  const difference = grossCents - netCents;
+  return difference > 0 && difference <= Math.round(grossCents * 0.05) + 50;
+}

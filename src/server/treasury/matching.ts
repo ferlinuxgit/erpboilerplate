@@ -1,11 +1,12 @@
 import {
+  isLikelyFee,
   normalizeText,
   toCents,
   type AllocationInput,
   type AllocationType,
 } from "@/lib/bank-import/allocations";
 
-export { normalizeText, proposeRuleConcept, resolutionOf, toCents, validateAllocations } from "@/lib/bank-import/allocations";
+export { isLikelyFee, normalizeText, proposeRuleConcept, resolutionOf, toCents, validateAllocations } from "@/lib/bank-import/allocations";
 export type { AllocationInput, AllocationType } from "@/lib/bank-import/allocations";
 
 /**
@@ -14,13 +15,17 @@ export type { AllocationInput, AllocationType } from "@/lib/bank-import/allocati
  * Para cada movimiento pendiente propone, de más a menos probable:
  * - un cobro/pago ya registrado del mismo importe (±3 días) o una remesa SEPA completa;
  * - una o varias facturas abiertas (por importe, número de factura en el concepto o nombre);
- * - una regla del usuario ("concepto contiene X → cuenta").
+ * - una regla del usuario ("concepto contiene X → cuenta");
+ * - un traspaso desde/hacia una pasarela de pago (Stripe…) citada en el concepto;
+ * - un cobro por el total con la comisión descontada (626) cuando el ingreso es algo menor.
  *
  * Nada se aplica aquí: son propuestas que el usuario acepta una a una o en bloque ("seguras").
  */
 
 export type MovementForMatching = {
   id: string;
+  /** Cuenta de tesorería del movimiento (para no proponer un traspaso a sí misma). */
+  bankAccountId?: string;
   amount: number;
   description: string;
   reference?: string | null;
@@ -67,7 +72,15 @@ export type RuleCandidate = {
   autoApply: boolean;
 };
 
-export type SuggestionKind = "EXISTING_PAYMENT" | "REMITTANCE" | "INVOICE" | "SPLIT" | "RULE";
+export type SuggestionKind = "EXISTING_PAYMENT" | "REMITTANCE" | "INVOICE" | "SPLIT" | "RULE" | "TRANSFER" | "FEE";
+
+/** Otra cuenta de tesorería de la empresa (banco o pasarela) a la que se puede traspasar. */
+export type TransferAccountCandidate = {
+  bankAccountId: string;
+  ledgerAccountId: string;
+  name: string;
+  kind: "BANK" | "PAYMENT_PROVIDER";
+};
 
 export type Suggestion = {
   key: string;
@@ -192,7 +205,15 @@ type RankInput = {
   payments: ExistingPaymentCandidate[];
   invoices: OpenInvoiceCandidate[];
   rules: RuleCandidate[];
+  /** Otras cuentas de tesorería: un ingreso que cita una pasarela es un traspaso desde ella. */
+  transferAccounts?: TransferAccountCandidate[];
+  /** Subcuenta de comisiones (626) para los cobros con la comisión descontada. */
+  feeAccount?: { id: string; label: string } | null;
 };
+
+function feeAllocation(feeAccount: { id: string; label: string }, cents: number): AllocationInput {
+  return { type: "ACCOUNT", targetId: feeAccount.id, amount: -centsToNumber(cents), label: feeAccount.label };
+}
 
 /** Propuestas para un movimiento, ordenadas de mejor a peor (máximo `limit`). */
 export function rankSuggestions(movement: MovementForMatching, input: RankInput, limit = 5): Suggestion[] {
@@ -231,7 +252,32 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
   // Cobros/pagos ya registrados del mismo importe (±3 días).
   const payments = input.payments.filter((payment) => payment.kind === kind);
   for (const payment of payments) {
-    if (toCents(payment.amount) !== targetCents) continue;
+    const paymentCents = toCents(payment.amount);
+    if (paymentCents !== targetCents) {
+      // Cobro registrado por el total y el banco/pasarela ingresa menos: la diferencia es la comisión.
+      if (kind !== "customer" || !input.feeAccount || !isLikelyFee(paymentCents, targetCents)) continue;
+      const days = daysBetween(payment.postedAt, movement.postedAt);
+      if (days > PAYMENT_DAYS_WINDOW * 3) continue;
+      const reference = Math.max(referenceStrength(payment.number, text), referenceStrength(payment.invoiceNumber, text));
+      const name = nameSimilarity(payment.partnerName, text);
+      if (reference === 0 && name < 0.5) continue;
+      const fee = paymentCents - targetCents;
+      const score = 50 + (reference === 2 ? 25 : reference === 1 ? 10 : 0) + Math.round(15 * name);
+      suggestions.push({
+        key: `payment-fee:${payment.id}`,
+        kind: "FEE",
+        title: `Cobro ${payment.number} con comisión de ${centsToNumber(fee).toFixed(2)}`,
+        detail: `${payment.partnerName} · factura ${payment.invoiceNumber} cobrada por ${payment.amount.toFixed(2)}; la diferencia va a ${input.feeAccount.label}.`,
+        score,
+        confidence: confidenceOf(score),
+        safe: false,
+        allocations: [
+          { type: allocationTypeFor(kind, "payment"), targetId: payment.id, amount: payment.amount, label: payment.number },
+          feeAllocation(input.feeAccount, fee),
+        ],
+      });
+      continue;
+    }
     const days = daysBetween(payment.postedAt, movement.postedAt);
     if (days > PAYMENT_DAYS_WINDOW) continue;
     const reference = Math.max(referenceStrength(payment.number, text), referenceStrength(payment.invoiceNumber, text));
@@ -289,6 +335,25 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
     const exact = outstandingCents === targetCents;
     const partial = outstandingCents > targetCents && (reference > 0 || name >= 0.5);
     if (!exact && !partial) continue;
+    if (partial && kind === "customer" && input.feeAccount && isLikelyFee(outstandingCents, targetCents)) {
+      // Factura cobrada entera con la comisión descontada: más probable que un cobro parcial.
+      const fee = outstandingCents - targetCents;
+      const feeScore = 30 + (reference === 2 ? 35 : reference === 1 ? 15 : 0) + Math.round(15 * Math.min(name, 1)) + (invoice.partnerId && rulePartnerIds.has(invoice.partnerId) ? 10 : 0);
+      suggestions.push({
+        key: `invoice-fee:${invoice.id}`,
+        kind: "FEE",
+        title: `Factura ${invoice.number} cobrada entera con comisión de ${centsToNumber(fee).toFixed(2)}`,
+        detail: `${invoice.partnerName} · se registra el cobro por ${invoice.outstanding.toFixed(2)} y la diferencia va a ${input.feeAccount.label}.${ruleNote(invoice.partnerId)}`,
+        score: feeScore,
+        confidence: confidenceOf(feeScore),
+        safe: false,
+        ruleId: ruleFor(invoice.partnerId)?.id,
+        allocations: [
+          { type: allocationTypeFor(kind, "invoice"), targetId: invoice.id, amount: invoice.outstanding, label: invoice.number },
+          feeAllocation(input.feeAccount, fee),
+        ],
+      });
+    }
     const dueBonus = invoice.dueDate && daysBetween(invoice.dueDate, movement.postedAt) <= 7 ? 5 : 0;
     const ruleBonus = invoice.partnerId && rulePartnerIds.has(invoice.partnerId) ? 10 : 0;
     const score = (exact ? 50 : 25) + (reference === 2 ? 35 : reference === 1 ? 15 : 0) + Math.round(15 * Math.min(name, 1)) + dueBonus + ruleBonus;
@@ -378,6 +443,26 @@ export function rankSuggestions(movement: MovementForMatching, input: RankInput,
       safe: false,
       ruleId: ruleFor(first.partnerId)?.id,
       allocations,
+    });
+  }
+
+  // Traspaso desde/hacia una pasarela de pago citada en el concepto ("STRIPE PAYMENTS EUROPE…").
+  for (const account of input.transferAccounts ?? []) {
+    if (account.kind !== "PAYMENT_PROVIDER" || account.bankAccountId === movement.bankAccountId) continue;
+    if (nameSimilarity(account.name, text) < 1) continue;
+    const key = `transfer:${account.bankAccountId}`;
+    exactKeys.add(key);
+    suggestions.push({
+      key,
+      kind: "TRANSFER",
+      title: movement.amount >= 0 ? `Traspaso desde ${account.name}` : `Traspaso a ${account.name}`,
+      detail: movement.amount >= 0
+        ? `${account.name} te ingresa lo que cobró por ti (ya descontadas sus comisiones). No es un cobro nuevo: las facturas ya se cobraron en ${account.name}.`
+        : `Dinero que pasa de este banco a ${account.name}.`,
+      score: 85,
+      confidence: "alta",
+      safe: false,
+      allocations: [{ type: "ACCOUNT", targetId: account.ledgerAccountId, amount: centsToNumber(targetCents), label: account.name }],
     });
   }
 

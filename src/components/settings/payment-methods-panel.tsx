@@ -10,9 +10,16 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { treasuryAccountLabel } from "@/lib/treasury-accounts";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 
-type BankAccountOption = { id: string; bankName: string; iban: string };
+type BankAccountOption = { id: string; bankName: string; iban: string | null; kind?: "BANK" | "PAYMENT_PROVIDER" };
+
+/** Transferencia → solo bancos; tarjeta u otra → bancos o pasarelas (Stripe…); efectivo → ninguna (caja). */
+function accountsForType(accounts: BankAccountOption[], type: PaymentMethodType) {
+  if (type === "CASH") return [];
+  return type === "BANK_TRANSFER" || type === "DIRECT_DEBIT" ? accounts.filter((account) => account.kind !== "PAYMENT_PROVIDER") : accounts;
+}
 type PaymentMethodRow = {
   id: string;
   bankAccountId: string | null;
@@ -199,7 +206,7 @@ export function PaymentMethodsPanel() {
           <Input id="payment-method-new-name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
         </AccessibleField>
         <AccessibleField className="md:col-span-2" id="payment-method-new-type" label="Tipo" required>
-          <Select id="payment-method-new-type" value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as PaymentMethodType, bankAccountId: event.target.value === "BANK_TRANSFER" ? current.bankAccountId : "", bankAccountNumber: event.target.value === "BANK_TRANSFER" ? current.bankAccountNumber : "" }))}>
+          <Select id="payment-method-new-type" value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as PaymentMethodType, bankAccountId: accountsForType(bankAccounts, event.target.value as PaymentMethodType).some((account) => account.id === current.bankAccountId) ? current.bankAccountId : "", bankAccountNumber: event.target.value === "BANK_TRANSFER" ? current.bankAccountNumber : "" }))}>
             {Object.entries(paymentMethodTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </Select>
         </AccessibleField>
@@ -207,7 +214,14 @@ export function PaymentMethodsPanel() {
           <AccessibleField className="md:col-span-3" helperText="Elige una cuenta de Tesorería o escribe el IBAN a mano." id="payment-method-new-bank-account" label="Cuenta bancaria">
             <Select id="payment-method-new-bank-account" value={draft.bankAccountId} onChange={(event) => setDraft((current) => ({ ...current, bankAccountId: event.target.value, bankAccountNumber: event.target.value ? "" : current.bankAccountNumber }))}>
               <option value="">Cuenta manual</option>
-              {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}</option>)}
+              {accountsForType(bankAccounts, draft.type).map((account) => <option key={account.id} value={account.id}>{treasuryAccountLabel(account)}</option>)}
+            </Select>
+          </AccessibleField>
+        ) : draft.type === "CARD" ? (
+          <AccessibleField className="md:col-span-3" helperText="Donde entra el dinero: la pasarela (Stripe, PayPal…) o el banco del TPV." id="payment-method-new-bank-account" label="Cuenta de cobro">
+            <Select id="payment-method-new-bank-account" value={draft.bankAccountId} onChange={(event) => setDraft((current) => ({ ...current, bankAccountId: event.target.value }))}>
+              <option value="">Bancos (cuenta genérica 572)</option>
+              {accountsForType(bankAccounts, draft.type).map((account) => <option key={account.id} value={account.id}>{treasuryAccountLabel(account)}</option>)}
             </Select>
           </AccessibleField>
         ) : <div className="md:col-span-3" />}
@@ -260,6 +274,13 @@ export function PaymentMethodsPanel() {
                     <Input id={`${baseId}-account-number`} aria-label={`Número de cuenta ${row.name}`} className="font-mono" placeholder="IBAN o número de cuenta" value={row.bankAccountNumber ?? ""} onChange={(event) => updateRow(row.id, { bankAccountNumber: event.target.value })} />
                   </AccessibleField>
                 )
+              ) : linkedAccount ? (
+                <div className="flex items-center md:col-span-3">
+                  <StatusBadge tone="info">{(() => {
+                    const account = bankAccounts.find((entry) => entry.id === row.bankAccountId);
+                    return account ? treasuryAccountLabel(account) : "Cuenta de tesorería";
+                  })()}</StatusBadge>
+                </div>
               ) : <div className="md:col-span-3" />}
               <label className="flex items-center gap-2 self-end pb-2 font-mono text-xs font-bold md:col-span-2" htmlFor={`${baseId}-default`}>
                 <input checked={row.isDefault} id={`${baseId}-default`} type="checkbox" onChange={(event) => updateRow(row.id, { isDefault: event.target.checked })} />

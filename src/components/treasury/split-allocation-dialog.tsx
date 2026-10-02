@@ -10,7 +10,7 @@ import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
-import { normalizeText, toCents, validateAllocations, type AllocationInput } from "@/lib/bank-import/allocations";
+import { isLikelyFee, normalizeText, toCents, validateAllocations, type AllocationInput } from "@/lib/bank-import/allocations";
 import { formatDate, formatMoney, parseDecimalInput } from "@/lib/format";
 
 export type InvoiceOption = {
@@ -35,6 +35,8 @@ type Props = {
   invoices: InvoiceOption[];
   accounts: AccountOption[];
   currencyCode: string;
+  /** Cuenta propuesta para la diferencia (626 en un ingreso: la comisión que descontó el banco o la pasarela). */
+  defaultDifferenceAccountId?: string | null;
   onSubmit: (allocations: AllocationInput[]) => Promise<void>;
 };
 
@@ -42,10 +44,10 @@ type Props = {
  * Reparto de un movimiento entre varias facturas (cobro/pago parcial permitido) y, si hace falta,
  * una diferencia a una cuenta (p. ej. la comisión que el banco descontó de un cobro).
  */
-export function SplitAllocationDialog({ accounts, currencyCode, invoices, movement, onClose, onSubmit, open }: Props) {
+export function SplitAllocationDialog({ accounts, currencyCode, defaultDifferenceAccountId = null, invoices, movement, onClose, onSubmit, open }: Props) {
   const [query, setQuery] = useState("");
   const [amounts, setAmounts] = useState<Record<string, string>>({});
-  const [differenceAccountId, setDifferenceAccountId] = useState("");
+  const [differenceAccountId, setDifferenceAccountId] = useState(defaultDifferenceAccountId ?? "");
   const [differenceAmount, setDifferenceAmount] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,18 +79,24 @@ export function SplitAllocationDialog({ accounts, currencyCode, invoices, moveme
   const errors = allocations.length ? validateAllocations(movement.amount, allocations) : [];
 
   function toggle(invoice: InvoiceOption) {
-    setAmounts((current) => {
-      const next = { ...current };
-      if (invoice.id in next) {
-        delete next[invoice.id];
-        return next;
-      }
-      const used = Object.values(next).reduce((sum, raw) => sum + toCents(parseDecimalInput(raw) ?? 0), 0);
-      const left = Math.max(toCents(target) - used, 0);
-      const amount = Math.min(toCents(invoice.outstanding), left || toCents(invoice.outstanding)) / 100;
-      next[invoice.id] = amount.toFixed(2).replace(".", ",");
-      return next;
-    });
+    const next = { ...amounts };
+    if (invoice.id in next) {
+      delete next[invoice.id];
+      setAmounts(next);
+      return;
+    }
+    const used = Object.values(next).reduce((sum, raw) => sum + toCents(parseDecimalInput(raw) ?? 0), 0);
+    const left = Math.max(toCents(target) - used, 0);
+    const outstanding = toCents(invoice.outstanding);
+    // Ingreso algo menor que la factura: cobrada entera y la diferencia es la comisión descontada.
+    if (isDeposit && differenceAccountId && left > 0 && isLikelyFee(outstanding, left)) {
+      next[invoice.id] = (outstanding / 100).toFixed(2).replace(".", ",");
+      setAmounts(next);
+      setDifferenceAmount((-(outstanding - left) / 100).toFixed(2).replace(".", ","));
+      return;
+    }
+    next[invoice.id] = (Math.min(outstanding, left || outstanding) / 100).toFixed(2).replace(".", ",");
+    setAmounts(next);
   }
 
   function putRemainderInDifference() {
@@ -105,7 +113,7 @@ export function SplitAllocationDialog({ accounts, currencyCode, invoices, moveme
     try {
       await onSubmit(allocations);
       setAmounts({});
-      setDifferenceAccountId("");
+      setDifferenceAccountId(defaultDifferenceAccountId ?? "");
       setDifferenceAmount("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo conciliar el movimiento.");
@@ -160,8 +168,8 @@ export function SplitAllocationDialog({ accounts, currencyCode, invoices, moveme
         </div>
 
         <fieldset className="grid gap-2 border border-window-dark-shadow p-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
-          <legend className="px-1 text-xs font-bold">Diferencia a una cuenta (opcional)</legend>
-          <AccessibleField helperText="P. ej. 626 si el banco descontó una comisión. Negativo si resta al movimiento." id={`split-diff-account-${movement.id}`} label="Cuenta">
+          <legend className="px-1 text-xs font-bold">{isDeposit ? "Comisión descontada u otra diferencia (opcional)" : "Diferencia a una cuenta (opcional)"}</legend>
+          <AccessibleField helperText={isDeposit ? "Si te ingresan menos que la factura (comisión de Stripe, del TPV o del banco), marca la factura por su total y pon aquí la diferencia en negativo: «Poner lo que falta» lo calcula." : "P. ej. 626 si el banco cobró una comisión. Negativo si resta al movimiento."} id={`split-diff-account-${movement.id}`} label="Cuenta">
             <AccountPicker accounts={accounts} id={`split-diff-account-${movement.id}`} onChange={(accountId) => setDifferenceAccountId(accountId)} recentKey="bank-assign" value={differenceAccountId} />
           </AccessibleField>
           <AccessibleField id={`split-diff-amount-${movement.id}`} label="Importe">

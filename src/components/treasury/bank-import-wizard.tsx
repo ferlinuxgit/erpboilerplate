@@ -15,8 +15,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { BankImportMapping } from "@/lib/bank-import/tabular";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney } from "@/lib/format";
+import { treasuryAccountLabel } from "@/lib/treasury-accounts";
 
-type Account = { id: string; bankName: string; iban: string };
+type Account = { id: string; bankName: string; iban: string | null };
 type Movement = { line: number; postedAt: string; amount: number; description: string; balanceAfter: number | null; reference: string | null };
 type Skipped = { line: number; reason: string };
 type Preview = {
@@ -199,7 +200,7 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
         <AccessibleField id="import-account" label="Cuenta bancaria" required>
           <Select onChange={(event) => { setBankAccountId(event.target.value); setPreview(null); }} value={bankAccountId}>
-            {accounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}</option>)}
+            {accounts.map((account) => <option key={account.id} value={account.id}>{treasuryAccountLabel(account)}</option>)}
           </Select>
         </AccessibleField>
         <AccessibleField helperText="CSV o Excel descargado de tu banca online, o fichero Norma 43 (AEB 43). Máx. 5 MB." id="import-file" label="Extracto" required>

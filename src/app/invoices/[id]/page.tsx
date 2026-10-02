@@ -11,7 +11,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { customer, invoice, invoicePayment, invoicePaymentMethod, partner, payment, paymentMethod, type InvoicePartySnapshot } from "@/db/schema";
+import { customer, invoice, invoicePayment, invoicePaymentMethod, partner, payment, type InvoicePartySnapshot } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
@@ -38,6 +38,7 @@ import { SendInvoiceEmailDialog } from "@/components/invoice-email/send-invoice-
 import { InvoiceEmailTimeline } from "@/components/invoice-email/invoice-email-timeline";
 import { nextReminderLevel } from "@/server/dunning/schedule";
 import { listInvoiceEmailLog, reminderStatsByInvoice } from "@/server/invoice-email/service";
+import { listPaymentMethodsForCollection } from "@/server/treasury/payment-methods";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -94,11 +95,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
   const [lines, paymentMethods, payments, selectedPaymentMethods, creditNotes, originalRows, balance] = await Promise.all([
     loadStoredLines(db, data.id),
-    db
-      .select({ id: paymentMethod.id, name: paymentMethod.name })
-      .from(paymentMethod)
-      .where(eq(paymentMethod.companyId, tenantContext.company.id))
-      .orderBy(paymentMethod.name),
+    listPaymentMethodsForCollection(db, tenantContext.company.id),
     db
       .select({ id: payment.id, number: payment.number, amountApplied: invoicePayment.amountApplied, postedAt: payment.postedAt })
       .from(invoicePayment)

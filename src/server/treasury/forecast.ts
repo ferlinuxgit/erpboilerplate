@@ -10,7 +10,7 @@ export type BalanceSource = "STATEMENT" | "LEDGER" | "MOVEMENTS";
 export type AccountBalance = {
   id: string;
   bankName: string;
-  iban: string;
+  iban: string | null;
   balance: number;
   source: BalanceSource;
   asOf: Date | null;

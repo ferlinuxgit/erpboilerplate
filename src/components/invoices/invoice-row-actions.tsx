@@ -17,7 +17,7 @@ type InvoiceRowActionsProps = {
   id: string;
   number: string;
   paymentStatus: string;
-  paymentMethods: Array<{ id: string; name: string }>;
+  paymentMethods: Array<{ id: string; name: string; providerName?: string | null }>;
   totalAmount: number;
   totalAmountLabel: string;
   /** Saldo pendiente para proponer en "Registrar cobro" (por defecto, el total). */

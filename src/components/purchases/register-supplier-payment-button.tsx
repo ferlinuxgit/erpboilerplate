@@ -12,6 +12,7 @@ import { MoneyInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney, parseDecimalInput } from "@/lib/format";
+import { treasuryAccountLabel } from "@/lib/treasury-accounts";
 
 import { bankAccountForMethod, preselectPaymentOptions, type BankAccountOption, type PaymentMethodOption } from "./payment-defaults";
 
@@ -195,7 +196,7 @@ export function RegisterSupplierPaymentButton({
                 value={bankAccountId}
               >
                 <option value="">Sin especificar (efectivo u otro)</option>
-                {activeBankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.iban}{account.isActive ? "" : " (archivada)"}</option>)}
+                {activeBankAccounts.map((account) => <option key={account.id} value={account.id}>{treasuryAccountLabel(account)}{account.isActive ? "" : " (archivada)"}</option>)}
               </Select>
             </AccessibleField>
           </div>

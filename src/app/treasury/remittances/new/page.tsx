@@ -10,7 +10,8 @@ import { listBankAccounts } from "@/server/treasury/service";
 export default async function NewRemittancePage() {
   const ctx = await requireContext("treasury.write");
   const [accounts, invoices] = await Promise.all([listBankAccounts(ctx.company.id), listRemittableSupplierInvoices(ctx.company.id)]);
-  const active = accounts.filter((account) => account.isActive);
+  // SEPA necesita IBAN: las pasarelas de pago no se ofrecen.
+  const active = accounts.flatMap((account) => (account.isActive && account.iban ? [{ ...account, iban: account.iban }] : []));
   return (
     <PageShell>
       <PageHeader

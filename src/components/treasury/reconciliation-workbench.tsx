@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { AssignAccountDialog } from "@/components/treasury/assign-account-dialog";
+import { AssignAccountDialog, type TransferAccountOption } from "@/components/treasury/assign-account-dialog";
 import { PENDING_ACCOUNT_EXPLANATION } from "@/components/treasury/movement-status";
 import { acceptSafeReconciliations, applyReconciliation } from "@/components/treasury/reconciliation-api";
 import { SplitAllocationDialog, type AccountOption, type InvoiceOption } from "@/components/treasury/split-allocation-dialog";
@@ -31,6 +31,7 @@ export type WorkbenchSuggestion = {
 
 export type WorkbenchMovementRow = {
   id: string;
+  bankAccountId?: string;
   bankName: string;
   amount: number;
   description: string;
@@ -44,6 +45,10 @@ type Props = {
   customerInvoices: InvoiceOption[];
   supplierInvoices: InvoiceOption[];
   accounts: AccountOption[];
+  /** Otras cuentas de tesorería (bancos y pasarelas) para los traspasos. */
+  transferAccounts?: TransferAccountOption[];
+  /** Subcuenta de comisiones (626), propuesta para la diferencia de un cobro. */
+  feeAccountId?: string | null;
   currencyCode: string;
   canWrite: boolean;
   focusId?: string | null;
@@ -61,7 +66,7 @@ function describeResult(created: string[]) {
  * Mesa de conciliación: cada movimiento pendiente con sus propuestas. Nada se aplica sin que el
  * usuario lo acepte (una a una o "todas las seguras") y todo se puede deshacer desde el aviso.
  */
-export function ReconciliationWorkbench({ accounts, canWrite, currencyCode, customerInvoices, focusId, movements, supplierInvoices, truncated }: Props) {
+export function ReconciliationWorkbench({ accounts, canWrite, currencyCode, customerInvoices, feeAccountId = null, focusId, movements, supplierInvoices, transferAccounts = [], truncated }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [splitFor, setSplitFor] = useState<WorkbenchMovementRow | null>(null);
@@ -205,7 +210,7 @@ export function ReconciliationWorkbench({ accounts, canWrite, currencyCode, cust
                     <Button disabled={busy !== null} onClick={() => setSplitFor(movement)} size="sm" type="button" variant="outline">
                       {isDeposit ? "Elegir facturas cobradas…" : "Elegir facturas pagadas…"}
                     </Button>
-                    <Button disabled={busy !== null} onClick={() => setAssignFor(movement)} size="sm" type="button" variant="outline">Asignar a cuenta…</Button>
+                    <Button disabled={busy !== null} onClick={() => setAssignFor(movement)} size="sm" type="button" variant="outline">Asignar a cuenta o traspaso…</Button>
                   </div>
                 ) : null}
               </li>
@@ -219,6 +224,7 @@ export function ReconciliationWorkbench({ accounts, canWrite, currencyCode, cust
         <SplitAllocationDialog
           accounts={accounts}
           currencyCode={currencyCode}
+          defaultDifferenceAccountId={splitFor.amount >= 0 ? feeAccountId : null}
           invoices={splitFor.amount >= 0 ? customerInvoices : supplierInvoices}
           movement={splitFor}
           onClose={() => setSplitFor(null)}
@@ -236,6 +242,7 @@ export function ReconciliationWorkbench({ accounts, canWrite, currencyCode, cust
           accounts={accounts}
           currencyCode={currencyCode}
           movement={assignFor}
+          transferAccounts={transferAccounts.filter((account) => account.bankAccountId !== assignFor.bankAccountId)}
           onClose={() => setAssignFor(null)}
           onSubmit={async ({ accountId, remember }) => {
             await applyReconciliation({

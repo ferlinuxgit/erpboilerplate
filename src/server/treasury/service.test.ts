@@ -16,7 +16,11 @@ function txWith(selectResults: unknown[][]) {
     chain.then = (resolve: (value: unknown) => unknown) => Promise.resolve(selectResults.shift() ?? []).then(resolve);
     return chain;
   };
-  return { select: vi.fn(() => makeChain()), delete: vi.fn(() => ({ where: vi.fn(async () => []) })) };
+  return {
+    select: vi.fn(() => makeChain()),
+    delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
+    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => []) })) })),
+  };
 }
 
 describe("bank account deletion", () => {
@@ -36,5 +40,7 @@ describe("bank account deletion", () => {
 
     await expect(deleteBankAccount("company-1", "tenant-1", "user-1", "bank-1")).resolves.toBe(true);
     expect(tx.delete).toHaveBeenCalledTimes(2);
+    // Una forma de pago enlazada que no se creó con la cuenta (p. ej. «Stripe») se desvincula, no se borra.
+    expect(tx.update).toHaveBeenCalledTimes(1);
   });
 });

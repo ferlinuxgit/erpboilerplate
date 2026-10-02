@@ -404,8 +404,8 @@ export const BANK_SUBACCOUNT_PREFIX = "572";
 /** Grupo de caja: cobros y pagos en efectivo (570 «Caja, euros»). */
 export const CASH_ACCOUNT_CODE = "570";
 
-export function bankSubaccountName(bank: { bankName: string; iban: string }) {
-  const iban = bank.iban.replace(/\s+/g, "");
+export function bankSubaccountName(bank: { bankName: string; iban: string | null }) {
+  const iban = (bank.iban ?? "").replace(/\s+/g, "");
   return iban.length >= 4 ? `${bank.bankName.trim()} ···${iban.slice(-4)}` : bank.bankName.trim();
 }
 
@@ -418,7 +418,7 @@ export function bankSubaccountName(bank: { bankName: string; iban: string }) {
 export async function ensureBankSubaccount(
   client: DbClient,
   companyId: string,
-  bank: { id: string; bankName: string; iban: string; accountId: string | null },
+  bank: { id: string; bankName: string; iban: string | null; accountId: string | null },
 ): Promise<SubaccountRef> {
   const context = await loadChartContext(companyId, client);
   const length = context.subaccountLength;

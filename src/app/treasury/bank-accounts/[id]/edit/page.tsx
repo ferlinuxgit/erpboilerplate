@@ -17,12 +17,13 @@ export default async function EditBankAccountPage({ params }: { params: Promise<
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Tesorería" title="Editar cuenta bancaria" description={account.bankName} backHref={`/treasury/bank-accounts/${account.id}`} backLabel="Volver a la cuenta" />
-      <PageSection title="Datos bancarios" description="Banco, IBAN y cuenta contable. El cambio de cuenta contable afecta solo a los apuntes nuevos.">
+      <PageHeader eyebrow="Tesorería" title={account.kind === "PAYMENT_PROVIDER" ? "Editar pasarela de pago" : "Editar cuenta bancaria"} description={account.bankName} backHref={`/treasury/bank-accounts/${account.id}`} backLabel="Volver a la cuenta" />
+      <PageSection title="Datos bancarios" description={account.kind === "PAYMENT_PROVIDER" ? "Nombre y cuenta contable. El cambio de cuenta contable afecta solo a los apuntes nuevos." : "Banco, IBAN y cuenta contable. El cambio de cuenta contable afecta solo a los apuntes nuevos."}>
         <EditBankAccountForm
           defaultAccountId={account.accountId}
           defaultBankName={account.bankName}
-          defaultIban={account.iban}
+          defaultIban={account.iban ?? ""}
+          kind={account.kind}
           defaultBic={account.bic}
           id={account.id}
           ledgerAccounts={ledgerAccounts}

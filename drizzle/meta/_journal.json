@@ -239,6 +239,13 @@
       "when": 1790591054888,
       "tag": "0033_accounting_subaccounts",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790933667872,
+      "tag": "0034_treasury_payment_providers",
+      "breakpoints": true
     }
   ]
 }

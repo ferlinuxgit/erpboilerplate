@@ -23,18 +23,31 @@ export async function POST(request: Request) {
   if (!can(ctx.membership.role, "treasury.write")) {
     return NextResponse.json({ message: "Sin permisos de tesoreria." }, { status: 403 });
   }
-  const payload = (await readJsonBody(request)) as { iban?: string; bankName?: string; accountId?: string | null; bic?: string | null } | null;
+  const payload = (await readJsonBody(request)) as {
+    kind?: string;
+    iban?: string;
+    bankName?: string;
+    accountId?: string | null;
+    bic?: string | null;
+    paymentMethodId?: string | null;
+  } | null;
   if (!payload) return invalidJsonResponse();
 
-  if (!payload.iban?.trim() || !payload.bankName?.trim()) {
+  const kind = payload.kind === "PAYMENT_PROVIDER" ? "PAYMENT_PROVIDER" : "BANK";
+  if (!payload.bankName?.trim()) {
+    return NextResponse.json({ message: kind === "BANK" ? "IBAN y banco son obligatorios." : "Indica el nombre de la pasarela." }, { status: 400 });
+  }
+  if (kind === "BANK" && !payload.iban?.trim()) {
     return NextResponse.json({ message: "IBAN y banco son obligatorios." }, { status: 400 });
   }
   try {
     const created = await createBankAccount(ctx.company.id, ctx.tenant.id, session.user.id, {
-      iban: payload.iban.trim(),
+      kind,
+      iban: kind === "BANK" ? payload.iban?.trim() : null,
       bankName: payload.bankName.trim(),
       accountId: payload.accountId?.trim() || null,
-      bic: typeof payload.bic === "string" ? payload.bic : null,
+      bic: kind === "BANK" && typeof payload.bic === "string" ? payload.bic : null,
+      paymentMethodId: kind === "PAYMENT_PROVIDER" ? payload.paymentMethodId?.trim() || null : null,
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

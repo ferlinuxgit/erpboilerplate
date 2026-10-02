@@ -50,6 +50,7 @@ import {
   type OpenInvoiceCandidate,
   type RuleCandidate,
   type Suggestion,
+  type TransferAccountCandidate,
 } from "@/server/treasury/matching";
 import { returnedItemForMovement } from "@/server/sepa/direct-debits";
 import { unreconcileBankTransaction } from "@/server/treasury/reconciliation";
@@ -288,6 +289,27 @@ export async function listRuleCandidates(companyId: string, client: DbClient = d
   }));
 }
 
+/** Cuentas de tesorería con subcuenta (bancos y pasarelas): destinos de un traspaso. */
+export async function listTransferAccounts(companyId: string): Promise<TransferAccountCandidate[]> {
+  const rows = await db
+    .select({ bankAccountId: bankAccount.id, ledgerAccountId: bankAccount.accountId, name: bankAccount.bankName, kind: bankAccount.kind })
+    .from(bankAccount)
+    .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.isActive, true)))
+    .orderBy(asc(bankAccount.bankName));
+  return rows.flatMap((row) => (row.ledgerAccountId ? [{ ...row, ledgerAccountId: row.ledgerAccountId }] : []));
+}
+
+/** Subcuenta de comisiones bancarias (626) que ya admite apuntes; null si la empresa no la tiene. */
+async function findFeeAccount(companyId: string) {
+  const [row] = await db
+    .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name })
+    .from(accountChart)
+    .where(and(eq(accountChart.companyId, companyId), eq(accountChart.isPostable, true), sql`${accountChart.code} like '626%'`))
+    .orderBy(asc(accountChart.code))
+    .limit(1);
+  return row ? { id: row.id, label: `${row.code} · ${row.name}` } : null;
+}
+
 /** Movimientos pendientes con sus propuestas, más los datos que necesita la mesa (facturas abiertas y cuentas). */
 export async function getReconciliationWorkbench(companyId: string, options: { bankAccountId?: string; limit?: number } = {}) {
   const movements = await db
@@ -313,11 +335,13 @@ export async function getReconciliationWorkbench(companyId: string, options: { b
   const times = movements.map((movement) => movement.postedAt.getTime());
   const from = new Date(Math.min(...times, Date.now()) - 7 * 86_400_000);
   const to = new Date(Math.max(...times, Date.now()) + 7 * 86_400_000);
-  const [customerInvoices, supplierInvoices, payments, rules] = await Promise.all([
+  const [customerInvoices, supplierInvoices, payments, rules, transferAccounts, feeAccount] = await Promise.all([
     listOpenCustomerInvoices(companyId),
     listOpenSupplierInvoices(companyId),
     movements.length ? listCandidatePayments(companyId, from, to) : Promise.resolve([]),
     listRuleCandidates(companyId),
+    listTransferAccounts(companyId),
+    findFeeAccount(companyId),
   ]);
   const invoices = [...customerInvoices, ...supplierInvoices];
 
@@ -326,10 +350,10 @@ export async function getReconciliationWorkbench(companyId: string, options: { b
     return {
       ...movement,
       amount,
-      suggestions: rankSuggestions({ ...movement, amount }, { payments, invoices, rules }),
+      suggestions: rankSuggestions({ ...movement, amount }, { payments, invoices, rules, transferAccounts, feeAccount }),
     };
   });
-  return { movements: rows, customerInvoices, supplierInvoices, rules };
+  return { movements: rows, customerInvoices, supplierInvoices, rules, transferAccounts, feeAccount };
 }
 
 async function lockPendingMovement(client: DbClient, companyId: string, transactionId: string) {

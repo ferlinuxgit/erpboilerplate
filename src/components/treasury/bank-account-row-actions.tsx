@@ -4,7 +4,7 @@ import { DeleteButton } from "@/components/delete-button";
 import { BankAccountArchiveButton } from "@/components/treasury/bank-account-archive-button";
 import { buttonVariants } from "@/components/ui/button";
 
-export function BankAccountRowActions({ account }: { account: { id: string; bankName: string; iban: string; isActive?: boolean } }) {
+export function BankAccountRowActions({ account }: { account: { id: string; bankName: string; iban: string | null; isActive?: boolean } }) {
   return (
     <div className="flex flex-wrap justify-end gap-2">
       <Link className={buttonVariants({ variant: "ghost", size: "sm" })} href={`/treasury/bank-accounts/${account.id}`}>

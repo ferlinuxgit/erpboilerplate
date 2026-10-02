@@ -142,6 +142,8 @@ export async function createRemittance(
       .limit(1);
     if (!account) throw new AccountingRuleError(404, "BANK_ACCOUNT_NOT_FOUND", "Cuenta bancaria no encontrada.");
     if (!account.isActive) throw new AccountingRuleError(409, "BANK_ACCOUNT_ARCHIVED", "La cuenta bancaria está archivada.");
+    const accountIban = account.iban;
+    if (!accountIban) throw new AccountingRuleError(422, "BANK_ACCOUNT_NO_IBAN", "Las remesas SEPA necesitan una cuenta bancaria con IBAN (no una pasarela de pago).");
     const [owner] = await tx
       .select({ name: company.name, legalName: company.legalName, vatNumber: company.vatNumber })
       .from(company)
@@ -202,7 +204,7 @@ export async function createRemittance(
       messageId: number,
       createdAt: now,
       executionDate: input.executionDate,
-      debtor: { name: owner?.legalName || owner?.name || "Empresa", taxId: owner?.vatNumber ?? null, iban: account.iban, bic: account.bic },
+      debtor: { name: owner?.legalName || owner?.name || "Empresa", taxId: owner?.vatNumber ?? null, iban: accountIban, bic: account.bic },
       transfers: prepared.map((item) => ({
         endToEndId: item.endToEndId,
         amount: item.amount,

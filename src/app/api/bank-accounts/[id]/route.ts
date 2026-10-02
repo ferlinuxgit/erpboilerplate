@@ -33,9 +33,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!archived) return NextResponse.json({ message: "Cuenta no encontrada." }, { status: 404 });
       return NextResponse.json(archived);
     }
-    if (!payload.iban?.trim() || !payload.bankName?.trim()) return NextResponse.json({ message: "IBAN y banco son obligatorios." }, { status: 400 });
+    // El IBAN lo exige el servicio solo en las cuentas bancarias (las pasarelas no tienen).
+    if (!payload.bankName?.trim()) return NextResponse.json({ message: "El nombre es obligatorio." }, { status: 400 });
     const updated = await updateBankAccount(ctx.company.id, ctx.tenant.id, session.user.id, id, {
-      iban: payload.iban.trim(),
+      iban: payload.iban?.trim() || null,
       bankName: payload.bankName.trim(),
       ...(payload.accountId === undefined ? {} : { accountId: payload.accountId?.trim() || null }),
       ...(payload.bic === undefined ? {} : { bic: typeof payload.bic === "string" ? payload.bic : null }),

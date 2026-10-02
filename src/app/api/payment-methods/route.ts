@@ -1,23 +1,15 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { bankAccount, paymentMethod } from "@/db/schema";
+import { paymentMethod } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
-import { paymentMethodPayloadSchema, type PaymentMethodPayload } from "@/server/schemas/payment-methods";
-
-async function resolveBankAccount(companyId: string, input: PaymentMethodPayload) {
-  if (input.type !== "BANK_TRANSFER" || !input.bankAccountId?.trim()) return null;
-  const [account] = await db.select({ id: bankAccount.id, iban: bankAccount.iban })
-    .from(bankAccount)
-    .where(and(eq(bankAccount.id, input.bankAccountId.trim()), eq(bankAccount.companyId, companyId)))
-    .limit(1);
-  return account ?? undefined;
-}
+import { paymentMethodPayloadSchema } from "@/server/schemas/payment-methods";
+import { resolvePaymentMethodAccount } from "@/server/treasury/payment-methods";
 
 export async function GET() {
   const session = await getUserSession();
@@ -40,10 +32,8 @@ export async function POST(request: Request) {
 
   const parsed = paymentMethodPayloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
-  const account = await resolveBankAccount(ctx.company.id, parsed.data);
-  if (parsed.data.type === "BANK_TRANSFER" && parsed.data.bankAccountId?.trim() && !account) {
-    return NextResponse.json({ message: "La cuenta bancaria seleccionada no pertenece a la empresa." }, { status: 400 });
-  }
+  const { account, error: accountError } = await resolvePaymentMethodAccount(db, ctx.company.id, parsed.data);
+  if (accountError) return NextResponse.json({ message: accountError }, { status: 400 });
 
   try {
     const created = await db.transaction(async (tx) => {

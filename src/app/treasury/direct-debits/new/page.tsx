@@ -14,7 +14,8 @@ import { listBankAccounts } from "@/server/treasury/service";
 export default async function NewDirectDebitRemittancePage() {
   const ctx = await requireContext("treasury.write");
   const [accounts, invoices, creditor] = await Promise.all([listBankAccounts(ctx.company.id), listCollectableInvoices(ctx.company.id), getSepaCreditorId(ctx.company.id)]);
-  const active = accounts.filter((account) => account.isActive);
+  // SEPA necesita IBAN: las pasarelas de pago no se ofrecen.
+  const active = accounts.flatMap((account) => (account.isActive && account.iban ? [{ ...account, iban: account.iban }] : []));
   const creditorCheck = checkCreditorId(creditor.creditorId);
   return (
     <PageShell>

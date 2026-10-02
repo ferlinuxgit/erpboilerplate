@@ -1,4 +1,4 @@
-import { and, count, desc, eq, like } from "drizzle-orm";
+import { and, count, desc, eq, isNull, like, ne } from "drizzle-orm";
 
 import { accountChart, bankAccount, bankTransaction, paymentMethod } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -9,7 +9,23 @@ import { recordAudit } from "@/server/audit";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { isValidBic, normalizeBic } from "@/lib/bank-import/iban";
 
-type BankAccountPayload = { iban: string; bankName: string; accountId?: string | null; bic?: string | null };
+export type TreasuryAccountKind = "BANK" | "PAYMENT_PROVIDER";
+
+type BankAccountPayload = {
+  /** BANK (con IBAN) o PAYMENT_PROVIDER (pasarela de pago sin IBAN). Solo al crear; no se cambia después. */
+  kind?: TreasuryAccountKind;
+  iban?: string | null;
+  bankName: string;
+  accountId?: string | null;
+  bic?: string | null;
+  /** Pasarela: forma de pago existente (p. ej. «Stripe») que se enlaza a ella en lugar de crear otra. */
+  paymentMethodId?: string | null;
+};
+
+/** Forma de pago creada con la cuenta: transferencia al banco, o la propia pasarela. */
+function autoPaymentMethodName(kind: TreasuryAccountKind, name: string) {
+  return kind === "PAYMENT_PROVIDER" ? name : `Transferencia · ${name}`;
+}
 
 function normalizeBankBic(bic: string | null | undefined) {
   if (bic === undefined) return undefined;
@@ -50,6 +66,7 @@ export async function listBankAccounts(companyId: string) {
     .select({
       id: bankAccount.id,
       companyId: bankAccount.companyId,
+      kind: bankAccount.kind,
       iban: bankAccount.iban,
       bankName: bankAccount.bankName,
       accountId: bankAccount.accountId,
@@ -70,6 +87,7 @@ export async function getBankAccount(companyId: string, id: string) {
     .select({
       id: bankAccount.id,
       companyId: bankAccount.companyId,
+      kind: bankAccount.kind,
       iban: bankAccount.iban,
       bankName: bankAccount.bankName,
       accountId: bankAccount.accountId,
@@ -95,6 +113,15 @@ export async function listTreasuryLedgerAccounts(companyId: string) {
     .orderBy(accountChart.code);
 }
 
+/** Formas de pago sin cuenta de tesorería (salvo efectivo): candidatas a enlazarse a una pasarela nueva. */
+export async function listUnlinkedPaymentMethods(companyId: string) {
+  return db
+    .select({ id: paymentMethod.id, name: paymentMethod.name })
+    .from(paymentMethod)
+    .where(and(eq(paymentMethod.companyId, companyId), isNull(paymentMethod.bankAccountId), ne(paymentMethod.type, "CASH")))
+    .orderBy(paymentMethod.name);
+}
+
 /** La subcuenta contable de un banco debe ser de la empresa, admitir apuntes y ser de tesorería (grupo 57). */
 async function assertBankLedgerAccount(client: DbClient, companyId: string, accountId: string | null | undefined) {
   if (!accountId) return null;
@@ -112,22 +139,36 @@ async function assertBankLedgerAccount(client: DbClient, companyId: string, acco
 
 export async function createBankAccount(companyId: string, tenantId: string, actorUserId: string, payload: BankAccountPayload) {
   return db.transaction(async (tx) => {
+    const kind: TreasuryAccountKind = payload.kind ?? "BANK";
+    const iban = kind === "BANK" ? payload.iban?.trim() || null : null;
+    if (kind === "BANK" && !iban) throw new AccountingRuleError(400, "IBAN_REQUIRED", "El IBAN es obligatorio en una cuenta bancaria.");
     const chosenAccountId = await assertBankLedgerAccount(tx, companyId, payload.accountId);
-    const bic = normalizeBankBic(payload.bic) ?? null;
-    let [created] = await tx.insert(bankAccount).values({ companyId, iban: payload.iban, bankName: payload.bankName, accountId: chosenAccountId, bic }).returning();
-    // Sin cuenta elegida, cada banco estrena su propia subcuenta 572 (57200001, 57200002…).
+    const bic = kind === "BANK" ? normalizeBankBic(payload.bic) ?? null : null;
+    let [created] = await tx.insert(bankAccount).values({ companyId, kind, iban, bankName: payload.bankName, accountId: chosenAccountId, bic }).returning();
+    // Sin cuenta elegida, cada banco o pasarela estrena su propia subcuenta 572 (57200001, 57200002…).
     if (!chosenAccountId) {
       const own = await ensureBankSubaccount(tx, companyId, created);
       [created] = await tx.update(bankAccount).set({ accountId: own.id }).where(eq(bankAccount.id, created.id)).returning();
     }
-    await tx.insert(paymentMethod).values({
-      companyId,
-      bankAccountId: created.id,
-      code: `AUTO-BANK-${created.id}`,
-      name: `Transferencia · ${created.bankName}`,
-      type: "BANK_TRANSFER",
-      bankAccountNumber: created.iban,
-    });
+    const linkedMethodId = kind === "PAYMENT_PROVIDER" ? payload.paymentMethodId?.trim() || null : null;
+    if (linkedMethodId) {
+      // La forma de pago que ya usabas (p. ej. «Stripe») pasa a cobrar en la pasarela.
+      const [linked] = await tx
+        .update(paymentMethod)
+        .set({ bankAccountId: created.id, bankAccountNumber: null, updatedAt: new Date() })
+        .where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.id, linkedMethodId)))
+        .returning({ id: paymentMethod.id });
+      if (!linked) throw new AccountingRuleError(404, "PAYMENT_METHOD_NOT_FOUND", "Forma de pago no encontrada.");
+    } else {
+      await tx.insert(paymentMethod).values({
+        companyId,
+        bankAccountId: created.id,
+        code: `AUTO-BANK-${created.id}`,
+        name: autoPaymentMethodName(kind, created.bankName),
+        type: kind === "PAYMENT_PROVIDER" ? "CARD" : "BANK_TRANSFER",
+        bankAccountNumber: created.iban,
+      });
+    }
     await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.create", entityName: "bankAccount", entityId: created.id, payload }, tx);
     return created;
   });
@@ -135,11 +176,20 @@ export async function createBankAccount(companyId: string, tenantId: string, act
 
 export async function updateBankAccount(companyId: string, tenantId: string, actorUserId: string, id: string, payload: BankAccountPayload) {
   return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ kind: bankAccount.kind })
+      .from(bankAccount)
+      .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)))
+      .limit(1);
+    if (!current) return null;
+    const isBank = current.kind === "BANK";
+    const iban = isBank ? payload.iban?.trim() || null : null;
+    if (isBank && !iban) throw new AccountingRuleError(400, "IBAN_REQUIRED", "El IBAN es obligatorio en una cuenta bancaria.");
     const accountId = payload.accountId === undefined ? undefined : await assertBankLedgerAccount(tx, companyId, payload.accountId);
-    const bic = normalizeBankBic(payload.bic);
+    const bic = isBank ? normalizeBankBic(payload.bic) : null;
     let [updated] = await tx
       .update(bankAccount)
-      .set({ iban: payload.iban, bankName: payload.bankName, ...(accountId ? { accountId } : {}), ...(bic === undefined ? {} : { bic }) })
+      .set({ iban, bankName: payload.bankName, ...(accountId ? { accountId } : {}), ...(bic === undefined ? {} : { bic }) })
       .where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)))
       .returning();
     if (!updated) return null;
@@ -154,7 +204,7 @@ export async function updateBankAccount(companyId: string, tenantId: string, act
       .set({ bankAccountNumber: updated.iban, updatedAt: new Date() })
       .where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id)));
     await tx.update(paymentMethod)
-      .set({ name: `Transferencia · ${updated.bankName}`, updatedAt: new Date() })
+      .set({ name: autoPaymentMethodName(updated.kind, updated.bankName), updatedAt: new Date() })
       .where(and(
         eq(paymentMethod.companyId, companyId),
         eq(paymentMethod.bankAccountId, id),
@@ -205,7 +255,9 @@ export async function deleteBankAccount(companyId: string, tenantId: string, act
         "Esta cuenta tiene movimientos contabilizados y no se puede borrar. Archívala para ocultarla sin perder el historial.",
       );
     }
-    await tx.delete(paymentMethod).where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id)));
+    // Solo se borra la forma de pago creada con la cuenta; una enlazada (p. ej. «Stripe») se desvincula.
+    await tx.delete(paymentMethod).where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id), eq(paymentMethod.code, `AUTO-BANK-${id}`)));
+    await tx.update(paymentMethod).set({ bankAccountId: null, updatedAt: new Date() }).where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.bankAccountId, id)));
     await tx.delete(bankAccount).where(and(eq(bankAccount.companyId, companyId), eq(bankAccount.id, id)));
     await recordAudit({ tenantId, companyId, actorUserId, action: "treasury.account.delete", entityName: "bankAccount", entityId: id }, tx);
     return true;

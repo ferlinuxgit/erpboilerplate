@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { and, count, eq, not, sql } from "drizzle-orm";
 
-import { customer, invoice, paymentMethod, paymentStatusEnum } from "@/db/schema";
+import { customer, invoice, paymentStatusEnum } from "@/db/schema";
 import { InvoicesList } from "@/components/invoices/invoices-list";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -15,6 +15,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 import { parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { canManageInvoices } from "@/lib/rbac";
 import { todayDateInput } from "@/server/invoices/due-dates";
+import { listPaymentMethodsForCollection } from "@/server/treasury/payment-methods";
 import {
   creditedByInvoiceSubquery,
   invoiceIsDraftSql,
@@ -129,11 +130,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
             .where(where),
         ),
     }),
-    db
-      .select({ id: paymentMethod.id, name: paymentMethod.name })
-      .from(paymentMethod)
-      .where(eq(paymentMethod.companyId, companyId))
-      .orderBy(paymentMethod.name),
+    listPaymentMethodsForCollection(db, companyId),
   ]);
   const recordCount = await unfilteredTotal(params, result.total, () =>
     countRows(db.select({ value: count() }).from(invoice).where(and(eq(invoice.companyId, companyId)))),

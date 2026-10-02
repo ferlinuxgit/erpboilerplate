@@ -11,8 +11,9 @@ import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { parseDecimalInput } from "@/lib/format";
+import { treasuryAccountLabel } from "@/lib/treasury-accounts";
 
-type AccountOption = { id: string; bankName: string; iban: string; isActive?: boolean };
+type AccountOption = { id: string; bankName: string; iban: string | null; isActive?: boolean };
 
 export function EditBankTransactionForm({
   id,
@@ -77,7 +78,7 @@ export function EditBankTransactionForm({
       <AccessibleField id="edit-bank-transaction-account" label="Cuenta bancaria" required>
         <Select id="edit-bank-transaction-account" value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} required>
           {selectableAccounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.bankName} · {a.iban}</option>
+            <option key={a.id} value={a.id}>{treasuryAccountLabel(a)}</option>
           ))}
         </Select>
       </AccessibleField>

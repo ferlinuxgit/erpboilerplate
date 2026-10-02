@@ -16,7 +16,7 @@ type BankTransactionRow = {
   id: string;
   bankAccountId: string;
   bankName: string;
-  iban: string;
+  iban: string | null;
   amount: string;
   description: string;
   postedAt: Date | string;
@@ -39,7 +39,7 @@ function MovementStatusBadge({ row, className }: { row: BankTransactionRow; clas
 }
 
 type BankTransactionsListProps = {
-  accounts: { id: string; bankName: string; iban: string }[];
+  accounts: { id: string; bankName: string; iban: string | null }[];
   canManage?: boolean;
   currencyCode: string;
   rows: BankTransactionRow[];
@@ -123,7 +123,7 @@ export function BankTransactionsList({
       getSearchText={(row) =>
         [
           row.bankName,
-          row.iban,
+          row.iban ?? "",
           row.description,
           row.amount,
           row.reconciliationStatus,

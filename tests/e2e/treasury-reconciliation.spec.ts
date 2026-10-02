@@ -48,8 +48,8 @@ test("importar extracto, asignar una comisión a cuenta, deshacer y ver la previ
   await expect(movements).toHaveCount(3);
 
   const fee = movements.filter({ hasText: "COMISION MANTENIMIENTO CUENTA" });
-  await fee.getByRole("button", { name: "Asignar a cuenta…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Asignar a cuenta" });
+  await fee.getByRole("button", { name: "Asignar a cuenta o traspaso…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Asignar a cuenta o traspaso" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Comisión bancaria" }).click();
   await expect(dialog.getByLabel("El concepto contiene")).toHaveValue("comision mantenimiento cuenta");

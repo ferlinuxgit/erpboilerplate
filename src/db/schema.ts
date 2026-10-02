@@ -263,7 +263,11 @@ export const unitOfMeasure = pgTable("unit_of_measure", {
 export const bankAccount = pgTable("bank_account", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  iban: text("iban").notNull(),
+  // BANK: cuenta bancaria con IBAN. PAYMENT_PROVIDER: pasarela de pago (Stripe, PayPal…) sin IBAN,
+  // con su propio saldo: los cobros entran en ella y luego se traspasan al banco.
+  kind: text("kind").$type<"BANK" | "PAYMENT_PROVIDER">().notNull().default("BANK"),
+  // Obligatorio en las cuentas bancarias; null en las pasarelas.
+  iban: text("iban"),
   bankName: text("bankName").notNull(),
   // Subcuenta contable (grupo 57) donde se registran los cobros, pagos y movimientos de esta cuenta.
   // Si es null se usa la cuenta de bancos por defecto de la empresa (572).
@@ -274,7 +278,11 @@ export const bankAccount = pgTable("bank_account", {
   bic: text("bic"),
   // Mapeo de columnas del último extracto CSV/Excel importado en esta cuenta (se propone la próxima vez).
   importMapping: jsonb("importMapping").$type<BankImportMappingSnapshot>(),
-}, (table) => [unique("bank_account_company_iban_unique").on(table.companyId, table.iban)]);
+}, (table) => [
+  unique("bank_account_company_iban_unique").on(table.companyId, table.iban),
+  check("bank_account_kind_valid", sql`${table.kind} in ('BANK', 'PAYMENT_PROVIDER')`),
+  check("bank_account_bank_has_iban", sql`${table.kind} <> 'BANK' or ${table.iban} is not null`),
+]);
 
 /** Columnas (índice base 0) y formatos de un extracto CSV/Excel de un banco concreto. */
 export type BankImportMappingSnapshot = {

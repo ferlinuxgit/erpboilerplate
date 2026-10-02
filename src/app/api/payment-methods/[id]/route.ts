@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { bankAccount, paymentMethod } from "@/db/schema";
+import { paymentMethod } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
@@ -10,6 +10,7 @@ import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
 import { paymentMethodPayloadSchema } from "@/server/schemas/payment-methods";
+import { resolvePaymentMethodAccount } from "@/server/treasury/payment-methods";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
@@ -26,14 +27,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .where(and(eq(paymentMethod.id, id), eq(paymentMethod.companyId, ctx.company.id))).limit(1);
   if (!existing) return NextResponse.json({ message: "Forma de pago no encontrada." }, { status: 404 });
 
-  const selectedBankAccountId = parsed.data.type === "BANK_TRANSFER" ? parsed.data.bankAccountId?.trim() || null : null;
-  const [account] = selectedBankAccountId
-    ? await db.select({ id: bankAccount.id, iban: bankAccount.iban }).from(bankAccount)
-      .where(and(eq(bankAccount.id, selectedBankAccountId), eq(bankAccount.companyId, ctx.company.id))).limit(1)
-    : [];
-  if (selectedBankAccountId && !account) {
-    return NextResponse.json({ message: "La cuenta bancaria seleccionada no pertenece a la empresa." }, { status: 400 });
-  }
+  // Una tarjeta enlazada a una pasarela (Stripe…) conserva su cuenta al editarla.
+  const { account, error: accountError } = await resolvePaymentMethodAccount(db, ctx.company.id, parsed.data);
+  if (accountError) return NextResponse.json({ message: accountError }, { status: 400 });
 
   try {
     const updated = await db.transaction(async (tx) => {
