@@ -115,7 +115,13 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
   const displayedPayments = payments?.length ? payments : payment ? [payment] : [];
   // Facturas: columnas IVA / IRPF / Dto. y la base por línea. Otros documentos: columna «Impuestos».
   const taxColumns = lines.some((line) => line.vat !== undefined);
-  const showWithholding = taxColumns && lines.some((line) => line.withholding && line.withholding !== "—");
+  // Si todas las líneas llevan los mismos impuestos no se repiten en cada una: van en los totales.
+  // Solo cuando se mezclan tipos (21 % y 10 %, con y sin IRPF) cada línea muestra los suyos,
+  // a la derecha del importe al que se aplican.
+  const mixedVat = taxColumns && new Set(lines.map((line) => line.vat)).size > 1;
+  const mixedWithholding = taxColumns && new Set(lines.map((line) => line.withholding)).size > 1;
+  const showVatColumn = mixedVat || mixedWithholding;
+  const showWithholding = mixedWithholding || (mixedVat && lines.some((line) => line.withholding && line.withholding !== "—"));
   const showDiscount = lines.some((line) => Boolean(line.discount));
 
   return (
@@ -202,12 +208,12 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
           <View style={[styles.tableRow, styles.tableHeader]}>
             <Text style={[styles.descriptionCell, styles.tableHeaderText]}>Concepto</Text>
             <Text style={[styles.quantityCell, styles.tableHeaderText]}>Cantidad</Text>
-            {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>Precio</Text> : null}
+            {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>{taxColumns ? "Precio unit." : "Precio"}</Text> : null}
             {showFinancials && showDiscount ? <Text style={[styles.rateCell, styles.tableHeaderText]}>Dto.</Text> : null}
-            {showFinancials && taxColumns ? <Text style={[styles.rateCell, styles.tableHeaderText]}>IVA</Text> : null}
-            {showFinancials && showWithholding ? <Text style={[styles.rateCell, styles.tableHeaderText]}>IRPF</Text> : null}
             {showFinancials && !taxColumns ? <Text style={[styles.lineTaxCell, styles.tableHeaderText, styles.lineTaxHeaderCell]}>Impuestos</Text> : null}
-            {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>{taxColumns ? "Base" : "Importe"}</Text> : null}
+            {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>Importe</Text> : null}
+            {showFinancials && showVatColumn ? <Text style={[styles.rateCell, styles.tableHeaderText]}>IVA</Text> : null}
+            {showFinancials && showWithholding ? <Text style={[styles.rateCell, styles.tableHeaderText]}>IRPF</Text> : null}
           </View>
           {lines.map((line, index) => (
             <View key={`${line.description}-${index}`} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]} wrap={false}>
@@ -215,10 +221,10 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
               <Text style={styles.quantityCell}>{line.quantity}</Text>
               {showFinancials ? <Text style={styles.moneyCell}>{line.unitPrice}</Text> : null}
               {showFinancials && showDiscount ? <Text style={styles.rateCell}>{line.discount ?? "—"}</Text> : null}
-              {showFinancials && taxColumns ? <Text style={styles.rateCell}>{line.vat}</Text> : null}
-              {showFinancials && showWithholding ? <Text style={[styles.rateCell, styles.withholdingCell]}>{line.withholding === "—" ? "—" : `-${line.withholding}`}</Text> : null}
               {showFinancials && !taxColumns ? <Text style={styles.lineTaxCell}>{line.taxRate}</Text> : null}
               {showFinancials ? <Text style={styles.moneyCell}>{line.lineTotal}</Text> : null}
+              {showFinancials && showVatColumn ? <Text style={styles.rateCell}>{line.vat}</Text> : null}
+              {showFinancials && showWithholding ? <Text style={line.withholding === "—" ? styles.rateCell : [styles.rateCell, styles.withholdingCell]}>{line.withholding === "—" ? "—" : `-${line.withholding}`}</Text> : null}
             </View>
           ))}
         </View>
