@@ -10,6 +10,7 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
 import { operationForTaxKind, taxKindSchema, taxPatchSchema } from "@/server/taxes/schema";
+import { findEquivalentTax } from "@/server/taxes/duplicates";
 
 async function getSettingsContext() {
   const session = await getUserSession();
@@ -44,6 +45,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const values = parsed.data;
   const nextKind = taxKindSchema.parse(values.kind ?? current.kind);
   const nextOperation = operationForTaxKind(nextKind, values.operation ?? (current.operation === "SUBTRACT" ? "SUBTRACT" : "ADD"));
+  // Cambiar tipo o porcentaje (o reactivar) no puede dejar dos impuestos activos equivalentes.
+  const staysActive = values.isActive ?? current.isActive;
+  if (staysActive && (values.rate !== undefined || values.kind !== undefined || values.operation !== undefined || values.isActive === true)) {
+    const duplicate = await findEquivalentTax(db, auth.ctx.company.id, { kind: nextKind, rate: values.rate ?? current.rate, operation: nextOperation }, id);
+    if (duplicate) {
+      return NextResponse.json({ message: `Ya tienes «${duplicate.name}» con el mismo tipo y porcentaje. Usa ese impuesto en lugar de duplicarlo.` }, { status: 409 });
+    }
+  }
   try {
     const updated = await db.transaction(async (tx) => {
       const [row] = await tx.update(tax).set({

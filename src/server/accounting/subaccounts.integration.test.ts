@@ -59,6 +59,7 @@ import { createCustomerWithPartner } from "@/server/customers/service";
 import { fetchAccountingTaxBalances } from "@/server/fiscal/spain";
 import { applyEsSeeds } from "@/server/seeds/apply";
 import { createSupplierWithPartner } from "@/server/suppliers/service";
+import { dedupeCompanyTaxes } from "@/server/taxes/duplicates";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
 import { createBankAccount, recordBankTransaction } from "@/server/treasury/service";
 import { applyAllocations, getReconciliationWorkbench } from "@/server/treasury/workbench";
@@ -705,6 +706,51 @@ describe("motor de asientos contra base de datos", () => {
     expect(await balanceOf("57200001")).toBeCloseTo(147.05, 2);
     expect(await balanceOf("62600000")).toBeCloseTo(1.2, 2);
     expect((await state.db.select({ status: invoice.paymentStatus }).from(invoice).where(eq(invoice.id, "gw-inv-2")))[0].status).toBe("PAID");
+  });
+
+  it("impuestos: el plan no duplica los que ya tienes con otro nombre y los duplicados se fusionan", async () => {
+    const co = "taxdup";
+    await createCompany(co);
+    // Impuestos creados a mano antes de aplicar el plan español.
+    await state.db.insert(schema.tax).values([
+      { companyId: co, name: "IVA", rate: "21.000", kind: "VAT", operation: "ADD", isDefault: true },
+      { companyId: co, name: "IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+    ]);
+    await applyEsSeeds({ tenantId: TENANT, companyId: co, actorUserId: USER, activeFiscalYearId: `${co}-fy2026` });
+    const names = async () => (await state.db.select({ name: schema.tax.name }).from(schema.tax).where(eq(schema.tax.companyId, co))).map((row: { name: string }) => row.name).sort();
+    const seeded = await names();
+    expect(seeded).toContain("IVA");
+    expect(seeded).toContain("IRPF 15%");
+    expect(seeded).not.toContain("IVA general 21%");
+    expect(seeded).not.toContain("Retención IRPF 15%");
+    expect(seeded).toContain("IVA reducido 10%");
+    expect(seeded).toContain("Retención IRPF 7%");
+
+    // Datos antiguos: duplicados ya creados, con un artículo que usa uno de ellos.
+    const [dupVat] = await state.db.insert(schema.tax).values({ companyId: co, name: "IVA general 21%", rate: "21.000", kind: "VAT", operation: "ADD" }).returning();
+    const [dupIrpf] = await state.db.insert(schema.tax).values({ companyId: co, name: "Retencion IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT" }).returning();
+    const [article] = await state.db.insert(item).values({ companyId: co, sku: "SRV-1", name: "Servicio", defaultTaxId: dupVat.id }).returning();
+    // El duplicado de IRPF es el que usan las facturas: se conserva él (con su nombre corregido).
+    const client = await createCustomerWithPartner(state.db, co, customerInput("Cliente Impuestos", "B12345674"));
+    await state.db.insert(invoice).values({ id: "taxdup-inv", companyId: co, customerId: client.id, number: "FA-T1", issueDate: new Date(Date.UTC(2026, 3, 1)), totalAmount: "106.00", status: "SENT", issuedAt: new Date() });
+    const [invoiceRow] = await state.db.insert(schema.invoiceLine).values({ invoiceId: "taxdup-inv", description: "Servicio", quantity: "1", unitPrice: "100.00", lineTotal: "106.00" }).returning();
+    await state.db.insert(schema.invoiceLineTax).values({ invoiceLineId: invoiceRow.id, taxId: dupIrpf.id, name: "Retencion IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT", baseAmount: "100.00", amount: "15.00" });
+
+    const report = await state.db.transaction((tx: DbClient) => dedupeCompanyTaxes(tx, co));
+    expect(report.merges).toHaveLength(2);
+    const after = await names();
+    expect(after.filter((name: string) => name.includes("21"))).toEqual(["IVA general 21%"]);
+    expect(after.filter((name: string) => name.includes("15"))).toEqual(["Retención IRPF 15%"]);
+    const [kept] = await state.db.select().from(schema.tax).where(and(eq(schema.tax.companyId, co), eq(schema.tax.name, "IVA general 21%")));
+    expect(kept.isDefault).toBe(true);
+    expect((await state.db.select().from(item).where(eq(item.id, article.id)))[0].defaultTaxId).toBe(kept.id);
+    const irpfMerge = report.merges.find((merge: { kept: { finalName: string } }) => merge.kept.finalName === "Retención IRPF 15%");
+    expect(irpfMerge?.kept.id).toBe(dupIrpf.id);
+    expect(irpfMerge?.merged).toEqual([expect.objectContaining({ name: "IRPF 15%", invoiceLines: 0 })]);
+    // La línea de la factura conserva su copia del nombre; solo su referencia apunta al impuesto que queda.
+    expect((await state.db.select().from(schema.invoiceLineTax).where(eq(schema.invoiceLineTax.invoiceLineId, invoiceRow.id)))[0]).toMatchObject({ taxId: dupIrpf.id, name: "Retencion IRPF 15%" });
+    // Idempotente.
+    expect((await state.db.transaction((tx: DbClient) => dedupeCompanyTaxes(tx, co))).merges).toEqual([]);
   });
 
   it("crea la forma de pago «Efectivo» si la empresa no tiene ninguna en efectivo", async () => {

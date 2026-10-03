@@ -79,7 +79,15 @@ export type InvoicePdfInput = {
     description: string;
     quantity: string;
     unitPrice: string;
+    /** Columna única «Impuestos» (presupuestos, pedidos…). Las facturas usan `vat`/`withholding`. */
     taxRate: string;
+    /** Tipos de IVA (y recargo) de la línea: «21 %». Si está, el PDF muestra columnas IVA/IRPF. */
+    vat?: string;
+    /** Tipo de retención de la línea: «15 %» o «—». */
+    withholding?: string;
+    /** Descuento de la línea («10 %») o null. */
+    discount?: string | null;
+    /** Importe de la línea: su base imponible en las facturas. */
     lineTotal: string;
   }>;
   totals: {
@@ -88,6 +96,8 @@ export type InvoicePdfInput = {
     retentionAmount: string;
     hasRetention: boolean;
     totalAmount: string;
+    /** Una fila por impuesto y tipo: «IVA 21 %» con su base y cuota. Sustituye a «Impuestos/Retenciones». */
+    taxRows?: Array<{ label: string; base: string; amount: string; operation: "ADD" | "SUBTRACT" }>;
     breakdown?: Array<{
       name: string;
       rate: string;

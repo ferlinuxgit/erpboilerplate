@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
+import { findEquivalentTax } from "@/server/taxes/duplicates";
 import { operationForTaxKind, taxMutationSchema } from "@/server/taxes/schema";
 
 function taxWriteError(error: unknown) {
@@ -45,6 +46,10 @@ export async function POST(request: Request) {
   }
 
   const values = parsed.data;
+  const duplicate = await findEquivalentTax(db, ctx.company.id, { kind: values.kind, rate: values.rate, operation: operationForTaxKind(values.kind, values.operation) });
+  if (duplicate) {
+    return NextResponse.json({ message: `Ya tienes «${duplicate.name}» con el mismo tipo y porcentaje. Usa ese impuesto (puedes renombrarlo) en lugar de crear otro.` }, { status: 409 });
+  }
   try {
     const created = await db.transaction(async (tx) => {
       const [row] = await tx.insert(tax).values({

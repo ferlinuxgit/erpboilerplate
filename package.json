@@ -21,6 +21,7 @@
     "recurring:worker": "tsx scripts/recurring-worker.ts",
     "accounting:reclassify": "tsx scripts/accounting-reclassify.ts",
     "accounting:bank-subaccounts": "tsx scripts/accounting-bank-subaccounts.ts",
+    "taxes:dedupe": "tsx scripts/taxes-dedupe.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:verify": "node scripts/verify-clean-db-migrations.mjs",

@@ -17,6 +17,7 @@ import {
 import { loadStoredLines } from "@/server/invoices/service";
 import type { InvoicePdfInput } from "@/server/pdf/render";
 import { getInvoiceVerifactuInfo, getInvoiceVerifactuQrPng } from "@/server/verifactu/service";
+import { formatRate, lineTaxColumns, taxTotalRows } from "@/server/pdf/invoice-tax-labels";
 
 function formatDate(value: Date | null) {
   if (!value) return null;
@@ -238,19 +239,29 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         province: customerParty.province,
         countryCode: customerParty.countryCode,
       },
-      lines: lines.map((line, index) => ({
-        description: line.description,
-        quantity: formatDecimal(line.quantity, 3),
-        unitPrice: formatMoney(line.unitPrice, currency),
-        taxRate: totals.lines[index]?.taxes.map((selectedTax) => selectedTax.name ?? (selectedTax.operation === "SUBTRACT" ? "Retención" : "Impuesto")).join("\n") || "—",
-        lineTotal: formatMoney(totals.lines[index]?.lineTotal ?? 0, currency),
-      })),
+      // Cada línea muestra su base y los tipos de IVA/IRPF; las cuotas van en los totales.
+      lines: lines.map((line, index) => {
+        const lineTotals = totals.lines[index];
+        const columns = lineTaxColumns(lineTotals?.taxes ?? []);
+        return {
+          description: line.description,
+          quantity: formatDecimal(line.quantity, 3),
+          unitPrice: formatMoney(line.unitPrice, currency),
+          discount: Number(line.discountPct ?? 0) ? formatRate(Number(line.discountPct)) : null,
+          taxRate: columns.vat,
+          vat: columns.vat,
+          withholding: columns.withholding,
+          lineTotal: formatMoney(lineTotals?.subtotal ?? 0, currency),
+        };
+      }),
       totals: {
         subtotal: formatMoney(totals.subtotal, currency),
         taxAmount: formatMoney(totals.taxAmount, currency),
         retentionAmount: formatMoney(totals.retentionAmount, currency),
         hasRetention: totals.retentionAmount !== 0,
         totalAmount: formatMoney(totals.totalAmount, currency),
+        // Una fila por impuesto y tipo con su base (art. 6.1.f/g RD 1619/2012).
+        taxRows: taxTotalRows(totals.taxBuckets, (value) => formatMoney(value, currency)),
         // Desglose por tipo impositivo (base y cuota por tipo, art. 6.1.f/g RD 1619/2012).
         breakdown: totals.taxBuckets.map((bucket) => ({
           name: bucket.name ?? (bucket.operation === "SUBTRACT" ? "Retención" : "Impuesto"),

@@ -5,6 +5,7 @@ import { db, type DbClient } from "@/lib/db";
 import { getCompanyTemplate, type CompanyTemplate, type CompanyTemplateAccount } from "@/lib/company-templates";
 import { canonicalSubaccountCode, natureForAccountType, normalizeSubaccountLength } from "@/server/accounting/subaccounts-model";
 import { recordAudit } from "@/server/audit";
+import { normalizeTaxName, taxSignatureKey } from "@/server/taxes/duplicates";
 
 type ApplyEsSeedsInput = {
   tenantId: string;
@@ -151,10 +152,23 @@ async function applyTemplateRows(
       }
     }
 
-    if (input.template.taxes.length > 0) {
+    // Un impuesto que la empresa ya tiene con otro nombre («IVA», «IRPF 15%») no se vuelve a crear:
+    // dos impuestos con el mismo tipo y porcentaje son el mismo impuesto duplicado.
+    const existingTaxes = await tx.select({ name: tax.name, kind: tax.kind, rate: tax.rate, operation: tax.operation }).from(tax).where(eq(tax.companyId, input.companyId));
+    // Nombres antiguos sin tilde («Retencion IRPF 15%»): la plantilla los sigue reconociendo para
+    // corregirles el tipo y la operación al reaplicarla.
+    const legacyNameFor = new Map(existingTaxes.map((entry) => [normalizeTaxName(entry.name), entry.name]));
+    const existingNames = new Set(existingTaxes.map((entry) => entry.name));
+    const existingSignatures = new Set(existingTaxes.map((entry) => taxSignatureKey(entry)));
+    const templateTaxes = input.template.taxes.map((entry) => ({ ...entry, name: existingNames.has(entry.name) ? entry.name : legacyNameFor.get(entry.name) ?? entry.name })).filter((entry) => {
+      const kind = entry.kind ?? "VAT";
+      const operation = entry.operation ?? (kind === "WITHHOLDING" ? "SUBTRACT" : "ADD");
+      return existingNames.has(entry.name) || !existingSignatures.has(taxSignatureKey({ kind, rate: entry.rate, operation }));
+    });
+    if (templateTaxes.length > 0) {
       // Tipo y operación también se corrigen en impuestos ya creados (retenciones antiguas guardadas
       // como IVA que sumaban en vez de restar). `isDefault` solo al crear: respeta la elección del usuario.
-      await tx.insert(tax).values(input.template.taxes.map((entry) => ({
+      await tx.insert(tax).values(templateTaxes.map((entry) => ({
           companyId: input.companyId,
           name: entry.name,
           rate: entry.rate,

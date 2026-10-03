@@ -115,10 +115,10 @@ export const companyTemplates = [
       { name: "Recargo de equivalencia 5,2%", rate: "5.200", kind: "SURCHARGE", operation: "ADD" },
       { name: "Recargo de equivalencia 1,4%", rate: "1.400", kind: "SURCHARGE", operation: "ADD" },
       { name: "Recargo de equivalencia 0,5%", rate: "0.500", kind: "SURCHARGE", operation: "ADD" },
-      // Retenciones: restan del total. Se conservan los nombres para corregir las ya creadas al reaplicar.
-      { name: "Retencion IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
-      { name: "Retencion IRPF 7%", rate: "7.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
-      { name: "Retencion alquiler 19%", rate: "19.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+      // Retenciones: restan del total. Al reaplicar se reconocen también por su nombre antiguo sin tilde para corregir las ya creadas.
+      { name: "Retención IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+      { name: "Retención IRPF 7%", rate: "7.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+      { name: "Retención alquiler 19%", rate: "19.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
     ],
     documentSeries: commonSeries,
     settings: {

@@ -44,6 +44,8 @@ const styles = StyleSheet.create({
   quantityCell: { flex: 0.65, paddingVertical: 9, paddingHorizontal: 7, textAlign: "right" },
   moneyCell: { flex: 1, paddingVertical: 9, paddingHorizontal: 8, textAlign: "right" },
   lineTaxCell: { flex: 1.45, paddingVertical: 9, paddingHorizontal: 8, color: "#087f78", fontSize: 8.4, lineHeight: 1.32 },
+  rateCell: { flex: 0.7, paddingVertical: 9, paddingHorizontal: 7, textAlign: "right", fontSize: 8.6, lineHeight: 1.32 },
+  withholdingCell: { color: "#9a3412" },
   lineTaxHeaderCell: { color: "#ffffff" },
   taxBreakdown: { marginTop: 16 },
   compactTable: { borderTop: "1 solid #b9c5cc" },
@@ -61,6 +63,8 @@ const styles = StyleSheet.create({
   totals: { width: 226 },
   totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5, paddingHorizontal: 10, borderBottom: "1 solid #dfe5e9", color: "#465468" },
   totalRowValue: { color: "#172234", fontWeight: 700 },
+  totalRowLabel: { flexDirection: "column" },
+  totalRowBase: { fontSize: 7, color: "#7b8797", marginTop: 1 },
   totalBox: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 3, paddingVertical: 9, paddingHorizontal: 11, backgroundColor: "#142034", color: "#ffffff" },
   totalLabel: { fontSize: 7.2, textTransform: "uppercase", letterSpacing: 1.1 },
   total: { fontSize: 14.5, fontWeight: 700 },
@@ -109,6 +113,10 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
   const companyWebsite = display.showWebsite ? company.website : null;
   const customerAddress = formatAddress(customer);
   const displayedPayments = payments?.length ? payments : payment ? [payment] : [];
+  // Facturas: columnas IVA / IRPF / Dto. y la base por línea. Otros documentos: columna «Impuestos».
+  const taxColumns = lines.some((line) => line.vat !== undefined);
+  const showWithholding = taxColumns && lines.some((line) => line.withholding && line.withholding !== "—");
+  const showDiscount = lines.some((line) => Boolean(line.discount));
 
   return (
     <Document>
@@ -195,20 +203,27 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
             <Text style={[styles.descriptionCell, styles.tableHeaderText]}>Concepto</Text>
             <Text style={[styles.quantityCell, styles.tableHeaderText]}>Cantidad</Text>
             {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>Precio</Text> : null}
-            {showFinancials ? <Text style={[styles.lineTaxCell, styles.tableHeaderText, styles.lineTaxHeaderCell]}>Impuestos</Text> : null}
-            {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>Importe</Text> : null}
+            {showFinancials && showDiscount ? <Text style={[styles.rateCell, styles.tableHeaderText]}>Dto.</Text> : null}
+            {showFinancials && taxColumns ? <Text style={[styles.rateCell, styles.tableHeaderText]}>IVA</Text> : null}
+            {showFinancials && showWithholding ? <Text style={[styles.rateCell, styles.tableHeaderText]}>IRPF</Text> : null}
+            {showFinancials && !taxColumns ? <Text style={[styles.lineTaxCell, styles.tableHeaderText, styles.lineTaxHeaderCell]}>Impuestos</Text> : null}
+            {showFinancials ? <Text style={[styles.moneyCell, styles.tableHeaderText]}>{taxColumns ? "Base" : "Importe"}</Text> : null}
           </View>
           {lines.map((line, index) => (
             <View key={`${line.description}-${index}`} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]} wrap={false}>
               <Text style={styles.descriptionCell}>{line.description}</Text>
               <Text style={styles.quantityCell}>{line.quantity}</Text>
               {showFinancials ? <Text style={styles.moneyCell}>{line.unitPrice}</Text> : null}
-              {showFinancials ? <Text style={styles.lineTaxCell}>{line.taxRate}</Text> : null}
+              {showFinancials && showDiscount ? <Text style={styles.rateCell}>{line.discount ?? "—"}</Text> : null}
+              {showFinancials && taxColumns ? <Text style={styles.rateCell}>{line.vat}</Text> : null}
+              {showFinancials && showWithholding ? <Text style={[styles.rateCell, styles.withholdingCell]}>{line.withholding === "—" ? "—" : `-${line.withholding}`}</Text> : null}
+              {showFinancials && !taxColumns ? <Text style={styles.lineTaxCell}>{line.taxRate}</Text> : null}
               {showFinancials ? <Text style={styles.moneyCell}>{line.lineTotal}</Text> : null}
             </View>
           ))}
         </View>
-        {showFinancials && display.showTaxBreakdown && totals.breakdown?.length ? (
+        {/* Con filas por impuesto en los totales el desglose ya está ahí (base, tipo y cuota). */}
+        {showFinancials && display.showTaxBreakdown && !totals.taxRows?.length && totals.breakdown?.length ? (
           <View style={styles.taxBreakdown} wrap={false}>
             <SectionHeading label="Desglose de impuestos" />
             <View style={styles.compactTable}>
@@ -252,16 +267,30 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
               <Text>Base imponible</Text>
               <Text style={styles.totalRowValue}>{totals.subtotal}</Text>
             </View>
-            <View style={styles.totalRow}>
-              <Text>Impuestos</Text>
-              <Text style={styles.totalRowValue}>{totals.taxAmount}</Text>
-            </View>
-            {totals.hasRetention ? (
-              <View style={styles.totalRow}>
-                <Text>Retenciones</Text>
-                <Text style={styles.totalRowValue}>- {totals.retentionAmount}</Text>
-              </View>
-            ) : null}
+            {totals.taxRows?.length ? (
+              totals.taxRows.map((row) => (
+                <View key={`${row.label}-${row.operation}`} style={styles.totalRow}>
+                  <View style={styles.totalRowLabel}>
+                    <Text>{row.label}</Text>
+                    {display.showTaxBreakdown ? <Text style={styles.totalRowBase}>sobre {row.base}</Text> : null}
+                  </View>
+                  <Text style={styles.totalRowValue}>{row.operation === "SUBTRACT" ? `-${row.amount}` : row.amount}</Text>
+                </View>
+              ))
+            ) : (
+              <>
+                <View style={styles.totalRow}>
+                  <Text>Impuestos</Text>
+                  <Text style={styles.totalRowValue}>{totals.taxAmount}</Text>
+                </View>
+                {totals.hasRetention ? (
+                  <View style={styles.totalRow}>
+                    <Text>Retenciones</Text>
+                    <Text style={styles.totalRowValue}>- {totals.retentionAmount}</Text>
+                  </View>
+                ) : null}
+              </>
+            )}
             <View style={styles.totalBox}>
               <Text style={styles.totalLabel}>Total</Text>
               <Text style={styles.total}>{totals.totalAmount}</Text>
