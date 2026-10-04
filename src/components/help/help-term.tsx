@@ -94,7 +94,7 @@ export function HelpTerm({ children, className, term }: HelpTermProps) {
         >
           <span className="mb-1 block font-mono font-bold">{entry.term}</span>
           <span className="block">{entry.short}</span>
-          <Link className="link mt-1.5 block" href={`${GLOSSARY_HREF}#${entry.id}`}>
+          <Link className="mt-1.5 block font-bold text-link underline-offset-2 hover:underline" href={`${GLOSSARY_HREF}#${entry.id}`}>
             Ver en el glosario
           </Link>
         </span>

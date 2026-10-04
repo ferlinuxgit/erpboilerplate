@@ -182,7 +182,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
 
   const errorBanner = formError ? (
     <div className="space-y-2">
-      <p className="border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive" id="auth-form-error" role="alert">
+      <p className="border border-destructive bg-destructive/10 px-3 py-2 text-sm text-danger-text" id="auth-form-error" role="alert">
         {formError}
       </p>
       {mode === "sign-in" ? resendControls : null}
@@ -193,7 +193,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
     return (
       <Card className="w-full border-0 bg-transparent shadow-none">
         <CardHeader>
-          <CardTitle aria-level={1} role="heading">Revisa tu correo</CardTitle>
+          <CardTitle aria-level={1} className="text-lg leading-tight sm:text-xl" role="heading">Revisa tu correo</CardTitle>
           <CardDescription>
             Hemos enviado un enlace de confirmación a <strong>{pendingVerificationEmail}</strong>. Ábrelo para activar la cuenta; caduca en 24 horas.
           </CardDescription>
@@ -201,7 +201,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">¿No lo encuentras? Revisa la carpeta de spam o pide otro enlace.</p>
           {resendControls}
-          <Link className="block text-center text-sm text-muted-foreground underline-offset-4 hover:underline" href={loginPathWithNext(safeNext)}>
+          <Link className="block py-2 text-center text-sm font-bold text-link underline-offset-2 hover:underline" href={loginPathWithNext(safeNext)}>
             Ya lo he confirmado: iniciar sesión
           </Link>
         </CardContent>
@@ -212,7 +212,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
   return (
     <Card className="w-full border-0 bg-transparent shadow-none">
       <CardHeader>
-        <CardTitle aria-level={1} role="heading">
+        <CardTitle aria-level={1} className="text-lg leading-tight sm:text-xl" role="heading">
           {content.title}
         </CardTitle>
         <CardDescription>{content.description}</CardDescription>
@@ -262,7 +262,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
                   required
                   {...register("name")}
                 />
-                {errors.name ? <p className="text-sm text-destructive" id="name-error">{errors.name.message}</p> : null}
+                {errors.name ? <p className="text-sm text-danger-text" id="name-error">{errors.name.message}</p> : null}
               </div>
             ) : null}
             <div className="space-y-2">
@@ -280,13 +280,13 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
                 type="email"
                 {...register("email")}
               />
-              {errors.email ? <p className="text-sm text-destructive" id="email-error">{errors.email.message}</p> : null}
+              {errors.email ? <p className="text-sm text-danger-text" id="email-error">{errors.email.message}</p> : null}
             </div>
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <Label htmlFor="password">Contraseña</Label>
                 {mode === "sign-in" ? (
-                  <Link className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground" href="/auth/forgot-password">
+                  <Link className="text-sm text-link underline underline-offset-2" href="/auth/forgot-password">
                     ¿Olvidaste tu contraseña?
                   </Link>
                 ) : null}
@@ -296,7 +296,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
                   aria-describedby={errors.password ? "password-error" : undefined}
                   aria-invalid={errors.password ? true : undefined}
                   autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
-                  className="pr-9"
+                  className="pr-9 pointer-coarse:pr-12"
                   id="password"
                   minLength={8}
                   required
@@ -307,7 +307,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
                   aria-controls="password"
                   aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                   aria-pressed={showPassword}
-                  className="absolute inset-y-0 right-0 grid w-8 place-items-center text-window-muted hover:text-window-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                  className="absolute inset-y-0 right-0 grid w-8 place-items-center pointer-coarse:w-11 text-window-muted hover:text-window-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                   onClick={() => setShowPassword((value) => !value)}
                   title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                   type="button"
@@ -315,7 +315,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
                   {showPassword ? <EyeSlash aria-hidden="true" /> : <Eye aria-hidden="true" />}
                 </button>
               </div>
-              {errors.password ? <p className="text-sm text-destructive" id="password-error">{errors.password.message}</p> : null}
+              {errors.password ? <p className="text-sm text-danger-text" id="password-error">{errors.password.message}</p> : null}
               {mode === "sign-up" && !errors.password ? <p className="text-sm text-muted-foreground">Mínimo 8 caracteres.</p> : null}
             </div>
             {mode === "sign-in" ? (
@@ -330,7 +330,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
             <Button aria-busy={isSubmitting || undefined} className="w-full" disabled={isSubmitting} type="submit">
               {isSubmitting ? content.pending : content.cta}
             </Button>
-            <Link className="block text-center text-sm text-muted-foreground underline-offset-4 hover:underline" href={switchHref}>
+            <Link className="block py-2 text-center text-sm font-bold text-link underline-offset-2 hover:underline" href={switchHref}>
               {content.switchLabel}
             </Link>
           </form>

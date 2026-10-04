@@ -58,7 +58,7 @@ const columns = (
     cell: (row) => (
       <div>
         <Link
-          className="font-medium text-primary hover:underline"
+          className="font-medium text-link hover:underline"
           href={`/treasury/bank-transactions/${row.id}`}
         >
           {row.description}
@@ -138,7 +138,7 @@ export function BankTransactionsList({
         <div className="space-y-3">
           <div>
             <Link
-              className="font-medium text-primary hover:underline"
+              className="font-medium text-link hover:underline"
               href={`/treasury/bank-transactions/${row.id}`}
             >
               {row.description}

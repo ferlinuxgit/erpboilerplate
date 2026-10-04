@@ -39,7 +39,7 @@ const columns = (
     alwaysVisible: true,
     cell: (order) => (
       <Link
-        className="font-mono font-semibold text-primary hover:underline"
+        className="font-mono font-semibold text-link hover:underline"
         href={`/purchases/orders/${order.id}`}
       >
         {order.number}
@@ -118,7 +118,7 @@ export function PurchaseOrdersList({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <Link
-                className="font-mono font-semibold text-primary hover:underline"
+                className="font-mono font-semibold text-link hover:underline"
                 href={`/purchases/orders/${order.id}`}
               >
                 {order.number}

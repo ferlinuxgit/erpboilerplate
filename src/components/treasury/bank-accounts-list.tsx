@@ -29,7 +29,7 @@ function ledgerLabel(account: BankAccountRow) {
 const columns = (canManage: boolean): ResourceListColumn<BankAccountRow>[] => [
   {
     header: "Banco",
-    cell: (account) => <Link className="font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link>,
+    cell: (account) => <Link className="font-medium text-link hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link>,
     exportValue: (account) => account.bankName,
     sortValue: (account) => account.bankName,
   },
@@ -76,7 +76,7 @@ export function BankAccountsList({ canManage = true, rows }: BankAccountsListPro
         <div className="space-y-3">
           <div>
             <div className="flex items-center justify-between gap-2">
-              <Link className="font-medium text-primary hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link>
+              <Link className="font-medium text-link hover:underline" href={`/treasury/bank-accounts/${account.id}`}>{account.bankName}</Link>
               <StatusBadge tone={account.isActive === false ? "neutral" : "success"}>{account.isActive === false ? "Archivada" : "Activa"}</StatusBadge>
             </div>
             <p className="break-all text-sm text-muted-foreground">{treasuryAccountDetail(account)}</p>

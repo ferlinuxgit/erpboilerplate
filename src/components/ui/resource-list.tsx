@@ -21,7 +21,9 @@ import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Table,
   TableBody,
@@ -802,11 +804,8 @@ export function ResourceList<TItem>({
           </p>
           <div className="flex flex-wrap items-center gap-1">
             {selectedItems.length > 0 ? (
-              <p
-                aria-live="polite"
-                className="border border-window-dark-shadow bg-primary px-1.5 py-0.5 font-mono text-xs font-bold text-primary-foreground"
-              >
-                {selectedItems.length} seleccionados
+              <p aria-live="polite">
+                <StatusBadge className="normal-case" tone="info">{selectedItems.length} seleccionados</StatusBadge>
               </p>
             ) : null}
             {createAction && recordCount > 0 ? (
@@ -946,11 +945,11 @@ export function ResourceList<TItem>({
                 >
                   <summary
                     aria-label="Configurar campos visibles"
+                    // Un solo nombre accesible (aria-label); el title es solo la ayuda visual al pasar el ratón.
                     className="grid size-9 cursor-pointer list-none place-items-center rounded-surface border border-window-dark-shadow bg-window-surface text-window-text shadow-raised hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus active:translate-x-px active:translate-y-px"
-                    title="Configurar campos"
+                    title="Configurar campos visibles"
                   >
                     <SlidersHorizontal aria-hidden="true" />
-                    <span className="sr-only">Configurar campos</span>
                   </summary>
                   <div className="absolute right-0 z-20 mt-1 min-w-52 space-y-1 border border-window-dark-shadow bg-window-surface p-2 shadow-window">
                     {columns.map((column) => (
@@ -1132,7 +1131,7 @@ export function ResourceList<TItem>({
         {bulkActions && selectedItems.length > 0 ? (
           <div
             aria-label="Acciones sobre la selección"
-            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5 max-md:sticky max-md:bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-md:z-20 max-md:bg-window-surface max-md:shadow-drop"
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5 max-md:sticky max-md:bottom-[calc(var(--mobile-taskbar-height,env(safe-area-inset-bottom))+0.5rem)] max-md:z-20 max-md:bg-window-surface max-md:shadow-drop"
             role="toolbar"
           >
             <span className="font-mono text-xs font-bold">Con {selectedItems.length} seleccionados:</span>
@@ -1146,41 +1145,32 @@ export function ResourceList<TItem>({
       </div>
 
       {paginatedItems.length === 0 ? (
-        <div
-          className="border border-dashed border-window-dark-shadow bg-window-panel px-4 py-5 text-center"
-          role="status"
-        >
-          <p className="font-mono text-sm font-bold">
-            {hasSearch || hasActiveFilters ? "Sin resultados" : emptyTitle}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {hasSearch || hasActiveFilters
+        <EmptyState
+          action={
+            hasSearch || hasActiveFilters ? (
+              <Button onClick={resetFilters} size="sm" type="button" variant="outline">
+                <X aria-hidden="true" />
+                Limpiar búsqueda y filtros
+              </Button>
+            ) : createAction ? (
+              <Link
+                className={buttonVariants()}
+                data-testid={createAction.testId ? `${createAction.testId}-empty` : undefined}
+                href={createAction.href}
+              >
+                <Plus aria-hidden="true" />
+                {createAction.label}
+              </Link>
+            ) : null
+          }
+          description={
+            hasSearch || hasActiveFilters
               ? `Ningún registro coincide con ${hasSearch && hasActiveFilters ? "la búsqueda y los filtros" : hasSearch ? "la búsqueda" : "los filtros"} aplicados.`
-              : emptyDescription}
-          </p>
-          {!hasSearch && !hasActiveFilters && createAction ? (
-            <Link
-              className={cn(buttonVariants(), "mt-2")}
-              data-testid={createAction.testId ? `${createAction.testId}-empty` : undefined}
-              href={createAction.href}
-            >
-              <Plus aria-hidden="true" />
-              {createAction.label}
-            </Link>
-          ) : null}
-          {hasSearch || hasActiveFilters ? (
-            <Button
-              className="mt-2"
-              onClick={resetFilters}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <X aria-hidden="true" />
-              Limpiar búsqueda y filtros
-            </Button>
-          ) : null}
-        </div>
+              : emptyDescription
+          }
+          role="status"
+          title={hasSearch || hasActiveFilters ? "Sin resultados" : emptyTitle}
+        />
       ) : (
         <>
           <div className={cn("hidden max-h-[max(24rem,calc(100dvh-13rem))] overflow-auto border border-window-dark-shadow bg-card md:block", isNavigating && "opacity-60 motion-safe:transition-opacity")}>

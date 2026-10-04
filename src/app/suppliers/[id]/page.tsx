@@ -153,8 +153,8 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               <TableBody>
                 {activity.invoices.map((invoice) => (
                   <TableRow key={invoice.id}>
-                    <TableCell><Link className="font-bold text-primary hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></TableCell>
-                    <TableCell>{invoice.purchaseOrderId ? <Link className="text-primary hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</TableCell>
+                    <TableCell><Link className="font-bold text-link hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link></TableCell>
+                    <TableCell>{invoice.purchaseOrderId ? <Link className="text-link hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</TableCell>
                     <TableCell>{formatDate(invoice.issueDate)}</TableCell>
                     <TableCell><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{formatMoney(invoice.totalAmount, supplier.currencyCode)}</TableCell>

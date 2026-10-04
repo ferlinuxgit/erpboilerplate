@@ -144,7 +144,7 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
           ) : (
             <p className="border border-dashed border-window-dark-shadow p-2.5 text-xs text-muted-foreground">
               La evolución del saldo en bancos aparecerá cuando registres cobros, pagos o movimientos bancarios.{" "}
-              <Link className="font-semibold text-primary underline" href="/treasury">
+              <Link className="font-semibold text-link underline" href="/treasury">
                 Ir a tesorería
               </Link>
             </p>

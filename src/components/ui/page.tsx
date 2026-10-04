@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type PageShellProps = {
+type PageShellProps = HTMLAttributes<HTMLElement> & {
   children: ReactNode;
   className?: string;
 };
@@ -46,9 +46,10 @@ type PageSectionProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
   variant?: "plain" | "surface";
 };
 
-type EmptyStateProps = {
+type EmptyStateProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
   title: string;
   description: ReactNode;
+  /** Una o varias acciones (se centran y separan solas). */
   action?: ReactNode;
   className?: string;
 };
@@ -84,13 +85,14 @@ const metricToneClasses = {
   danger: "border-l-4 border-l-destructive",
 };
 
-export function PageShell({ children, className }: PageShellProps) {
+export function PageShell({ children, className, ...props }: PageShellProps) {
   return (
     <main
       className={cn(
         "w-full space-y-3 px-2 pb-4 pt-2 sm:px-3 lg:px-3 lg:pb-4 lg:pt-3",
         className,
       )}
+      {...props}
     >
       {children}
     </main>
@@ -256,6 +258,7 @@ export function EmptyState({
   className,
   description,
   title,
+  ...props
 }: EmptyStateProps) {
   return (
     <div
@@ -263,12 +266,13 @@ export function EmptyState({
         "border border-dashed border-window-dark-shadow bg-window-panel px-4 py-5 text-center",
         className,
       )}
+      {...props}
     >
       <p className="font-mono text-sm font-bold">{title}</p>
       <p className="mx-auto mt-1 max-w-xl text-xs leading-4 text-muted-foreground">
         {description}
       </p>
-      {action ? <div className="mt-2 flex justify-center">{action}</div> : null}
+      {action ? <div className="mt-2 flex flex-wrap justify-center gap-1.5">{action}</div> : null}
     </div>
   );
 }

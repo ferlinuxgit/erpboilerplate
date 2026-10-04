@@ -89,6 +89,9 @@
   --shadow-window-lg: inset 1px 1px 0 var(--window-highlight), inset -1px -1px 0 var(--window-shadow), 8px 8px 0 rgb(0 0 0 / 0.35);
   /* Tamaño de texto de botones, inputs y selects en escritorio. */
   --text-control: 0.78rem;
+  /* Curvas de movimiento: ease-snappy para aperturas (menús, diálogos), ease-drawer para paneles que deslizan. */
+  --ease-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 :root {

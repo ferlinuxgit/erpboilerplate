@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { contextGroups, filterContextLinks, filterNavigationGroups, getActiveContextHref, getContextGroup, isActiveRoute, navGroups, navigationLinks } from "@/components/layout/navigation-config";
+import { contextGroups, filterContextLinks, filterNavigationGroups, getActiveContextHref, getContextGroup, getMobileTaskbarLinks, isActiveRoute, navGroups, navigationLinks } from "@/components/layout/navigation-config";
 
 describe("purchase navigation active state", () => {
   const purchaseLinks = {
@@ -79,6 +79,33 @@ describe("navigation adapted to the business and the role", () => {
     expect(navigationLinks.find((link) => link.href === "/fiscal")?.label).toBe("Fiscalidad");
     expect(getContextGroup("/fiscal/calendar")?.label).toBe("Fiscalidad");
     expect(getContextGroup("/reporting")?.links.length).toBeGreaterThan(1);
+  });
+});
+
+describe("mobile taskbar destinations", () => {
+  const taskbar = (audience: Parameters<typeof filterNavigationGroups>[1]) =>
+    getMobileTaskbarLinks(filterNavigationGroups(navGroups, audience)).map((link) => link.href);
+
+  it("uses the four daily destinations when the role can see them", () => {
+    expect(taskbar({})).toEqual(["/dashboard", "/invoices", "/expenses", "/treasury"]);
+    expect(taskbar({ businessType: "services", role: "OWNER" })).toEqual(["/dashboard", "/invoices", "/expenses", "/treasury"]);
+  });
+
+  it("falls back to the next visible modules when a preferred one is filtered out", () => {
+    const groups = filterNavigationGroups(navGroups, { role: "OWNER" }).map((group) => ({
+      ...group,
+      links: group.links.filter((link) => link.href !== "/treasury" && link.href !== "/expenses"),
+    }));
+    const hrefs = getMobileTaskbarLinks(groups).map((link) => link.href);
+    expect(hrefs).toHaveLength(4);
+    expect(hrefs.slice(0, 2)).toEqual(["/dashboard", "/invoices"]);
+    expect(hrefs).not.toContain("/treasury");
+  });
+
+  it("never offers collapsible advanced sections and short labels fit the bar", () => {
+    const hrefs = getMobileTaskbarLinks([navGroups.find((group) => group.collapsible)!]);
+    expect(hrefs).toEqual([]);
+    expect(navigationLinks.find((link) => link.href === "/expenses")?.shortLabel).toBe("Gastos");
   });
 });
 

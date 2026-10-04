@@ -147,7 +147,7 @@ export function SplitAllocationDialog({ accounts, currencyCode, defaultDifferenc
                     <input aria-label={`Incluir la factura ${invoice.number}`} checked={selected} onChange={() => toggle(invoice)} type="checkbox" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">
-                        <Link className="text-primary hover:underline" href={invoice.href} target="_blank">{invoice.number}</Link>
+                        <Link className="text-link hover:underline" href={invoice.href} target="_blank">{invoice.number}</Link>
                         {invoice.altNumber ? <span className="text-muted-foreground"> ({invoice.altNumber})</span> : null} · {invoice.partnerName}
                       </p>
                       <p className="text-xs text-muted-foreground">

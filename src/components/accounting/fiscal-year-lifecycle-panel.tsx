@@ -298,7 +298,7 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
                     <p className="text-sm font-medium">{item.title}</p>
                     <p className="text-xs text-muted-foreground">{item.detail}</p>
                     {item.status !== "ok" && item.href ? (
-                      <Link className="link text-xs" href={item.href}>{item.actionLabel ?? "Resolver"}</Link>
+                      <Link className="text-xs font-bold text-link underline-offset-2 hover:underline" href={item.href}>{item.actionLabel ?? "Resolver"}</Link>
                     ) : null}
                   </div>
                   <StatusBadge tone={checklistTone[item.status]}>{checklistLabel[item.status]}</StatusBadge>

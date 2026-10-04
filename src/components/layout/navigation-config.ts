@@ -31,6 +31,8 @@ import { can, isAppRole, type PermissionKey } from "@/lib/rbac";
 export type NavigationLink = {
   href: string;
   label: string;
+  /** Etiqueta corta para la barra inferior móvil cuando `label` no cabe. */
+  shortLabel?: string;
   /** Código de dos cifras para `G + código` (visible solo en modo teclado). */
   code: string;
   icon: Icon;
@@ -72,10 +74,10 @@ export const navGroups: NavigationGroup[] = [
     label: "Compras y gastos",
     links: [
       { href: "/suppliers", label: "Proveedores", code: "20", icon: Factory, keywords: "acreedor proveedor", permission: "supplier.read" },
-      { href: "/purchases/orders", label: "Pedidos de compra", code: "21", icon: ClipboardText, keywords: "comprar encargo proveedor", permission: "purchase.read" },
+      { href: "/purchases/orders", label: "Pedidos de compra", shortLabel: "Compras", code: "21", icon: ClipboardText, keywords: "comprar encargo proveedor", permission: "purchase.read" },
       { href: "/purchases/receipts", label: "Recepciones", code: "22", icon: Tray, keywords: "entrada mercancía recibir", productsOnly: true, permission: "purchase.read" },
-      { href: "/expenses", label: "Gastos y facturas recibidas", code: "23", icon: FileArrowDown, keywords: "gasto ticket factura de proveedor recibida ocr escanear", permission: "expense.read" },
-      { href: "/purchases/payments", label: "Pagos a proveedores", code: "24", icon: Coins, keywords: "pagar deuda proveedor", permission: "purchase.read" },
+      { href: "/expenses", label: "Gastos y facturas recibidas", shortLabel: "Gastos", code: "23", icon: FileArrowDown, keywords: "gasto ticket factura de proveedor recibida ocr escanear", permission: "expense.read" },
+      { href: "/purchases/payments", label: "Pagos a proveedores", shortLabel: "Pagos", code: "24", icon: Coins, keywords: "pagar deuda proveedor", permission: "purchase.read" },
     ],
   },
   {
@@ -262,6 +264,25 @@ export function filterNavigationGroups(groups: NavigationGroup[], audience: Navi
       links: group.links.filter((link) => !hiddenForBusiness(link, audience.businessType) && (!role || !link.permission || can(role, link.permission))),
     }))
     .filter((group) => group.links.length > 0);
+}
+
+/** Destinos preferidos de la barra inferior móvil, en orden: los que más se usan a diario. */
+export const MOBILE_TASKBAR_PREFERRED_HREFS = ["/dashboard", "/invoices", "/expenses", "/treasury"] as const;
+export const MOBILE_TASKBAR_SIZE = 4;
+
+/**
+ * Accesos de la barra inferior móvil sobre el menú ya filtrado (rol y tipo de negocio):
+ * primero los preferidos que el usuario puede ver y, si falta alguno, se completa con
+ * los siguientes módulos visibles en el orden del menú. Las secciones plegables
+ * (avanzadas) nunca entran.
+ */
+export function getMobileTaskbarLinks(groups: NavigationGroup[], size = MOBILE_TASKBAR_SIZE): NavigationLink[] {
+  const visible = groups.filter((group) => !group.collapsible).flatMap((group) => group.links);
+  const preferred = MOBILE_TASKBAR_PREFERRED_HREFS
+    .map((href) => visible.find((link) => link.href === href))
+    .filter((link): link is NavigationLink => Boolean(link));
+  const fallback = visible.filter((link) => !preferred.includes(link));
+  return [...preferred, ...fallback].slice(0, size);
 }
 
 export function filterContextLinks(group: ContextGroup, audience: NavigationAudience): ContextGroup["links"] {

@@ -31,7 +31,7 @@ const columns: ResourceListColumn<PurchaseReceiptRow>[] = [
     header: "Recepción",
     cell: (row) => (
       <Link
-        className="font-mono font-semibold text-primary hover:underline"
+        className="font-mono font-semibold text-link hover:underline"
         href={`/purchases/receipts/${row.id}`}
       >
         {row.number}
@@ -130,7 +130,7 @@ export function PurchaseReceiptsList({ rows }: { rows: PurchaseReceiptRow[] }) {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <Link
-                className="font-mono font-semibold text-primary hover:underline"
+                className="font-mono font-semibold text-link hover:underline"
                 href={`/purchases/receipts/${row.id}`}
               >
                 {row.number}

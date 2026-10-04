@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { FiscalYearLifecyclePanel } from "@/components/accounting/fiscal-year-lifecycle-panel";
 import { CompanyDefaultsPanel } from "@/components/company/company-defaults-panel";
+import { AreaLink, AreaLinkGrid } from "@/components/ui/area-link";
 import { buttonVariants } from "@/components/ui/button";
 import {
   MetricCard,
@@ -134,23 +135,11 @@ export default async function AccountingPage() {
         title="Áreas contables"
         description="Cada función dispone de su propio espacio de trabajo."
       >
-        <div className="grid gap-px overflow-hidden border bg-border md:grid-cols-3 xl:grid-cols-5">
+        <AreaLinkGrid className="md:grid-cols-3 xl:grid-cols-5">
           {areas.map((area) => (
-            <Link
-              className="bg-background p-3 transition-colors hover:bg-muted/40"
-              href={area.href}
-              key={area.href}
-            >
-              <h3 className="font-semibold">{area.title}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {area.description}
-              </p>
-              <span className="mt-5 block text-sm font-medium text-link">
-                Abrir
-              </span>
-            </Link>
+            <AreaLink description={area.description} href={area.href} key={area.href} title={area.title} />
           ))}
-        </div>
+        </AreaLinkGrid>
       </PageSection>
       <PageSection
         title="Cuentas con más movimiento"

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { FiscalYearLifecyclePanel } from "@/components/accounting/fiscal-year-lifecycle-panel";
 import { CustomerCashActions } from "@/components/treasury/customer-cash-actions";
+import { AreaLink, AreaLinkGrid } from "@/components/ui/area-link";
 import { buttonVariants } from "@/components/ui/button";
 import {
   EmptyState,
@@ -190,23 +191,11 @@ export default async function TreasuryPage() {
         title="Áreas de tesorería"
         description="Accede al espacio de trabajo correspondiente."
       >
-        <div className="grid gap-px overflow-hidden border bg-border sm:grid-cols-2 xl:grid-cols-4" data-testid="treasury-areas">
+        <AreaLinkGrid testId="treasury-areas">
           {areas.map((area) => (
-            <Link
-              className="bg-background p-3 hover:bg-muted/40"
-              href={area.href}
-              key={area.href}
-            >
-              <h3 className="font-semibold">{area.title}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {area.description}
-              </p>
-              <span className="mt-5 block text-sm font-medium text-link">
-                Abrir
-              </span>
-            </Link>
+            <AreaLink description={area.description} href={area.href} key={area.href} title={area.title} />
           ))}
-        </div>
+        </AreaLinkGrid>
       </PageSection>
       <PageSection
         title="Registrar cobro"
