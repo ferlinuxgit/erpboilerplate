@@ -125,7 +125,7 @@ export function PurchaseOrderForm({
 
   return (
     <>
-    <form className="space-y-3" data-testid="purchase-order-form" noValidate onSubmit={submit}>
+    <form className="space-y-4" data-testid="purchase-order-form" noValidate onSubmit={submit}>
       <RequiredFieldsNote />
       <div className={isEdit ? "grid gap-3 md:grid-cols-3" : "grid gap-3 md:grid-cols-2"}>
         <AccessibleField

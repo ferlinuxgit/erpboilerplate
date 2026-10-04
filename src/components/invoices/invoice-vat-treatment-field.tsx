@@ -35,7 +35,7 @@ export function InvoiceVatTreatmentField({ binding, error, hasChargedVat, value 
         ))}
       </Select>
       {conflict ? (
-        <p className="mt-1 font-mono text-xs text-destructive" data-testid="invoice-vat-treatment-conflict" role="status">
+        <p className="mt-1 font-mono text-xs text-danger-text" data-testid="invoice-vat-treatment-conflict" role="status">
           Con «{selected.label}» las líneas no deben llevar IVA ni recargo: quítalos antes de emitir.
         </p>
       ) : null}

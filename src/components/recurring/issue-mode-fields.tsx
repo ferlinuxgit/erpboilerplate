@@ -77,7 +77,7 @@ export function IssueModeFields({
               {nextDate ? ` La primera será el ${formatScheduleDate(nextDate)}.` : ""} Lo entiendo y quiero activarlo.
             </span>
           </label>
-          {confirmError ? <p className="mt-1 text-destructive" id={`${idBase}-confirm-error`} role="alert">{confirmError}</p> : null}
+          {confirmError ? <p className="mt-1 text-danger-text" id={`${idBase}-confirm-error`} role="alert">{confirmError}</p> : null}
         </InlineAlert>
       ) : null}
     </fieldset>

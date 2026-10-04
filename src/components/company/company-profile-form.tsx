@@ -265,7 +265,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
             </div>
             <p className="text-xs leading-4 text-muted-foreground" id="company-logo-helper">PNG o JPG hasta 250 KB.</p>
             {errors.logoDataUrl?.message ? (
-              <p className="font-mono text-xs text-destructive" id="company-logo-error" role="alert">
+              <p className="font-mono text-xs text-danger-text" id="company-logo-error" role="alert">
                 {errors.logoDataUrl.message}
               </p>
             ) : null}

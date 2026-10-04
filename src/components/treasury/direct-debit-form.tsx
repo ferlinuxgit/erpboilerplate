@@ -143,7 +143,7 @@ export function DirectDebitForm({ accounts, currencyCode, earliestDate, invoices
                       <>
                         <span className="block font-mono">{invoice.mandate.reference}</span>
                         <span className="block text-muted-foreground">{formatIban(invoice.mandate.iban)} · {sequenceTypeHelp[invoice.mandate.sequenceType] ?? invoice.mandate.sequenceType}</span>
-                        {invoice.mandate.problem ? <span className="block text-destructive">{invoice.mandate.problem}</span> : null}
+                        {invoice.mandate.problem ? <span className="block text-danger-text">{invoice.mandate.problem}</span> : null}
                       </>
                     ) : (
                       <Link className="text-primary underline" href={`/customers/${invoice.customerId}`}>Sin mandato · añadir</Link>

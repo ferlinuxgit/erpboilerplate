@@ -78,7 +78,7 @@ export function EditAccountForm({ id, defaultCode, defaultName, defaultType, onC
         </Select>
       </div>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{onCancel ? <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button> : null}<Button type="submit" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</Button></div>
-      {error ? <p id="edit-account-error" className="text-sm text-destructive" role="alert">{error}</p> : null}
+      {error ? <p id="edit-account-error" className="text-sm text-danger-text" role="alert">{error}</p> : null}
     </form>
   );
 }

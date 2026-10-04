@@ -10,6 +10,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { customerLineTaxIds, type CustomerOption } from "@/components/create-invoice-form";
 import { DueDateHint } from "@/components/invoices/due-date-hint";
+import { CustomerSearchDialog } from "@/components/invoices/customer-search-dialog";
 import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
 import {
   discountRegisterOptions,
@@ -22,7 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
 import { Dialog } from "@/components/ui/dialog";
-import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { AccessibleField, FormActions, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -85,9 +86,6 @@ export function EditInvoiceForm({
   const [customerOptions, setCustomerOptions] = useState(customers);
   const [customerSearchDialogOpen, setCustomerSearchDialogOpen] = useState(false);
   const [customerCreateDialogOpen, setCustomerCreateDialogOpen] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [customerLocationSearch, setCustomerLocationSearch] = useState("");
-  const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
@@ -141,17 +139,6 @@ export function EditInvoiceForm({
   const termsDays = effectivePaymentTermsDays(selectedCustomer?.paymentTermsDays, companyPaymentTermsDays);
   const termsSource = typeof selectedCustomer?.paymentTermsDays === "number" ? "customer" : "company";
   const emptyLine: EditableInvoiceLine = { description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: [...defaultTaxIds] };
-  const filteredCustomers = useMemo(() => {
-    const textQuery = customerSearch.trim().toLocaleLowerCase();
-    const locationQuery = customerLocationSearch.trim().toLocaleLowerCase();
-    const taxQuery = customerTaxSearch.trim().toLocaleLowerCase();
-    return customerOptions.filter((customer) => {
-      const text = [customer.number, customer.name, customer.email, customer.phone].filter(Boolean).join(" ").toLocaleLowerCase();
-      const location = [customer.city, customer.province].filter(Boolean).join(" ").toLocaleLowerCase();
-      const taxId = (customer.taxId ?? "").toLocaleLowerCase();
-      return (!textQuery || text.includes(textQuery)) && (!locationQuery || location.includes(locationQuery)) && (!taxQuery || taxId.includes(taxQuery));
-    });
-  }, [customerLocationSearch, customerOptions, customerSearch, customerTaxSearch]);
   const {
     register: registerCustomer,
     reset: resetCustomer,
@@ -367,7 +354,7 @@ export function EditInvoiceForm({
         ) : (
           <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Selecciona un cliente activo.</p>
         )}
-        {errors.customerId ? <p className="font-mono text-xs text-destructive" role="alert">{errors.customerId.message}</p> : null}
+        {errors.customerId ? <p className="font-mono text-xs text-danger-text" role="alert">{errors.customerId.message}</p> : null}
       </section>
       <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3">
         <p className="font-mono text-xs font-bold">Número provisional</p>
@@ -380,7 +367,6 @@ export function EditInvoiceForm({
           id="invoice-issue-date"
           type="date"
           required
-          aria-label="Fecha de emisión"
           aria-invalid={Boolean(errors.issueDate)}
           aria-describedby={errors.issueDate ? "invoice-issue-date-error" : undefined}
           {...register("issueDate", { onChange: (event: { target: { value: string } }) => proposeDueDate(event.target.value, termsDays) })}
@@ -397,7 +383,6 @@ export function EditInvoiceForm({
           id="invoice-due-date"
           min={watchedIssueDate || undefined}
           type="date"
-          aria-label="Fecha de vencimiento"
           aria-invalid={Boolean(errors.dueDate)}
           {...register("dueDate", { onChange: () => setDueDateTouched(true) })}
         />
@@ -430,7 +415,7 @@ export function EditInvoiceForm({
           taxes={taxes}
           totals={totals}
         />
-        {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-destructive" role="alert">{errors.lines.root.message}</p> : null}
+        {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-danger-text" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
@@ -448,25 +433,24 @@ export function EditInvoiceForm({
             value={selectedVatTreatment}
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
-            <Input id="invoice-notes" placeholder="Observaciones" aria-label="Notas de factura" {...register("notes")} />
+            <Input id="invoice-notes" placeholder="Observaciones" {...register("notes")} />
           </AccessibleField>
         </div>
         <InvoiceTotalsSummary error={errors.totalAmount?.message} totals={totals} />
       </div>
 
-      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-drop md:col-span-3">
-        <p className="hidden text-xs text-muted-foreground sm:block">
-          {submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
-        </p>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <SubmitButton className="min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting} variant="outline">
-            Guardar borrador
-          </SubmitButton>
-          <Button data-testid="invoice-edit-save-and-issue" disabled={isSubmitting || issuing} onClick={() => void onRequestIssue()} type="button">
-            {issuing ? "Emitiendo…" : "Guardar y emitir"}
-          </Button>
-        </div>
-      </div>
+      <FormActions
+        className="md:col-span-3"
+        hint={submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
+        sticky
+      >
+        <SubmitButton className="min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting} variant="outline">
+          Guardar borrador
+        </SubmitButton>
+        <Button data-testid="invoice-edit-save-and-issue" disabled={isSubmitting || issuing} onClick={() => void onRequestIssue()} type="button">
+          {issuing ? "Emitiendo…" : "Guardar y emitir"}
+        </Button>
+      </FormActions>
     </form>
     <IssueConfirmDialog
       error={issueError}
@@ -482,51 +466,18 @@ export function EditInvoiceForm({
         </dl>
       }
     />
-    <Dialog
-      description="Busca por nombre o identificación fiscal y selecciona el cliente de la factura."
-      initialFocusId="invoice-customer-search"
-      open={customerSearchDialogOpen}
+    <CustomerSearchDialog
+      canCreateCustomer={canCreateCustomer}
+      customers={customerOptions}
       onClose={() => setCustomerSearchDialogOpen(false)}
-      size="lg"
-      title="Seleccionar cliente"
-    >
-      <div className="space-y-4" data-testid="invoice-customer-search-dialog">
-        <div className="grid gap-3 md:grid-cols-3">
-          <AccessibleField id="invoice-customer-search" label="Número, nombre, email o teléfono">
-            <Input id="invoice-customer-search" aria-label="Número, nombre, email o teléfono" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} />
-          </AccessibleField>
-          <AccessibleField id="invoice-customer-location-search" label="Ciudad o provincia">
-            <Input id="invoice-customer-location-search" aria-label="Ciudad o provincia" value={customerLocationSearch} onChange={(event) => setCustomerLocationSearch(event.target.value)} />
-          </AccessibleField>
-          <AccessibleField id="invoice-customer-tax-search" label="CIF/NIF/VAT">
-            <Input id="invoice-customer-tax-search" aria-label="CIF/NIF/VAT" value={customerTaxSearch} onChange={(event) => setCustomerTaxSearch(event.target.value)} />
-          </AccessibleField>
-        </div>
-        <div className="max-h-80 space-y-2 overflow-y-auto">
-          {filteredCustomers.length === 0 ? (
-            <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
-          ) : filteredCustomers.map((customer) => (
-            <button
-              className="w-full rounded-surface border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-              key={customer.id}
-              type="button"
-              onClick={() => {
-                setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
-                proposeDueDate(watchedIssueDate, effectivePaymentTermsDays(customer.paymentTermsDays, companyPaymentTermsDays));
-                setCustomerSearchDialogOpen(false);
-              }}
-            >
-              <span className="block font-mono text-sm font-bold">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
-              <span className="block text-xs text-muted-foreground">{[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}</span>
-            </button>
-          ))}
-        </div>
-        <div className="flex justify-between gap-2">
-          {canCreateCustomer ? <Button type="button" variant="secondary" onClick={() => { setCustomerSearchDialogOpen(false); setCustomerCreateDialogOpen(true); }}>Crear nuevo cliente</Button> : <span />}
-          <Button type="button" variant="outline" onClick={() => setCustomerSearchDialogOpen(false)}>Cancelar</Button>
-        </div>
-      </div>
-    </Dialog>
+      onCreateCustomer={() => { setCustomerSearchDialogOpen(false); setCustomerCreateDialogOpen(true); }}
+      onSelect={(customer) => {
+        setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
+        proposeDueDate(watchedIssueDate, effectivePaymentTermsDays(customer.paymentTermsDays, companyPaymentTermsDays));
+        setCustomerSearchDialogOpen(false);
+      }}
+      open={customerSearchDialogOpen}
+    />
     <Dialog
       description="Registra los datos fiscales mínimos sin abandonar la factura."
       initialFocusId="invoice-new-customer-name"
@@ -537,34 +488,34 @@ export function EditInvoiceForm({
     >
       <form className="grid gap-3 md:grid-cols-2" data-testid="invoice-new-customer-dialog-form" onSubmit={onCreateCustomer}>
         <AccessibleField id="invoice-new-customer-name" label="Nombre / razón social" required className="md:col-span-2" error={customerErrors.name?.message}>
-          <Input data-testid="invoice-new-customer-name-input" id="invoice-new-customer-name" required aria-label="Nombre o razón social del cliente nuevo" aria-invalid={Boolean(customerErrors.name)} {...registerCustomer("name")} />
+          <Input data-testid="invoice-new-customer-name-input" id="invoice-new-customer-name" required aria-invalid={Boolean(customerErrors.name)} {...registerCustomer("name")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-tax-id" label="CIF/NIF/VAT" required error={customerErrors.taxId?.message}>
-          <Input data-testid="invoice-new-customer-tax-id-input" id="invoice-new-customer-tax-id" required aria-label="CIF NIF VAT del cliente nuevo" aria-invalid={Boolean(customerErrors.taxId)} {...registerCustomer("taxId")} />
+          <Input data-testid="invoice-new-customer-tax-id-input" id="invoice-new-customer-tax-id" required aria-invalid={Boolean(customerErrors.taxId)} {...registerCustomer("taxId")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-country" label="País" required error={customerErrors.countryCode?.message}>
-          <Input data-testid="invoice-new-customer-country-input" id="invoice-new-customer-country" maxLength={2} required aria-label="País del cliente nuevo" aria-invalid={Boolean(customerErrors.countryCode)} {...registerCustomer("countryCode")} />
+          <Input data-testid="invoice-new-customer-country-input" id="invoice-new-customer-country" maxLength={2} required aria-invalid={Boolean(customerErrors.countryCode)} {...registerCustomer("countryCode")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-address" label="Dirección fiscal" required className="md:col-span-2" error={customerErrors.address?.message}>
-          <Input data-testid="invoice-new-customer-address-input" id="invoice-new-customer-address" required aria-label="Dirección fiscal del cliente nuevo" aria-invalid={Boolean(customerErrors.address)} {...registerCustomer("address")} />
+          <Input data-testid="invoice-new-customer-address-input" id="invoice-new-customer-address" required aria-invalid={Boolean(customerErrors.address)} {...registerCustomer("address")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-postal-code" label="Código postal" required error={customerErrors.postalCode?.message}>
-          <Input data-testid="invoice-new-customer-postal-code-input" id="invoice-new-customer-postal-code" required aria-label="Código postal del cliente nuevo" aria-invalid={Boolean(customerErrors.postalCode)} {...registerCustomer("postalCode")} />
+          <Input data-testid="invoice-new-customer-postal-code-input" id="invoice-new-customer-postal-code" required aria-invalid={Boolean(customerErrors.postalCode)} {...registerCustomer("postalCode")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-city" label="Ciudad" required error={customerErrors.city?.message}>
-          <Input data-testid="invoice-new-customer-city-input" id="invoice-new-customer-city" required aria-label="Ciudad del cliente nuevo" aria-invalid={Boolean(customerErrors.city)} {...registerCustomer("city")} />
+          <Input data-testid="invoice-new-customer-city-input" id="invoice-new-customer-city" required aria-invalid={Boolean(customerErrors.city)} {...registerCustomer("city")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-province" label="Provincia" required error={customerErrors.province?.message}>
-          <Input data-testid="invoice-new-customer-province-input" id="invoice-new-customer-province" required aria-label="Provincia del cliente nuevo" aria-invalid={Boolean(customerErrors.province)} {...registerCustomer("province")} />
+          <Input data-testid="invoice-new-customer-province-input" id="invoice-new-customer-province" required aria-invalid={Boolean(customerErrors.province)} {...registerCustomer("province")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-address-line-2" label="Dirección 2" error={customerErrors.addressLine2?.message}>
-          <Input data-testid="invoice-new-customer-address-line-2-input" id="invoice-new-customer-address-line-2" aria-label="Dirección 2 del cliente nuevo" {...registerCustomer("addressLine2")} />
+          <Input data-testid="invoice-new-customer-address-line-2-input" id="invoice-new-customer-address-line-2" {...registerCustomer("addressLine2")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-email" label="Email" error={customerErrors.email?.message}>
-          <Input data-testid="invoice-new-customer-email-input" id="invoice-new-customer-email" type="email" aria-label="Email del cliente nuevo" {...registerCustomer("email")} />
+          <Input data-testid="invoice-new-customer-email-input" id="invoice-new-customer-email" type="email" {...registerCustomer("email")} />
         </AccessibleField>
         <AccessibleField id="invoice-new-customer-phone" label="Teléfono" error={customerErrors.phone?.message}>
-          <Input data-testid="invoice-new-customer-phone-input" id="invoice-new-customer-phone" aria-label="Teléfono del cliente nuevo" {...registerCustomer("phone")} />
+          <Input data-testid="invoice-new-customer-phone-input" id="invoice-new-customer-phone" {...registerCustomer("phone")} />
         </AccessibleField>
         <FormErrorMessage className="md:col-span-2">{customerSubmitError}</FormErrorMessage>
         <div className="flex justify-end gap-2 md:col-span-2">

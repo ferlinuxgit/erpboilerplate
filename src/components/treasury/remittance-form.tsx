@@ -157,7 +157,7 @@ export function RemittanceForm({ accounts, currencyCode, invoices }: { accounts:
                   <TableCell className="min-w-64">
                     <label className="sr-only" htmlFor={`remittance-iban-${invoice.id}`}>IBAN de {invoice.partnerName}</label>
                     <Input aria-invalid={line.selected && iban !== null && !iban.valid ? true : undefined} disabled={!line.selected} id={`remittance-iban-${invoice.id}`} onChange={(event) => update(invoice.id, { iban: event.target.value.toUpperCase() })} placeholder="ES00 0000 0000 00 0000000000" value={line.iban} />
-                    {line.selected && iban && !iban.valid ? <p className="text-xs text-destructive">{iban.reason}</p> : null}
+                    {line.selected && iban && !iban.valid ? <p className="text-xs text-danger-text">{iban.reason}</p> : null}
                   </TableCell>
                   <TableCell className="w-32">
                     <label className="sr-only" htmlFor={`remittance-bic-${invoice.id}`}>BIC de {invoice.partnerName}</label>

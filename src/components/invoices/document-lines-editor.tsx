@@ -1,20 +1,29 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Copy, Plus, Trash } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 
-import { Button } from "@/components/ui/button";
+import {
+  focusFirstVisible,
+  LineActions,
+  LineEditorRow,
+  LineEditorSection,
+  LineEditorTable,
+  LineField,
+  LineFooter,
+  LineTotal,
+  type LineColumn,
+} from "@/components/invoices/line-editor-parts";
 import { Input } from "@/components/ui/input";
 import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { formatMoney, formatPercent, parseDecimalInput } from "@/lib/format";
 import { calculateInvoiceTotals, type InvoiceTotals } from "@/lib/invoice-totals";
-import { cn } from "@/lib/utils";
 
 /**
  * Controlled line editor shared by sales quotes, sales orders and purchase
- * orders. Mirrors the invoice editor (`InvoiceLinesEditor`): same columns,
- * keyboard flow (Enter advances, Enter on the price adds a line, Alt+L adds a
+ * orders. Shares its building blocks with the invoice editor
+ * (`InvoiceLinesEditor`, see `line-editor-parts.tsx`): same columns, mobile
+ * cards, keyboard flow (Enter advances, Enter on the price adds a line, Alt+L adds a
  * line), duplicate / reorder / remove and live totals.
  */
 export type DocumentLineDraft = {
@@ -128,21 +137,21 @@ export function DocumentLinesEditor({
   withDiscount = false,
   withTax = true,
 }: DocumentLinesEditorProps) {
-  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
-  const sectionRef = useRef<HTMLElement>(null);
+  // Ids candidatos para el foco tras añadir/mover/quitar: se usa el primero visible.
+  const [pendingFocus, setPendingFocus] = useState<string[] | null>(null);
   const totals = documentLinesTotals(lines, { retentionRate, withTax });
   const withCatalog = Boolean(catalog?.length);
   const titleId = `${idPrefix}s-title`;
-  const columns = [
-    withCatalog ? "Artículo" : null,
-    "Concepto",
-    "Cantidad",
-    "Precio unitario",
-    withDiscount ? "Dto." : null,
-    withTax ? "IVA" : null,
-    "Importe",
-    "Acciones",
-  ].filter(Boolean) as string[];
+  const columns: LineColumn[] = [
+    withCatalog ? { label: "Artículo" } : null,
+    { label: "Concepto" },
+    { label: "Cantidad", numeric: true },
+    { label: "Precio unitario", numeric: true },
+    withDiscount ? { label: "Dto.", numeric: true } : null,
+    withTax ? { label: "IVA" } : null,
+    { label: "Importe", numeric: true },
+    { label: "Acciones" },
+  ].filter((column): column is LineColumn => column !== null);
   // Arbitrary grid tracks must be literal strings for Tailwind to generate them.
   const gridTemplates: Record<string, string> = {
     "": "lg:grid-cols-[minmax(13rem,1fr)_6rem_8rem_7.5rem_7.5rem]",
@@ -159,7 +168,7 @@ export function DocumentLinesEditor({
   useEffect(() => {
     if (!pendingFocus) return;
     const frame = requestAnimationFrame(() => {
-      document.getElementById(pendingFocus)?.focus();
+      focusFirstVisible(pendingFocus);
       setPendingFocus(null);
     });
     return () => cancelAnimationFrame(frame);
@@ -170,7 +179,7 @@ export function DocumentLinesEditor({
     onChange(lines.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
   const add = () => {
     onChange([...lines, createDocumentLine({ taxRate: withTax ? String(defaultTaxRate) : undefined })]);
-    setPendingFocus(fieldId(lines.length, withCatalog ? "item" : "description"));
+    setPendingFocus([fieldId(lines.length, withCatalog ? "item" : "description")]);
   };
   const duplicate = (index: number) => {
     const source = lines[index];
@@ -178,7 +187,7 @@ export function DocumentLinesEditor({
     const { key: _key, ...rest } = source;
     void _key;
     onChange([...lines.slice(0, index + 1), createDocumentLine(rest), ...lines.slice(index + 1)]);
-    setPendingFocus(fieldId(index + 1, "description"));
+    setPendingFocus([fieldId(index + 1, "description")]);
   };
   const move = (from: number, to: number) => {
     if (to < 0 || to >= lines.length) return;
@@ -186,12 +195,13 @@ export function DocumentLinesEditor({
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     onChange(next);
-    setPendingFocus(`${idPrefix}-${to + 1}-${from > to ? "move-up" : "move-down"}`);
+    // En móvil los botones de mover están en el menú «Más»: el foco va al concepto.
+    setPendingFocus([`${idPrefix}-${to + 1}-${from > to ? "move-up" : "move-down"}`, fieldId(to, "description")]);
   };
   const remove = (index: number) => {
     if (lines.length === 1) return;
     onChange(lines.filter((_, lineIndex) => lineIndex !== index));
-    setPendingFocus(fieldId(Math.max(0, index - 1), "description"));
+    setPendingFocus([fieldId(Math.max(0, index - 1), "description")]);
   };
   const advanceOnEnter = (event: KeyboardEvent<HTMLElement>, nextId: string | null, index: number) => {
     if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -210,200 +220,151 @@ export function DocumentLinesEditor({
   };
 
   return (
-    <section
-      aria-labelledby={titleId}
-      className="space-y-2"
+    <LineEditorSection
+      addTestId={`${idPrefix}-add`}
+      count={lines.length}
+      description={description}
+      onAdd={add}
       onKeyDown={(event) => {
         if (event.altKey && !event.ctrlKey && !event.metaKey && (event.key.toLowerCase() === "l" || event.code === "KeyL")) {
           event.preventDefault();
           add();
         }
       }}
-      ref={sectionRef}
+      title={title}
+      titleId={titleId}
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="font-mono text-sm font-bold" id={titleId}>{title}</h2>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-        <Button aria-keyshortcuts="Alt+L" data-testid={`${idPrefix}-add`} onClick={add} type="button" variant="outline">
-          <Plus aria-hidden="true" />
-          Añadir línea
-        </Button>
-      </div>
-
-      <div className="rounded-surface border border-window-dark-shadow bg-window-surface">
-        <div aria-hidden="true" className={cn("hidden gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid", gridTemplate)}>
-          {columns.map((label) => (
-            <div className={cn("bg-window-panel px-2 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.04em]", (label === "Importe" || label === "Cantidad" || label === "Precio unitario") && "text-right")} key={label}>
-              {label}
-            </div>
-          ))}
-        </div>
-        <div className="divide-y divide-window-shadow">
-          {lines.map((line, index) => {
-            const lineNumber = index + 1;
-            const lineErrors = errors[index] ?? {};
-            const lineTotal = totals.lines[index];
-            const ids = {
-              item: fieldId(index, "item"),
-              description: fieldId(index, "description"),
-              quantity: fieldId(index, "quantity"),
-              unitPrice: fieldId(index, "unit-price"),
-              taxRate: fieldId(index, "tax-rate"),
-              discountPct: fieldId(index, "discount"),
-            };
-            const errorId = (field: keyof typeof ids) => (lineErrors[field as keyof DocumentLineErrors] ? `${ids[field]}-error` : undefined);
-            return (
-              <fieldset className={cn("grid gap-2 bg-card p-2 lg:items-start lg:gap-1", gridTemplate)} data-testid={`${idPrefix}-${lineNumber}`} key={line.key}>
-                <legend className="sr-only">Línea {lineNumber}</legend>
-                {withCatalog ? (
-                  <div className="space-y-1">
-                    <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.item}>Artículo</label>
-                    <Select
-                      className="h-9"
-                      id={ids.item}
-                      onChange={(event) => {
-                        const selected = catalog?.find((entry) => entry.id === event.target.value);
-                        update(index, {
-                          itemId: event.target.value,
-                          ...(selected
-                            ? { description: selected.description, ...(selected.unitPrice !== null && selected.unitPrice !== undefined ? { unitPrice: String(selected.unitPrice) } : {}) }
-                            : {}),
-                        });
-                      }}
-                      onKeyDown={(event) => advanceOnEnter(event, ids.description, index)}
-                      value={line.itemId ?? ""}
-                    >
-                      <option value="">Concepto libre</option>
-                      {catalog?.map((entry) => (
-                        <option key={entry.id} value={entry.id}>{entry.label}</option>
-                      ))}
-                    </Select>
-                  </div>
-                ) : null}
-                <div className="space-y-1">
-                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.description}>
-                    Concepto<span className="sr-only"> de la línea {lineNumber}</span>
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <span aria-hidden="true" className="w-5 shrink-0 text-center font-mono text-xs text-muted-foreground">{lineNumber}</span>
-                    <Input
-                      aria-describedby={errorId("description")}
-                      aria-invalid={Boolean(lineErrors.description) || undefined}
-                      className="h-9"
-                      data-testid={ids.description}
-                      id={ids.description}
-                      onChange={(event) => update(index, { description: event.target.value })}
-                      onKeyDown={(event) => advanceOnEnter(event, ids.quantity, index)}
-                      placeholder="Producto o servicio"
-                      required
-                      value={line.description}
-                    />
-                  </div>
-                  {lineErrors.description ? <p className="pl-6 text-xs text-destructive" id={`${ids.description}-error`} role="alert">{lineErrors.description}</p> : null}
-                </div>
-                <div className="space-y-1">
-                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.quantity}>
-                    Cantidad<span className="sr-only"> de la línea {lineNumber}</span>
-                  </label>
-                  <QuantityInput
-                    aria-describedby={errorId("quantity")}
-                    aria-invalid={Boolean(lineErrors.quantity) || undefined}
+      <LineEditorTable columns={columns} gridTemplate={gridTemplate}>
+        {lines.map((line, index) => {
+          const lineNumber = index + 1;
+          const lineErrors = errors[index] ?? {};
+          const lineTotal = totals.lines[index];
+          const ids = {
+            item: fieldId(index, "item"),
+            description: fieldId(index, "description"),
+            quantity: fieldId(index, "quantity"),
+            unitPrice: fieldId(index, "unit-price"),
+            taxRate: fieldId(index, "tax-rate"),
+            discountPct: fieldId(index, "discount"),
+          };
+          const errorId = (field: keyof DocumentLineErrors) => (lineErrors[field] ? `${ids[field]}-error` : undefined);
+          const fieldProps = (field: keyof DocumentLineErrors) => ({ error: lineErrors[field], errorId: errorId(field), lineNumber });
+          return (
+            <LineEditorRow gridTemplate={gridTemplate} key={line.key} lineNumber={lineNumber} testId={`${idPrefix}-${lineNumber}`}>
+              {withCatalog ? (
+                <LineField htmlFor={ids.item} label="Artículo" lineNumber={lineNumber} wide>
+                  <Select
                     className="h-9"
-                    data-testid={ids.quantity}
-                    id={ids.quantity}
-                    onChange={(event) => update(index, { quantity: event.target.value })}
-                    onKeyDown={(event) => advanceOnEnter(event, ids.unitPrice, index)}
-                    required
-                    value={line.quantity}
-                  />
-                  {lineErrors.quantity ? <p className="text-xs text-destructive" id={`${ids.quantity}-error`} role="alert">{lineErrors.quantity}</p> : null}
-                </div>
-                <div className="space-y-1">
-                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.unitPrice}>
-                    Precio unitario<span className="sr-only"> de la línea {lineNumber}</span>
-                  </label>
-                  <MoneyInput
-                    aria-describedby={errorId("unitPrice")}
-                    aria-invalid={Boolean(lineErrors.unitPrice) || undefined}
+                    id={ids.item}
+                    onChange={(event) => {
+                      const selected = catalog?.find((entry) => entry.id === event.target.value);
+                      update(index, {
+                        itemId: event.target.value,
+                        ...(selected
+                          ? { description: selected.description, ...(selected.unitPrice !== null && selected.unitPrice !== undefined ? { unitPrice: String(selected.unitPrice) } : {}) }
+                          : {}),
+                      });
+                    }}
+                    onKeyDown={(event) => advanceOnEnter(event, ids.description, index)}
+                    value={line.itemId ?? ""}
+                  >
+                    <option value="">Concepto libre</option>
+                    {catalog?.map((entry) => (
+                      <option key={entry.id} value={entry.id}>{entry.label}</option>
+                    ))}
+                  </Select>
+                </LineField>
+              ) : null}
+              <LineField {...fieldProps("description")} htmlFor={ids.description} label="Concepto" wide>
+                <div className="flex items-center gap-1">
+                  <span aria-hidden="true" className="w-5 shrink-0 text-center font-mono text-xs text-muted-foreground">{lineNumber}</span>
+                  <Input
+                    aria-describedby={errorId("description")}
+                    aria-invalid={Boolean(lineErrors.description) || undefined}
                     className="h-9"
-                    data-testid={ids.unitPrice}
-                    id={ids.unitPrice}
-                    onChange={(event) => update(index, { unitPrice: event.target.value })}
-                    onKeyDown={(event) => advanceOnEnter(event, withDiscount ? ids.discountPct : withTax ? ids.taxRate : null, index)}
+                    data-testid={ids.description}
+                    id={ids.description}
+                    onChange={(event) => update(index, { description: event.target.value })}
+                    onKeyDown={(event) => advanceOnEnter(event, ids.quantity, index)}
+                    placeholder="Producto o servicio"
                     required
-                    value={line.unitPrice}
+                    value={line.description}
                   />
-                  {lineErrors.unitPrice ? <p className="text-xs text-destructive" id={`${ids.unitPrice}-error`} role="alert">{lineErrors.unitPrice}</p> : null}
                 </div>
-                {withDiscount ? (
-                  <div className="space-y-1">
-                    <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.discountPct}>
-                      Descuento<span className="sr-only"> de la línea {lineNumber}</span>
-                    </label>
-                    <PercentInput
-                      aria-describedby={errorId("discountPct")}
-                      aria-invalid={Boolean(lineErrors.discountPct) || undefined}
-                      className="h-9"
-                      data-testid={ids.discountPct}
-                      id={ids.discountPct}
-                      onChange={(event) => update(index, { discountPct: event.target.value })}
-                      onKeyDown={(event) => advanceOnEnter(event, withTax ? ids.taxRate : null, index)}
-                      placeholder="0"
-                      value={line.discountPct ?? ""}
-                    />
-                    {lineErrors.discountPct ? <p className="text-xs text-destructive" id={`${ids.discountPct}-error`} role="alert">{lineErrors.discountPct}</p> : null}
-                  </div>
-                ) : null}
-                {withTax ? (
-                  <div className="space-y-1">
-                    <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.taxRate}>
-                      IVA<span className="sr-only"> de la línea {lineNumber}</span>
-                    </label>
-                    <Select
-                      aria-describedby={errorId("taxRate")}
-                      aria-invalid={Boolean(lineErrors.taxRate) || undefined}
-                      className="h-9"
-                      data-testid={ids.taxRate}
-                      id={ids.taxRate}
-                      onChange={(event) => update(index, { taxRate: event.target.value })}
-                      onKeyDown={(event) => advanceOnEnter(event, null, index)}
-                      value={String(parseDecimalInput(line.taxRate) ?? defaultTaxRate)}
-                    >
-                      {taxOptions(line.taxRate).map((rate) => (
-                        <option key={rate} value={String(rate)}>
-                          {rate === 0 ? "Exento 0 %" : `IVA ${formatPercent(rate)}`}
-                        </option>
-                      ))}
-                    </Select>
-                    {lineErrors.taxRate ? <p className="text-xs text-destructive" id={`${ids.taxRate}-error`} role="alert">{lineErrors.taxRate}</p> : null}
-                  </div>
-                ) : null}
-                <div className="flex min-h-9 items-center justify-between gap-2 lg:justify-end">
-                  <span className="font-mono text-xs font-bold lg:hidden">Importe</span>
-                  <div className="text-right font-mono text-control font-bold tabular-nums">
-                    {formatMoney(lineTotal?.lineTotal ?? 0, currencyCode)}
-                    {lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount || parseDecimalInput(line.discountPct)) ? (
-                      <p className="text-xs font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal, currencyCode)}</p>
-                    ) : null}
-                  </div>
-                </div>
-                <div aria-label={`Acciones línea ${lineNumber}`} className="flex items-center justify-end gap-0.5" role="group">
-                  <Button aria-label={`Subir línea ${lineNumber}`} disabled={index === 0} id={`${idPrefix}-${lineNumber}-move-up`} onClick={() => move(index, index - 1)} size="icon-sm" title="Subir" type="button" variant="ghost"><ArrowUp aria-hidden="true" /></Button>
-                  <Button aria-label={`Bajar línea ${lineNumber}`} disabled={index === lines.length - 1} id={`${idPrefix}-${lineNumber}-move-down`} onClick={() => move(index, index + 1)} size="icon-sm" title="Bajar" type="button" variant="ghost"><ArrowDown aria-hidden="true" /></Button>
-                  <Button aria-label={`Duplicar línea ${lineNumber}`} onClick={() => duplicate(index)} size="icon-sm" title="Duplicar" type="button" variant="ghost"><Copy aria-hidden="true" /></Button>
-                  <Button aria-label={`Eliminar línea ${lineNumber}`} disabled={lines.length === 1} onClick={() => remove(index)} size="icon-sm" title="Eliminar" type="button" variant="ghost"><Trash aria-hidden="true" /></Button>
-                </div>
-              </fieldset>
-            );
-          })}
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{lines.length} línea{lines.length === 1 ? "" : "s"}</p>
-        <Button onClick={add} size="sm" type="button" variant="ghost"><Plus aria-hidden="true" />Añadir otra línea</Button>
-      </div>
-    </section>
+              </LineField>
+              <LineField {...fieldProps("quantity")} htmlFor={ids.quantity} label="Cantidad">
+                <QuantityInput
+                  aria-describedby={errorId("quantity")}
+                  aria-invalid={Boolean(lineErrors.quantity) || undefined}
+                  className="h-9"
+                  data-testid={ids.quantity}
+                  id={ids.quantity}
+                  onChange={(event) => update(index, { quantity: event.target.value })}
+                  onKeyDown={(event) => advanceOnEnter(event, ids.unitPrice, index)}
+                  required
+                  value={line.quantity}
+                />
+              </LineField>
+              <LineField {...fieldProps("unitPrice")} htmlFor={ids.unitPrice} label="Precio unitario">
+                <MoneyInput
+                  aria-describedby={errorId("unitPrice")}
+                  aria-invalid={Boolean(lineErrors.unitPrice) || undefined}
+                  className="h-9"
+                  data-testid={ids.unitPrice}
+                  id={ids.unitPrice}
+                  onChange={(event) => update(index, { unitPrice: event.target.value })}
+                  onKeyDown={(event) => advanceOnEnter(event, withDiscount ? ids.discountPct : withTax ? ids.taxRate : null, index)}
+                  required
+                  value={line.unitPrice}
+                />
+              </LineField>
+              {withDiscount ? (
+                <LineField {...fieldProps("discountPct")} htmlFor={ids.discountPct} label="Descuento (%)">
+                  <PercentInput
+                    aria-describedby={errorId("discountPct")}
+                    aria-invalid={Boolean(lineErrors.discountPct) || undefined}
+                    className="h-9"
+                    data-testid={ids.discountPct}
+                    id={ids.discountPct}
+                    onChange={(event) => update(index, { discountPct: event.target.value })}
+                    onKeyDown={(event) => advanceOnEnter(event, withTax ? ids.taxRate : null, index)}
+                    placeholder="0"
+                    value={line.discountPct ?? ""}
+                  />
+                </LineField>
+              ) : null}
+              {withTax ? (
+                <LineField {...fieldProps("taxRate")} htmlFor={ids.taxRate} label="IVA">
+                  <Select
+                    aria-describedby={errorId("taxRate")}
+                    aria-invalid={Boolean(lineErrors.taxRate) || undefined}
+                    className="h-9"
+                    data-testid={ids.taxRate}
+                    id={ids.taxRate}
+                    onChange={(event) => update(index, { taxRate: event.target.value })}
+                    onKeyDown={(event) => advanceOnEnter(event, null, index)}
+                    value={String(parseDecimalInput(line.taxRate) ?? defaultTaxRate)}
+                  >
+                    {taxOptions(line.taxRate).map((rate) => (
+                      <option key={rate} value={String(rate)}>
+                        {rate === 0 ? "Exento 0 %" : `IVA ${formatPercent(rate)}`}
+                      </option>
+                    ))}
+                  </Select>
+                </LineField>
+              ) : null}
+              <LineFooter>
+                <LineTotal
+                  amount={formatMoney(lineTotal?.lineTotal ?? 0, currencyCode)}
+                  base={lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount || parseDecimalInput(line.discountPct)) ? formatMoney(lineTotal.subtotal, currencyCode) : null}
+                  label="Importe"
+                />
+                <LineActions canRemove={lines.length > 1} idPrefix={idPrefix} index={index} lineCount={lines.length} onDuplicate={duplicate} onMove={move} onRemove={remove} />
+              </LineFooter>
+            </LineEditorRow>
+          );
+        })}
+      </LineEditorTable>
+    </LineEditorSection>
   );
 }
