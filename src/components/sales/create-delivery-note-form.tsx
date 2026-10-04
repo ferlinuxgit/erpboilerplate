@@ -107,7 +107,7 @@ export function CreateDeliveryNoteForm({ orders, warehouses, initialOrderId }: {
   return (
     <form className="space-y-4" noValidate onSubmit={submit}>
       <RequiredFieldsNote />
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-3">
         <AccessibleField error={fieldErrors.salesOrderId} id="delivery-order" label="Pedido confirmado" required>
           <Select autoFocus id="delivery-order" onChange={(event) => setSalesOrderId(event.target.value)} value={salesOrderId}>
             {orders.map((order) => <option key={order.id} value={order.id}>{order.number} · {order.customerName}</option>)}
@@ -122,7 +122,7 @@ export function CreateDeliveryNoteForm({ orders, warehouses, initialOrderId }: {
           <Input id="delivery-date" onChange={(event) => setIssuedAt(event.target.value)} type="date" value={issuedAt} />
         </AccessibleField>
       </div>
-      <section className="space-y-3" aria-labelledby="delivery-lines-title">
+      <section className="space-y-2" aria-labelledby="delivery-lines-title">
         <div>
           <h2 className="font-mono text-sm font-bold" id="delivery-lines-title">Cantidades a entregar</h2>
           <p className="mt-1 text-xs text-muted-foreground">Puedes completar una entrega parcial; el pedido conservará las cantidades pendientes.</p>
@@ -158,7 +158,7 @@ export function CreateDeliveryNoteForm({ orders, warehouses, initialOrderId }: {
                         value={quantities[line.id] ?? "0"}
                         wrapperClassName="ml-auto w-28"
                       />
-                      {lineError ? <p className="mt-1 text-right font-mono text-xs text-destructive" id={errorId} role="alert">{lineError}</p> : null}
+                      {lineError ? <p className="mt-1 text-right font-mono text-xs text-danger-text" id={errorId} role="alert">{lineError}</p> : null}
                     </TableCell>
                   </TableRow>
                 );

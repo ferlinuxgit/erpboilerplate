@@ -51,7 +51,7 @@ export function RecurringTemplatesList({
       cell: (row) => (
         <span>
           <Link className="font-semibold text-primary hover:underline" href={`${basePath}/${row.id}`}>{row.name}</Link>
-          {row.lastError ? <span className="block text-xs text-destructive">Error: {row.lastError}</span> : null}
+          {row.lastError ? <span className="block text-xs text-danger-text">Error: {row.lastError}</span> : null}
           {row.pendingReviewCount > 0 ? <span className="block text-xs text-warning-text">{row.pendingReviewCount} pendiente(s) de revisar</span> : null}
         </span>
       ),

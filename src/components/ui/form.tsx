@@ -18,6 +18,12 @@ export function useFormField() {
   return useFormContext();
 }
 
+/**
+ * En móvil la barra de acciones (`FormActions`) queda fija abajo: el control
+ * enfocado se desplaza con margen suficiente para no quedar tapado por ella.
+ */
+export const FIELD_SCROLL_MARGIN = "max-sm:[&_:is(input,select,textarea,summary)]:scroll-mb-24";
+
 type AccessibleFieldProps = {
   id: string;
   label: React.ReactNode;
@@ -70,7 +76,7 @@ export function AccessibleField({ children, className, error, helperText, hideLa
   const enhanced = controlIndex >= 0 ? nodes.map((node, index) => (index === controlIndex ? enhancedControl : node)) : nodes;
 
   return (
-    <div className={cn("min-w-0 space-y-1", className)} data-slot="field">
+    <div className={cn("min-w-0 space-y-1", FIELD_SCROLL_MARGIN, className)} data-slot="field">
       <Label className={hideLabel ? "sr-only" : undefined} htmlFor={id}>
         <span>
           {label}
@@ -85,7 +91,7 @@ export function AccessibleField({ children, className, error, helperText, hideLa
       {enhanced}
       {helperText ? <p className="text-xs leading-4 text-muted-foreground" id={`${id}-helper`}>{helperText}</p> : null}
       {error ? (
-        <p className="font-mono text-xs text-destructive" id={`${id}-error`} role="alert">
+        <p className="font-mono text-xs text-danger-text" id={`${id}-error`} role="alert">
           {error}
         </p>
       ) : null}
@@ -131,15 +137,23 @@ export function SubmitButton({ children, disabled, pending = false, pendingLabel
   );
 }
 
-/** Sticky footer for long forms: hint on the left, actions on the right. */
+/**
+ * Barra de acciones del formulario: ayuda a la izquierda, botones a la derecha.
+ *
+ * Móvil (<sm): siempre fija al pie del viewport sobre una superficie opaca
+ * (respeta el área segura del iPhone) y los botones se reparten todo el ancho.
+ * Escritorio: fila al final del formulario; con `sticky` flota como panel.
+ */
 export function FormActions({ children, className, hint = "Ctrl/Cmd + Enter para guardar", sticky = false }: { children: React.ReactNode; className?: string; hint?: React.ReactNode; sticky?: boolean }) {
   return (
     <div
       className={cn(
         "flex flex-wrap items-center justify-end gap-2 border-t border-window-shadow pt-3",
-        sticky && "sticky bottom-2 z-10 border border-window-dark-shadow bg-window-panel p-2 shadow-drop",
+        "max-sm:sticky max-sm:bottom-0 max-sm:z-20 max-sm:border-window-dark-shadow max-sm:bg-window-surface max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))] max-sm:shadow-bevel-top max-sm:*:min-w-0 max-sm:*:flex-1",
+        sticky && "sm:sticky sm:bottom-2 sm:z-10 sm:border sm:border-window-dark-shadow sm:bg-window-panel sm:p-2 sm:shadow-drop",
         className,
       )}
+      data-slot="form-actions"
     >
       {hint ? <p className="mr-auto hidden text-xs text-muted-foreground sm:block">{hint}</p> : null}
       {children}

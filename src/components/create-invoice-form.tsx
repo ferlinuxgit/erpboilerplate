@@ -9,10 +9,11 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { AccessibleField, FormActions, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
+import { CustomerSearchDialog } from "@/components/invoices/customer-search-dialog";
 import { DueDateHint } from "@/components/invoices/due-date-hint";
 import {
   InvoiceLinesEditor,
@@ -120,9 +121,6 @@ export function CreateInvoiceForm({
   const [customerOptions, setCustomerOptions] = useState(customers);
   const [customerSearchDialogOpen, setCustomerSearchDialogOpen] = useState(false);
   const [customerCreateDialogOpen, setCustomerCreateDialogOpen] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [customerLocationSearch, setCustomerLocationSearch] = useState("");
-  const [customerTaxSearch, setCustomerTaxSearch] = useState("");
   const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
@@ -198,19 +196,6 @@ export function CreateInvoiceForm({
   const previousDefaultTaxIds = useRef(defaultTaxIds);
   const termsDays = termsFor(selectedCustomer);
   const termsSource = typeof selectedCustomer?.paymentTermsDays === "number" ? "customer" : "company";
-  const filteredCustomers = useMemo(() => {
-    const textQuery = customerSearch.trim().toLocaleLowerCase();
-    const locationQuery = customerLocationSearch.trim().toLocaleLowerCase();
-    const taxQuery = customerTaxSearch.trim().toLocaleLowerCase();
-
-    return customerOptions.filter((customer) => {
-      const text = [customer.number, customer.name, customer.email, customer.phone].filter(Boolean).join(" ").toLocaleLowerCase();
-      const location = [customer.city, customer.province].filter(Boolean).join(" ").toLocaleLowerCase();
-      const tax = (customer.taxId ?? "").toLocaleLowerCase();
-      return (!textQuery || text.includes(textQuery)) && (!locationQuery || location.includes(locationQuery)) && (!taxQuery || tax.includes(taxQuery));
-    });
-  }, [customerLocationSearch, customerOptions, customerSearch, customerTaxSearch]);
-
   const hasChargedVat = totals.taxBuckets.some(
     (bucket) => bucket.operation === "ADD" && bucket.rate > 0 && ["VAT", "SURCHARGE"].includes((bucket.kind ?? "").toUpperCase()),
   );
@@ -451,7 +436,7 @@ export function CreateInvoiceForm({
         ) : (
           <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
         )}
-        {errors.customerId ? <p className="font-mono text-xs text-destructive" role="alert">{errors.customerId.message}</p> : null}
+        {errors.customerId ? <p className="font-mono text-xs text-danger-text" role="alert">{errors.customerId.message}</p> : null}
       </section>
       <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3">
         <p className="font-mono text-xs font-bold">Número automático</p>
@@ -484,7 +469,6 @@ export function CreateInvoiceForm({
           id="invoice-issue-date"
           required
           type="date"
-          aria-label="Fecha de emisión"
           aria-invalid={Boolean(errors.issueDate)}
           aria-describedby={errors.issueDate ? "invoice-issue-date-error" : undefined}
           {...register("issueDate")}
@@ -501,7 +485,6 @@ export function CreateInvoiceForm({
           id="invoice-due-date"
           min={watchedIssueDate || undefined}
           type="date"
-          aria-label="Fecha de vencimiento"
           aria-invalid={Boolean(errors.dueDate)}
           {...register("dueDate", { onChange: () => setDueDateTouched(true) })}
         />
@@ -534,7 +517,7 @@ export function CreateInvoiceForm({
           taxes={taxes}
           totals={totals}
         />
-        {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-destructive" role="alert">{errors.lines.root.message}</p> : null}
+        {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-danger-text" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
@@ -556,7 +539,6 @@ export function CreateInvoiceForm({
               data-testid="invoice-notes-input"
               id="invoice-notes"
               placeholder="Observaciones"
-              aria-label="Notas de factura"
               aria-invalid={Boolean(errors.notes)}
               aria-describedby={errors.notes ? "invoice-notes-error" : "invoice-notes-helper"}
               {...register("notes")}
@@ -567,32 +549,31 @@ export function CreateInvoiceForm({
       </div>
 
       <FormErrorMessage className="md:col-span-3">{submitError}</FormErrorMessage>
-      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-drop md:col-span-3">
-        <p className="hidden text-xs text-muted-foreground sm:block">
-          Enter o Ctrl/Cmd + Enter guardan un borrador. «Emitir factura» te pide confirmación: al emitir se asigna el número y deja de ser editable.
-        </p>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <SubmitButton
-            aria-keyshortcuts="Control+Enter Meta+Enter"
-            data-testid="invoice-save-draft"
-            pending={isSubmitting && submitMode === "draft"}
-            pendingLabel="Guardando…"
-            title="Ctrl/Cmd + Enter"
-            variant="outline"
-          >
-            Guardar borrador
-          </SubmitButton>
-          <Button
-            className="min-w-36"
-            data-testid="invoice-create-submit"
-            disabled={isSubmitting}
-            onClick={() => void onRequestIssue()}
-            type="button"
-          >
-            {isSubmitting && submitMode === "issue" ? "Emitiendo…" : "Emitir factura"}
-          </Button>
-        </div>
-      </div>
+      <FormActions
+        className="md:col-span-3"
+        hint="Enter o Ctrl/Cmd + Enter guardan un borrador. «Emitir factura» te pide confirmación: al emitir se asigna el número y deja de ser editable."
+        sticky
+      >
+        <SubmitButton
+          aria-keyshortcuts="Control+Enter Meta+Enter"
+          data-testid="invoice-save-draft"
+          pending={isSubmitting && submitMode === "draft"}
+          pendingLabel="Guardando…"
+          title="Ctrl/Cmd + Enter"
+          variant="outline"
+        >
+          Guardar borrador
+        </SubmitButton>
+        <Button
+          className="min-w-36"
+          data-testid="invoice-create-submit"
+          disabled={isSubmitting}
+          onClick={() => void onRequestIssue()}
+          type="button"
+        >
+          {isSubmitting && submitMode === "issue" ? "Emitiendo…" : "Emitir factura"}
+        </Button>
+      </FormActions>
     </form>
     <IssueConfirmDialog
       error={issueError}
@@ -608,78 +589,18 @@ export function CreateInvoiceForm({
         </dl>
       }
     />
-    <Dialog
-      description="Busca por nombre o identificación fiscal y selecciona el cliente de la factura."
-      initialFocusId="invoice-customer-search"
-      open={customerSearchDialogOpen}
+    <CustomerSearchDialog
+      canCreateCustomer={canCreateCustomer}
+      customers={customerOptions}
       onClose={() => setCustomerSearchDialogOpen(false)}
-      size="lg"
-      title="Seleccionar cliente"
-    >
-      <div className="space-y-4" data-testid="invoice-customer-search-dialog">
-        <div className="grid gap-3 md:grid-cols-3">
-          <AccessibleField id="invoice-customer-search" label="Número, nombre, email o teléfono">
-            <Input
-              aria-label="Número, nombre, email o teléfono"
-              id="invoice-customer-search"
-              value={customerSearch}
-              onChange={(event) => setCustomerSearch(event.target.value)}
-            />
-          </AccessibleField>
-          <AccessibleField id="invoice-customer-location-search" label="Ciudad o provincia">
-            <Input
-              aria-label="Ciudad o provincia"
-              id="invoice-customer-location-search"
-              value={customerLocationSearch}
-              onChange={(event) => setCustomerLocationSearch(event.target.value)}
-            />
-          </AccessibleField>
-          <AccessibleField id="invoice-customer-tax-search" label="CIF/NIF/VAT">
-            <Input
-              aria-label="CIF/NIF/VAT"
-              id="invoice-customer-tax-search"
-              value={customerTaxSearch}
-              onChange={(event) => setCustomerTaxSearch(event.target.value)}
-            />
-          </AccessibleField>
-        </div>
-
-        <div className="max-h-80 space-y-2 overflow-y-auto">
-          {filteredCustomers.length === 0 ? (
-            <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
-          ) : (
-            filteredCustomers.map((customer) => (
-              <button
-                className="w-full rounded-surface border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                key={customer.id}
-                type="button"
-                onClick={() => {
-                  setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
-                  setCustomerSearchDialogOpen(false);
-                  requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
-                }}
-              >
-                <span className="block font-mono text-sm font-bold">{customer.number ? `${customer.number} · ` : ""}{customer.name}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {[customer.taxId, customer.city, customer.province, customer.email, customer.phone].filter(Boolean).join(" · ") || "Cliente activo"}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="flex justify-between gap-2">
-          {canCreateCustomer ? (
-            <Button type="button" variant="secondary" onClick={openCustomerCreateDialog}>
-              Crear nuevo cliente
-            </Button>
-          ) : <span />}
-          <Button type="button" variant="outline" onClick={() => setCustomerSearchDialogOpen(false)}>
-            Cancelar
-          </Button>
-        </div>
-      </div>
-    </Dialog>
+      onCreateCustomer={openCustomerCreateDialog}
+      onSelect={(customer) => {
+        setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
+        setCustomerSearchDialogOpen(false);
+        requestAnimationFrame(() => document.getElementById("invoice-issue-date")?.focus());
+      }}
+      open={customerSearchDialogOpen}
+    />
     <Dialog
       description="Registra los datos fiscales mínimos sin abandonar la factura."
       initialFocusId="invoice-new-customer-name"
@@ -694,7 +615,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-name-input"
             id="invoice-new-customer-name"
             required
-            aria-label="Nombre o razón social del cliente nuevo"
             aria-invalid={Boolean(customerErrors.name)}
             aria-describedby={customerErrors.name ? "invoice-new-customer-name-error" : undefined}
             {...registerCustomer("name")}
@@ -706,7 +626,6 @@ export function CreateInvoiceForm({
             id="invoice-new-customer-tax-id"
             placeholder="B12345674"
             required
-            aria-label="CIF NIF VAT del cliente nuevo"
             aria-invalid={Boolean(customerErrors.taxId)}
             aria-describedby={customerErrors.taxId ? "invoice-new-customer-tax-id-error" : undefined}
             {...registerCustomer("taxId")}
@@ -717,7 +636,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-country-input"
             id="invoice-new-customer-country"
             required
-            aria-label="País del cliente nuevo"
             aria-invalid={Boolean(customerErrors.countryCode)}
             {...registerCustomer("countryCode")}
           >
@@ -729,7 +647,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-address-input"
             id="invoice-new-customer-address"
             required
-            aria-label="Dirección fiscal del cliente nuevo"
             aria-invalid={Boolean(customerErrors.address)}
             aria-describedby={customerErrors.address ? "invoice-new-customer-address-error" : undefined}
             {...registerCustomer("address")}
@@ -740,7 +657,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-postal-code-input"
             id="invoice-new-customer-postal-code"
             required
-            aria-label="Código postal del cliente nuevo"
             aria-invalid={Boolean(customerErrors.postalCode)}
             aria-describedby={customerErrors.postalCode ? "invoice-new-customer-postal-code-error" : undefined}
             {...registerCustomer("postalCode")}
@@ -751,7 +667,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-city-input"
             id="invoice-new-customer-city"
             required
-            aria-label="Ciudad del cliente nuevo"
             aria-invalid={Boolean(customerErrors.city)}
             aria-describedby={customerErrors.city ? "invoice-new-customer-city-error" : undefined}
             {...registerCustomer("city")}
@@ -762,7 +677,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-province-input"
             id="invoice-new-customer-province"
             required
-            aria-label="Provincia del cliente nuevo"
             aria-invalid={Boolean(customerErrors.province)}
             aria-describedby={customerErrors.province ? "invoice-new-customer-province-error" : undefined}
             {...registerCustomer("province")}
@@ -772,7 +686,6 @@ export function CreateInvoiceForm({
           <Input
             data-testid="invoice-new-customer-address-line-2-input"
             id="invoice-new-customer-address-line-2"
-            aria-label="Dirección 2 del cliente nuevo"
             aria-invalid={Boolean(customerErrors.addressLine2)}
             aria-describedby={customerErrors.addressLine2 ? "invoice-new-customer-address-line-2-error" : undefined}
             {...registerCustomer("addressLine2")}
@@ -783,7 +696,6 @@ export function CreateInvoiceForm({
             data-testid="invoice-new-customer-email-input"
             id="invoice-new-customer-email"
             type="email"
-            aria-label="Email del cliente nuevo"
             aria-invalid={Boolean(customerErrors.email)}
             aria-describedby={customerErrors.email ? "invoice-new-customer-email-error" : undefined}
             {...registerCustomer("email")}
@@ -793,7 +705,6 @@ export function CreateInvoiceForm({
           <Input
             data-testid="invoice-new-customer-phone-input"
             id="invoice-new-customer-phone"
-            aria-label="Teléfono del cliente nuevo"
             aria-invalid={Boolean(customerErrors.phone)}
             aria-describedby={customerErrors.phone ? "invoice-new-customer-phone-error" : undefined}
             {...registerCustomer("phone")}
