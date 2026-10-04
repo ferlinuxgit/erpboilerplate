@@ -16,13 +16,32 @@ import { cn } from "@/lib/utils";
 
 const THEME_CHANGE_EVENT = "erp-suite-theme-change";
 
+/**
+ * Cambia de paleta sin transiciones: si no, cada control con `transition-colors` animaría
+ * su color por separado y el cambio se vería a trompicones. Se desactivan todas, se aplica
+ * el tema, se fuerza el recálculo de estilos y se reactivan dos fotogramas después.
+ */
+function withoutTransitions(apply: () => void) {
+  const style = document.createElement("style");
+  style.appendChild(document.createTextNode("*,*::before,*::after{transition:none!important}"));
+  document.head.appendChild(style);
+  apply();
+  // Leer una medida obliga al navegador a aplicar ya los estilos sin transición.
+  void document.body.offsetHeight;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => style.remove());
+  });
+}
+
 function updateDocumentTheme(themeId: ThemeId) {
   const isDark = getThemeMode(themeId) === "dark";
   const root = document.documentElement;
 
-  root.dataset.theme = themeId;
-  root.classList.toggle("dark", isDark);
-  root.style.colorScheme = isDark ? "dark" : "light";
+  withoutTransitions(() => {
+    root.dataset.theme = themeId;
+    root.classList.toggle("dark", isDark);
+    root.style.colorScheme = isDark ? "dark" : "light";
+  });
 }
 
 function applyTheme(themeId: ThemeId) {
