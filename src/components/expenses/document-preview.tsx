@@ -156,7 +156,7 @@ export function DocumentPreview({ className, source }: { className?: string; sou
           <MagnifyingGlassPlus aria-hidden="true" />
         </Button>
         {openUrl ? (
-          <a className="inline-flex items-center gap-1 px-1 font-mono text-xs font-bold text-primary hover:underline" href={openUrl} rel="noreferrer" target="_blank">
+          <a className="inline-flex items-center gap-1 px-1 font-mono text-xs font-bold text-link hover:underline" href={openUrl} rel="noreferrer" target="_blank">
             <ArrowSquareOut aria-hidden="true" /> Abrir
           </a>
         ) : null}

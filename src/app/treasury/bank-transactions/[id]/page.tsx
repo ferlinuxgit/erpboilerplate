@@ -65,9 +65,9 @@ export default async function BankTransactionDetailPage({ params }: { params: Pr
                   {allocation.kind === "ACCOUNT" ? (
                     <>Cuenta {allocation.accountCode} · {allocation.accountName}</>
                   ) : allocation.kind === "CUSTOMER_PAYMENT" ? (
-                    <>Cobro {allocation.paymentNumber ?? ""} de la factura {allocation.invoiceId ? <Link className="text-primary hover:underline" href={`/invoices/${allocation.invoiceId}`}>{allocation.invoiceNumber}</Link> : "—"}</>
+                    <>Cobro {allocation.paymentNumber ?? ""} de la factura {allocation.invoiceId ? <Link className="text-link hover:underline" href={`/invoices/${allocation.invoiceId}`}>{allocation.invoiceNumber}</Link> : "—"}</>
                   ) : (
-                    <>Pago {allocation.supplierPaymentNumber ?? ""} de la factura {allocation.supplierInvoiceId ? <Link className="text-primary hover:underline" href={allocation.supplierInvoiceOrigin === "EXPENSE" ? `/expenses/${allocation.supplierInvoiceId}` : `/purchases/supplier-invoices?q=${encodeURIComponent(allocation.supplierInvoiceNumber ?? "")}`}>{allocation.supplierInvoiceNumber}</Link> : "—"}</>
+                    <>Pago {allocation.supplierPaymentNumber ?? ""} de la factura {allocation.supplierInvoiceId ? <Link className="text-link hover:underline" href={allocation.supplierInvoiceOrigin === "EXPENSE" ? `/expenses/${allocation.supplierInvoiceId}` : `/purchases/supplier-invoices?q=${encodeURIComponent(allocation.supplierInvoiceNumber ?? "")}`}>{allocation.supplierInvoiceNumber}</Link> : "—"}</>
                   )}
                   {allocation.createdPayment ? <span className="text-xs text-muted-foreground"> (registrado al conciliar)</span> : null}
                 </span>
@@ -78,7 +78,7 @@ export default async function BankTransactionDetailPage({ params }: { params: Pr
         ) : legacyMatch ? (
           <p className="text-sm">{legacyMatch}.</p>
         ) : (
-          <p className="text-sm text-muted-foreground">Todavía no está vinculado a nada. <Link className="text-primary underline" href={`/treasury/reconciliation?focus=${transaction.id}#movement-${transaction.id}`}>Conciliarlo ahora</Link>.</p>
+          <p className="text-sm text-muted-foreground">Todavía no está vinculado a nada. <Link className="text-link underline" href={`/treasury/reconciliation?focus=${transaction.id}#movement-${transaction.id}`}>Conciliarlo ahora</Link>.</p>
         )}
       </PageSection>
     </PageShell>

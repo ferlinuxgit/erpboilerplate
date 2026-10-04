@@ -61,7 +61,7 @@ export function CollectionsList({ canRemind, currencyCode = "EUR", rows }: { row
     {
       header: "Factura",
       alwaysVisible: true,
-      cell: (row) => <Link className="font-mono font-semibold text-primary hover:underline" href={`/invoices/${row.invoiceId}`}>{row.number}</Link>,
+      cell: (row) => <Link className="font-mono font-semibold text-link hover:underline" href={`/invoices/${row.invoiceId}`}>{row.number}</Link>,
       exportValue: (row) => row.number,
       sortValue: (row) => row.number,
     },
@@ -144,7 +144,7 @@ export function CollectionsList({ canRemind, currencyCode = "EUR", rows }: { row
       renderMobileCard={(row) => (
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-2">
-            <Link className="font-mono font-semibold text-primary hover:underline" href={`/invoices/${row.invoiceId}`}>{row.number}</Link>
+            <Link className="font-mono font-semibold text-link hover:underline" href={`/invoices/${row.invoiceId}`}>{row.number}</Link>
             <StatusBadge tone={bucketTone[row.bucket]}>{agingBucketLabels[row.bucket]}</StatusBadge>
           </div>
           <p className="text-sm">{row.customerName}</p>

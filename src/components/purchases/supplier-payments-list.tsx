@@ -39,8 +39,8 @@ const columns: ResourceListColumn<SupplierPaymentListRow>[] = [
     header: "Proveedor",
     cell: (row) => (
       <div>
-        <Link className="font-medium text-primary hover:underline" href={`/suppliers/${row.supplierId}`}>{row.supplierNumber} · {row.supplierName}</Link>
-        {row.invoiceId ? <Link className="block text-xs text-primary hover:underline" href={`/expenses/${row.invoiceId}`}>{row.invoiceNumber}</Link> : <p className="text-xs text-muted-foreground">Pago a cuenta</p>}
+        <Link className="font-medium text-link hover:underline" href={`/suppliers/${row.supplierId}`}>{row.supplierNumber} · {row.supplierName}</Link>
+        {row.invoiceId ? <Link className="block text-xs text-link hover:underline" href={`/expenses/${row.invoiceId}`}>{row.invoiceNumber}</Link> : <p className="text-xs text-muted-foreground">Pago a cuenta</p>}
       </div>
     ),
     exportValue: (row) => row.supplierName,
@@ -99,7 +99,7 @@ export function SupplierPaymentsList({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="font-mono font-semibold">{row.number}</p>
-              <Link className="block truncate text-primary hover:underline" href={`/suppliers/${row.supplierId}`}>
+              <Link className="block truncate text-link hover:underline" href={`/suppliers/${row.supplierId}`}>
                 {row.supplierNumber} · {row.supplierName}
               </Link>
             </div>
@@ -111,7 +111,7 @@ export function SupplierPaymentsList({
             <dt className="text-muted-foreground">Factura</dt>
             <dd>
               {row.invoiceId ? (
-                <Link className="text-primary hover:underline" href={`/expenses/${row.invoiceId}`}>{row.invoiceNumber}</Link>
+                <Link className="text-link hover:underline" href={`/expenses/${row.invoiceId}`}>{row.invoiceNumber}</Link>
               ) : "Pago a cuenta"}
             </dd>
             <dt className="text-muted-foreground">Medio</dt>

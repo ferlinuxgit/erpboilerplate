@@ -26,7 +26,7 @@ export default async function GlossaryPage() {
         <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
           {entries.map((entry) => (
             <li key={entry.id}>
-              <a className="link" href={`#${entry.id}`}>{entry.term}</a>
+              <a className="font-bold text-link underline-offset-2 hover:underline" href={`#${entry.id}`}>{entry.term}</a>
             </li>
           ))}
         </ul>
@@ -42,7 +42,7 @@ export default async function GlossaryPage() {
                   {entry.long ? <p className="text-muted-foreground">{entry.long}</p> : null}
                   {entry.href ? (
                     <p>
-                      <Link className="link" href={entry.href}>Ir a la sección relacionada</Link>
+                      <Link className="font-bold text-link underline-offset-2 hover:underline" href={entry.href}>Ir a la sección relacionada</Link>
                     </p>
                   ) : null}
                 </dd>

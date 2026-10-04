@@ -56,7 +56,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
             ))}
           </ul>
           {finance.receivables.overdueCount > finance.receivables.overdueInvoices.length ? (
-            <Link className="inline-flex items-center gap-1 font-mono text-xs font-bold text-primary hover:underline" href="/invoices?due=overdue">
+            <Link className="inline-flex items-center gap-1 font-mono text-xs font-bold text-link hover:underline" href="/invoices?due=overdue">
               Ver las {finance.receivables.overdueCount} vencidas <ArrowRight aria-hidden="true" />
             </Link>
           ) : null}

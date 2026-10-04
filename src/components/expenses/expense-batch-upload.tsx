@@ -481,7 +481,7 @@ export function ExpenseBatchUpload({
               <ArrowLeft aria-hidden="true" /> Cambiar modo
             </Button>
           ) : backHref ? (
-            <Link className="mb-2 inline-flex items-center gap-1 font-mono text-xs font-bold text-primary hover:underline" href={backHref}>
+            <Link className="mb-2 inline-flex items-center gap-1 font-mono text-xs font-bold text-link hover:underline" href={backHref}>
               <ArrowLeft aria-hidden="true" /> Registrar a mano
             </Link>
           ) : null}
@@ -665,7 +665,7 @@ export function ExpenseBatchUpload({
                     {readiness && !readiness.ready ? readiness.reasons.slice(0, 3).map((reason) => (
                       <StatusBadge key={reason} tone={reason === "account" || reason === "duplicate" || reason === "totals" ? "warning" : "neutral"}>{reviewReasonLabels[reason]}</StatusBadge>
                     )) : null}
-                    {item.createdExpenseId ? <Link className="font-mono text-xs font-bold text-primary hover:underline" href={`/expenses/${item.createdExpenseId}`}>Abrir factura</Link> : null}
+                    {item.createdExpenseId ? <Link className="font-mono text-xs font-bold text-link hover:underline" href={`/expenses/${item.createdExpenseId}`}>Abrir factura</Link> : null}
                     {item.status === "DONE" ? (
                       <Button aria-expanded={isOpen} onClick={() => setOpenItemId(isOpen ? null : item.localId)} size="sm" type="button" variant={isOpen ? "outline" : "default"}>
                         {isOpen ? "Cerrar" : "Revisar"}
