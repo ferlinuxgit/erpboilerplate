@@ -4,7 +4,7 @@ import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { RawSearchParams } from "@/lib/list-params";
@@ -21,6 +21,32 @@ const kindLabels = { receivable: "Cobro", payable: "Pago", recurring: "Periódic
 
 function shortDate(date: Date) {
   return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", timeZone: "UTC" }).format(date);
+}
+
+type ForecastBucket = Awaited<ReturnType<typeof getTreasuryForecast>>["forecast"]["buckets"][number];
+
+/** Desplegable con los cobros y pagos que componen una semana (fila de tabla y tarjeta móvil). */
+function WeekDocuments({ bucket, currency, label }: { bucket: ForecastBucket; currency: string; label: string }) {
+  return (
+    <details>
+      <summary className="cursor-pointer py-1 pointer-coarse:py-2.5">
+        {label}
+        <span className="text-muted-foreground"> · {bucket.items.length} {bucket.items.length === 1 ? "documento" : "documentos"}</span>
+      </summary>
+      {bucket.items.length ? (
+        <ul className="mt-1 space-y-1">
+          {bucket.items.map((item) => (
+            <li key={`${item.kind}-${item.id}`}>
+              {kindLabels[item.kind]}{" "}
+              {item.href ? <Link className="text-link hover:underline" href={item.href}>{item.label}</Link> : item.label}
+              {" · "}{item.partnerName} · {item.dueDate ? formatDate(item.dueDate) : ""} · <span className="tabular-nums">{formatMoney(item.amount, currency)}</span>
+              {item.overdue ? <StatusBadge className="ml-1" tone="danger">Vencido</StatusBadge> : null}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="mt-1 text-muted-foreground">Sin cobros ni pagos previstos.</p>}
+    </details>
+  );
 }
 
 export default async function TreasuryForecastPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
@@ -96,8 +122,8 @@ export default async function TreasuryForecastPage({ searchParams }: { searchPar
       </PageSection>
 
       <PageSection title="Semana a semana" description="Abre una semana para ver qué documentos la componen.">
-        <div className="overflow-x-auto">
-          <Table>
+        <TableContainer className="hidden md:block">
+          <Table className="min-w-[40rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Semana</TableHead>
@@ -108,41 +134,42 @@ export default async function TreasuryForecastPage({ searchParams }: { searchPar
             </TableHeader>
             <TableBody>
               <TableRow>
-                <TableCell className="font-medium">Hoy</TableCell>
+                <TableCell className="font-bold">Hoy</TableCell>
                 <TableCell />
                 <TableCell />
-                <TableCell className="text-right font-mono">{formatMoney(forecast.openingBalance, currency)}</TableCell>
+                <TableCell className="text-right">{formatMoney(forecast.openingBalance, currency)}</TableCell>
               </TableRow>
               {forecast.buckets.map((bucket) => (
                 <TableRow data-testid="treasury-forecast-week" key={bucket.index}>
                   <TableCell>
-                    <details>
-                      <summary className="cursor-pointer">
-                        {formatDate(bucket.start)} – {formatDate(bucket.end)}
-                        <span className="text-xs text-muted-foreground"> · {bucket.items.length} {bucket.items.length === 1 ? "documento" : "documentos"}</span>
-                      </summary>
-                      {bucket.items.length ? (
-                        <ul className="mt-1 space-y-0.5 text-xs">
-                          {bucket.items.map((item) => (
-                            <li key={`${item.kind}-${item.id}`}>
-                              {kindLabels[item.kind]}{" "}
-                              {item.href ? <Link className="text-primary hover:underline" href={item.href}>{item.label}</Link> : item.label}
-                              {" · "}{item.partnerName} · {item.dueDate ? formatDate(item.dueDate) : ""} · <span className="font-mono">{formatMoney(item.amount, currency)}</span>
-                              {item.overdue ? <StatusBadge className="ml-1" tone="danger">Vencido</StatusBadge> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : <p className="mt-1 text-xs text-muted-foreground">Sin cobros ni pagos previstos.</p>}
-                    </details>
+                    <WeekDocuments bucket={bucket} currency={currency} label={`${formatDate(bucket.start)} – ${formatDate(bucket.end)}`} />
                   </TableCell>
-                  <TableCell className="text-right font-mono text-success">{bucket.inflow ? formatMoney(bucket.inflow, currency) : "—"}</TableCell>
-                  <TableCell className="text-right font-mono">{bucket.outflow ? formatMoney(-bucket.outflow, currency) : "—"}</TableCell>
-                  <TableCell className={bucket.closingBalance < 0 ? "text-right font-mono font-bold text-destructive" : "text-right font-mono font-bold"}>{formatMoney(bucket.closingBalance, currency)}</TableCell>
+                  <TableCell className="text-right text-success-text">{bucket.inflow ? formatMoney(bucket.inflow, currency) : "—"}</TableCell>
+                  <TableCell className="text-right">{bucket.outflow ? formatMoney(-bucket.outflow, currency) : "—"}</TableCell>
+                  <TableCell className={bucket.closingBalance < 0 ? "text-right font-bold text-danger-text" : "text-right font-bold"}>{formatMoney(bucket.closingBalance, currency)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
+        <MobileRecordList aria-label="Semana a semana">
+          <MobileRecord aside={formatMoney(forecast.openingBalance, currency)} title="Hoy" />
+          {forecast.buckets.map((bucket) => (
+            <MobileRecord
+              aside={<span className={bucket.closingBalance < 0 ? "text-danger-text" : undefined}>{formatMoney(bucket.closingBalance, currency)}</span>}
+              key={bucket.index}
+              title={`${formatDate(bucket.start)} – ${formatDate(bucket.end)}`}
+            >
+              <MobileRecordFields>
+                <MobileRecordField label="Entradas" numeric><span className="text-success-text">{bucket.inflow ? formatMoney(bucket.inflow, currency) : "—"}</span></MobileRecordField>
+                <MobileRecordField label="Salidas" numeric>{bucket.outflow ? formatMoney(-bucket.outflow, currency) : "—"}</MobileRecordField>
+              </MobileRecordFields>
+              <div className="mt-2 border-t border-window-shadow pt-1">
+                <WeekDocuments bucket={bucket} currency={currency} label="Ver documentos" />
+              </div>
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
         {forecast.beyond.count > 0 ? (
           <p className="mt-2 text-xs text-muted-foreground">Además hay {forecast.beyond.count} documentos que vencen después ({formatMoney(forecast.beyond.net, currency)} netos).</p>
         ) : null}

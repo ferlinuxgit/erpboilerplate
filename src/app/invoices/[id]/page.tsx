@@ -10,7 +10,7 @@ import { RegisterInvoicePaymentDialog } from "@/components/invoices/register-inv
 import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { customer, invoice, invoicePayment, invoicePaymentMethod, partner, payment, type InvoicePartySnapshot } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
@@ -57,6 +57,26 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 function formatParty(party: Pick<InvoicePartySnapshot, "address" | "addressLine2" | "postalCode" | "city" | "province" | "countryCode">) {
   return [party.address, party.addressLine2, [party.postalCode, party.city].filter(Boolean).join(" "), party.province, party.countryCode].filter(Boolean) as string[];
+}
+
+type StoredLine = Awaited<ReturnType<typeof loadStoredLines>>[number];
+
+function discountLabel(discountPct: StoredLine["discountPct"]) {
+  return Number(discountPct ?? 0) > 0 ? `${Number(discountPct).toLocaleString("es-ES")} %` : "—";
+}
+
+/** Impuestos de una línea (uno por renglón), en la tabla y en la tarjeta móvil. */
+function LineTaxes({ line }: { line: StoredLine }) {
+  if (!line.taxes) return <>{Number(line.taxRate ?? 0).toLocaleString("es-ES")}%</>;
+  return (
+    <>
+      {line.taxes.map((selectedTax) => (
+        <span className="block" key={`${selectedTax.name}-${selectedTax.rate}-${selectedTax.operation}`}>
+          {selectedTax.operation === "SUBTRACT" ? "−" : "+"}{selectedTax.name} {Number(selectedTax.rate).toLocaleString("es-ES")}%
+        </span>
+      ))}
+    </>
+  );
 }
 
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -378,7 +398,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ) : null}
 
       <PageSection title="Líneas" description="Detalle de conceptos, cantidades, impuestos e importes.">
-        <div className="overflow-x-auto rounded-surface border">
+        <TableContainer className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -393,24 +413,28 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             <TableBody>
               {lines.map((line, index) => (
                 <TableRow key={`${line.description}-${index}`}>
-                  <TableCell className="font-medium">{line.description}</TableCell>
+                  <TableCell className="font-bold">{line.description}</TableCell>
                   <TableCell className="text-right">{Number(line.quantity).toLocaleString("es-ES")}</TableCell>
                   <TableCell className="text-right">{formatMoney(line.unitPrice, currencyCode)}</TableCell>
-                  {hasDiscount ? <TableCell className="text-right">{Number(line.discountPct ?? 0) > 0 ? `${Number(line.discountPct).toLocaleString("es-ES")} %` : "—"}</TableCell> : null}
-                  <TableCell className="text-right">
-                    {(line.taxes ?? []).map((selectedTax) => (
-                      <span className="block" key={`${selectedTax.name}-${selectedTax.rate}-${selectedTax.operation}`}>
-                        {selectedTax.operation === "SUBTRACT" ? "−" : "+"}{selectedTax.name} {Number(selectedTax.rate).toLocaleString("es-ES")}%
-                      </span>
-                    ))}
-                    {!line.taxes ? `${Number(line.taxRate ?? 0).toLocaleString("es-ES")}%` : null}
-                  </TableCell>
+                  {hasDiscount ? <TableCell className="text-right">{discountLabel(line.discountPct)}</TableCell> : null}
+                  <TableCell className="text-right"><LineTaxes line={line} /></TableCell>
                   <TableCell className="text-right">{formatMoney(totals.lines[index]?.lineTotal ?? 0, currencyCode)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
+        <MobileRecordList aria-label="Líneas de la factura">
+          {lines.map((line, index) => (
+            <MobileRecord aside={formatMoney(totals.lines[index]?.lineTotal ?? 0, currencyCode)} key={`${line.description}-${index}`} title={line.description}>
+              <MobileRecordFields>
+                <MobileRecordField label="Cantidad × precio" numeric>{Number(line.quantity).toLocaleString("es-ES")} × {formatMoney(line.unitPrice, currencyCode)}</MobileRecordField>
+                {hasDiscount && Number(line.discountPct ?? 0) > 0 ? <MobileRecordField label="Descuento" numeric>{discountLabel(line.discountPct)}</MobileRecordField> : null}
+                <MobileRecordField label="Impuestos" numeric><LineTaxes line={line} /></MobileRecordField>
+              </MobileRecordFields>
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
         <dl className="ml-auto mt-4 w-full max-w-sm space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3 font-mono text-sm">
           <div className="flex justify-between gap-3">
             <dt>Base imponible</dt>

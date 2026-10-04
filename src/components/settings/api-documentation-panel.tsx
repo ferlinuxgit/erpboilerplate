@@ -9,7 +9,7 @@ import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type ApiEndpoint = {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -237,8 +237,8 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </p>
       </div>
 
-      <div className="overflow-x-auto border border-window-dark-shadow">
-        <Table>
+      <TableContainer>
+        <Table className="min-w-[48rem]">
           <TableHeader>
             <TableRow>
               <TableHead>Método</TableHead>
@@ -268,7 +268,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
             ))}
           </TableBody>
         </Table>
-      </div>
+      </TableContainer>
 
       <div className="border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top">
         <div className="mb-3 flex items-center justify-between gap-3">

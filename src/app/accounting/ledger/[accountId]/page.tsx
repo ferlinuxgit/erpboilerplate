@@ -7,7 +7,7 @@ import { JournalLineDocument } from "@/components/accounting/journal-line-docume
 import { HelpTerm } from "@/components/help/help-term";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { accountChart, partner } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -105,14 +105,15 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
         {withBalance.length === 0 ? (
           <EmptyState title="Sin movimientos" description={rangeLabel ? `No hay apuntes en este periodo. Saldo anterior: ${formatBalance(openingBalance, currency)}.` : "Esta cuenta todavía no tiene apuntes contables."} />
         ) : (
-          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
-            <Table>
+          <TableContainer label={`Movimientos de ${account.code}`}>
+            {/* Tabla imprescindible también en móvil: se desplaza en horizontal con la fecha fija. */}
+            <Table className="min-w-[56rem]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Fecha</TableHead>
+                  <TableHead sticky>Fecha</TableHead>
                   <TableHead>Asiento</TableHead>
                   <TableHead>Referencia</TableHead>
-                  <TableHead>Concepto</TableHead>
+                  <TableHead className="min-w-40">Concepto</TableHead>
                   <TableHead>Tercero</TableHead>
                   <TableHead>Documento</TableHead>
                   <TableHead className="text-right">Debe</TableHead>
@@ -125,8 +126,8 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
                   const label = row.reference?.trim() || row.number;
                   return (
                     <TableRow key={row.lineId}>
-                      <TableCell className="whitespace-nowrap">{formatDate(row.postedAt)}</TableCell>
-                      <TableCell className="font-mono">{row.number}</TableCell>
+                      <TableCell className="whitespace-nowrap" sticky>{formatDate(row.postedAt)}</TableCell>
+                      <TableCell>{row.number}</TableCell>
                       <TableCell>
                         <Link
                           aria-label={`Ver asiento ${label}`}
@@ -141,30 +142,30 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
                       <TableCell>
                         <JournalLineDocument documentId={row.documentId} documentNumber={row.documentNumber} documentType={row.documentType} />
                       </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{Number(row.debit) ? formatMoney(row.debit, currency) : "—"}</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{Number(row.credit) ? formatMoney(row.credit, currency) : "—"}</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{formatBalance(row.balance, currency)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right">{Number(row.debit) ? formatMoney(row.debit, currency) : "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right">{Number(row.credit) ? formatMoney(row.credit, currency) : "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right">{formatBalance(row.balance, currency)}</TableCell>
                     </TableRow>
                   );
                 })}
                 {from ? (
                   <TableRow>
-                    <TableCell className="whitespace-nowrap">{formatDate(from.date)}</TableCell>
+                    <TableCell className="whitespace-nowrap" sticky>{formatDate(from.date)}</TableCell>
                     <TableCell colSpan={7}>Saldo anterior</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">{formatBalance(openingBalance, currency)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right">{formatBalance(openingBalance, currency)}</TableCell>
                   </TableRow>
                 ) : null}
               </TableBody>
               <TableFooter>
                 <TableRow>
                   <TableCell colSpan={6}>Total</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatMoney(totalDebit, currency)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatMoney(totalCredit, currency)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatBalance(balanceCents / 100, currency)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right">{formatMoney(totalDebit, currency)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right">{formatMoney(totalCredit, currency)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right">{formatBalance(balanceCents / 100, currency)}</TableCell>
                 </TableRow>
               </TableFooter>
             </Table>
-          </div>
+          </TableContainer>
         )}
       </PageSection>
     </PageShell>

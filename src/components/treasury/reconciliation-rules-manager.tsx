@@ -15,7 +15,7 @@ import { MoneyInput } from "@/components/ui/number-input";
 import { EmptyState, InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney, parseDecimalInput } from "@/lib/format";
 
@@ -154,8 +154,8 @@ export function ReconciliationRulesManager({ accounts, canWrite, currencyCode, p
       {rules.length === 0 ? (
         <EmptyState title="Todavía no hay reglas" description="Crea una aquí o marca «Recordar para la próxima vez» al asignar un movimiento a una cuenta en la conciliación." />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
+        <TableContainer>
+          <Table className="min-w-[40rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Si el concepto contiene</TableHead>
@@ -172,8 +172,8 @@ export function ReconciliationRulesManager({ accounts, canWrite, currencyCode, p
                     <p className="font-mono font-bold">«{rule.conceptContains}»</p>
                     {rule.name !== rule.conceptContains ? <p className="text-xs text-muted-foreground">{rule.name}</p> : null}
                   </TableCell>
-                  <TableCell className="text-sm">{directionLabels[rule.direction] ?? rule.direction}<br /><span className="text-xs text-muted-foreground">{range(rule)}</span></TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell>{directionLabels[rule.direction] ?? rule.direction}<br /><span className="text-xs text-muted-foreground">{range(rule)}</span></TableCell>
+                  <TableCell>
                     {rule.accountId ? `Asignar a ${rule.accountCode} · ${rule.accountName}` : `Buscar facturas de ${rule.partnerName ?? "—"}`}
                     <div className="mt-1 flex flex-wrap gap-1">
                       {!rule.isActive ? <StatusBadge>Desactivada</StatusBadge> : null}
@@ -194,7 +194,7 @@ export function ReconciliationRulesManager({ accounts, canWrite, currencyCode, p
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
       )}
 
       <DestructiveActionDialog

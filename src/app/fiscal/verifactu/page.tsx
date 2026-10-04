@@ -5,7 +5,7 @@ import { VerifactuActions } from "@/components/fiscal/verifactu-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
 import { formatCount } from "@/lib/pluralize";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -90,8 +90,8 @@ export default async function VerifactuPage() {
         {overview.records.length === 0 ? (
           <EmptyState title="Todavía no hay registros" description={active ? "Se crearán al emitir la próxima factura." : "Activa VERI*FACTU para empezar a registrar tus facturas."} />
         ) : (
-          <div className="overflow-x-auto rounded-surface border">
-            <Table>
+          <TableContainer>
+            <Table className="min-w-[44rem]">
               <TableHeader>
                 <TableRow>
                   <TableHead>N.º</TableHead>
@@ -123,7 +123,7 @@ export default async function VerifactuPage() {
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
       </PageSection>
 

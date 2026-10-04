@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { item, itemCostHistory, stockLocation, stockMovement, warehouse } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -127,7 +127,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
             description={record.isService ? "Los servicios no mantienen existencias en almacén." : "Registra una entrada para dar de alta stock de este artículo."}
           />
         ) : (
-          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
+          <TableContainer>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -152,7 +152,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
       </PageSection>
       <PageSection title="Movimientos recientes" description="Trazabilidad de entradas, salidas, ajustes y transferencias." contentClassName="space-y-2">

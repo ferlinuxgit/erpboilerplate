@@ -5,12 +5,18 @@ import { RemittanceActions } from "@/components/treasury/remittance-actions";
 import { remittanceStatusLabels, remittanceStatusTone } from "@/components/treasury/remittance-status";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatIban } from "@/lib/bank-import/iban";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { getRemittance } from "@/server/sepa/service";
+
+/** Las facturas de gasto tienen ficha propia; las de compra se buscan en su listado. */
+function InvoiceLink({ item }: { item: { invoiceOrigin: string | null; supplierInvoiceId: string; invoiceNumber: string } }) {
+  const href = item.invoiceOrigin === "EXPENSE" ? `/expenses/${item.supplierInvoiceId}` : `/purchases/supplier-invoices?q=${encodeURIComponent(item.invoiceNumber)}`;
+  return <Link className="text-link hover:underline" href={href}>{item.invoiceNumber}</Link>;
+}
 
 export default async function RemittanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("treasury.read");
@@ -40,8 +46,8 @@ export default async function RemittanceDetailPage({ params }: { params: Promise
         <MetricCard label="Confirmada" value={remittance.confirmedAt ? formatDate(remittance.confirmedAt) : "No"} helper={remittance.confirmedAt ? "Pagos registrados" : "Sin pagos registrados todavía"} tone={remittance.confirmedAt ? "success" : "warning"} />
       </section>
       <PageSection title="Pagos incluidos" description="Una transferencia por factura.">
-        <div className="overflow-x-auto">
-          <Table>
+        <TableContainer className="hidden md:block">
+          <Table className="min-w-[44rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Proveedor</TableHead>
@@ -56,16 +62,27 @@ export default async function RemittanceDetailPage({ params }: { params: Promise
                 <TableRow key={item.id}>
                   <TableCell>{item.creditorName}</TableCell>
                   <TableCell>
-                    <Link className="text-primary hover:underline" href={item.invoiceOrigin === "EXPENSE" ? `/expenses/${item.supplierInvoiceId}` : `/purchases/supplier-invoices?q=${encodeURIComponent(item.invoiceNumber)}`}>{item.invoiceNumber}</Link>
+                    <InvoiceLink item={item} />
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{formatIban(item.creditorIban)}</TableCell>
-                  <TableCell className="font-mono text-xs">{item.endToEndId}</TableCell>
-                  <TableCell className="text-right font-mono">{formatMoney(item.amount, currency)}</TableCell>
+                  <TableCell>{formatIban(item.creditorIban)}</TableCell>
+                  <TableCell>{item.endToEndId}</TableCell>
+                  <TableCell className="text-right">{formatMoney(item.amount, currency)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
+        <MobileRecordList aria-label="Pagos incluidos">
+          {remittance.items.map((item) => (
+            <MobileRecord aside={formatMoney(item.amount, currency)} key={item.id} title={item.creditorName}>
+              <MobileRecordFields>
+                <MobileRecordField label="Factura"><InvoiceLink item={item} /></MobileRecordField>
+                <MobileRecordField label="IBAN">{formatIban(item.creditorIban)}</MobileRecordField>
+                <MobileRecordField label="Referencia"><span className="break-all">{item.endToEndId}</span></MobileRecordField>
+              </MobileRecordFields>
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
       </PageSection>
     </PageShell>
   );

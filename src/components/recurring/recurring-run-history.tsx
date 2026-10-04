@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatMoney } from "@/lib/format";
 import { formatScheduleDate } from "@/server/recurring/schedule";
 import type { RecurringRunRow } from "@/server/recurring/service";
@@ -13,8 +13,8 @@ const statusTones = { GENERATED: "success", PENDING_REVIEW: "warning", DISCARDED
 export function RecurringRunHistory({ currencyCode = "EUR", runs }: { runs: RecurringRunRow[]; currencyCode?: string }) {
   if (runs.length === 0) return <p className="text-sm text-muted-foreground">Todavía no se ha generado ningún periodo.</p>;
   return (
-    <div className="overflow-x-auto rounded-surface border">
-      <Table data-testid="recurring-run-history">
+    <TableContainer>
+      <Table className="min-w-[36rem]" data-testid="recurring-run-history">
         <TableHeader>
           <TableRow>
             <TableHead>Fecha</TableHead>
@@ -29,17 +29,17 @@ export function RecurringRunHistory({ currencyCode = "EUR", runs }: { runs: Recu
               <TableCell>{formatScheduleDate(run.periodDate)}</TableCell>
               <TableCell>
                 {run.document ? (
-                  <Link className="font-mono font-semibold text-primary hover:underline" href={run.document.href}>{run.document.label}</Link>
+                  <Link className="font-bold text-link hover:underline" href={run.document.href}>{run.document.label}</Link>
                 ) : run.estimatedTotal !== null ? (
-                  <span className="font-mono">{formatMoney(run.estimatedTotal, currencyCode)}</span>
+                  <span>{formatMoney(run.estimatedTotal, currencyCode)}</span>
                 ) : "—"}
               </TableCell>
               <TableCell><StatusBadge tone={statusTones[run.status]}>{statusLabels[run.status]}</StatusBadge></TableCell>
-              <TableCell className="text-xs">{run.message ?? ""}</TableCell>
+              <TableCell>{run.message ?? ""}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TableContainer>
   );
 }

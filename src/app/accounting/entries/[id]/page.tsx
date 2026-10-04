@@ -6,7 +6,7 @@ import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
@@ -70,8 +70,8 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
       </section>
 
       <PageSection title="Apuntes contables" description="Cuenta, concepto, tercero, documento y vencimiento de cada apunte.">
-        <div className="overflow-x-auto rounded-surface border">
-          <Table>
+        <TableContainer>
+          <Table className="min-w-[52rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Cuenta</TableHead>
@@ -103,7 +103,7 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
       </PageSection>
     </PageShell>
   );

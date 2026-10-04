@@ -5,13 +5,25 @@ import { DirectDebitActions, DirectDebitReturnButton } from "@/components/treasu
 import { directDebitItemStatusLabels, directDebitItemStatusTone, directDebitStatusLabels, directDebitStatusTone, sequenceTypeHelp } from "@/components/treasury/direct-debit-status";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatIban } from "@/lib/bank-import/iban";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { getDirectDebitRemittance } from "@/server/sepa/direct-debits";
 import { listAssignableAccounts } from "@/server/treasury/workbench";
+
+type ReturnedItem = { returnedAt: Date | string | null; returnReason: string | null; returnBankTransactionId: string | null; returnFeeAmount: string | null };
+
+/** Fecha, motivo y estado del cargo de un recibo devuelto (tabla y tarjeta móvil). */
+function ReturnDetail({ currency, item }: { currency: string; item: ReturnedItem }) {
+  return (
+    <span className="mt-1 block text-xs text-muted-foreground">
+      {item.returnedAt ? formatDate(item.returnedAt) : ""}{item.returnReason ? ` · ${item.returnReason}` : ""}
+      {item.returnBankTransactionId ? ` · cargo conciliado${item.returnFeeAmount && Number(item.returnFeeAmount) > 0 ? ` (comisión ${formatMoney(item.returnFeeAmount, currency)})` : ""}` : " · cargo sin vincular"}
+    </span>
+  );
+}
 
 export default async function DirectDebitRemittanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("treasury.read");
@@ -50,8 +62,8 @@ export default async function DirectDebitRemittanceDetailPage({ params }: { para
         <MetricCard label="Cobrada" value={remittance.collectedAt ? formatDate(remittance.collectedAt) : "No"} helper={remittance.collectedAt ? "Cobros registrados" : "Sin cobros registrados todavía"} tone={remittance.collectedAt ? "success" : "warning"} />
       </section>
       <PageSection title="Recibos incluidos" description="Un recibo por factura.">
-        <div className="overflow-x-auto">
-          <Table>
+        <TableContainer className="hidden md:block">
+          <Table className="min-w-[48rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Cliente</TableHead>
@@ -67,18 +79,13 @@ export default async function DirectDebitRemittanceDetailPage({ params }: { para
               {remittance.items.map((item) => (
                 <TableRow data-testid="direct-debit-item-row" key={item.id}>
                   <TableCell><Link className="hover:underline" href={`/customers/${item.customerId}`}>{item.debtorName}</Link></TableCell>
-                  <TableCell><Link className="text-primary hover:underline" href={`/invoices/${item.invoiceId}`}>{item.invoiceNumber}</Link></TableCell>
-                  <TableCell className="font-mono text-xs">{item.mandateReference}<span className="block">{formatIban(item.debtorIban)}</span></TableCell>
-                  <TableCell className="text-xs">{sequenceTypeHelp[item.sequenceType] ?? item.sequenceType}</TableCell>
-                  <TableCell className="text-right font-mono">{formatMoney(item.amount, currency)}</TableCell>
+                  <TableCell><Link className="text-link hover:underline" href={`/invoices/${item.invoiceId}`}>{item.invoiceNumber}</Link></TableCell>
+                  <TableCell>{item.mandateReference}<span className="block">{formatIban(item.debtorIban)}</span></TableCell>
+                  <TableCell>{sequenceTypeHelp[item.sequenceType] ?? item.sequenceType}</TableCell>
+                  <TableCell className="text-right">{formatMoney(item.amount, currency)}</TableCell>
                   <TableCell>
                     <StatusBadge tone={directDebitItemStatusTone(item.status)}>{directDebitItemStatusLabels[item.status] ?? item.status}</StatusBadge>
-                    {item.status === "RETURNED" ? (
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {item.returnedAt ? formatDate(item.returnedAt) : ""}{item.returnReason ? ` · ${item.returnReason}` : ""}
-                        {item.returnBankTransactionId ? ` · cargo conciliado${item.returnFeeAmount && Number(item.returnFeeAmount) > 0 ? ` (comisión ${formatMoney(item.returnFeeAmount, currency)})` : ""}` : " · cargo sin vincular"}
-                      </span>
-                    ) : null}
+                    {item.status === "RETURNED" ? <ReturnDetail currency={currency} item={item} /> : null}
                   </TableCell>
                   {hasReturnActions ? (
                     <TableCell>
@@ -90,7 +97,30 @@ export default async function DirectDebitRemittanceDetailPage({ params }: { para
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
+        <MobileRecordList aria-label="Recibos incluidos">
+          {remittance.items.map((item) => (
+            <MobileRecord
+              aside={formatMoney(item.amount, currency)}
+              key={item.id}
+              title={<Link className="hover:underline" href={`/customers/${item.customerId}`}>{item.debtorName}</Link>}
+            >
+              <MobileRecordFields>
+                <MobileRecordField label="Factura"><Link className="text-link hover:underline" href={`/invoices/${item.invoiceId}`}>{item.invoiceNumber}</Link></MobileRecordField>
+                <MobileRecordField label="Mandato">{item.mandateReference}</MobileRecordField>
+                <MobileRecordField label="IBAN">{formatIban(item.debtorIban)}</MobileRecordField>
+                <MobileRecordField label="Tipo">{sequenceTypeHelp[item.sequenceType] ?? item.sequenceType}</MobileRecordField>
+                <MobileRecordField label="Estado"><StatusBadge tone={directDebitItemStatusTone(item.status)}>{directDebitItemStatusLabels[item.status] ?? item.status}</StatusBadge></MobileRecordField>
+              </MobileRecordFields>
+              {item.status === "RETURNED" ? <ReturnDetail currency={currency} item={item} /> : null}
+              {hasReturnActions && (item.status === "COLLECTED" || (item.status === "RETURNED" && !item.returnBankTransactionId)) ? (
+                <div className="mt-2 flex justify-end">
+                  <DirectDebitReturnButton currencyCode={currency} feeAccounts={feeAccounts} item={item} mode={item.status === "COLLECTED" ? "return" : "link"} />
+                </div>
+              ) : null}
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
       </PageSection>
     </PageShell>
   );

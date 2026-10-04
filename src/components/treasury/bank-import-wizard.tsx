@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { InlineAlert, MetricCard } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { BankImportMapping } from "@/lib/bank-import/tabular";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -261,7 +261,7 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                   Los cargos vienen en positivo
                 </label>
               </div>
-              <div className="overflow-x-auto border border-window-dark-shadow">
+              <TableContainer>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -296,7 +296,7 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+              </TableContainer>
               <Button disabled={busy !== null} onClick={() => void loadPreview(mappingFromRoles(mapping, roles), null)} size="sm" type="button" variant={dirty ? "default" : "outline"}>
                 {busy === "preview" ? "Comprobando…" : "Comprobar con estas columnas"}
               </Button>
@@ -306,8 +306,8 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
           <div>
             <p className="text-sm font-bold">Así quedarán los movimientos ({preview.validCount} válidos{preview.skippedCount ? `, ${preview.skippedCount} filas descartadas` : ""})</p>
             {preview.sample.length ? (
-              <div className="mt-1 overflow-x-auto">
-                <Table>
+              <TableContainer className="mt-1">
+                <Table className="min-w-[32rem]">
                   <TableHeader>
                     <TableRow><TableHead>Fecha</TableHead><TableHead>Concepto</TableHead><TableHead className="text-right">Importe</TableHead><TableHead className="text-right">Saldo</TableHead></TableRow>
                   </TableHeader>
@@ -322,7 +322,7 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+              </TableContainer>
             ) : <p className="text-sm text-muted-foreground">Ninguna fila se puede importar con esta configuración.</p>}
             {preview.skipped.length ? (
               <details className="mt-2 text-sm">

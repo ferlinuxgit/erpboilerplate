@@ -10,11 +10,13 @@ import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { MoneyInput, PercentInput } from "@/components/ui/number-input";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow, stackedOnMobile } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatDecimalInput, formatMoney, parseDecimalInput } from "@/lib/format";
 import { buildReceiptInvoiceLines, priceVariance, receiptInvoiceTotals, type OrderLineRef, type ReceiptLineRef } from "@/lib/purchase-invoice";
 import { dueDateInputFor } from "@/lib/supplier-defaults";
+import { cn } from "@/lib/utils";
 
 export type PurchaseInvoiceDialogContext = {
   purchaseOrderId: string;
@@ -221,36 +223,38 @@ export function CreateSupplierInvoiceFromReceiptButton({
             </AccessibleField>
           </div>
 
-          <div className="overflow-x-auto border border-window-dark-shadow" role="group" aria-label="Líneas de la factura">
-            <table className="w-full min-w-[40rem] text-xs">
-              <thead className="bg-window-panel font-mono text-xs uppercase text-window-muted">
-                <tr>
-                  <th className="px-2 py-1 text-left" scope="col">Concepto</th>
-                  <th className="px-2 py-1 text-right" scope="col">Cantidad</th>
-                  <th className="px-2 py-1 text-right" scope="col">Precio unitario</th>
-                  <th className="px-2 py-1 text-right" scope="col">IVA %</th>
-                  <th className="px-2 py-1 text-right" scope="col">Base</th>
-                </tr>
-              </thead>
-              <tbody>
+          {/* En móvil cada línea es una tarjeta con sus campos (mismo DOM, sin duplicar). */}
+          <TableContainer aria-label="Líneas de la factura" className={stackedOnMobile.container} role="group">
+            <Table className={cn("md:min-w-[40rem]", stackedOnMobile.table)}>
+              <TableHeader className={stackedOnMobile.header}>
+                <TableRow>
+                  <TableHead scope="col">Concepto</TableHead>
+                  <TableHead className="text-right" scope="col">Cantidad</TableHead>
+                  <TableHead className="text-right" scope="col">Precio unitario</TableHead>
+                  <TableHead className="text-right" scope="col">IVA %</TableHead>
+                  <TableHead className="text-right" scope="col">Base</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className={stackedOnMobile.body}>
                 {lines.length === 0 ? (
-                  <tr><td className="px-2 py-2 text-muted-foreground" colSpan={5}>Elige al menos una entrega.</td></tr>
+                  <TableRow className={stackedOnMobile.row}><TableCell className={cn("text-muted-foreground", stackedOnMobile.title)} colSpan={5}>Elige al menos una entrega.</TableCell></TableRow>
                 ) : lines.map((line) => {
                   const variance = line.parsedUnitPrice !== null ? priceVariance(line.orderUnitPrice, line.parsedUnitPrice) : null;
                   const priceError = lineErrors[`${line.goodsReceiptLineId}-price`];
                   const taxError = lineErrors[`${line.goodsReceiptLineId}-tax`];
                   return (
-                    <tr className="border-t border-window-shadow align-top" key={line.goodsReceiptLineId}>
-                      <td className="px-2 py-1.5">
+                    <TableRow className={cn("align-top", stackedOnMobile.row)} key={line.goodsReceiptLineId}>
+                      <TableCell className={stackedOnMobile.title}>
                         <span className="block font-bold">{line.description}</span>
                         <span className="text-muted-foreground">Entrega {line.goodsReceiptNumber}</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono tabular-nums">{formatDecimalInput(line.quantity, { maximumFractionDigits: 3 })}</td>
-                      <td className="w-36 px-2 py-1.5">
+                      </TableCell>
+                      <TableCell className={cn("text-right", stackedOnMobile.cell)} data-label="Cantidad">{formatDecimalInput(line.quantity, { maximumFractionDigits: 3 })}</TableCell>
+                      <TableCell className={cn("w-36", stackedOnMobile.wide, "max-md:w-auto")} data-label="Precio unitario">
                         <MoneyInput
                           aria-describedby={variance?.significant ? `variance-${line.goodsReceiptLineId}` : undefined}
                           aria-invalid={priceError ? true : undefined}
                           aria-label={`Precio unitario de ${line.description}`}
+                          className="pointer-coarse:min-h-11"
                           currencySymbol={currencyCode === "EUR" ? "€" : currencyCode}
                           onChange={(event) => editLine(line.goodsReceiptLineId, { unitPrice: event.target.value })}
                           value={line.unitPriceText}
@@ -261,27 +265,28 @@ export function CreateSupplierInvoiceFromReceiptButton({
                             Pedido: {formatMoney(line.orderUnitPrice, currencyCode)} ({variance.difference > 0 ? "+" : ""}{formatDecimalInput(variance.pct, { maximumFractionDigits: 1 })} %)
                           </p>
                         ) : null}
-                        {priceError ? <p className="mt-0.5 text-destructive" role="alert">{priceError}</p> : null}
-                      </td>
-                      <td className="w-28 px-2 py-1.5">
+                        {priceError ? <p className="mt-0.5 text-danger-text" role="alert">{priceError}</p> : null}
+                      </TableCell>
+                      <TableCell className={cn("w-28", stackedOnMobile.wide, "max-md:w-auto")} data-label="IVA %">
                         <PercentInput
                           aria-invalid={taxError ? true : undefined}
                           aria-label={`IVA de ${line.description}`}
+                          className="pointer-coarse:min-h-11"
                           onChange={(event) => editLine(line.goodsReceiptLineId, { taxRate: event.target.value })}
                           placeholder="21"
                           value={line.taxRateText}
                         />
                         {line.taxRateSource === "default" && edits[line.goodsReceiptLineId]?.taxRate === undefined ? <p className="mt-0.5 text-muted-foreground">IVA general de la empresa: el artículo no tiene IVA propio.</p> : null}
                         {line.taxRateSource === "none" && !line.taxRateText ? <p className="mt-0.5 text-warning-text">El artículo no tiene IVA configurado: indícalo.</p> : null}
-                        {taxError ? <p className="mt-0.5 text-destructive" role="alert">{taxError}</p> : null}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono tabular-nums">{formatMoney(line.quantity * (line.parsedUnitPrice ?? 0), currencyCode)}</td>
-                    </tr>
+                        {taxError ? <p className="mt-0.5 text-danger-text" role="alert">{taxError}</p> : null}
+                      </TableCell>
+                      <TableCell className={cn("text-right", stackedOnMobile.cell)} data-label="Base">{formatMoney(line.quantity * (line.parsedUnitPrice ?? 0), currencyCode)}</TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableContainer>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <p className="text-xs text-muted-foreground">
