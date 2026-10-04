@@ -64,7 +64,9 @@ export function Dialog({ children, className, description, initialFocusId, onClo
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-2"
+      // Entrada con @starting-style: el fondo funde (también con movimiento reducido) y la
+      // ventana escala desde 0,96 (centrada) o sube desde abajo en móvil, donde se acopla al borde.
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 transition-opacity duration-200 ease-snappy starting:opacity-0 sm:items-center sm:p-2"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();
@@ -102,6 +104,7 @@ export function Dialog({ children, className, description, initialFocusId, onClo
         aria-modal="true"
         className={cn(
           "relative flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-surface border border-window-dark-shadow bg-window-surface shadow-window-lg sm:max-h-[calc(100dvh-1rem)] sm:rounded-surface",
+          "motion-safe:transition-transform motion-safe:max-sm:duration-250 motion-safe:max-sm:ease-drawer motion-safe:max-sm:starting:translate-y-full motion-safe:sm:duration-200 motion-safe:sm:ease-snappy motion-safe:sm:starting:scale-96",
           sizeClasses[size],
           className,
         )}

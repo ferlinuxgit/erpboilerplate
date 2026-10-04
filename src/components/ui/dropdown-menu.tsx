@@ -47,6 +47,8 @@ export function DropdownMenu({
   const openAtEndRef = React.useRef(false);
   const menuId = React.useId();
   const [position, setPosition] = React.useState<React.CSSProperties | null>(null);
+  // Abierto con teclado (Enter, Espacio, flechas): aparece al instante, sin animación.
+  const [openedByKeyboard, setOpenedByKeyboard] = React.useState(false);
 
   const close = React.useCallback((restoreFocus = true) => {
     setOpen(false);
@@ -64,9 +66,12 @@ export function DropdownMenu({
       const menuHeight = menu.offsetHeight;
       const menuWidth = menu.offsetWidth;
       const below = window.innerHeight - trigger.bottom;
-      const top = below < menuHeight + 8 && trigger.top > menuHeight + 8 ? trigger.top - menuHeight - 4 : trigger.bottom + 4;
+      const flipUp = below < menuHeight + 8 && trigger.top > menuHeight + 8;
+      const top = flipUp ? trigger.top - menuHeight - 4 : trigger.bottom + 4;
       const left = align === "end" ? trigger.right - menuWidth : trigger.left;
-      setPosition({ position: "fixed", top, left: Math.max(4, Math.min(left, window.innerWidth - menuWidth - 4)) });
+      // La animación de apertura crece desde la esquina del botón que lo abre.
+      const transformOrigin = `${flipUp ? "bottom" : "top"} ${align === "end" ? "right" : "left"}`;
+      setPosition({ position: "fixed", top, left: Math.max(4, Math.min(left, window.innerWidth - menuWidth - 4)), transformOrigin });
     };
     place();
     const close = () => setOpen(false);
@@ -117,6 +122,7 @@ export function DropdownMenu({
             event.preventDefault();
             if (!open && event.target === triggerRef.current) {
               openAtEndRef.current = event.key === "ArrowUp";
+              setOpenedByKeyboard(true);
               setOpen(true);
               return;
             }
@@ -144,7 +150,11 @@ export function DropdownMenu({
           className={cn(buttonVariants({ variant: triggerVariant, size: triggerSize }), triggerClassName)}
           data-dropdown-trigger=""
           data-testid={triggerTestId}
-          onClick={() => setOpen((current) => !current)}
+          onClick={(event) => {
+            // detail === 0: activado con Enter o Espacio.
+            setOpenedByKeyboard(event.detail === 0);
+            setOpen((current) => !current);
+          }}
           ref={triggerRef}
           title={label}
           type="button"
@@ -155,7 +165,10 @@ export function DropdownMenu({
           aria-label={label}
           className={cn(
             "absolute z-50 mt-1 min-w-44 rounded-surface border border-window-dark-shadow bg-window-surface p-1 shadow-window",
-            align === "end" ? "right-0" : "left-0",
+            align === "end" ? "right-0 origin-top-right" : "left-0 origin-top-left",
+            // Al quitar `hidden`, @starting-style anima desde 0,97 y transparente (solo con ratón/táctil).
+            !openedByKeyboard &&
+              "transition-opacity duration-150 ease-snappy starting:opacity-0 motion-safe:transition-[opacity,scale] motion-safe:starting:scale-97",
           )}
           hidden={!open}
           style={open && position ? { ...position, marginTop: 0 } : undefined}
