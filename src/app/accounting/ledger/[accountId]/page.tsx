@@ -105,7 +105,7 @@ export default async function LedgerPage({ params, searchParams }: LedgerParams 
         {withBalance.length === 0 ? (
           <EmptyState title="Sin movimientos" description={rangeLabel ? `No hay apuntes en este periodo. Saldo anterior: ${formatBalance(openingBalance, currency)}.` : "Esta cuenta todavía no tiene apuntes contables."} />
         ) : (
-          <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
             <Table>
               <TableHeader>
                 <TableRow>

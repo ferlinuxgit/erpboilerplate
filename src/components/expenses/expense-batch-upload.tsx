@@ -502,7 +502,7 @@ export function ExpenseBatchUpload({
         ) : null}
       </header>
 
-      <section aria-label="Subir facturas" className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)] lg:grid-cols-[260px_1fr] lg:items-start">
+      <section aria-label="Subir facturas" className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top lg:grid-cols-[260px_1fr] lg:items-start">
         <div className="space-y-2">
           {aiAvailable ? (
             <AccessibleField
@@ -643,7 +643,7 @@ export function ExpenseBatchUpload({
               ? suppliers.find((supplier) => supplier.id === item.supplierPartnerId)?.name
               : item.supplierName || item.supplierTaxId;
             return (
-              <li aria-labelledby={`batch-item-${item.localId}-title`} className="border border-window-dark-shadow bg-card shadow-[inset_1px_1px_0_var(--window-highlight)]" key={item.localId}>
+              <li aria-labelledby={`batch-item-${item.localId}-title`} className="border border-window-dark-shadow bg-card shadow-bevel-top" key={item.localId}>
                 <div className="flex flex-col gap-2 bg-window-panel px-3 py-2 md:flex-row md:items-center md:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {item.status === "POSTED" ? <CheckCircle aria-hidden="true" className="size-5 shrink-0 text-success" weight="fill" />

@@ -201,7 +201,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
+      <div className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
         <p className="text-xs text-muted-foreground md:col-span-3">
           Base URL para integraciones: <code>https://erp.comodore.es</code>. Configura los endpoints como rutas relativas, por ejemplo <code>/api/customers</code> o <code>/api/invoices</code>.
         </p>
@@ -270,7 +270,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </Table>
       </div>
 
-      <div className="border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)]">
+      <div className="border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h3 className="font-mono text-sm font-bold">Ejemplo de creación de factura con PDF</h3>
           <Button

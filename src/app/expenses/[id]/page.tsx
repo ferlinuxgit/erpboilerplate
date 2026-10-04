@@ -151,7 +151,7 @@ export default async function ExpenseDetailPage({
         title="Líneas"
         description="Desglose contable y fiscal de la factura."
       >
-        <div className="overflow-x-auto rounded-[2px] border">
+        <div className="overflow-x-auto rounded-surface border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -248,7 +248,7 @@ export default async function ExpenseDetailPage({
           <div className="space-y-2">
             {expense.attachments.map((attachment) => (
               <div
-                className="flex items-center justify-between gap-3 rounded-[2px] border border-window-shadow p-3"
+                className="flex items-center justify-between gap-3 rounded-surface border border-window-shadow p-3"
                 key={attachment.id}
               >
                 <div className="min-w-0">

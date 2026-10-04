@@ -366,7 +366,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 ? paymentMethodTypeLabels[method.type as PaymentMethodType]
                 : null;
               return (
-                <div className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-sm" key={`${method.name}-${method.position}-${index}`}>
+                <div className="rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-sm" key={`${method.name}-${method.position}-${index}`}>
                   <p className="font-medium">{method.name}</p>
                   {typeLabel ? <p className="text-muted-foreground">{typeLabel}</p> : null}
                   {method.bankAccountNumber ? <p className="mt-2 font-mono">Cuenta: {method.bankAccountNumber}</p> : null}
@@ -378,7 +378,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ) : null}
 
       <PageSection title="Líneas" description="Detalle de conceptos, cantidades, impuestos e importes.">
-        <div className="overflow-x-auto rounded-[2px] border">
+        <div className="overflow-x-auto rounded-surface border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -411,7 +411,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             </TableBody>
           </Table>
         </div>
-        <dl className="ml-auto mt-4 w-full max-w-sm space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 font-mono text-sm">
+        <dl className="ml-auto mt-4 w-full max-w-sm space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3 font-mono text-sm">
           <div className="flex justify-between gap-3">
             <dt>Base imponible</dt>
             <dd>{formatMoney(totals.subtotal, currencyCode)}</dd>

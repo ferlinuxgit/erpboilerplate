@@ -389,7 +389,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   };
 
   if (!creationMode) {
-    const modeCard = "block rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-left shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
+    const modeCard = "block rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-left shadow-raised hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
     return (
       <div className="space-y-3">
         <div aria-label="Cómo quieres registrar la factura" className="grid gap-3 md:grid-cols-2" role="group">
@@ -416,13 +416,13 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   }
 
   const lineError = (line: ExpenseLineDraft, field: string) => fieldErrors[`${line.id}-${field}`];
-  const sectionClass = "space-y-3 rounded-[2px] border border-window-dark-shadow bg-card p-3";
+  const sectionClass = "space-y-3 rounded-surface border border-window-dark-shadow bg-card p-3";
   const currencySymbol = baseCurrencyCode === "EUR" ? "€" : baseCurrencyCode;
 
   return (
     <>
       <form className="space-y-3" noValidate onSubmit={onSubmit}>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-surface border border-window-dark-shadow bg-window-panel p-2">
           <div>
             <p className="font-mono text-xs font-bold">Registro a mano</p>
             <RequiredFieldsNote />
@@ -475,7 +475,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
           <div className="space-y-1">
             <p className="font-mono text-xs font-bold">Justificante</p>
             {attachment ? (
-              <div className="flex min-h-8 items-center justify-between gap-2 rounded-[2px] border border-window-dark-shadow bg-primary/5 px-2 py-1 text-xs">
+              <div className="flex min-h-8 items-center justify-between gap-2 rounded-surface border border-window-dark-shadow bg-primary/5 px-2 py-1 text-xs">
                 <span className="flex min-w-0 items-center gap-1"><Paperclip aria-hidden="true" className="shrink-0" /><span className="truncate font-bold">{attachment.fileName}</span></span>
                 <span className="flex shrink-0 gap-2">
                   {attachment.fileUrl ? <a className="font-bold text-primary hover:underline" href={attachment.fileUrl} rel="noreferrer" target="_blank">Ver</a> : null}
@@ -538,7 +538,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
             </Button>
           </div>
           {lines.map((line, index) => (
-            <fieldset className="rounded-[2px] border border-window-dark-shadow bg-card p-2" key={line.id}>
+            <fieldset className="rounded-surface border border-window-dark-shadow bg-card p-2" key={line.id}>
               <legend className="sr-only">Línea {index + 1}</legend>
               <div className="grid gap-2 lg:grid-cols-12">
                 <AccessibleField className="lg:col-span-3" error={lineError(line, "description")} id={`expense-line-description-${line.id}`} label="Concepto" required>

@@ -127,7 +127,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
             description={record.isService ? "Los servicios no mantienen existencias en almacén." : "Registra una entrada para dar de alta stock de este artículo."}
           />
         ) : (
-          <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -163,7 +163,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
           />
         ) : (
           movements.map((row) => (
-            <div className="grid gap-2 rounded-[2px] border border-window-dark-shadow p-3 text-sm sm:grid-cols-[auto_1fr_auto]" key={row.id}>
+            <div className="grid gap-2 rounded-surface border border-window-dark-shadow p-3 text-sm sm:grid-cols-[auto_1fr_auto]" key={row.id}>
               <StatusBadge tone={row.movementType === "OUT" ? "warning" : "success"}>{statusLabel(stockMovementTypeLabels, row.movementType)}</StatusBadge>
               <div>
                 <p className="font-bold">{row.reason}</p>

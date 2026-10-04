@@ -32,14 +32,14 @@ export default function GlobalError({
             ) : null}
             <div className="flex flex-wrap gap-2">
               <button
-                className="win-bevel h-8 bg-primary px-3 font-mono text-[0.78rem] font-bold text-primary-foreground"
+                className="win-bevel h-8 bg-primary px-3 font-mono text-control font-bold text-primary-foreground"
                 onClick={reset}
                 type="button"
               >
                 Reintentar
               </button>
               {/* A full reload is intentional: the root layout itself failed. */}
-              <a className="win-bevel inline-flex h-8 items-center bg-window-surface px-3 font-mono text-[0.78rem] font-bold text-window-text" href="/dashboard">
+              <a className="win-bevel inline-flex h-8 items-center bg-window-surface px-3 font-mono text-control font-bold text-window-text" href="/dashboard">
                 Volver al panel
               </a>
             </div>

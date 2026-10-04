@@ -161,7 +161,7 @@ export function ReconciliationWorkbench({ accounts, canWrite, currencyCode, cust
             return (
               <li
                 className={cn(
-                  "border border-window-dark-shadow bg-card p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]",
+                  "border border-window-dark-shadow bg-card p-2 shadow-raised",
                   focusId === movement.id && "ring-2 ring-focus",
                 )}
                 data-testid="workbench-movement"

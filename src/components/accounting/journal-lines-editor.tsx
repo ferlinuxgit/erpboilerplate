@@ -46,7 +46,7 @@ export function JournalLinesEditor({ accounts, errorId, lines, onChange, partner
     <div className="space-y-3">
       <div aria-label="Líneas del asiento" className="space-y-2" role="group">
         {lines.map((line, index) => (
-          <div className="grid gap-3 rounded-[2px] border border-window-shadow p-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_auto]" key={index}>
+          <div className="grid gap-3 rounded-surface border border-window-shadow p-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_auto]" key={index}>
             <div className="min-w-0 space-y-1">
               <Label htmlFor={`journal-line-${index}-account`}>Cuenta de la línea {index + 1}</Label>
               <AccountPicker
@@ -131,7 +131,7 @@ export function JournalLinesEditor({ accounts, errorId, lines, onChange, partner
         <Plus aria-hidden="true" />
         Añadir línea
       </Button>
-      <p aria-live="polite" className={cn("rounded-[1px] border px-2 py-1.5 font-mono text-sm", balanced ? "border-success bg-success/10 text-success-text" : "border-warning bg-warning/10 text-warning-text")}>
+      <p aria-live="polite" className={cn("rounded-control border px-2 py-1.5 font-mono text-sm", balanced ? "border-success bg-success/10 text-success-text" : "border-warning bg-warning/10 text-warning-text")}>
         Debe: {formatAmount(totals.totalDebit)} | Haber: {formatAmount(totals.totalCredit)} | Diferencia: {formatAmount(totals.difference)} | {balanced ? "Cuadrado" : "Descuadrado"}
       </p>
     </div>

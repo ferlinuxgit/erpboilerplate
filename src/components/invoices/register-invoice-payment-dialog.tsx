@@ -125,7 +125,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
       </Button>
       <Dialog description="Informa la fecha, la forma de pago y el importe recibido." initialFocusId={dateId} onClose={() => setIsOpen(false)} open={isOpen} title={`Registrar cobro ${invoice.number}`}>
         <form className="space-y-4" noValidate onSubmit={handleSubmit}>
-          <div className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-xs">
+          <div className="rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-xs">
             <p className="font-mono font-bold">{invoice.number}</p>
             <p className="text-muted-foreground">Importe factura: <span className="font-mono tabular-nums">{invoice.totalAmountLabel}</span></p>
             <p className="text-muted-foreground" data-testid="payment-dialog-outstanding">

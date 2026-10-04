@@ -265,7 +265,7 @@ const TreeRow = memo(function TreeRow({ exactCodeMatch, index, isFocusTarget, is
           {row.expandable ? (
             <span
               aria-hidden="true"
-              className="inline-flex size-4 items-center justify-center rounded-[1px] text-window-text hover:bg-window-highlight"
+              className="inline-flex size-4 items-center justify-center rounded-control text-window-text hover:bg-window-highlight"
               onClick={(event) => {
                 event.stopPropagation();
                 onFocusCode(node.code);
@@ -305,8 +305,8 @@ function StatusRow({ index, onRetry, row, style }: { row: Exclude<VisibleRow, { 
       <span className="flex min-w-0 flex-1 items-center gap-2" role="gridcell" style={indent}>
         {row.kind === "loading" ? (
           <>
-            <span aria-hidden="true" className="h-3 w-16 rounded-[1px] bg-window-shadow/40" />
-            <span aria-hidden="true" className="h-3 w-40 rounded-[1px] bg-window-shadow/30" />
+            <span aria-hidden="true" className="h-3 w-16 rounded-control bg-window-shadow/40" />
+            <span aria-hidden="true" className="h-3 w-40 rounded-control bg-window-shadow/30" />
             <span className="sr-only">Cargando subcuentas…</span>
           </>
         ) : row.kind === "error" ? (

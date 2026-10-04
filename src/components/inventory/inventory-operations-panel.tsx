@@ -344,7 +344,7 @@ export function InventoryOperationsPanel({
   return (
     <div className="space-y-2">
       {showMovementForm ? (
-      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="inventory-actions-title">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-raised" aria-labelledby="inventory-actions-title">
         <div className="mb-2 space-y-0.5 border-b border-window-shadow pb-1.5">
           <h2 id="inventory-actions-title" className="font-mono text-sm font-bold">
             Operaciones de stock
@@ -445,7 +445,7 @@ export function InventoryOperationsPanel({
       ) : null}
 
       {showOverview ? <>
-      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="stock-alerts-title">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-raised" aria-labelledby="stock-alerts-title">
         <h2 id="stock-alerts-title" className="font-mono text-sm font-bold">
           Alertas de stock mínimo
         </h2>
@@ -474,7 +474,7 @@ export function InventoryOperationsPanel({
         )}
       </section>
 
-      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="stock-snapshot-title">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-raised" aria-labelledby="stock-snapshot-title">
         <h2 id="stock-snapshot-title" className="font-mono text-sm font-bold">
           Stock por producto y almacén
         </h2>
@@ -524,7 +524,7 @@ export function InventoryOperationsPanel({
         </div>
       </section>
 
-      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]" aria-labelledby="movement-history-title">
+      <section className="border border-window-dark-shadow bg-card p-2.5 shadow-raised" aria-labelledby="movement-history-title">
         <div className="space-y-0.5">
           <h2 id="movement-history-title" className="font-mono text-sm font-bold">
             Historial de movimientos

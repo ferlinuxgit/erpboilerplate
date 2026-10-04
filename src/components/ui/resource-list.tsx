@@ -786,7 +786,7 @@ export function ResourceList<TItem>({
       <p className="sr-only" id={`${listId}-keyboard-help`}>
         Pulsa Alt F para buscar. En las filas usa flecha arriba y abajo para moverte, Enter para abrir, Espacio para seleccionar y Av Pág o Re Pág para cambiar de página.
       </p>
-      <div className="w-full overflow-visible rounded-[2px] border border-window-dark-shadow bg-card p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">
+      <div className="w-full overflow-visible rounded-surface border border-window-dark-shadow bg-card p-2 shadow-raised">
         <div className="mb-1.5 flex min-h-5 flex-wrap items-center justify-between gap-1">
           <p
             className="font-mono text-xs font-bold text-foreground"
@@ -946,13 +946,13 @@ export function ResourceList<TItem>({
                 >
                   <summary
                     aria-label="Configurar campos visibles"
-                    className="grid size-9 cursor-pointer list-none place-items-center rounded-[2px] border border-window-dark-shadow bg-window-surface text-window-text shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus active:translate-x-px active:translate-y-px"
+                    className="grid size-9 cursor-pointer list-none place-items-center rounded-surface border border-window-dark-shadow bg-window-surface text-window-text shadow-raised hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus active:translate-x-px active:translate-y-px"
                     title="Configurar campos"
                   >
                     <SlidersHorizontal aria-hidden="true" />
                     <span className="sr-only">Configurar campos</span>
                   </summary>
-                  <div className="absolute right-0 z-20 mt-1 min-w-52 space-y-1 border border-window-dark-shadow bg-window-surface p-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow),4px_4px_0_rgba(0,0,0,0.25)]">
+                  <div className="absolute right-0 z-20 mt-1 min-w-52 space-y-1 border border-window-dark-shadow bg-window-surface p-2 shadow-window">
                     {columns.map((column) => (
                       <label
                         className="flex items-center gap-1.5 font-mono text-xs"
@@ -1045,7 +1045,7 @@ export function ResourceList<TItem>({
             {filters.length > 0 || dateRange ? (
               <div className="flex w-full flex-col gap-1.5 border border-window-shadow bg-window-panel p-2 lg:flex-row lg:items-end">
                 <div className="flex min-h-8 shrink-0 items-center gap-1.5 font-mono text-xs font-bold text-foreground lg:pr-1">
-                  <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-link shadow-[inset_1px_1px_0_var(--window-highlight)]">
+                  <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-link shadow-bevel-top">
                     <Funnel aria-hidden="true" />
                   </span>
                   <span>Filtrar</span>
@@ -1132,7 +1132,7 @@ export function ResourceList<TItem>({
         {bulkActions && selectedItems.length > 0 ? (
           <div
             aria-label="Acciones sobre la selección"
-            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5 max-md:sticky max-md:bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-md:z-20 max-md:bg-window-surface max-md:shadow-[3px_3px_0_var(--window-shadow)]"
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5 max-md:sticky max-md:bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-md:z-20 max-md:bg-window-surface max-md:shadow-drop"
             role="toolbar"
           >
             <span className="font-mono text-xs font-bold">Con {selectedItems.length} seleccionados:</span>
@@ -1321,7 +1321,7 @@ export function ResourceList<TItem>({
                 aria-keyshortcuts="ArrowUp ArrowDown Home End Enter Space"
                 aria-label={getRowLabel?.(item)}
                 className={cn(
-                  "border border-window-dark-shadow bg-card p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+                  "border border-window-dark-shadow bg-card p-2.5 shadow-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                   selectedIds.has(getRowId(item)) && "outline-2 outline-primary",
                   getRowClassName?.(item),
                 )}

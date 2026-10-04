@@ -73,7 +73,7 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
           Copiar todas
         </Button>
       </div>
-      <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+      <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
         <Table>
           <caption className="sr-only">{caption}</caption>
           <TableHeader>

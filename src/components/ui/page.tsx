@@ -139,7 +139,7 @@ export function PageHeader({
     <header
       data-slot="page-header"
       className={cn(
-        "grid gap-2 rounded-[2px] border border-window-dark-shadow bg-card px-3 py-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4",
+        "grid gap-2 rounded-surface border border-window-dark-shadow bg-card px-3 py-2 shadow-raised sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4",
         className,
       )}
     >
@@ -206,7 +206,7 @@ export function PageSection({
     return (
       <section
         className={cn(
-          "overflow-hidden rounded-[2px] border border-window-dark-shadow bg-card shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]",
+          "overflow-hidden rounded-surface border border-window-dark-shadow bg-card shadow-raised",
           className,
         )}
         {...props}
@@ -283,7 +283,7 @@ export function InlineAlert({
   return (
     <div
       className={cn(
-        "rounded-[1px] border p-2 font-mono text-xs shadow-[inset_1px_1px_0_rgba(255,255,255,0.5)]",
+        "rounded-control border p-2 font-mono text-xs shadow-[inset_1px_1px_0_rgba(255,255,255,0.5)]",
         alertToneClasses[tone],
         className,
       )}
@@ -315,7 +315,7 @@ export function MetricCard({
   );
 
   const classes = cn(
-    "rounded-[1px] border bg-card px-2.5 py-2 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+    "rounded-control border bg-card px-2.5 py-2 shadow-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
     metricToneClasses[tone],
     href && "hover:bg-window-highlight active:translate-x-px active:translate-y-px",
     className,

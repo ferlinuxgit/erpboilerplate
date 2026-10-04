@@ -141,7 +141,7 @@ export function ScheduleFields({
           </AccessibleField>
         ) : null}
       </div>
-      <div aria-live="polite" className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-sm" data-testid="recurring-preview">
+      <div aria-live="polite" className="rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-sm" data-testid="recurring-preview">
         {schedule ? <p className="font-semibold">{describeSchedule(schedule)}</p> : null}
         {dates.length > 0 ? (
           <p>Próximas fechas: {dates.map((date) => formatScheduleDate(date)).join(" · ")}</p>

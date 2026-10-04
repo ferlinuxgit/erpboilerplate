@@ -137,7 +137,7 @@ export function FormActions({ children, className, hint = "Ctrl/Cmd + Enter para
     <div
       className={cn(
         "flex flex-wrap items-center justify-end gap-2 border-t border-window-shadow pt-3",
-        sticky && "sticky bottom-2 z-10 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)]",
+        sticky && "sticky bottom-2 z-10 border border-window-dark-shadow bg-window-panel p-2 shadow-drop",
         className,
       )}
     >

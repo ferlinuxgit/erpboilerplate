@@ -35,7 +35,7 @@ const taxKindOptions: Array<{ value: TaxKind; label: string }> = [
   { value: "OTHER", label: "Otro impuesto" },
 ];
 
-const panelClass = "space-y-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight)]";
+const panelClass = "space-y-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-bevel-top";
 const listClass = "divide-y divide-window-shadow border border-window-shadow bg-card px-2.5";
 
 /** Percent fields keep the Spanish decimal comma so "21.000" from the API is never read as 21 000. */

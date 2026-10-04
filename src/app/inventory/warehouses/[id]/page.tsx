@@ -106,7 +106,7 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
             description="Este almacén todavía no tiene stock. Registra una entrada con «Nuevo movimiento»."
           />
         ) : (
-          <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -141,7 +141,7 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
         ) : (
           movements.map((row) => (
             <Link
-              className="grid gap-2 rounded-[2px] border border-window-dark-shadow p-3 text-sm hover:bg-accent sm:grid-cols-[1fr_auto]"
+              className="grid gap-2 rounded-surface border border-window-dark-shadow p-3 text-sm hover:bg-accent sm:grid-cols-[1fr_auto]"
               href={`/inventory/items/${row.itemId}`}
               key={row.id}
             >

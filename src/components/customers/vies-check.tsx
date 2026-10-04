@@ -55,7 +55,7 @@ export function ViesCheck({ customerId, initial }: { customerId: string; initial
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-sm" data-testid="customer-vies-check">
+    <div className="flex flex-wrap items-center gap-3 rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-sm" data-testid="customer-vies-check">
       <div className="min-w-0 flex-1 space-y-1">
         <p className="font-medium">Comprobación intracomunitaria (VIES)</p>
         {copy ? (

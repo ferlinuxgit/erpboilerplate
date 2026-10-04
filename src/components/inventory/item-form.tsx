@@ -99,7 +99,7 @@ export function ItemForm({ id, initialValues = defaults }: { id?: string; initia
         >
           <QuantityInput id="item-minimum-stock" disabled={values.isService} onChange={(event) => set("minimumStock", event.target.value)} required={!values.isService} value={values.minimumStock} />
         </AccessibleField>
-        <label className="flex cursor-pointer items-center gap-2 self-end border border-window-dark-shadow bg-window-panel p-2.5 font-mono text-xs font-bold shadow-[inset_1px_1px_0_var(--window-highlight)]" htmlFor="item-is-service">
+        <label className="flex cursor-pointer items-center gap-2 self-end border border-window-dark-shadow bg-window-panel p-2.5 font-mono text-xs font-bold shadow-bevel-top" htmlFor="item-is-service">
           <input checked={values.isService} id="item-is-service" onChange={(event) => set("isService", event.target.checked)} type="checkbox" />
           Es un servicio sin control de stock
         </label>

@@ -128,7 +128,7 @@ export function CustomerCashActions({ invoice, invoices, paymentMethods }: Custo
   }
 
   return (
-    <section className="space-y-3 rounded-[2px] border border-window-dark-shadow p-3" data-testid={`customer-cash-invoice-${invoice.id}`}>
+    <section className="space-y-3 rounded-surface border border-window-dark-shadow p-3" data-testid={`customer-cash-invoice-${invoice.id}`}>
       <form className="grid gap-3 md:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_auto] lg:items-end" noValidate onSubmit={handleSubmit}>
         <AccessibleField helperText={options.length > 1 ? `${options.length} facturas pendientes; se propone la más urgente.` : undefined} id={ids.invoice} label="Factura que se cobra" required>
           <Select data-testid="customer-cash-invoice-select" value={selected.id} onChange={(event) => selectInvoice(event.target.value)}>

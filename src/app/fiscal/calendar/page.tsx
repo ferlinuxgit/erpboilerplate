@@ -58,7 +58,7 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
         backLabel="Volver a fiscalidad"
         actions={<Link className={buttonVariants({ variant: "outline" })} href="/fiscal/settings">Perfil fiscal</Link>}
       />
-      <form action="/fiscal/calendar" className="flex flex-wrap items-end gap-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-2.5" data-ignore-dirty-guard="true" method="get">
+      <form action="/fiscal/calendar" className="flex flex-wrap items-end gap-2 rounded-surface border border-window-dark-shadow bg-window-panel p-2.5" data-ignore-dirty-guard="true" method="get">
         <div className="space-y-1">
           <Label htmlFor="fiscal-calendar-year">Año</Label>
           <Select className="w-32" defaultValue={String(year)} id="fiscal-calendar-year" name="year">

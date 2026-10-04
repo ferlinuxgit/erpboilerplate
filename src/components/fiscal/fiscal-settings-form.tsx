@@ -81,7 +81,7 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
   };
 
   return (
-    <form className="rounded-[2px] border p-3" onSubmit={submit}>
+    <form className="rounded-surface border p-3" onSubmit={submit}>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-sm font-medium">Cómo tributa tu negocio</h2>
@@ -126,7 +126,7 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
           <PercentInput value={values.prorrataPct} onValueChange={(value) => setValue("prorrataPct", value ?? Number.NaN)} />
         </AccessibleField>
 
-        <label className="flex items-center gap-2 self-end rounded-[2px] border px-3 py-2 text-sm" htmlFor="fiscal-sii">
+        <label className="flex items-center gap-2 self-end rounded-surface border px-3 py-2 text-sm" htmlFor="fiscal-sii">
           <input checked={values.siiEnabled} id="fiscal-sii" onChange={(event) => setValue("siiEnabled", event.target.checked)} type="checkbox" />
           <span>Empresa obligada o adscrita al SII</span>
         </label>
@@ -193,7 +193,7 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
   };
 
   return (
-    <form className="space-y-3 rounded-[2px] border p-3" onSubmit={submit}>
+    <form className="space-y-3 rounded-surface border p-3" onSubmit={submit}>
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="max-w-2xl space-y-1">
           <h2 className="text-sm font-medium">Modo VERI*FACTU</h2>
@@ -214,7 +214,7 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
         </InlineAlert>
       ) : null}
 
-      <label className="flex items-center gap-3 rounded-[2px] border px-3 py-2 text-sm" htmlFor="verifactu-switch">
+      <label className="flex items-center gap-3 rounded-surface border px-3 py-2 text-sm" htmlFor="verifactu-switch">
         <input
           aria-describedby="verifactu-switch-help"
           checked={enabled}
@@ -237,7 +237,7 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
         <AccessibleField id="verifactu-since" label="Aplicar desde" helperText="Déjalo vacío para empezar con la próxima factura que emitas.">
           <Input type="date" value={since} onChange={(event) => setSince(event.target.value)} />
         </AccessibleField>
-        <details className="rounded-[2px] border px-3 py-2 text-sm">
+        <details className="rounded-surface border px-3 py-2 text-sm">
           <summary className="cursor-pointer font-medium">Opción avanzada: NO VERI*FACTU</summary>
           <p className="mt-2 text-muted-foreground">
             Las facturas se registran y encadenan igual, pero no se envían a Hacienda. Obliga a firmar y custodiar los registros y a

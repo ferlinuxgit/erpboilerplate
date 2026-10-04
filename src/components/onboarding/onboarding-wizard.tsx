@@ -249,7 +249,7 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
   if (result) {
     const invitation = result.invitation;
     return (
-      <section className="space-y-3 border border-success bg-success/10 p-3 text-foreground shadow-[inset_1px_1px_0_var(--window-highlight)]" role="status">
+      <section className="space-y-3 border border-success bg-success/10 p-3 text-foreground shadow-bevel-top" role="status">
         <div>
           <p className="font-mono text-xs font-bold uppercase tracking-[0.04em]">Configuración inicial lista</p>
           <h2 className="mt-1 font-mono text-lg font-bold">Tu empresa está lista para facturar</h2>
@@ -320,7 +320,7 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
                 <button
                   aria-current={isCurrent ? "step" : undefined}
                   className={cn(
-                    "flex h-full w-full flex-col items-start gap-0.5 border px-2 py-1.5 text-left font-mono text-xs shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60",
+                    "flex h-full w-full flex-col items-start gap-0.5 border px-2 py-1.5 text-left font-mono text-xs shadow-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60",
                     isCurrent
                       ? "border-window-dark-shadow bg-primary text-primary-foreground"
                       : isDone
@@ -344,7 +344,7 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
         </ol>
       </nav>
 
-      <div className="space-y-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)]">
+      <div className="space-y-3 border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top">
         <div className="space-y-0.5 border-b border-window-shadow pb-2">
           <h3 className="font-mono text-sm font-bold focus-visible:outline-none" id="onboarding-step-title" ref={headingRef} tabIndex={-1}>
             {currentStep.title}

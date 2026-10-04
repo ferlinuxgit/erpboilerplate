@@ -4,19 +4,19 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-[2px] border border-window-dark-shadow bg-clip-padding font-mono text-[0.78rem] font-bold whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 focus-visible:ring-offset-window-surface active:not-aria-[haspopup]:translate-x-px active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-surface border border-window-dark-shadow bg-clip-padding font-mono text-control font-bold whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 focus-visible:ring-offset-window-surface active:not-aria-[haspopup]:translate-x-px active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow-[inset_1px_1px_0_rgba(255,255,255,0.45),inset_-1px_-1px_0_rgba(0,0,0,0.55)] hover:brightness-125 active:shadow-[inset_1px_1px_0_rgba(0,0,0,0.6),inset_-1px_-1px_0_rgba(255,255,255,0.25)]",
+        default: "bg-primary text-primary-foreground shadow-raised-tinted hover:brightness-125 active:shadow-pressed-tinted",
         outline:
-          "bg-window-surface text-window-text shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight aria-expanded:bg-window-highlight active:shadow-[inset_1px_1px_0_var(--window-shadow),inset_-1px_-1px_0_var(--window-highlight)]",
+          "bg-window-surface text-window-text shadow-raised hover:bg-window-highlight aria-expanded:bg-window-highlight active:shadow-pressed",
         secondary:
-          "bg-window-panel text-window-text shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)] hover:bg-window-highlight aria-expanded:bg-window-highlight",
+          "bg-window-panel text-window-text shadow-raised hover:bg-window-highlight aria-expanded:bg-window-highlight",
         ghost:
           "border-transparent bg-transparent text-current shadow-none hover:border-window-dark-shadow hover:bg-window-highlight hover:text-window-text aria-expanded:bg-window-highlight",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-[inset_1px_1px_0_rgba(255,255,255,0.4),inset_-1px_-1px_0_rgba(0,0,0,0.55)] hover:brightness-110 focus-visible:ring-destructive",
+          "bg-destructive text-destructive-foreground shadow-raised-tinted hover:brightness-110 focus-visible:ring-destructive",
         link: "border-transparent bg-transparent text-link shadow-none underline-offset-2 hover:underline",
       },
       size: {
@@ -24,7 +24,7 @@ const buttonVariants = cva(
           "h-8 gap-1.5 px-3 pointer-coarse:h-10 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
         xs: "h-6 gap-1 px-1.5 text-xs pointer-coarse:h-10 pointer-coarse:px-2.5 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 px-2 text-xs pointer-coarse:h-10 pointer-coarse:px-3 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        lg: "h-9 pointer-coarse:h-11 gap-1.5 px-3.5 text-[0.8rem] has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        lg: "h-9 pointer-coarse:h-11 gap-1.5 px-3.5 text-control has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
         icon: "size-8 pointer-coarse:size-10",
         "icon-xs":
           "size-6 pointer-coarse:size-10 [&_svg:not([class*='size-'])]:size-3",

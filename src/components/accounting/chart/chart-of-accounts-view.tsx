@@ -539,7 +539,7 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
 
   return (
     <div className="space-y-2" data-testid="chart-of-accounts">
-      <section aria-label="Opciones del plan contable" className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-2">
+      <section aria-label="Opciones del plan contable" className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-2">
         <div className="flex flex-wrap items-end gap-2">
           <div aria-label="Vista" className="flex" role="group">
             {VIEW_OPTIONS.map((option) => {
@@ -547,7 +547,7 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
               return (
                 <Button
                   aria-pressed={state.view === option.value}
-                  className={cn("-ml-px first:ml-0", state.view === option.value && "bg-window-highlight shadow-[inset_1px_1px_0_var(--window-shadow),inset_-1px_-1px_0_var(--window-highlight)]")}
+                  className={cn("-ml-px first:ml-0", state.view === option.value && "bg-window-highlight shadow-pressed")}
                   key={option.value}
                   onClick={() => updateState({ view: option.value })}
                   size="sm"
@@ -587,7 +587,7 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
               <Button
                 aria-label={level === "sub" ? "Desplegar hasta las subcuentas" : `Desplegar hasta el nivel ${level}`}
                 aria-pressed={state.level === level && !state.q}
-                className={cn("min-w-7 px-1.5", state.level === level && !state.q && "bg-window-highlight shadow-[inset_1px_1px_0_var(--window-shadow),inset_-1px_-1px_0_var(--window-highlight)]")}
+                className={cn("min-w-7 px-1.5", state.level === level && !state.q && "bg-window-highlight shadow-pressed")}
                 key={level}
                 onClick={() => setLevel(level)}
                 size="sm"
@@ -759,7 +759,7 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
           <aside
             aria-labelledby={selectedNode ? detailHeadingId : undefined}
             aria-label={selectedNode ? undefined : "Ficha de la cuenta"}
-            className="w-full shrink-0 rounded-[2px] border border-window-dark-shadow bg-window-surface lg:sticky lg:top-2 lg:max-h-[calc(100dvh-1rem)] lg:w-[var(--panel-width)] lg:overflow-y-auto"
+            className="w-full shrink-0 rounded-surface border border-window-dark-shadow bg-window-surface lg:sticky lg:top-2 lg:max-h-[calc(100dvh-1rem)] lg:w-[var(--panel-width)] lg:overflow-y-auto"
           >
             {detail ?? (
               <p className="p-3 text-xs text-muted-foreground">Selecciona una cuenta para ver su ficha: sumas del periodo, evolución mensual y últimos apuntes.</p>

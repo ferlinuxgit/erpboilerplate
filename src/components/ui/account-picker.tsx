@@ -187,7 +187,7 @@ export function AccountPicker({
           aria-expanded={open}
           aria-required={aria["aria-required"] ?? (required ? true : undefined)}
           autoComplete="off"
-          className="h-8 w-full min-w-0 rounded-[1px] border border-window-dark-shadow bg-window-highlight py-1 pl-7 pr-7 font-mono text-[0.78rem] text-window-text shadow-[inset_1px_1px_0_var(--window-shadow),inset_-1px_-1px_0_var(--window-surface)] outline-none placeholder:text-window-muted/75 focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-55 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/25 max-sm:min-h-9 max-sm:text-base"
+          className="h-8 w-full min-w-0 rounded-control border border-window-dark-shadow bg-window-highlight py-1 pl-7 pr-7 font-mono text-control text-window-text shadow-sunken outline-none placeholder:text-window-muted/75 focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-55 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/25 max-sm:min-h-9 max-sm:text-base"
           disabled={disabled}
           id={id}
           onBlur={() => close(true)}
@@ -214,7 +214,7 @@ export function AccountPicker({
       {open ? (
         <ul
           aria-label="Cuentas contables"
-          className="absolute left-0 right-0 z-30 mt-0.5 max-h-72 overflow-y-auto border border-window-dark-shadow bg-window-surface py-0.5 shadow-[3px_3px_0_var(--window-shadow)]"
+          className="absolute left-0 right-0 z-30 mt-0.5 max-h-72 overflow-y-auto border border-window-dark-shadow bg-window-surface py-0.5 shadow-drop"
           id={listboxId}
           // Evita que el clic en la lista quite el foco (y cierre) antes de elegir.
           onMouseDown={(event) => event.preventDefault()}

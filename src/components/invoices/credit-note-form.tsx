@@ -211,21 +211,21 @@ export function CreditNoteForm({
     <form className="space-y-4" data-testid="credit-note-form" noValidate onSubmit={handleSubmit}>
       <fieldset className="space-y-2">
         <legend className="font-mono text-xs font-bold uppercase tracking-wide">1. ¿Qué quieres hacer?</legend>
-        <label className="flex cursor-pointer items-start gap-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-sm">
+        <label className="flex cursor-pointer items-start gap-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-sm">
           <input checked={scope === "FULL" && type === "DIFFERENCES"} className="mt-1 accent-primary" name="credit-note-scope" onChange={() => { setScope("FULL"); setType("DIFFERENCES"); }} type="radio" />
           <span>
             <span className="block font-medium">Anular la factura entera</span>
             <span className="text-xs text-muted-foreground">Emite una rectificativa por el importe total en negativo. Úsalo si la factura no debió emitirse o tenía un error grave.</span>
           </span>
         </label>
-        <label className="flex cursor-pointer items-start gap-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-sm">
+        <label className="flex cursor-pointer items-start gap-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-sm">
           <input checked={scope === "PARTIAL" && type === "DIFFERENCES"} className="mt-1 accent-primary" name="credit-note-scope" onChange={() => { setScope("PARTIAL"); setType("DIFFERENCES"); }} type="radio" />
           <span>
             <span className="block font-medium">Abonar solo una parte</span>
             <span className="text-xs text-muted-foreground">Devoluciones, descuentos posteriores o un precio mal puesto: indica las cantidades o importes que devuelves.</span>
           </span>
         </label>
-        <details className="rounded-[2px] border border-dashed border-window-shadow p-2 text-sm" open={type === "SUBSTITUTION"}>
+        <details className="rounded-surface border border-dashed border-window-shadow p-2 text-sm" open={type === "SUBSTITUTION"}>
           <summary className="cursor-pointer font-mono text-xs">Opciones avanzadas</summary>
           <label className="mt-2 flex cursor-pointer items-start gap-2">
             <input checked={type === "SUBSTITUTION"} className="mt-1 accent-primary" name="credit-note-scope" onChange={() => setType("SUBSTITUTION")} type="radio" />
@@ -249,7 +249,7 @@ export function CreditNoteForm({
           </p>
           <div className="space-y-2">
             {editableLines.map((line, index) => (
-              <div className="grid gap-2 rounded-[2px] border border-window-dark-shadow bg-card p-2 md:grid-cols-[minmax(12rem,1fr)_6rem_8rem_minmax(8rem,.6fr)_auto] md:items-end" data-testid={`credit-note-line-${index + 1}`} key={line.key}>
+              <div className="grid gap-2 rounded-surface border border-window-dark-shadow bg-card p-2 md:grid-cols-[minmax(12rem,1fr)_6rem_8rem_minmax(8rem,.6fr)_auto] md:items-end" data-testid={`credit-note-line-${index + 1}`} key={line.key}>
                 <AccessibleField id={`credit-note-line-${index + 1}-description`} label="Concepto">
                   <Input id={`credit-note-line-${index + 1}-description`} value={line.description} onChange={(event) => updateLine(line.key, { description: event.target.value })} />
                 </AccessibleField>
@@ -286,7 +286,7 @@ export function CreditNoteForm({
         </AccessibleField>
       </div>
 
-      <dl className="ml-auto w-full max-w-sm space-y-1 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 font-mono text-sm" data-testid="credit-note-preview">
+      <dl className="ml-auto w-full max-w-sm space-y-1 rounded-surface border border-window-dark-shadow bg-window-panel p-3 font-mono text-sm" data-testid="credit-note-preview">
         <div className="flex justify-between gap-3"><dt>Base</dt><dd>{formatMoney(preview.subtotal, currencyCode)}</dd></div>
         <div className="flex justify-between gap-3"><dt>Impuestos</dt><dd>{formatMoney(preview.taxAmount, currencyCode)}</dd></div>
         {preview.retentionAmount !== 0 ? <div className="flex justify-between gap-3"><dt>Retenciones</dt><dd>−{formatMoney(preview.retentionAmount, currencyCode)}</dd></div> : null}

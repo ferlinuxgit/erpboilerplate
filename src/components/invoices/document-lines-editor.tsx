@@ -232,7 +232,7 @@ export function DocumentLinesEditor({
         </Button>
       </div>
 
-      <div className="rounded-[2px] border border-window-dark-shadow bg-window-surface">
+      <div className="rounded-surface border border-window-dark-shadow bg-window-surface">
         <div aria-hidden="true" className={cn("hidden gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid", gridTemplate)}>
           {columns.map((label) => (
             <div className={cn("bg-window-panel px-2 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.04em]", (label === "Importe" || label === "Cantidad" || label === "Precio unitario") && "text-right")} key={label}>
@@ -382,7 +382,7 @@ export function DocumentLinesEditor({
                 ) : null}
                 <div className="flex min-h-9 items-center justify-between gap-2 lg:justify-end">
                   <span className="font-mono text-xs font-bold lg:hidden">Importe</span>
-                  <div className="text-right font-mono text-[0.78rem] font-bold tabular-nums">
+                  <div className="text-right font-mono text-control font-bold tabular-nums">
                     {formatMoney(lineTotal?.lineTotal ?? 0, currencyCode)}
                     {lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount || parseDecimalInput(line.discountPct)) ? (
                       <p className="text-xs font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal, currencyCode)}</p>

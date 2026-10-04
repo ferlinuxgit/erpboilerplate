@@ -80,7 +80,7 @@ export function AccountContextMenu({ canManage, node, onClose, onCommand, positi
   return createPortal(
     <div
       aria-label={`Acciones de la cuenta ${node.code}`}
-      className="fixed z-50 min-w-48 rounded-[2px] border border-window-dark-shadow bg-window-surface p-1 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow),3px_3px_0_rgba(0,0,0,0.3)]"
+      className="fixed z-50 min-w-48 rounded-surface border border-window-dark-shadow bg-window-surface p-1 shadow-window"
       data-testid="account-context-menu"
       onKeyDown={handleKeyDown}
       ref={menuRef}

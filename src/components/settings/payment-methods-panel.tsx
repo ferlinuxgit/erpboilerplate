@@ -194,7 +194,7 @@ export function PaymentMethodsPanel() {
 
       <form
         aria-labelledby="payment-method-new-title"
-        className="grid gap-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight)] md:grid-cols-12"
+        className="grid gap-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-bevel-top md:grid-cols-12"
         noValidate
         onSubmit={create}
       >

@@ -132,7 +132,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
             description={transition.allowed ? "No hay entregas registradas. Usa «Preparar albarán» para expedir las cantidades pendientes." : "No hay entregas registradas para este pedido."}
           />
         ) :deliveries.map((delivery) => (
-          <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/sales/delivery-notes/${delivery.id}`} key={delivery.id}>
+          <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/sales/delivery-notes/${delivery.id}`} key={delivery.id}>
             <span><span className="font-medium">{delivery.number}</span><span className="block text-xs text-muted-foreground">{formatDate(delivery.issuedAt)}</span></span>
             <StatusBadge tone={salesStatusTone(delivery.status)}>{salesStatusLabel(delivery.status, "delivery")}</StatusBadge>
           </Link>

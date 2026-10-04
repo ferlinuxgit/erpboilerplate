@@ -78,7 +78,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
         actions={<Link className={buttonVariants({ variant: "outline" })} href="/accounting/gestor">Paquete para el gestor</Link>}
       />
 
-      <form action="/accounting/reports" className="flex flex-wrap items-end gap-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-2.5" data-ignore-dirty-guard="true" method="get">
+      <form action="/accounting/reports" className="flex flex-wrap items-end gap-2 rounded-surface border border-window-dark-shadow bg-window-panel p-2.5" data-ignore-dirty-guard="true" method="get">
         <div className="space-y-1">
           <Label htmlFor="statements-year">Ejercicio</Label>
           <Select className="w-40" defaultValue={year.id} id="statements-year" name="year">
@@ -158,7 +158,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
         {trialBalance.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay movimientos contables hasta el {formatDateKey(dates.to)}.</p>
         ) : (
-          <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -225,7 +225,7 @@ function StatementTable({
   footer?: { label: string; amount: number };
 }) {
   return (
-    <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+    <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
       <Table>
         <TableHeader>
           <TableRow>

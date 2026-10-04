@@ -66,10 +66,10 @@ export function AccountDetailPanel({ accountId, canManage, currency, headingId, 
     return (
       <div aria-busy="true" className="space-y-2 p-2 motion-safe:animate-pulse" data-testid="account-detail-loading">
         <span className="sr-only">Cargando la ficha de la cuenta…</span>
-        <div className="h-5 w-3/4 rounded-[1px] bg-window-shadow/40" />
-        <div className="h-3 w-1/2 rounded-[1px] bg-window-shadow/30" />
+        <div className="h-5 w-3/4 rounded-control bg-window-shadow/40" />
+        <div className="h-3 w-1/2 rounded-control bg-window-shadow/30" />
         <div className="grid grid-cols-2 gap-2">
-          {Array.from({ length: 4 }, (_, index) => <div className="h-14 rounded-[1px] bg-window-shadow/25" key={index} />)}
+          {Array.from({ length: 4 }, (_, index) => <div className="h-14 rounded-control bg-window-shadow/25" key={index} />)}
         </div>
       </div>
     );

@@ -243,7 +243,7 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
         </InlineAlert>
       ) : null}
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-2 rounded-[2px] border p-3">
+        <div className="space-y-2 rounded-surface border p-3">
           <div className="flex items-center justify-between gap-2">
             <p className="font-medium">Ejercicio {activeYear.code}</p>
             <StatusBadge tone={activeYear.isClosed ? "neutral" : "success"}>{activeYear.isClosed ? "Cerrado" : "Abierto"}</StatusBadge>
@@ -265,7 +265,7 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
             </Button>
           ) : null}
         </div>
-        <div className="space-y-2 rounded-[2px] border p-3">
+        <div className="space-y-2 rounded-surface border p-3">
           <div className="flex items-center justify-between gap-2">
             <p className="font-medium">Ejercicio {nextYearCode}</p>
             <StatusBadge tone={nextYear ? "success" : "neutral"}>{nextYear ? "Creado" : "Sin abrir"}</StatusBadge>
@@ -291,7 +291,7 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
           {checklistError ? <InlineAlert role="alert" tone="danger">{checklistError}</InlineAlert> : null}
           {checklist === null && !checklistError ? <p aria-live="polite" className="text-sm text-muted-foreground">Revisando…</p> : null}
           {checklist ? (
-            <ul aria-label="Comprobaciones antes del cierre" className="divide-y divide-window-shadow rounded-[2px] border border-window-dark-shadow">
+            <ul aria-label="Comprobaciones antes del cierre" className="divide-y divide-window-shadow rounded-surface border border-window-dark-shadow">
               {checklist.items.map((item) => (
                 <li className="flex flex-col gap-1 p-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3" key={item.id}>
                   <div className="min-w-0">

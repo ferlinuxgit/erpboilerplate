@@ -13,7 +13,7 @@ const statusTones = { GENERATED: "success", PENDING_REVIEW: "warning", DISCARDED
 export function RecurringRunHistory({ currencyCode = "EUR", runs }: { runs: RecurringRunRow[]; currencyCode?: string }) {
   if (runs.length === 0) return <p className="text-sm text-muted-foreground">Todavía no se ha generado ningún periodo.</p>;
   return (
-    <div className="overflow-x-auto rounded-[2px] border">
+    <div className="overflow-x-auto rounded-surface border">
       <Table data-testid="recurring-run-history">
         <TableHeader>
           <TableRow>

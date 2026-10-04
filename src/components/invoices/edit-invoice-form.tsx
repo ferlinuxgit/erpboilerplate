@@ -342,7 +342,7 @@ export function EditInvoiceForm({
       ) : null}
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
-      <section className="space-y-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
+      <section className="space-y-3 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 id="invoice-customer-title" className="font-mono text-xs font-bold uppercase tracking-wide">Cliente</h3>
@@ -358,18 +358,18 @@ export function EditInvoiceForm({
           </div>
         </div>
         {selectedCustomer ? (
-          <div className="rounded-[2px] border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
+          <div className="rounded-surface border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
             <p className="font-mono text-sm font-bold">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
             <p className="text-xs text-muted-foreground">
               {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
             </p>
           </div>
         ) : (
-          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Selecciona un cliente activo.</p>
+          <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Selecciona un cliente activo.</p>
         )}
         {errors.customerId ? <p className="font-mono text-xs text-destructive" role="alert">{errors.customerId.message}</p> : null}
       </section>
-      <div className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3">
+      <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3">
         <p className="font-mono text-xs font-bold">Número provisional</p>
         <p className="font-mono text-sm tabular-nums" data-testid="invoice-number-preview">{invoiceNumber}</p>
         <p className="text-xs text-muted-foreground">El número definitivo se asigna al emitir.</p>
@@ -434,7 +434,7 @@ export function EditInvoiceForm({
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
-        <div className="grid content-start gap-3 rounded-[2px] border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
+        <div className="grid content-start gap-3 rounded-surface border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
           <InvoicePaymentMethodsField
             error={paymentMethodError ?? undefined}
             getBinding={() => register("paymentMethodIds")}
@@ -454,7 +454,7 @@ export function EditInvoiceForm({
         <InvoiceTotalsSummary error={errors.totalAmount?.message} totals={totals} />
       </div>
 
-      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)] md:col-span-3">
+      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-drop md:col-span-3">
         <p className="hidden text-xs text-muted-foreground sm:block">
           {submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
         </p>
@@ -504,10 +504,10 @@ export function EditInvoiceForm({
         </div>
         <div className="max-h-80 space-y-2 overflow-y-auto">
           {filteredCustomers.length === 0 ? (
-            <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
+            <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
           ) : filteredCustomers.map((customer) => (
             <button
-              className="w-full rounded-[2px] border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              className="w-full rounded-surface border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               key={customer.id}
               type="button"
               onClick={() => {

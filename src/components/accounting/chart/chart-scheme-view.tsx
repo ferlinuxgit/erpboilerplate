@@ -14,7 +14,7 @@ type ChartSchemeViewProps = {
   onOpenInTree: (code: string) => void;
 };
 
-const bevel = "rounded-[2px] border border-window-dark-shadow bg-window-surface shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]";
+const bevel = "rounded-surface border border-window-dark-shadow bg-window-surface shadow-raised";
 
 /**
  * Vista «Esquema»: los 9 grupos del PGC en tarjetas (3×3) con su saldo y barras por subgrupo
@@ -84,7 +84,7 @@ function SubgroupList({ group, onOpenInTree }: { group: ReturnType<typeof buildS
         <li key={subgroup.code}>
           <button
             aria-label={`${subgroup.code} ${subgroup.name}: ${subgroup.balanceCents === 0 ? "saldo cero" : `${formatCents(Math.abs(subgroup.balanceCents))} ${balanceSideWord(subgroup.balanceCents)}`}. Abrir en el árbol`}
-            className="grid w-full grid-cols-[2rem_minmax(0,1fr)_minmax(4rem,40%)] items-center gap-2 rounded-[1px] px-1 py-0.5 text-left text-xs hover:bg-window-highlight focus-visible:outline-2 focus-visible:outline-focus-accent"
+            className="grid w-full grid-cols-[2rem_minmax(0,1fr)_minmax(4rem,40%)] items-center gap-2 rounded-control px-1 py-0.5 text-left text-xs hover:bg-window-highlight focus-visible:outline-2 focus-visible:outline-focus-accent"
             onClick={() => onOpenInTree(subgroup.code)}
             type="button"
           >

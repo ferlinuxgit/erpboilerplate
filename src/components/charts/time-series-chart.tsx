@@ -127,7 +127,7 @@ export function TimeSeriesChart({
           <ul className="flex flex-wrap gap-x-3 gap-y-1 text-foreground">
             {series.map((entry) => (
               <li className="inline-flex items-center gap-1.5" key={entry.key}>
-                <span className="inline-block size-2.5 rounded-[2px]" style={{ background: entry.color }} />
+                <span className="inline-block size-2.5 rounded-surface" style={{ background: entry.color }} />
                 {entry.label}
               </li>
             ))}
@@ -138,7 +138,7 @@ export function TimeSeriesChart({
         aria-describedby={`${id}-help`}
         aria-label={`${title}. Gráfico interactivo: usa las flechas izquierda y derecha para recorrer los meses.`}
         aria-roledescription="gráfico"
-        className="relative rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        className="relative rounded-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onBlur={() => activate(null)}
         onFocus={() => activate(active ?? categories.length - 1, true)}
         onKeyDown={handleKeyDown}
@@ -226,7 +226,7 @@ export function TimeSeriesChart({
               {series.map((entry) => (
                 <div className="flex items-center justify-between gap-3" key={entry.key}>
                   <dt className="inline-flex items-center gap-1.5">
-                    <span className="inline-block size-2 rounded-[2px]" style={{ background: entry.color }} />
+                    <span className="inline-block size-2 rounded-surface" style={{ background: entry.color }} />
                     {entry.label}
                   </dt>
                   <dd className="tabular-nums">{money(entry.values[active] ?? 0)}</dd>

@@ -71,6 +71,24 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Radios retro: controles (inputs, casillas) y superficies (botones, paneles, ventanas). */
+  --radius-control: 1px;
+  --radius-surface: 2px;
+  /* Relieves retro. Usan los colores de ventana de cada tema, así funcionan en los 8. */
+  --shadow-bevel-top: inset 1px 1px 0 var(--window-highlight);
+  --shadow-raised: inset 1px 1px 0 var(--window-highlight), inset -1px -1px 0 var(--window-shadow);
+  --shadow-pressed: inset 1px 1px 0 var(--window-shadow), inset -1px -1px 0 var(--window-highlight);
+  --shadow-sunken: inset 1px 1px 0 var(--window-shadow), inset -1px -1px 0 var(--window-surface);
+  /* Relieve sobre fondos de color (botón primario, destructivo, item activo). */
+  --shadow-raised-tinted: inset 1px 1px 0 rgb(255 255 255 / 0.4), inset -1px -1px 0 rgb(0 0 0 / 0.55);
+  --shadow-pressed-tinted: inset 1px 1px 0 rgb(0 0 0 / 0.6), inset -1px -1px 0 rgb(255 255 255 / 0.25);
+  /* Sombra sólida desplazada de menús, popovers y ventanas. */
+  --shadow-drop-sm: 2px 2px 0 var(--window-shadow);
+  --shadow-drop: 3px 3px 0 var(--window-shadow);
+  --shadow-window: inset 1px 1px 0 var(--window-highlight), inset -1px -1px 0 var(--window-shadow), 3px 3px 0 rgb(0 0 0 / 0.3);
+  --shadow-window-lg: inset 1px 1px 0 var(--window-highlight), inset -1px -1px 0 var(--window-shadow), 8px 8px 0 rgb(0 0 0 / 0.35);
+  /* Tamaño de texto de botones, inputs y selects en escritorio. */
+  --text-control: 0.78rem;
 }
 
 :root {

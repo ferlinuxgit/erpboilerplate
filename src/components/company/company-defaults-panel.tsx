@@ -61,7 +61,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
   return (
     <div
       className={cn(
-        "border p-3 shadow-[inset_1px_1px_0_var(--window-highlight)]",
+        "border p-3 shadow-bevel-top",
         ready ? "border-success bg-success/10" : "border-warning bg-warning/10",
       )}
     >
@@ -111,7 +111,7 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
                   </div>
                   <span
                     className={cn(
-                      "rounded-[1px] border px-2 py-0.5 font-mono text-xs font-bold tabular-nums",
+                      "rounded-control border px-2 py-0.5 font-mono text-xs font-bold tabular-nums",
                       group.missingCount === 0 ? "border-success bg-success/15 text-success" : "border-warning bg-warning/15 text-warning",
                     )}
                   >

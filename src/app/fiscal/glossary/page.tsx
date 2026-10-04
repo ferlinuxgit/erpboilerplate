@@ -22,7 +22,7 @@ export default async function GlossaryPage() {
         title="Ayuda: glosario fiscal y contable"
         description="Explicaciones en lenguaje llano. Son orientativas: ante una duda concreta, consulta con tu asesor."
       />
-      <nav aria-label="Términos del glosario" className="rounded-[2px] border border-window-dark-shadow bg-card p-2.5">
+      <nav aria-label="Términos del glosario" className="rounded-surface border border-window-dark-shadow bg-card p-2.5">
         <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
           {entries.map((entry) => (
             <li key={entry.id}>

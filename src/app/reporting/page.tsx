@@ -48,7 +48,7 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
       />
       <section className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,1fr)]">
         <PageSection title="Indicadores del periodo" description="Comprueba cada indicador en su módulo de origen antes de compartir el informe." contentClassName="space-y-3">
-            <form action="/reporting" className="grid gap-4 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end" data-ignore-dirty-guard="true" method="get">
+            <form action="/reporting" className="grid gap-4 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)] md:items-end" data-ignore-dirty-guard="true" method="get">
               <div className="space-y-2">
                 <Label htmlFor="reporting-period">Periodo del informe</Label>
                 <Select
@@ -116,7 +116,7 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
       <PageSection title="Revisar el origen de los datos" description="Si un indicador no cuadra, revisa el módulo del que sale antes de compartir el informe." contentClassName="grid gap-3 md:grid-cols-4">
         <div className="contents" data-testid="reporting-source-links">
           {reportingSources.map((source) => (
-            <Link className="rounded-[2px] border p-3 hover:border-primary hover:bg-muted/50" href={source.href} key={source.href}>
+            <Link className="rounded-surface border p-3 hover:border-primary hover:bg-muted/50" href={source.href} key={source.href}>
               <span className="font-semibold">{source.label}</span>
               <span className="mt-1 block text-sm text-muted-foreground">{source.description}</span>
             </Link>

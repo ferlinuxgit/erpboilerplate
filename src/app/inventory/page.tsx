@@ -66,7 +66,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         actions={<><Link className={buttonVariants({ variant: "outline" })} href="/inventory/items">Artículos</Link><Link className={buttonVariants({ variant: "outline" })} href="/inventory/warehouses">Almacenes</Link><Link className={buttonVariants({ variant: "outline" })} href="/inventory/count">Recuento</Link><Link className={buttonVariants()} href="/inventory/movements/new">Nuevo movimiento</Link></>}
       />
 
-      <Suspense fallback={<div className="rounded-[2px] border p-3 text-sm text-muted-foreground">Cargando inventario...</div>}>
+      <Suspense fallback={<div className="rounded-surface border p-3 text-sm text-muted-foreground">Cargando inventario...</div>}>
         <InventoryOperationsPanel
           items={items}
           warehouses={warehouses}

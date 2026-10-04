@@ -101,7 +101,7 @@ export function Dialog({ children, className, description, initialFocusId, onClo
         aria-labelledby={titleId}
         aria-modal="true"
         className={cn(
-          "relative flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-[2px] border border-window-dark-shadow bg-window-surface shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow),8px_8px_0_rgba(0,0,0,0.35)] sm:max-h-[calc(100dvh-1rem)] sm:rounded-[2px]",
+          "relative flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-surface border border-window-dark-shadow bg-window-surface shadow-window-lg sm:max-h-[calc(100dvh-1rem)] sm:rounded-surface",
           sizeClasses[size],
           className,
         )}

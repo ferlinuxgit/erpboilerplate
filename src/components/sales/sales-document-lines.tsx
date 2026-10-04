@@ -37,7 +37,7 @@ export function SalesDocumentLines({ currencyCode, lines, showTotals = false }: 
     <div className="space-y-3">
       <div className="grid gap-2 md:hidden">
         {lines.map((line) => (
-          <article className="rounded-[2px] border border-window-dark-shadow bg-card p-2.5" key={line.id}>
+          <article className="rounded-surface border border-window-dark-shadow bg-card p-2.5" key={line.id}>
             <div className="flex items-start justify-between gap-3">
               <p className="font-mono text-xs font-bold">{line.description}</p>
               <p className="font-mono text-xs font-bold tabular-nums">
@@ -52,7 +52,7 @@ export function SalesDocumentLines({ currencyCode, lines, showTotals = false }: 
           </article>
         ))}
       </div>
-      <div className="hidden overflow-x-auto rounded-[2px] border border-window-dark-shadow md:block">
+      <div className="hidden overflow-x-auto rounded-surface border border-window-dark-shadow md:block">
         <Table>
           <TableHeader>
             <TableRow>

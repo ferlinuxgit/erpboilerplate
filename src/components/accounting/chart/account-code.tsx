@@ -12,7 +12,7 @@ export function Highlighted({ query, text }: { query: string; text: string }) {
     <>
       {highlightParts(text, query).map((part, index) =>
         part.match ? (
-          <mark className="rounded-[1px] bg-info/10 font-bold text-info-text underline decoration-1 underline-offset-2" key={index}>
+          <mark className="rounded-control bg-info/10 font-bold text-info-text underline decoration-1 underline-offset-2" key={index}>
             {part.text}
           </mark>
         ) : (
@@ -45,7 +45,7 @@ export function AccountCode({ className, code, highlightAll, highlightPrefix, pa
   const marked = highlightAll || (highlightPrefix && /^\d+$/.test(highlightPrefix) && code.startsWith(highlightPrefix));
   return (
     <span className={cn("font-mono tabular-nums", className)}>
-      {marked ? <mark className="rounded-[1px] bg-info/10 text-info-text underline decoration-1 underline-offset-2">{content}</mark> : content}
+      {marked ? <mark className="rounded-control bg-info/10 text-info-text underline decoration-1 underline-offset-2">{content}</mark> : content}
     </span>
   );
 }
@@ -80,7 +80,7 @@ export function BalanceCell({ cents, nature }: { cents: number; nature: ChartNat
       <span
         aria-label={balanceSideWord(cents)}
         className={cn(
-          "inline-flex w-4 justify-center rounded-[1px] border font-mono text-xs leading-4 font-bold",
+          "inline-flex w-4 justify-center rounded-control border font-mono text-xs leading-4 font-bold",
           contrary ? "border-warning/70 bg-warning/10 text-warning-text" : "border-window-dark-shadow bg-window-panel text-window-text",
         )}
         role="img"
@@ -106,7 +106,7 @@ export function PartnerBadge({ name, taxId }: { name: string | null; taxId: stri
   return (
     <span
       aria-label={label}
-      className="inline-flex h-4 shrink-0 items-center rounded-[1px] border border-info/70 bg-info/10 px-1 font-mono text-xs leading-4 font-bold text-info-text"
+      className="inline-flex h-4 shrink-0 items-center rounded-control border border-info/70 bg-info/10 px-1 font-mono text-xs leading-4 font-bold text-info-text"
       role="img"
       title={taxId ? `NIF ${taxId}` : "Tercero sin NIF"}
     >

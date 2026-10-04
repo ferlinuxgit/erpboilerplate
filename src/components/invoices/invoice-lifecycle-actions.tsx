@@ -60,7 +60,7 @@ export function IssueConfirmDialog({
       size="sm"
       title={`¿Emitir la ${noun}?`}
     >
-      {summary ? <div className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-sm" data-testid="invoice-issue-summary">{summary}</div> : null}
+      {summary ? <div className="rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-sm" data-testid="invoice-issue-summary">{summary}</div> : null}
       {error ? <InlineAlert data-testid="invoice-issue-error" role="alert" tone="danger">{error}</InlineAlert> : null}
       <DialogFooter>
         <Button disabled={pending} id={cancelId} onClick={onClose} type="button" variant="outline">

@@ -94,15 +94,15 @@ export function InvoicePaymentMethodsField({
         <span className="text-xs text-muted-foreground">{selected.length === 0 ? "Ninguna seleccionada" : `${selected.length} seleccionada${selected.length === 1 ? "" : "s"}`}</span>
       </div>
       <details className="group relative" data-testid="invoice-payment-methods-picker">
-        <summary className="flex h-9 cursor-pointer list-none items-center justify-between gap-3 rounded-[2px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-[0.75rem] outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+        <summary className="flex h-9 cursor-pointer list-none items-center justify-between gap-3 rounded-surface border border-window-dark-shadow bg-window-highlight px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
           <span className="min-w-0 truncate">
             {selected.length > 0 ? selected.map((method) => method.name).join(" · ") : "Seleccionar formas de pago"}
           </span>
           <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
         </summary>
-        <div className="mt-1 max-h-72 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)]">
+        <div className="mt-1 max-h-72 overflow-y-auto rounded-surface border border-window-dark-shadow bg-popover p-1.5 shadow-drop-sm">
           {methods.map((method) => (
-            <label className="flex cursor-pointer items-start gap-2 rounded-[1px] px-2 py-2 font-mono text-xs hover:bg-window-panel" key={method.id}>
+            <label className="flex cursor-pointer items-start gap-2 rounded-control px-2 py-2 font-mono text-xs hover:bg-window-panel" key={method.id}>
               <input className="mt-0.5 size-4 accent-primary" type="checkbox" value={method.id} {...getBinding()} />
               <span className="min-w-0">
                 <span className="block font-bold">{method.name}{method.isDefault ? " · Predeterminada" : ""}</span>
@@ -169,7 +169,7 @@ export function InvoiceLinesEditor({
         </Button>
       </div>
 
-      <div className="overflow-visible rounded-[2px] border border-window-dark-shadow bg-window-surface">
+      <div className="overflow-visible rounded-surface border border-window-dark-shadow bg-window-surface">
         <div className={cn("hidden gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid", LINE_GRID)}>
           {['Concepto', 'Cantidad', 'Precio', 'Dto.', 'Impuestos', 'Total', 'Acciones'].map((label) => (
             <div className="bg-window-panel px-2 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.04em]" key={label}>{label}</div>
@@ -255,13 +255,13 @@ export function InvoiceLinesEditor({
                 <div className="space-y-1">
                   <span className="font-mono text-xs font-bold lg:sr-only">Impuestos</span>
                   <details className="group relative" data-testid={`invoice-line-${lineNumber}-taxes`}>
-                    <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((tax) => `${tax.name} ${tax.operation === "SUBTRACT" ? "−" : ""}${formatPercent(tax.rate)}`))} className="flex h-9 cursor-pointer list-none items-center justify-between gap-1 rounded-[1px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+                    <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((tax) => `${tax.name} ${tax.operation === "SUBTRACT" ? "−" : ""}${formatPercent(tax.rate)}`))} className="flex h-9 cursor-pointer list-none items-center justify-between gap-1 rounded-control border border-window-dark-shadow bg-window-highlight px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
                       <span className="truncate">{selectedTaxes.length ? selectedTaxes.map((tax) => tax.name).join(" · ") : "Sin impuestos"}</span>
                       <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
-                    <div className="mt-1 max-h-64 w-full min-w-0 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)] sm:min-w-72 lg:min-w-0">
+                    <div className="mt-1 max-h-64 w-full min-w-0 overflow-y-auto rounded-surface border border-window-dark-shadow bg-popover p-1.5 shadow-drop-sm sm:min-w-72 lg:min-w-0">
                       {taxes.map((tax) => (
-                        <label className={cn("flex cursor-pointer items-center gap-2 rounded-[1px] px-2 py-2 font-mono text-xs hover:bg-window-panel", tax.isActive === false && "opacity-60")} key={tax.id}>
+                        <label className={cn("flex cursor-pointer items-center gap-2 rounded-control px-2 py-2 font-mono text-xs hover:bg-window-panel", tax.isActive === false && "opacity-60")} key={tax.id}>
                           <input className="size-4 accent-primary" type="checkbox" value={tax.id} {...bindings.taxIds()} />
                           <span className="flex min-w-0 flex-1 justify-between gap-3">
                             <span className="truncate">{tax.name}{tax.isActive === false ? " (archivado)" : ""}</span>
@@ -276,7 +276,7 @@ export function InvoiceLinesEditor({
                 </div>
                 <div className="flex min-h-9 items-center justify-between gap-2 lg:justify-end">
                   <span className="font-mono text-xs font-bold lg:hidden">Total</span>
-                  <div className="text-right font-mono text-[0.78rem] font-bold tabular-nums">
+                  <div className="text-right font-mono text-control font-bold tabular-nums">
                     {formatMoney(lineTotal?.lineTotal ?? 0)}
                     {lineTotal?.taxes.length ? <p className="text-xs font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal)}</p> : null}
                   </div>

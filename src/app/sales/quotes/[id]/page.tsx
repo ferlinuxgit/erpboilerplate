@@ -153,12 +153,12 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
         <PageSection title="Vigencia" description="Fechas y validez del presupuesto." contentClassName="space-y-2 text-sm">
           <p>Emisión: <strong>{formatDate(record.issueDate)}</strong></p>
           <p>Válido hasta: <strong>{record.validUntil ? formatDate(record.validUntil) : "Sin fecha límite"}</strong></p>
-          {blocker ? <p className="rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 text-muted-foreground">{blocker}</p> : null}
+          {blocker ? <p className="rounded-surface border border-window-dark-shadow bg-window-panel p-3 text-muted-foreground">{blocker}</p> : null}
         </PageSection>
         <PageSection title="Documentos generados" description="Pedidos y facturas creados a partir de este presupuesto." contentClassName="space-y-2">
           {relatedOrders.length === 0 && relatedInvoices.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no se ha convertido en pedido ni en factura.</p> : null}
           {relatedOrders.map((order) => (
-            <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/sales/orders/${order.id}`} key={order.id}>
+            <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/sales/orders/${order.id}`} key={order.id}>
               <span className="font-medium">Pedido {order.number}</span>
               <StatusBadge tone={salesStatusTone(order.status)}>{salesStatusLabel(order.status)}</StatusBadge>
             </Link>
@@ -166,7 +166,7 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
           {relatedInvoices.map((row) => {
             const lifecycle = invoiceLifecycle(row);
             return (
-              <Link className="flex items-center justify-between rounded-[2px] border p-3 text-sm hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}>
+              <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}>
                 <span className="font-medium">{lifecycle === "DRAFT" ? "Factura en borrador" : `Factura ${row.number}`}</span>
                 <StatusBadge tone={lifecycle === "VOID" ? "danger" : lifecycle === "DRAFT" ? "neutral" : "info"}>{lifecycle === "VOID" ? "Anulada" : lifecycle === "DRAFT" ? "Borrador" : "Emitida"}</StatusBadge>
               </Link>

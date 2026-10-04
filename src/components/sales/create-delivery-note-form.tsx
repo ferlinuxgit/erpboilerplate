@@ -127,7 +127,7 @@ export function CreateDeliveryNoteForm({ orders, warehouses, initialOrderId }: {
           <h2 className="font-mono text-sm font-bold" id="delivery-lines-title">Cantidades a entregar</h2>
           <p className="mt-1 text-xs text-muted-foreground">Puedes completar una entrega parcial; el pedido conservará las cantidades pendientes.</p>
         </div>
-        <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow bg-window-surface">
+        <div className="overflow-x-auto rounded-surface border border-window-dark-shadow bg-window-surface">
           <Table>
             <TableHeader>
               <TableRow>

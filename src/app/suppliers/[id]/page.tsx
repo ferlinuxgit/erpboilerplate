@@ -138,7 +138,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/expenses/new?supplierId=${supplier.id}`}>Registrar primera factura</Link>}
           />
         ) : (
-          <div className="overflow-x-auto rounded-[2px] border border-window-dark-shadow">
+          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -171,7 +171,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <PageSection title="Pedidos recientes" description="Últimos pedidos de compra asociados.">
           <div className="space-y-2 text-sm">
             {activity.purchaseOrders.length === 0 ? <p className="text-muted-foreground">Sin pedidos registrados.</p> : activity.purchaseOrders.map((order) => (
-              <Link className="flex items-center justify-between rounded-[2px] border border-window-dark-shadow p-3 hover:bg-accent" href={`/purchases/orders/${order.id}`} key={order.id}>
+              <Link className="flex items-center justify-between rounded-surface border border-window-dark-shadow p-3 hover:bg-accent" href={`/purchases/orders/${order.id}`} key={order.id}>
                 <span className="font-medium">{order.number}</span>
                 <span className="text-muted-foreground">{statusLabel(purchaseOrderStatusLabels, order.status)} · {formatDate(order.createdAt)}</span>
               </Link>
@@ -181,7 +181,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <PageSection title="Pagos recientes" description="Últimos pagos aplicados a facturas del proveedor.">
           <div className="space-y-2 text-sm">
             {activity.payments.length === 0 ? <p className="text-muted-foreground">Sin pagos registrados.</p> : activity.payments.map((payment) => (
-              <div className="flex items-center justify-between rounded-[2px] border border-window-dark-shadow p-3" key={payment.id}>
+              <div className="flex items-center justify-between rounded-surface border border-window-dark-shadow p-3" key={payment.id}>
                 <span><span className="block font-mono font-semibold">{payment.number}</span><span className="text-xs text-muted-foreground">{formatDate(payment.postedAt)} · {payment.supplierInvoiceId ? "Aplicado a factura" : "Pago a cuenta"}</span></span>
                 <span className="font-mono font-bold tabular-nums">{formatMoney(payment.amount, supplier.currencyCode)}</span>
               </div>

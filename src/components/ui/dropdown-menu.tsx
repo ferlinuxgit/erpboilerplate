@@ -154,7 +154,7 @@ export function DropdownMenu({
         <div
           aria-label={label}
           className={cn(
-            "absolute z-50 mt-1 min-w-44 rounded-[2px] border border-window-dark-shadow bg-window-surface p-1 shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow),3px_3px_0_rgba(0,0,0,0.3)]",
+            "absolute z-50 mt-1 min-w-44 rounded-surface border border-window-dark-shadow bg-window-surface p-1 shadow-window",
             align === "end" ? "right-0" : "left-0",
           )}
           hidden={!open}

@@ -58,7 +58,7 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
     <div className={cn("flex items-center gap-1", !compact && "w-full")}>
       <span
         aria-hidden="true"
-        className="theme-preview grid size-7 shrink-0 place-items-center border border-window-dark-shadow text-chrome-active-foreground shadow-[inset_1px_1px_0_var(--window-highlight)]"
+        className="theme-preview grid size-7 shrink-0 place-items-center border border-window-dark-shadow text-chrome-active-foreground shadow-bevel-top"
       >
         <Palette className="size-3.5" weight="bold" />
       </span>

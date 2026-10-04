@@ -74,7 +74,7 @@ export function CustomerBillingFields({
   register: UseFormRegister<Values>;
 }) {
   return (
-    <fieldset className="grid gap-4 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:col-span-6 md:grid-cols-6" data-testid="customer-billing-fields">
+    <fieldset className="grid gap-4 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-6 md:grid-cols-6" data-testid="customer-billing-fields">
       <legend className="px-1 font-mono text-xs font-bold uppercase tracking-wide">Condiciones de facturación</legend>
       <p className="text-xs text-muted-foreground md:col-span-6">
         Se aplican automáticamente en cada factura nueva de este cliente. Puedes cambiarlas en cada factura.

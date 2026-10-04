@@ -51,7 +51,7 @@ type FieldErrors = Record<string, string | undefined>;
 
 const MIN_GAP_REASON_LENGTH = 5;
 const FORMAT_TOKENS = ["{PREFIX}", "{YYYY}", "{YY}", "{NUMBER:6}", "{NUMBER:4}"];
-const panelClass = "space-y-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight)]";
+const panelClass = "space-y-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-bevel-top";
 
 function draftOf(row: DocumentSeriesRow): RowDraft {
   return { name: row.name, prefix: row.prefix, format: row.format || defaultSeriesFormat, nextNumber: String(row.nextNumber) };

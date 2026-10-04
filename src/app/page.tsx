@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-background">
       <nav className="mx-auto flex h-20 max-w-[1480px] items-center justify-between px-5 sm:px-8">
-        <Link className="flex shrink-0 items-center gap-3 whitespace-nowrap" href="/"><span className="grid size-9 place-items-center rounded-[2px] bg-primary text-xs font-bold text-primary-foreground">ER</span><span className="font-semibold">ERP Suite</span></Link>
+        <Link className="flex shrink-0 items-center gap-3 whitespace-nowrap" href="/"><span className="grid size-9 place-items-center rounded-surface bg-primary text-xs font-bold text-primary-foreground">ER</span><span className="font-semibold">ERP Suite</span></Link>
         <div className="flex gap-2"><Link className={buttonVariants({ variant: "ghost" })} href="/auth/login">Iniciar sesión</Link><Link className={buttonVariants()} href="/auth/register">Crear cuenta</Link></div>
       </nav>
 
@@ -21,9 +21,9 @@ export default function Home() {
           </div>
 
           <div className="relative flex items-center border-t bg-primary p-3 text-primary-foreground sm:p-8 lg:border-l lg:border-t-0">
-            <div className="w-full overflow-hidden rounded-[2px] border border-primary-foreground/15 bg-primary-foreground/[0.06] p-3 shadow-2xl shadow-black/10 backdrop-blur sm:p-7">
+            <div className="w-full overflow-hidden rounded-surface border border-primary-foreground/15 bg-primary-foreground/[0.06] p-3 shadow-2xl shadow-black/10 backdrop-blur sm:p-7">
               <div className="flex items-center justify-between border-b border-primary-foreground/15 pb-5"><div><p className="text-xs uppercase tracking-[0.12em] text-primary-foreground/55">Actividad</p><p className="mt-1 text-xl font-semibold">Vista operativa</p></div><span className="rounded-full bg-primary-foreground/10 px-3 py-1 text-xs">En tiempo real</span></div>
-              <div className="mt-5 grid gap-px overflow-hidden rounded-[2px] bg-primary-foreground/15 sm:grid-cols-2">
+              <div className="mt-5 grid gap-px overflow-hidden rounded-surface bg-primary-foreground/15 sm:grid-cols-2">
                 {[["Facturación", "€ 84.320"], ["Pendiente de cobro", "€ 12.480"], ["Clientes activos", "128"], ["Alertas de stock", "4"]].map(([label, value]) => <div className="bg-primary p-3" key={label}><p className="text-xs text-primary-foreground/55">{label}</p><p className="mt-4 text-2xl font-semibold">{value}</p></div>)}
               </div>
               <div className="mt-5 space-y-3">

@@ -29,7 +29,7 @@ export function FiscalObligationsCard({ canWrite, obligations }: { canWrite: boo
         {required.map((obligation) => {
           const filed = obligation.report?.status === "FILED";
           return (
-            <li className="flex flex-col gap-2 rounded-[2px] border p-3 text-sm" key={`${obligation.code}-${obligation.period}`}>
+            <li className="flex flex-col gap-2 rounded-surface border p-3 text-sm" key={`${obligation.code}-${obligation.period}`}>
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-semibold">{obligation.name} · {obligation.periodLabel}</p>

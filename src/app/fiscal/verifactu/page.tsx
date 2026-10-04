@@ -90,7 +90,7 @@ export default async function VerifactuPage() {
         {overview.records.length === 0 ? (
           <EmptyState title="Todavía no hay registros" description={active ? "Se crearán al emitir la próxima factura." : "Activa VERI*FACTU para empezar a registrar tus facturas."} />
         ) : (
-          <div className="overflow-x-auto rounded-[2px] border">
+          <div className="overflow-x-auto rounded-surface border">
             <Table>
               <TableHeader>
                 <TableRow>

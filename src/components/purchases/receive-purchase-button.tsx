@@ -169,7 +169,7 @@ export function ReceivePurchaseButton({
             </AccessibleField>
           </div>
 
-          <div className="overflow-hidden rounded-[2px] border border-window-dark-shadow bg-window-surface" role="group" aria-label="Cantidades recibidas">
+          <div className="overflow-hidden rounded-surface border border-window-dark-shadow bg-window-surface" role="group" aria-label="Cantidades recibidas">
             <div className="grid grid-cols-[1fr_5.5rem_5.5rem_7rem] gap-3 border-b border-window-dark-shadow bg-window-panel px-3 py-2 font-mono text-xs font-bold uppercase tracking-[0.04em] text-window-muted" aria-hidden="true">
               <span>Artículo</span>
               <span className="text-right">Pedido</span>

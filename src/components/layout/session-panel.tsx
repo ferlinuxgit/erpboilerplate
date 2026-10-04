@@ -43,7 +43,7 @@ export function SessionPanel({ className, onNavigate }: { className?: string; on
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center gap-1.5 border border-window-dark-shadow bg-window-panel p-1.5 shadow-[inset_1px_1px_0_var(--window-highlight)]",
+        "flex shrink-0 items-center gap-1.5 border border-window-dark-shadow bg-window-panel p-1.5 shadow-bevel-top",
         className,
       )}
       data-testid="session-panel"

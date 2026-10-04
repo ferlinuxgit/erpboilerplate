@@ -166,9 +166,9 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
                   </dt>
                   <dd className="font-bold tabular-nums">{money(bucket.amount)}</dd>
                 </div>
-                <div aria-hidden="true" className="mt-0.5 h-1.5 rounded-[2px] bg-window-panel">
+                <div aria-hidden="true" className="mt-0.5 h-1.5 rounded-surface bg-window-panel">
                   <div
-                    className="h-full rounded-[2px]"
+                    className="h-full rounded-surface"
                     style={{
                       width: maxBucket > 0 ? `${Math.max(bucket.amount > 0 ? 2 : 0, (bucket.amount / maxBucket) * 100)}%` : "0%",
                       background: bucket.key === "current" ? "var(--chart-income)" : "var(--chart-expense)",

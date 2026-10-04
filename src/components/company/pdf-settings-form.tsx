@@ -53,7 +53,7 @@ export function PdfSettingsForm({ initialValues }: { initialValues: PdfDisplaySe
             const inputId = `pdf-setting-${option.key}`;
             return (
               <label
-                className="flex cursor-pointer gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-[inset_1px_1px_0_var(--window-highlight)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus"
+                className="flex cursor-pointer gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus"
                 htmlFor={inputId}
                 key={option.key}
               >
@@ -82,7 +82,7 @@ export function PdfSettingsForm({ initialValues }: { initialValues: PdfDisplaySe
         </FormActions>
       </form>
 
-      <div aria-label="Vista previa del PDF" className="border border-window-dark-shadow bg-card p-4 text-card-foreground shadow-[inset_1px_1px_0_var(--window-highlight)]" role="img">
+      <div aria-label="Vista previa del PDF" className="border border-window-dark-shadow bg-card p-4 text-card-foreground shadow-bevel-top" role="img">
         <div className="mb-4 flex items-start justify-between border-b border-window-shadow pb-3">
           <div>
             {values.showLogo ? <div className="mb-2 h-2 w-12 bg-primary" /> : null}

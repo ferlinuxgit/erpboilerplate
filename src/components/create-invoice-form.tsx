@@ -405,7 +405,7 @@ export function CreateInvoiceForm({
     <form className="grid gap-4 md:grid-cols-3" data-testid="invoice-create-form" onKeyDown={handleInvoiceKeyDown} onSubmit={onSubmit}>
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
-      <section className="space-y-3 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
+      <section className="space-y-3 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 id="invoice-customer-title" className="font-mono text-xs font-bold uppercase tracking-wide">
@@ -436,24 +436,24 @@ export function CreateInvoiceForm({
         </div>
 
         {customerOptions.length === 0 ? (
-          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">
+          <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">
             {canCreateCustomer
               ? "Todavía no hay clientes activos. Crea uno desde el botón Crear cliente para poder emitir la factura."
               : "No hay clientes activos y tu rol no permite crear clientes desde la factura."}
           </p>
         ) : selectedCustomer ? (
-          <div className="rounded-[2px] border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
+          <div className="rounded-surface border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
             <p className="font-mono text-sm font-bold">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
             <p className="text-xs text-muted-foreground">
               {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
             </p>
           </div>
         ) : (
-          <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
+          <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
         )}
         {errors.customerId ? <p className="font-mono text-xs text-destructive" role="alert">{errors.customerId.message}</p> : null}
       </section>
-      <div className="space-y-2 rounded-[2px] border border-window-dark-shadow bg-window-panel p-3">
+      <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3">
         <p className="font-mono text-xs font-bold">Número automático</p>
         {invoiceSeries.length > 1 ? (
           <AccessibleField
@@ -538,7 +538,7 @@ export function CreateInvoiceForm({
       </div>
 
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
-        <div className="grid content-start gap-3 rounded-[2px] border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
+        <div className="grid content-start gap-3 rounded-surface border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
           <InvoicePaymentMethodsField
             error={errors.paymentMethodIds?.message}
             getBinding={() => register("paymentMethodIds")}
@@ -567,7 +567,7 @@ export function CreateInvoiceForm({
       </div>
 
       <FormErrorMessage className="md:col-span-3">{submitError}</FormErrorMessage>
-      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-[3px_3px_0_var(--window-shadow)] md:col-span-3">
+      <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 border border-window-dark-shadow bg-window-panel p-2 shadow-drop md:col-span-3">
         <p className="hidden text-xs text-muted-foreground sm:block">
           Enter o Ctrl/Cmd + Enter guardan un borrador. «Emitir factura» te pide confirmación: al emitir se asigna el número y deja de ser editable.
         </p>
@@ -646,11 +646,11 @@ export function CreateInvoiceForm({
 
         <div className="max-h-80 space-y-2 overflow-y-auto">
           {filteredCustomers.length === 0 ? (
-            <p className="rounded-[2px] border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
+            <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground" role="status">No hay clientes que coincidan con la búsqueda.</p>
           ) : (
             filteredCustomers.map((customer) => (
               <button
-                className="w-full rounded-[2px] border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                className="w-full rounded-surface border border-window-dark-shadow bg-window-surface p-3 text-left hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 key={customer.id}
                 type="button"
                 onClick={() => {

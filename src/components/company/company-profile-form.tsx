@@ -115,7 +115,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
 
   return (
     <form className="space-y-2" noValidate onSubmit={submit}>
-      <div className="flex flex-col gap-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-[inset_1px_1px_0_var(--window-highlight)] md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-2 border border-window-dark-shadow bg-window-panel p-2.5 shadow-bevel-top md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Building2 className="size-5 text-muted-foreground" aria-hidden="true" />
@@ -241,7 +241,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
             </div>
             <div className="flex flex-wrap gap-2">
               <label
-                className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-window-dark-shadow bg-window-surface px-2 font-mono text-xs font-bold shadow-[inset_1px_1px_0_var(--window-highlight)] hover:bg-window-highlight has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus"
+                className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-window-dark-shadow bg-window-surface px-2 font-mono text-xs font-bold shadow-bevel-top hover:bg-window-highlight has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus"
                 htmlFor="company-logo"
               >
                 <Upload aria-hidden="true" className="size-4" />
