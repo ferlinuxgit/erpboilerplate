@@ -11,6 +11,7 @@ import { AccessibleField, FormErrorMessage, errorMessage, readApiError } from "@
 import { Input } from "@/components/ui/input";
 import { QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow, stackedOnMobile } from "@/components/ui/table";
 import { useLeaveWarning } from "@/components/expenses/use-leave-warning";
 import { normalizeSearchText } from "@/lib/account-aliases";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -112,8 +113,8 @@ export function InventoryCountSheet({ items, stock, warehouses }: { items: Item[
     return (
       <p className="border border-dashed border-window-dark-shadow bg-window-panel p-3 text-xs text-muted-foreground">
         Para contar necesitas al menos un almacén y un artículo de stock:{" "}
-        <Link className="font-bold text-primary underline" href="/inventory/warehouses/new">nuevo almacén</Link> ·{" "}
-        <Link className="font-bold text-primary underline" href="/inventory/items/new">nuevo artículo</Link>.
+        <Link className="font-bold text-link underline" href="/inventory/warehouses/new">nuevo almacén</Link> ·{" "}
+        <Link className="font-bold text-link underline" href="/inventory/items/new">nuevo artículo</Link>.
       </p>
     );
   }
@@ -141,57 +142,59 @@ export function InventoryCountSheet({ items, stock, warehouses }: { items: Item[
             <AccessibleField className="sm:max-w-xs" id="count-search" label="Buscar artículo">
               <Input onChange={(event) => setSearch(event.target.value)} placeholder="Nombre o referencia" type="search" value={search} />
             </AccessibleField>
-            <label className="flex items-center gap-2 text-xs" htmlFor="count-only-differences">
+            <label className="flex items-center gap-2 text-xs pointer-coarse:min-h-11" htmlFor="count-only-differences">
               <input checked={onlyDifferences} id="count-only-differences" onChange={(event) => setOnlyDifferences(event.target.checked)} type="checkbox" />
               Ver solo artículos con diferencias
             </label>
           </div>
 
-          <div className="overflow-x-auto border border-window-dark-shadow">
-            <table className="w-full min-w-[36rem] text-xs">
+          {/* En móvil cada artículo es una tarjeta con su campo de cantidad (mismo DOM, sin duplicar). */}
+          <TableContainer className={stackedOnMobile.container}>
+            <Table className={cn("md:min-w-[36rem]", stackedOnMobile.table)}>
               <caption className="sr-only">Hoja de recuento de {warehouse?.name}</caption>
-              <thead className="bg-window-panel font-mono text-xs uppercase text-window-muted">
-                <tr>
-                  <th className="px-2 py-1 text-left" scope="col">Artículo</th>
-                  <th className="px-2 py-1 text-right" scope="col">Según el sistema</th>
-                  <th className="px-2 py-1 text-right" scope="col">Contado</th>
-                  <th className="px-2 py-1 text-right" scope="col">Diferencia</th>
-                </tr>
-              </thead>
-              <tbody>
+              <TableHeader className={stackedOnMobile.header}>
+                <TableRow>
+                  <TableHead scope="col">Artículo</TableHead>
+                  <TableHead className="text-right" scope="col">Según el sistema</TableHead>
+                  <TableHead className="text-right" scope="col">Contado</TableHead>
+                  <TableHead className="text-right" scope="col">Diferencia</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className={stackedOnMobile.body}>
                 {visibleItems.length === 0 ? (
-                  <tr><td className="px-2 py-2 text-muted-foreground" colSpan={4}>No hay artículos que coincidan.</td></tr>
+                  <TableRow className={stackedOnMobile.row}><TableCell className={cn("text-muted-foreground", stackedOnMobile.title)} colSpan={4}>No hay artículos que coincidan.</TableCell></TableRow>
                 ) : visibleItems.map((item) => {
                   const system = systemStock[item.id] ?? 0;
                   const entry = differenceByItem.get(item.id);
                   const rowError = result.errors[item.id];
                   return (
-                    <tr className="border-t border-window-shadow" key={item.id}>
-                      <th className="px-2 py-1.5 text-left font-normal" scope="row">
+                    <TableRow className={stackedOnMobile.row} key={item.id}>
+                      <th className={cn("border-r border-window-shadow/60 px-2 py-1.5 text-left font-normal", stackedOnMobile.title)} scope="row">
                         <span className="block font-bold">{item.name}</span>
                         <span className="text-muted-foreground">{item.sku}</span>
                       </th>
-                      <td className="px-2 py-1.5 text-right font-mono tabular-nums">{formatQuantity(system)}</td>
-                      <td className="w-36 px-2 py-1.5">
+                      <TableCell className={cn("text-right", stackedOnMobile.cell)} data-label="Según el sistema">{formatQuantity(system)}</TableCell>
+                      <TableCell className={cn("w-36", stackedOnMobile.wide, "max-md:w-auto")} data-label="Contado">
                         <QuantityInput
                           aria-describedby={rowError ? `count-error-${item.id}` : undefined}
                           aria-invalid={rowError ? true : undefined}
                           aria-label={`Cantidad contada de ${item.name}`}
+                          className="pointer-coarse:min-h-11"
                           onChange={(event) => setCounts((current) => ({ ...current, [item.id]: event.target.value }))}
                           placeholder="Sin contar"
                           value={counts[item.id] ?? ""}
                         />
-                        {rowError ? <p className="mt-0.5 text-destructive" id={`count-error-${item.id}`}>{rowError}</p> : null}
-                      </td>
-                      <td className={cn("px-2 py-1.5 text-right font-mono font-bold tabular-nums", entry && entry.difference > 0 && "text-success-text", entry && entry.difference < 0 && "text-danger-text")}>
+                        {rowError ? <p className="mt-0.5 text-danger-text" id={`count-error-${item.id}`}>{rowError}</p> : null}
+                      </TableCell>
+                      <TableCell className={cn("text-right font-bold", entry && entry.difference > 0 && "text-success-text", entry && entry.difference < 0 && "text-danger-text", stackedOnMobile.cell)} data-label="Diferencia">
                         {entry ? (entry.difference === 0 ? "Cuadra" : signed(entry.difference)) : "—"}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableContainer>
 
           <div aria-live="polite" className="flex flex-col gap-2 border border-window-dark-shadow bg-window-panel p-2 text-xs sm:flex-row sm:items-center sm:justify-between">
             <p>

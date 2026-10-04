@@ -11,7 +11,7 @@ import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, Sub
 import { Input } from "@/components/ui/input";
 import { QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDateTime, parseDecimalInput } from "@/lib/format";
@@ -478,18 +478,23 @@ export function InventoryOperationsPanel({
         <h2 id="stock-snapshot-title" className="font-mono text-sm font-bold">
           Stock por producto y almacén
         </h2>
-        <div className="mt-2 grid gap-1.5 md:hidden">
-          {stock.length === 0 ? <p className="text-xs text-muted-foreground">No hay datos de stock. Registra un movimiento para empezar.</p> : stock.map((row) => (
-            <article className="border border-window-dark-shadow bg-background p-2" id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`} key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div><p className="font-medium">{row.itemName}</p><p className="text-xs text-muted-foreground">{row.itemSku} · {row.warehouseName ?? "Sin almacén"}</p></div>
-                <p className="font-mono text-lg font-semibold">{formatQuantity(row.quantity)}</p>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">Stock mínimo: {formatQuantity(row.minimumStock)}</p>
-            </article>
-          ))}
-        </div>
-        <div className="mt-2 hidden overflow-x-auto border border-window-dark-shadow md:block">
+        {stock.length === 0 ? <p className="mt-2 text-xs text-muted-foreground md:hidden">No hay datos de stock. Registra un movimiento para empezar.</p> : (
+          <MobileRecordList aria-label="Stock por producto y almacén" className="mt-2">
+            {stock.map((row) => (
+              <MobileRecord
+                aside={<span className="text-sm">{formatQuantity(row.quantity)}</span>}
+                id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
+                key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
+                title={<>{row.itemName}<span className="block font-normal text-muted-foreground">{row.itemSku} · {row.warehouseName ?? "Sin almacén"}</span></>}
+              >
+                <MobileRecordFields>
+                  <MobileRecordField label="Stock mínimo" numeric>{formatQuantity(row.minimumStock)}</MobileRecordField>
+                </MobileRecordFields>
+              </MobileRecord>
+            ))}
+          </MobileRecordList>
+        )}
+        <TableContainer className="mt-2 hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -521,7 +526,7 @@ export function InventoryOperationsPanel({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
       </section>
 
       <section className="border border-window-dark-shadow bg-card p-2.5 shadow-raised" aria-labelledby="movement-history-title">
@@ -577,19 +582,25 @@ export function InventoryOperationsPanel({
               }} placeholder="Motivo o referencia" />
           </AccessibleField>
         </div>
-        <div aria-busy={isHistoryNavigating || undefined} className="mt-2 grid gap-1.5 md:hidden">
-          {filteredMovements.length === 0 ? <p className="text-xs text-muted-foreground">No hay movimientos para los filtros seleccionados.</p> : filteredMovements.map((movement) => (
-            <article className="border border-window-dark-shadow bg-background p-2" key={movement.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div><p className="font-medium">{movement.itemName}</p><p className="text-xs text-muted-foreground">{movement.itemSku} · {movement.warehouseName}</p></div>
-                <p className="font-mono font-semibold">{formatQuantity(movement.quantity)}</p>
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>{movementLabels[movement.movementType]}</span><time>{formatDate(movement.movedAt)}</time></div>
-              <p className="mt-2 text-sm">{movement.reason}{movement.reference ? <span className="text-muted-foreground"> · Ref. {movement.reference}</span> : null}</p>
-            </article>
-          ))}
-        </div>
-        <div aria-busy={isHistoryNavigating || undefined} className="mt-2 hidden overflow-x-auto border border-window-dark-shadow md:block">
+        {filteredMovements.length === 0 ? <p className="mt-2 text-xs text-muted-foreground md:hidden">No hay movimientos para los filtros seleccionados.</p> : (
+          <MobileRecordList aria-busy={isHistoryNavigating || undefined} aria-label="Historial de movimientos" className="mt-2">
+            {filteredMovements.map((movement) => (
+              <MobileRecord
+                aside={formatQuantity(movement.quantity)}
+                key={movement.id}
+                title={<>{movement.itemName}<span className="block font-normal text-muted-foreground">{movement.itemSku} · {movement.warehouseName}</span></>}
+              >
+                <MobileRecordFields>
+                  <MobileRecordField label="Tipo">{movementLabels[movement.movementType]}</MobileRecordField>
+                  <MobileRecordField label="Fecha"><time>{formatDate(movement.movedAt)}</time></MobileRecordField>
+                  <MobileRecordField label="Motivo">{movement.reason}</MobileRecordField>
+                  {movement.reference ? <MobileRecordField label="Referencia">{movement.reference}</MobileRecordField> : null}
+                </MobileRecordFields>
+              </MobileRecord>
+            ))}
+          </MobileRecordList>
+        )}
+        <TableContainer aria-busy={isHistoryNavigating || undefined} className="mt-2 hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -628,7 +639,7 @@ export function InventoryOperationsPanel({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
         {movementHistory && movementHistory.total > 0 ? (
           <nav aria-label="Paginación del historial de movimientos" className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <p aria-live="polite">

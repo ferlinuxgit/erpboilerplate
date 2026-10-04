@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { HelpTerm } from "@/components/help/help-term";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableFooter,
   TableHead,
   TableHeader,
@@ -158,11 +160,12 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
         {trialBalance.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay movimientos contables hasta el {formatDateKey(dates.to)}.</p>
         ) : (
-          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
-            <Table>
+          <TableContainer label="Balance de sumas y saldos">
+            {/* En móvil la tabla se desplaza con la columna de la cuenta fija a la izquierda. */}
+            <Table className="[&_td:not(:first-child)]:whitespace-nowrap [&_th:not(:first-child)]:whitespace-nowrap">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Cuenta</TableHead>
+                  <TableHead sticky>Cuenta</TableHead>
                   <TableHead className="text-right">Saldo inicial</TableHead>
                   <TableHead className="text-right">Debe</TableHead>
                   <TableHead className="text-right">Haber</TableHead>
@@ -171,8 +174,8 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
               </TableHeader>
               <TableBody>
                 {trialBalanceGroups.flatMap((group) => [
-                  <TableRow className="bg-muted/40 font-medium" key={`group-${group.code}`}>
-                    <TableCell>{group.code} {group.name}</TableCell>
+                  <TableRow className="bg-window-panel font-bold" key={`group-${group.code}`}>
+                    <TableCell className="bg-window-panel" sticky><AccountName>{group.code} {group.name}</AccountName></TableCell>
                     <TableCell className="text-right">{formatBalance(group.opening, currency)}</TableCell>
                     <TableCell className="text-right">{money(group.debit)}</TableCell>
                     <TableCell className="text-right">{money(group.credit)}</TableCell>
@@ -180,8 +183,8 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
                   </TableRow>,
                   ...group.accounts.map((row) => (
                     <TableRow key={row.accountId}>
-                      <TableCell className="pl-6">
-                        <Link className="link" href={ledgerHref(row.accountId)}>{row.code}</Link> {row.name}
+                      <TableCell className="pl-6" sticky>
+                        <AccountName><Link className="link" href={ledgerHref(row.accountId)}>{row.code}</Link> {row.name}</AccountName>
                       </TableCell>
                       <TableCell className="text-right">{formatBalance(row.opening, currency)}</TableCell>
                       <TableCell className="text-right">{money(row.debit)}</TableCell>
@@ -193,7 +196,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
               </TableBody>
               <TableFooter>
                 <TableRow>
-                  <TableCell>Total del periodo</TableCell>
+                  <TableCell sticky>Total del periodo</TableCell>
                   <TableCell />
                   <TableCell className="text-right">{money(totals.debit)}</TableCell>
                   <TableCell className="text-right">{money(totals.credit)}</TableCell>
@@ -201,7 +204,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
                 </TableRow>
               </TableFooter>
             </Table>
-          </div>
+          </TableContainer>
         )}
       </PageSection>
     </PageShell>
@@ -211,6 +214,11 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
 function formatDateKey(key: string) {
   const [year, month, day] = key.split("-");
   return `${day}/${month}/${year}`;
+}
+
+/** Nombre de cuenta con ancho acotado en móvil para que la columna fija no tape las cifras. */
+function AccountName({ children }: { children: ReactNode }) {
+  return <span className="block min-w-36 max-sm:w-40">{children}</span>;
 }
 
 function StatementTable({
@@ -225,8 +233,8 @@ function StatementTable({
   footer?: { label: string; amount: number };
 }) {
   return (
-    <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
-      <Table>
+    <TableContainer>
+      <Table className="[&_td:last-child]:whitespace-nowrap">
         <TableHeader>
           <TableRow>
             <TableHead>Concepto</TableHead>
@@ -270,6 +278,6 @@ function StatementTable({
           </TableFooter>
         ) : null}
       </Table>
-    </div>
+    </TableContainer>
   );
 }

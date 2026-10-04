@@ -9,7 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { accountChart, paymentMethod } from "@/db/schema";
 import { formatDate, formatMoney } from "@/lib/format";
 import { requireUserSession } from "@/lib/current-user";
@@ -138,8 +138,8 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/expenses/new?supplierId=${supplier.id}`}>Registrar primera factura</Link>}
           />
         ) : (
-          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
-            <Table>
+          <TableContainer>
+            <Table className="min-w-[40rem]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Número</TableHead>
@@ -163,7 +163,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
       </PageSection>
 

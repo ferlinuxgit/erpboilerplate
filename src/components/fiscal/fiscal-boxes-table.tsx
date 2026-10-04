@@ -5,7 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatAeatAmount, formatMoney } from "@/lib/format";
 
 export type FiscalBoxRow = {
@@ -59,6 +59,23 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
     }
   }
 
+  const rows = boxes.map((box, index) => ({ box, key: `${box.box}-${index}`, review: reviewBoxes.includes(box.box) }));
+
+  function copyButton(box: FiscalBoxRow, key: string, touch = false) {
+    return (
+      <Button
+        aria-label={`Copiar importe de la casilla ${box.box}`}
+        onClick={() => void copy(key, formatAeatAmount(box.amount), `Casilla ${box.box} copiada: ${formatAeatAmount(box.amount)}`)}
+        size={touch ? "sm" : "xs"}
+        type="button"
+        variant={touch ? "outline" : "ghost"}
+      >
+        {copied === key ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+        {copied === key ? "Copiado" : "Copiar"}
+      </Button>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -73,7 +90,7 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
           Copiar todas
         </Button>
       </div>
-      <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
+      <TableContainer className="hidden md:block">
         <Table>
           <caption className="sr-only">{caption}</caption>
           <TableHeader>
@@ -87,34 +104,26 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
             </TableRow>
           </TableHeader>
           <TableBody>
-            {boxes.map((box, index) => {
-              const review = reviewBoxes.includes(box.box);
-              const key = `${box.box}-${index}`;
-              return (
-                <TableRow key={key}>
-                  <TableCell className="font-mono">{review ? "Revisar" : box.box}</TableCell>
-                  <TableCell className={box.kind === "settlement" ? "font-semibold" : undefined}>{box.label}</TableCell>
-                  <TableCell className="text-right font-mono">{formatMoney(box.amount, currencyCode)}</TableCell>
-                  <TableCell className="text-right">
-                    {review ? null : (
-                      <Button
-                        aria-label={`Copiar importe de la casilla ${box.box}`}
-                        onClick={() => void copy(key, formatAeatAmount(box.amount), `Casilla ${box.box} copiada: ${formatAeatAmount(box.amount)}`)}
-                        size="xs"
-                        type="button"
-                        variant="ghost"
-                      >
-                        {copied === key ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                        {copied === key ? "Copiado" : "Copiar"}
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {rows.map(({ box, key, review }) => (
+              <TableRow key={key}>
+                <TableCell>{review ? "Revisar" : box.box}</TableCell>
+                <TableCell className={box.kind === "settlement" ? "font-bold" : undefined}>{box.label}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{formatMoney(box.amount, currencyCode)}</TableCell>
+                <TableCell className="text-right">{review ? null : copyButton(box, key)}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
-      </div>
+      </TableContainer>
+      {/* En móvil, una tarjeta por casilla con el botón de copiar a tamaño táctil. */}
+      <MobileRecordList aria-label={caption}>
+        {rows.map(({ box, key, review }) => (
+          <MobileRecord aside={formatMoney(box.amount, currencyCode)} key={key} title={review ? "Revisar" : `Casilla ${box.box}`}>
+            <p className={box.kind === "settlement" ? "font-bold" : undefined}>{box.label}</p>
+            {review ? null : <div className="mt-2 flex justify-end">{copyButton(box, key, true)}</div>}
+          </MobileRecord>
+        ))}
+      </MobileRecordList>
     </div>
   );
 }

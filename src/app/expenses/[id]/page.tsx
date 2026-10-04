@@ -15,9 +15,14 @@ import {
 } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
+  MobileRecord,
+  MobileRecordField,
+  MobileRecordFields,
+  MobileRecordList,
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableHeader,
   TableRow,
@@ -57,6 +62,10 @@ function isSafeAttachmentUrl(url: string) {
   } catch {
     return false;
   }
+}
+
+function accountLabel(line: { expenseAccountCode: string | null; expenseAccountName: string | null }) {
+  return line.expenseAccountCode ? `${line.expenseAccountCode} - ${line.expenseAccountName}` : "Cuenta por defecto";
 }
 
 export default async function ExpenseDetailPage({
@@ -151,7 +160,7 @@ export default async function ExpenseDetailPage({
         title="Líneas"
         description="Desglose contable y fiscal de la factura."
       >
-        <div className="overflow-x-auto rounded-surface border">
+        <TableContainer className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -168,12 +177,8 @@ export default async function ExpenseDetailPage({
               {expense.lines.map((line) => (
                 <TableRow key={line.id}>
                   <TableCell>{line.description}</TableCell>
-                  <TableCell>
-                    {line.expenseAccountCode
-                      ? `${line.expenseAccountCode} - ${line.expenseAccountName}`
-                      : "Cuenta por defecto"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
+                  <TableCell>{accountLabel(line)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right">
                     {formatMoney(line.subtotalAmount, currency)}
                   </TableCell>
                   <TableCell className="text-right">
@@ -185,14 +190,27 @@ export default async function ExpenseDetailPage({
                   <TableCell className="text-right">
                     {formatPercent(line.retentionRate)}
                   </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
+                  <TableCell className="whitespace-nowrap text-right">
                     {formatMoney(line.lineTotal, currency)}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
+        <MobileRecordList aria-label="Líneas de la factura">
+          {expense.lines.map((line) => (
+            <MobileRecord aside={formatMoney(line.lineTotal, currency)} key={line.id} title={line.description}>
+              <MobileRecordFields>
+                <MobileRecordField label="Cuenta">{accountLabel(line)}</MobileRecordField>
+                <MobileRecordField label="Base" numeric>{formatMoney(line.subtotalAmount, currency)}</MobileRecordField>
+                <MobileRecordField label="IVA" numeric>{formatPercent(line.taxRate)}</MobileRecordField>
+                <MobileRecordField label="IVA deducible" numeric>{formatPercent(line.taxDeductiblePct)}</MobileRecordField>
+                <MobileRecordField label="Retención" numeric>{formatPercent(line.retentionRate)}</MobileRecordField>
+              </MobileRecordFields>
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
       </PageSection>
 
       <PageSection

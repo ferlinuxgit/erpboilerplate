@@ -8,7 +8,7 @@ import { HelpTerm } from "@/components/help/help-term";
 import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
 import { fiscalStatusLabels, getSpanishFiscalModel } from "@/lib/fiscal-spain";
 import { modelo349KeyLabels } from "@/server/fiscal/spain-calc";
@@ -32,6 +32,13 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
   const box130 = (code: string) => summary?.modelo130?.boxes.find((box) => box.box === code)?.amount ?? 0;
   const dueHelper = report.status === "FILED" ? "Presentado" : summary?.daysUntilDue === null || summary?.daysUntilDue === undefined ? "No aplicable" : describeDaysUntil(summary.daysUntilDue);
   const glossaryTerm = (["303", "390", "347", "349", "111", "115", "130"] as const).find((term) => term === report.code);
+  // Operadores del 349: los del periodo y después las rectificaciones de periodos anteriores.
+  const operators349 = summary?.modelo349
+    ? [
+        ...summary.modelo349.operators.map((operator) => ({ ...operator, originalPeriod: null as string | null, rowKey: `${operator.key}-${operator.taxId}` })),
+        ...summary.modelo349.rectifications.map((operator) => ({ ...operator, rowKey: `r-${operator.key}-${operator.taxId}-${operator.originalPeriod}` })),
+      ]
+    : [];
   const dueTone = summary?.dueStatus === "overdue" ? "danger" as const : summary?.dueStatus === "due-soon" ? "warning" as const : "neutral" as const;
 
   return (
@@ -114,31 +121,35 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
           {summary.modelo349.operators.length === 0 && summary.modelo349.rectifications.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay operaciones intracomunitarias en el periodo: no tienes que presentar el 349.</p>
           ) : (
-            <div className="overflow-x-auto rounded-surface border">
-              <Table>
-                <TableHeader><TableRow><TableHead>Clave</TableHead><TableHead>NIF-IVA</TableHead><TableHead>Nombre</TableHead><TableHead>Periodo rectificado</TableHead><TableHead className="text-right">Base</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {summary.modelo349.operators.map((operator) => (
-                    <TableRow key={`${operator.key}-${operator.taxId}`}>
-                      <TableCell className="font-mono" title={modelo349KeyLabels[operator.key]}>{operator.key}</TableCell>
-                      <TableCell className="font-mono">{operator.taxId}</TableCell>
-                      <TableCell>{operator.name}</TableCell>
-                      <TableCell>—</TableCell>
-                      <TableCell className="text-right font-mono">{formatMoney(operator.amount, currency)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {summary.modelo349.rectifications.map((operator) => (
-                    <TableRow key={`r-${operator.key}-${operator.taxId}-${operator.originalPeriod}`}>
-                      <TableCell className="font-mono">{operator.key}</TableCell>
-                      <TableCell className="font-mono">{operator.taxId}</TableCell>
-                      <TableCell>{operator.name}</TableCell>
-                      <TableCell>{operator.originalPeriod}</TableCell>
-                      <TableCell className="text-right font-mono">{formatMoney(operator.amount, currency)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <>
+              <TableContainer className="hidden md:block">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Clave</TableHead><TableHead>NIF-IVA</TableHead><TableHead>Nombre</TableHead><TableHead>Periodo rectificado</TableHead><TableHead className="text-right">Base</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {operators349.map((operator) => (
+                      <TableRow key={operator.rowKey}>
+                        <TableCell title={modelo349KeyLabels[operator.key]}>{operator.key}</TableCell>
+                        <TableCell>{operator.taxId}</TableCell>
+                        <TableCell>{operator.name}</TableCell>
+                        <TableCell>{operator.originalPeriod ?? "—"}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{formatMoney(operator.amount, currency)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <MobileRecordList aria-label="Operadores intracomunitarios">
+                {operators349.map((operator) => (
+                  <MobileRecord aside={formatMoney(operator.amount, currency)} key={operator.rowKey} title={operator.name}>
+                    <MobileRecordFields>
+                      <MobileRecordField label="Clave">{operator.key}{modelo349KeyLabels[operator.key] ? ` · ${modelo349KeyLabels[operator.key]}` : ""}</MobileRecordField>
+                      <MobileRecordField label="NIF-IVA">{operator.taxId}</MobileRecordField>
+                      {operator.originalPeriod ? <MobileRecordField label="Periodo rectificado">{operator.originalPeriod}</MobileRecordField> : null}
+                    </MobileRecordFields>
+                  </MobileRecord>
+                ))}
+              </MobileRecordList>
+            </>
           )}
         </PageSection>
       ) : null}
@@ -146,16 +157,16 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
       {summary && !summary.modelo130 && !summary.modelo349 ? (
         <section className="grid gap-4 lg:grid-cols-2">
           <PageSection title="Desglose de IVA" description="Bases y cuotas por tipo. El soportado muestra la cuota íntegra, antes de prorrata.">
-            <div className="overflow-x-auto rounded-surface border">
-              <Table>
+            <TableContainer>
+              <Table className="[&_td:nth-child(n+3)]:whitespace-nowrap">
                 <TableHeader><TableRow><TableHead>Origen</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Base</TableHead><TableHead className="text-right">Cuota</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {summary.buckets.map((bucket) => <TableRow key={`out-${bucket.rate}`}><TableCell>Repercutido</TableCell><TableCell>{bucket.rate}%</TableCell><TableCell className="text-right font-mono">{formatMoney(bucket.base, ctx.company.baseCurrencyCode)}</TableCell><TableCell className="text-right font-mono">{formatMoney(bucket.tax, ctx.company.baseCurrencyCode)}</TableCell></TableRow>)}
-                  {summary.surchargeBuckets.map((bucket) => <TableRow key={`re-${bucket.rate}`}><TableCell>Recargo equivalencia</TableCell><TableCell>{bucket.rate}%</TableCell><TableCell className="text-right font-mono">{formatMoney(bucket.base, ctx.company.baseCurrencyCode)}</TableCell><TableCell className="text-right font-mono">{formatMoney(bucket.tax, ctx.company.baseCurrencyCode)}</TableCell></TableRow>)}
-                  {summary.inputBuckets.map((bucket) => <TableRow key={`in-${bucket.rate}`}><TableCell>Soportado</TableCell><TableCell>{bucket.rate}%</TableCell><TableCell className="text-right font-mono">{formatMoney(bucket.base, ctx.company.baseCurrencyCode)}</TableCell><TableCell className="text-right font-mono">{formatMoney(bucket.tax, ctx.company.baseCurrencyCode)}</TableCell></TableRow>)}
+                  {summary.buckets.map((bucket) => <TableRow key={`out-${bucket.rate}`}><TableCell>Repercutido</TableCell><TableCell>{bucket.rate}%</TableCell><TableCell className="text-right">{formatMoney(bucket.base, ctx.company.baseCurrencyCode)}</TableCell><TableCell className="text-right">{formatMoney(bucket.tax, ctx.company.baseCurrencyCode)}</TableCell></TableRow>)}
+                  {summary.surchargeBuckets.map((bucket) => <TableRow key={`re-${bucket.rate}`}><TableCell>Recargo equivalencia</TableCell><TableCell>{bucket.rate}%</TableCell><TableCell className="text-right">{formatMoney(bucket.base, ctx.company.baseCurrencyCode)}</TableCell><TableCell className="text-right">{formatMoney(bucket.tax, ctx.company.baseCurrencyCode)}</TableCell></TableRow>)}
+                  {summary.inputBuckets.map((bucket) => <TableRow key={`in-${bucket.rate}`}><TableCell>Soportado</TableCell><TableCell>{bucket.rate}%</TableCell><TableCell className="text-right">{formatMoney(bucket.base, ctx.company.baseCurrencyCode)}</TableCell><TableCell className="text-right">{formatMoney(bucket.tax, ctx.company.baseCurrencyCode)}</TableCell></TableRow>)}
                 </TableBody>
               </Table>
-            </div>
+            </TableContainer>
           </PageSection>
 
           <PageSection title="Conciliación contable" description="Si algo no cuadra, revisa asientos manuales en esas cuentas o documentos anulados en otro periodo." contentClassName="space-y-3">

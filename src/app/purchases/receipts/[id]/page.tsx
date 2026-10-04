@@ -16,6 +16,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableHeader,
   TableRow,
@@ -165,7 +166,7 @@ export default async function PurchaseReceiptDetailPage({
         title="Detalle recibido"
         description="Cantidades incorporadas al stock con esta recepción."
       >
-        <div className="overflow-x-auto">
+        <TableContainer>
           <Table>
             <TableHeader>
               <TableRow>
@@ -186,7 +187,7 @@ export default async function PurchaseReceiptDetailPage({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
       </PageSection>
     </PageShell>
   );

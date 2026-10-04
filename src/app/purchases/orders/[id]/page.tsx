@@ -17,6 +17,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableHeader,
   TableRow,
@@ -287,7 +288,7 @@ export default async function PurchaseDetailPage({
         title="Líneas del pedido"
         description="Productos, cantidades y precios acordados."
       >
-        <div className="overflow-x-auto rounded-surface border">
+        <TableContainer>
           <Table>
             <TableHeader>
               <TableRow>
@@ -316,7 +317,7 @@ export default async function PurchaseDetailPage({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
       </PageSection>
       <section className="grid gap-4 lg:grid-cols-2">
         <PageSection

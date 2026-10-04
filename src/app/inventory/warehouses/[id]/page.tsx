@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { item, stockLocation, stockMovement, warehouse } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -106,7 +106,7 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
             description="Este almacén todavía no tiene stock. Registra una entrada con «Nuevo movimiento»."
           />
         ) : (
-          <div className="overflow-x-auto rounded-surface border border-window-dark-shadow">
+          <TableContainer>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -132,7 +132,7 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
       </PageSection>
       <PageSection title="Movimientos recientes" description="Actividad de esta ubicación." contentClassName="space-y-2">
