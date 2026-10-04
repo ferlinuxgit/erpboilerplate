@@ -65,7 +65,7 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
       <Select
         aria-label="Paleta de interfaz"
         className={cn(
-          "h-7 min-w-0 border-window-dark-shadow bg-window-highlight px-1.5 text-xs",
+          "h-7 min-w-0 border-window-dark-shadow bg-window-highlight px-1.5 text-xs pointer-coarse:h-10",
           compact ? "w-28 xl:w-36" : "flex-1",
         )}
         data-testid="theme-switcher"

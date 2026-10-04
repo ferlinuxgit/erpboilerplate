@@ -44,7 +44,7 @@ export function SalesDocumentLines({ currencyCode, lines, showTotals = false }: 
                 {line.lineTotal ? formatMoney(line.lineTotal, currencyCode) : `${quantityLabel(line.quantity)} uds.`}
               </p>
             </div>
-            <p className="mt-1 font-mono text-[0.7rem] text-muted-foreground tabular-nums">
+            <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">
               {quantityLabel(line.quantity)} × {line.unitPrice ? formatMoney(line.unitPrice, currencyCode) : "—"}
               {Number(line.discountPct ?? 0) > 0 ? ` · Dto. ${formatPercent(line.discountPct ?? 0)}` : ""}
               {line.taxRate ? ` · IVA ${formatPercent(line.taxRate)}` : ""}

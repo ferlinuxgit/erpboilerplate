@@ -94,7 +94,8 @@ export function Dialog({ children, className, description, initialFocusId, onClo
         }
       }}
     >
-      <button aria-label="Cerrar diálogo" className="absolute inset-0" onClick={onClose} type="button" />
+      {/* El fondo cierra al pulsar, pero no es un segundo botón "Cerrar" para el lector de pantalla. */}
+      <div aria-hidden="true" className="absolute inset-0" onClick={onClose} />
       <div
         aria-describedby={description ? descriptionId : undefined}
         aria-labelledby={titleId}

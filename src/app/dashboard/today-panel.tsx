@@ -46,7 +46,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
               <li key={entry.id}>
                 <Link className="flex items-center justify-between gap-2 py-1 text-xs hover:bg-window-highlight" href={`/invoices/${entry.id}`}>
                   <span className="min-w-0">
-                    <span className="font-mono font-semibold text-primary">{entry.number}</span>{" "}
+                    <span className="font-mono font-semibold text-link">{entry.number}</span>{" "}
                     <span className="truncate">{entry.customerName}</span>
                     <span className="block text-muted-foreground">Vencida hace {dayCount(entry.daysOverdue)}</span>
                   </span>
@@ -66,7 +66,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
       {finance.payables.dueSoon.length > 0 ? (
         <div className="space-y-1.5 border border-window-shadow p-2.5">
           <h3 className="flex items-center gap-1.5 font-mono text-xs font-bold">
-            <Receipt aria-hidden="true" className="size-4 text-primary" />
+            <Receipt aria-hidden="true" className="size-4 text-link" />
             Paga {finance.payables.dueSoonCount} {finance.payables.dueSoonCount === 1 ? "factura de proveedor" : "facturas de proveedor"} esta semana ({money(finance.payables.dueSoonAmount)})
           </h3>
           <ul className="divide-y divide-window-shadow">
@@ -74,7 +74,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
               <li key={entry.id}>
                 <Link className="flex items-center justify-between gap-2 py-1 text-xs hover:bg-window-highlight" href={`/expenses/${entry.id}`}>
                   <span className="min-w-0">
-                    <span className="font-mono font-semibold text-primary">{entry.number}</span> <span className="truncate">{entry.supplierName}</span>
+                    <span className="font-mono font-semibold text-link">{entry.number}</span> <span className="truncate">{entry.supplierName}</span>
                     <span className="block text-muted-foreground">
                       {entry.daysOverdue > 0 ? `Vencida hace ${dayCount(entry.daysOverdue)}` : entry.dueDate ? `Vence el ${formatDate(entry.dueDate)}` : "Sin vencimiento"}
                     </span>
@@ -91,7 +91,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
         <Link className="flex items-start justify-between gap-2 border border-window-shadow p-2.5 hover:bg-window-highlight" href="/treasury/reconciliation">
           <span>
             <span className="flex items-center gap-1.5 font-mono text-xs font-bold">
-              <Bank aria-hidden="true" className="size-4 text-primary" />
+              <Bank aria-hidden="true" className="size-4 text-link" />
               Concilia {finance.unreconciledMovements} {finance.unreconciledMovements === 1 ? "movimiento bancario" : "movimientos bancarios"}
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">Relaciónalos con cobros y pagos para que el saldo y las cuentas cuadren.</span>
@@ -103,7 +103,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
       {finance.fiscalDeadlines.length > 0 ? (
         <div className="space-y-1.5 border border-window-shadow p-2.5">
           <h3 className="flex items-center gap-1.5 font-mono text-xs font-bold">
-            <CalendarCheck aria-hidden="true" className="size-4 text-primary" />
+            <CalendarCheck aria-hidden="true" className="size-4 text-link" />
             Plazos fiscales próximos
           </h3>
           <ul className="divide-y divide-window-shadow">
@@ -135,7 +135,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
         >
           <span>
             <span className="flex items-center gap-1.5 font-mono text-xs font-bold">
-              <CalendarCheck aria-hidden="true" className="size-4 text-primary" />
+              <CalendarCheck aria-hidden="true" className="size-4 text-link" />
               Próximo plazo fiscal: modelo {finance.nextFiscalDeadline.code} del {finance.nextFiscalDeadline.periodLabel}
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">

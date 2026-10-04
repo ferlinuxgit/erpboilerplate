@@ -223,7 +223,7 @@ export function CreateSupplierInvoiceFromReceiptButton({
 
           <div className="overflow-x-auto border border-window-dark-shadow" role="group" aria-label="Líneas de la factura">
             <table className="w-full min-w-[40rem] text-xs">
-              <thead className="bg-window-panel font-mono text-[0.7rem] uppercase text-window-muted">
+              <thead className="bg-window-panel font-mono text-xs uppercase text-window-muted">
                 <tr>
                   <th className="px-2 py-1 text-left" scope="col">Concepto</th>
                   <th className="px-2 py-1 text-right" scope="col">Cantidad</th>

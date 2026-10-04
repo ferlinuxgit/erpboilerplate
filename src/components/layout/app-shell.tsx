@@ -48,7 +48,7 @@ function NavigationLinks({ group, keyboardMode, pathname, onNavigate }: { group:
             aria-keyshortcuts={keyboardMode ? `G ${link.code.split("").join(" ")}` : undefined}
             className={cn(
               buttonVariants({ variant: "ghost", size: "sm" }),
-              "h-8 w-full justify-start gap-1.5 border-transparent px-1.5 text-left font-sans text-[0.75rem] font-semibold lg:h-6",
+              "h-11 w-full justify-start gap-2 border-transparent px-2 text-left font-sans text-sm font-semibold lg:h-6 lg:gap-1.5 lg:px-1.5 lg:text-xs",
               active &&
                 "border-window-dark-shadow bg-primary text-primary-foreground shadow-[inset_1px_1px_0_rgba(255,255,255,0.4),inset_-1px_-1px_0_rgba(0,0,0,0.55)] hover:bg-primary hover:text-primary-foreground",
             )}
@@ -61,7 +61,7 @@ function NavigationLinks({ group, keyboardMode, pathname, onNavigate }: { group:
             {keyboardMode ? (
               <span className={cn("w-5 shrink-0 font-mono text-xs", active ? "text-primary-foreground/80" : "text-window-muted")}>{link.code}</span>
             ) : null}
-            <link.icon aria-hidden="true" className="size-3.5" weight={active ? "fill" : "regular"} />
+            <link.icon aria-hidden="true" className="size-4 lg:size-3.5" weight={active ? "fill" : "regular"} />
             <span className="truncate">{link.label}</span>
           </Link>
         );
@@ -102,8 +102,8 @@ function NavigationGroups({ groups, id, keyboardMode, pathname, onNavigate }: Na
           const containsActive = group.links.some((link) => isActiveRoute(pathname, link.href));
           return (
             <details className="group/advanced" key={`${group.label}-${containsActive ? "active" : "idle"}`} open={containsActive || undefined}>
-              <summary className={cn(groupHeadingClass, "cursor-pointer list-none hover:text-window-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus")}>
-                <span aria-hidden="true" className="mr-1 inline-block transition-transform group-open/advanced:rotate-90">›</span>
+              <summary className={cn(groupHeadingClass, "cursor-pointer list-none py-2 hover:text-window-text lg:py-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus")}>
+                <span aria-hidden="true" className="mr-1 inline-block motion-safe:transition-transform group-open/advanced:rotate-90">›</span>
                 {heading}
               </summary>
               <NavigationLinks group={group} keyboardMode={keyboardMode} onNavigate={onNavigate} pathname={pathname} />
@@ -173,7 +173,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-dvh bg-background lg:flex">
       <a
-        className="fixed left-2 top-2 z-50 -translate-y-20 border border-window-dark-shadow bg-focus px-3 py-2 font-mono text-xs font-bold text-black focus:translate-y-0"
+        className="fixed left-2 top-2 z-50 -translate-y-20 border border-window-dark-shadow bg-primary px-3 py-2 font-mono text-xs font-bold text-primary-foreground focus:translate-y-0"
         href="#main-content"
       >
         Saltar al contenido
@@ -188,7 +188,7 @@ export function AppShell({ children }: AppShellProps) {
         data-testid="desktop-sidebar"
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
-          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-primary shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">ER</div>
+          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text shadow-[inset_1px_1px_0_var(--window-highlight),inset_-1px_-1px_0_var(--window-shadow)]">ER</div>
           <div className="min-w-0 leading-none">
             <p className="truncate font-mono text-xs font-bold">ERP Suite</p>
             <p className="mt-0.5 truncate font-mono text-xs text-chrome-active-foreground/75" title={activeCompanyName ?? undefined}>{activeCompanyName ?? "Espacio de trabajo"}</p>
@@ -244,7 +244,8 @@ export function AppShell({ children }: AppShellProps) {
 
         {mobileNavOpen ? (
           <div className="fixed inset-0 z-50 lg:hidden">
-            <button aria-label="Cerrar navegación" className="absolute inset-0 bg-black/55" onClick={() => setMobileNavOpen(false)} type="button" />
+            {/* El fondo cierra al pulsar, pero no es un segundo botón "Cerrar" para el lector de pantalla. */}
+            <div aria-hidden="true" className="absolute inset-0 bg-black/55" onClick={() => setMobileNavOpen(false)} />
             <div
               aria-label="Navegación principal"
               aria-modal="true"
@@ -255,7 +256,7 @@ export function AppShell({ children }: AppShellProps) {
             >
               <div className="flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
                 <div className="flex items-center gap-2">
-                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-primary">ER</div>
+                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text">ER</div>
                   <div>
                     <p className="font-mono text-xs font-bold">ERP Suite</p>
                     <p className="font-mono text-xs text-chrome-active-foreground/75">Menú principal</p>

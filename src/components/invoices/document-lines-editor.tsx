@@ -235,7 +235,7 @@ export function DocumentLinesEditor({
       <div className="rounded-[2px] border border-window-dark-shadow bg-window-surface">
         <div aria-hidden="true" className={cn("hidden gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid", gridTemplate)}>
           {columns.map((label) => (
-            <div className={cn("bg-window-panel px-2 py-1.5 font-mono text-[0.67rem] font-bold uppercase tracking-[0.04em]", (label === "Importe" || label === "Cantidad" || label === "Precio unitario") && "text-right")} key={label}>
+            <div className={cn("bg-window-panel px-2 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.04em]", (label === "Importe" || label === "Cantidad" || label === "Precio unitario") && "text-right")} key={label}>
               {label}
             </div>
           ))}
@@ -259,7 +259,7 @@ export function DocumentLinesEditor({
                 <legend className="sr-only">Línea {lineNumber}</legend>
                 {withCatalog ? (
                   <div className="space-y-1">
-                    <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={ids.item}>Artículo</label>
+                    <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.item}>Artículo</label>
                     <Select
                       className="h-9"
                       id={ids.item}
@@ -283,11 +283,11 @@ export function DocumentLinesEditor({
                   </div>
                 ) : null}
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={ids.description}>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.description}>
                     Concepto<span className="sr-only"> de la línea {lineNumber}</span>
                   </label>
                   <div className="flex items-center gap-1">
-                    <span aria-hidden="true" className="w-5 shrink-0 text-center font-mono text-[0.68rem] text-muted-foreground">{lineNumber}</span>
+                    <span aria-hidden="true" className="w-5 shrink-0 text-center font-mono text-xs text-muted-foreground">{lineNumber}</span>
                     <Input
                       aria-describedby={errorId("description")}
                       aria-invalid={Boolean(lineErrors.description) || undefined}
@@ -304,7 +304,7 @@ export function DocumentLinesEditor({
                   {lineErrors.description ? <p className="pl-6 text-xs text-destructive" id={`${ids.description}-error`} role="alert">{lineErrors.description}</p> : null}
                 </div>
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={ids.quantity}>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.quantity}>
                     Cantidad<span className="sr-only"> de la línea {lineNumber}</span>
                   </label>
                   <QuantityInput
@@ -321,7 +321,7 @@ export function DocumentLinesEditor({
                   {lineErrors.quantity ? <p className="text-xs text-destructive" id={`${ids.quantity}-error`} role="alert">{lineErrors.quantity}</p> : null}
                 </div>
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={ids.unitPrice}>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.unitPrice}>
                     Precio unitario<span className="sr-only"> de la línea {lineNumber}</span>
                   </label>
                   <MoneyInput
@@ -339,7 +339,7 @@ export function DocumentLinesEditor({
                 </div>
                 {withDiscount ? (
                   <div className="space-y-1">
-                    <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={ids.discountPct}>
+                    <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.discountPct}>
                       Descuento<span className="sr-only"> de la línea {lineNumber}</span>
                     </label>
                     <PercentInput
@@ -358,7 +358,7 @@ export function DocumentLinesEditor({
                 ) : null}
                 {withTax ? (
                   <div className="space-y-1">
-                    <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={ids.taxRate}>
+                    <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={ids.taxRate}>
                       IVA<span className="sr-only"> de la línea {lineNumber}</span>
                     </label>
                     <Select
@@ -381,11 +381,11 @@ export function DocumentLinesEditor({
                   </div>
                 ) : null}
                 <div className="flex min-h-9 items-center justify-between gap-2 lg:justify-end">
-                  <span className="font-mono text-[0.67rem] font-bold lg:hidden">Importe</span>
+                  <span className="font-mono text-xs font-bold lg:hidden">Importe</span>
                   <div className="text-right font-mono text-[0.78rem] font-bold tabular-nums">
                     {formatMoney(lineTotal?.lineTotal ?? 0, currencyCode)}
                     {lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount || parseDecimalInput(line.discountPct)) ? (
-                      <p className="text-[0.62rem] font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal, currencyCode)}</p>
+                      <p className="text-xs font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal, currencyCode)}</p>
                     ) : null}
                   </div>
                 </div>

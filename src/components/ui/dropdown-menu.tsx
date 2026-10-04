@@ -171,7 +171,7 @@ export function DropdownMenu({
 }
 
 const itemClasses =
-  "flex w-full items-center gap-2 rounded-none px-2 py-1.5 text-left font-mono text-xs text-window-text no-underline outline-none hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0";
+  "flex w-full items-center gap-2 rounded-none px-2 py-1.5 text-left font-mono text-xs pointer-coarse:min-h-11 pointer-coarse:text-sm text-window-text no-underline outline-none hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0";
 
 type DropdownMenuItemProps = React.ComponentProps<"button"> & {
   destructive?: boolean;

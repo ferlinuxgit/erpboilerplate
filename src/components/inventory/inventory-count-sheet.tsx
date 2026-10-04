@@ -150,7 +150,7 @@ export function InventoryCountSheet({ items, stock, warehouses }: { items: Item[
           <div className="overflow-x-auto border border-window-dark-shadow">
             <table className="w-full min-w-[36rem] text-xs">
               <caption className="sr-only">Hoja de recuento de {warehouse?.name}</caption>
-              <thead className="bg-window-panel font-mono text-[0.7rem] uppercase text-window-muted">
+              <thead className="bg-window-panel font-mono text-xs uppercase text-window-muted">
                 <tr>
                   <th className="px-2 py-1 text-left" scope="col">Artículo</th>
                   <th className="px-2 py-1 text-right" scope="col">Según el sistema</th>

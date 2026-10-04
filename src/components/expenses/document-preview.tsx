@@ -146,7 +146,7 @@ export function DocumentPreview({ className, source }: { className?: string; sou
   return (
     <section aria-label={`Documento original: ${sourceName(source)}`} className={cn("flex min-h-0 flex-col border border-window-dark-shadow bg-window-panel", className)}>
       <div className="flex flex-wrap items-center gap-1 border-b border-window-shadow px-2 py-1">
-        <FileText aria-hidden="true" className="size-4 shrink-0 text-primary" />
+        <FileText aria-hidden="true" className="size-4 shrink-0 text-link" />
         <p className="min-w-0 flex-1 truncate font-mono text-xs font-bold" title={sourceName(source)}>{sourceName(source)}</p>
         <Button aria-label="Alejar" disabled={zoom <= MIN_ZOOM} onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - ZOOM_STEP))} size="icon" title="Alejar" type="button" variant="ghost">
           <MagnifyingGlassMinus aria-hidden="true" />

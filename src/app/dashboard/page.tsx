@@ -158,7 +158,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 key={step.key}
               >
                 <div className="flex min-w-0 items-start gap-2">
-                  {step.completed ? <CheckCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-success" weight="fill" /> : step.isNext ? <ArrowRight aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" /> : <Circle aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
+                  {step.completed ? <CheckCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-success" weight="fill" /> : step.isNext ? <ArrowRight aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-link" /> : <Circle aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
                   <div className="min-w-0">
                     <h3 className="font-mono text-xs font-bold">
                       {index + 1}. {step.title}
@@ -213,10 +213,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <PageSection title="Acciones frecuentes" description="Atajos a lo que más se hace en el día a día." contentClassName="grid gap-px overflow-hidden bg-window-dark-shadow p-0 md:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-primary-actions">
           {cockpit.primaryActions.map((action) => (
             <Link className="group bg-card p-3 hover:bg-window-highlight focus-visible:relative focus-visible:z-10" href={action.href} key={`${action.href}-${action.title}`}>
-              <span className="font-mono text-[0.65rem] font-bold uppercase tracking-[0.06em] text-muted-foreground">{action.eyebrow}</span>
+              <span className="font-mono text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground">{action.eyebrow}</span>
               <div className="mt-3 flex items-end justify-between gap-2">
                 <div><h3 className="font-mono text-xs font-bold">{action.title}</h3><p className="mt-0.5 text-xs text-muted-foreground">{action.description}</p></div>
-                <ArrowRight aria-hidden="true" className="size-4 shrink-0 transition-transform motion-safe:group-hover:translate-x-0.5" />
+                <ArrowRight aria-hidden="true" className="size-4 shrink-0 motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5" />
               </div>
             </Link>
           ))}

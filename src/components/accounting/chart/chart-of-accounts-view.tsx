@@ -620,7 +620,7 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
               <Input
                 aria-describedby={`${searchId}-hint`}
                 autoComplete="off"
-                className="h-7 pl-7 pr-7"
+                className="h-7 pl-7 pr-7 pointer-coarse:pr-10"
                 id={searchId}
                 onChange={(event) => setSearchText(event.target.value)}
                 onKeyDown={onSearchKeyDown}
@@ -630,7 +630,7 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
                 value={searchText}
               />
               {searchText ? (
-                <button aria-label="Borrar la búsqueda" className="absolute right-1 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center hover:bg-window-highlight" onClick={() => setSearchText("")} type="button">
+                <button aria-label="Borrar la búsqueda" className="absolute right-0.5 top-1/2 inline-flex size-6 -translate-y-1/2 pointer-coarse:size-9 items-center justify-center hover:bg-window-highlight" onClick={() => setSearchText("")} type="button">
                   <X aria-hidden="true" className="size-3" />
                 </button>
               ) : null}
@@ -647,13 +647,13 @@ export function ChartOfAccountsView({ activeYearId, canManage, currency, initial
             <legend className="sr-only">Filtros</legend>
             {CHART_FILTER_KEYS.map((key) => (
               <label className="flex items-center gap-1 font-mono text-xs" key={key}>
-                <input checked={state.filters[key]} className="size-3.5 accent-primary" onChange={(event) => setFilter(key, event.target.checked)} type="checkbox" />
+                <input checked={state.filters[key]} onChange={(event) => setFilter(key, event.target.checked)} type="checkbox" />
                 {CHART_FILTER_LABELS[key]}
               </label>
             ))}
           </fieldset>
           <label className="flex items-center gap-1 font-mono text-xs">
-            <input checked={state.density === "comfortable"} className="size-3.5 accent-primary" onChange={(event) => updateState({ density: event.target.checked ? "comfortable" : "compact" })} type="checkbox" />
+            <input checked={state.density === "comfortable"} onChange={(event) => updateState({ density: event.target.checked ? "comfortable" : "compact" })} type="checkbox" />
             Filas amplias
           </label>
           <p aria-live="polite" className="font-mono text-xs text-muted-foreground" role="status">{statusMessage}</p>

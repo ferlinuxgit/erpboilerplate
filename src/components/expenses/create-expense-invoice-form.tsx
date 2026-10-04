@@ -394,13 +394,13 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
       <div className="space-y-3">
         <div aria-label="Cómo quieres registrar la factura" className="grid gap-3 md:grid-cols-2" role="group">
           <Link autoFocus className={modeCard} href="/expenses/inbox">
-            <Upload className="mb-2 size-5 text-primary" aria-hidden="true" />
+            <Upload className="mb-2 size-5 text-link" aria-hidden="true" />
             <span className="block font-mono text-sm font-bold">Subir o fotografiar (recomendado)</span>
             <span className="mt-1 block text-xs text-muted-foreground">Sube PDF o fotos de una o varias facturas: se leen solas y solo tienes que revisarlas junto a la imagen.</span>
-            <span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary sm:hidden"><Camera aria-hidden="true" /> Puedes hacer la foto con el móvil</span>
+            <span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-link sm:hidden"><Camera aria-hidden="true" /> Puedes hacer la foto con el móvil</span>
           </Link>
           <button className={modeCard} onClick={() => setCreationMode("manual")} type="button">
-            <FileText className="mb-2 size-5 text-primary" aria-hidden="true" />
+            <FileText className="mb-2 size-5 text-link" aria-hidden="true" />
             <span className="block font-mono text-sm font-bold">Escribirla a mano</span>
             <span className="mt-1 block text-xs text-muted-foreground">Introduce proveedor, fechas e importes tú mismo; puedes adjuntar el justificante.</span>
           </button>
@@ -473,7 +473,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
             <Input min={issueDate || undefined} onChange={(event) => { setDueDate(event.target.value); setDueDateEdited(true); }} type="date" value={dueDate} />
           </AccessibleField>
           <div className="space-y-1">
-            <p className="font-mono text-[0.72rem] font-bold">Justificante</p>
+            <p className="font-mono text-xs font-bold">Justificante</p>
             {attachment ? (
               <div className="flex min-h-8 items-center justify-between gap-2 rounded-[2px] border border-window-dark-shadow bg-primary/5 px-2 py-1 text-xs">
                 <span className="flex min-w-0 items-center gap-1"><Paperclip aria-hidden="true" className="shrink-0" /><span className="truncate font-bold">{attachment.fileName}</span></span>

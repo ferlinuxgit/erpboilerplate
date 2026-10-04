@@ -229,7 +229,7 @@ export function CompanyProfileForm({ initialValues }: CompanyProfileFormProps) {
         </div>
         <div className="grid gap-2 md:grid-cols-[160px_1fr]">
           <div className="min-w-0 space-y-1" role="group" aria-labelledby="company-logo-title">
-            <p className="font-mono text-[0.72rem] font-bold leading-none" id="company-logo-title">Logotipo</p>
+            <p className="font-mono text-xs font-bold leading-none" id="company-logo-title">Logotipo</p>
             <input type="hidden" {...register("logoDataUrl")} />
             <div className="flex min-h-20 items-center justify-center border border-window-dark-shadow bg-window-panel p-2">
               {logoDataUrl ? (

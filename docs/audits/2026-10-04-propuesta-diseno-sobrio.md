@@ -5,6 +5,21 @@ Base: auditoría completa de `src/app` y `src/components`, cruzada con las skill
 [`better-ui`](https://www.skills.sh/jakubkrehel/skills/better-ui) (Jakub Krehel) y
 [`emil-design-eng`](https://www.skills.sh/emilkowalski/skills/emil-design-eng) (Emil Kowalski).
 
+> **Decisión (2026-10-04):** se mantiene la estética retro y se pule; ante conflicto
+> manda la usabilidad. El tema "Sobrio" (§3) queda descartado como default. Siguen
+> vigentes los hallazgos de §6, la escala mínima de texto (12px), las áreas táctiles de
+> §3.6 y las reglas de movimiento de §4, aplicados dentro del lenguaje retro (biseles,
+> mono, sin animaciones de entrada salvo donde orienten).
+>
+> **Hecho en la primera tanda:** skip link visible en todos los temas; texto mínimo
+> 12px; botones, inputs, menús y navegación a 40–44px en pantallas táctiles
+> (`pointer-coarse`, sin cambiar la densidad con ratón); casillas nativas de 16/20px;
+> selección y barra de acciones masivas en las tarjetas móviles de `ResourceList`;
+> `text-primary` → `text-link` en texto fuera de enlaces; fondos de diálogo y drawer ya
+> no son un segundo botón "Cerrar"; descripciones de cabecera sin truncar; `h2` de
+> sección a 14px; transiciones de giro bajo `motion-safe`; selector de impuestos sin
+> desbordar en móvil.
+
 ## 1. Diagnóstico
 
 La UI actual es coherente y accesible en lo básico (skip link, focus trap, `aria-current`,

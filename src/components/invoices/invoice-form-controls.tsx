@@ -90,15 +90,15 @@ export function InvoicePaymentMethodsField({
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="font-mono text-[0.72rem] font-bold">Formas de pago</p>
-        <span className="text-[0.68rem] text-muted-foreground">{selected.length === 0 ? "Ninguna seleccionada" : `${selected.length} seleccionada${selected.length === 1 ? "" : "s"}`}</span>
+        <p className="font-mono text-xs font-bold">Formas de pago</p>
+        <span className="text-xs text-muted-foreground">{selected.length === 0 ? "Ninguna seleccionada" : `${selected.length} seleccionada${selected.length === 1 ? "" : "s"}`}</span>
       </div>
       <details className="group relative" data-testid="invoice-payment-methods-picker">
         <summary className="flex h-9 cursor-pointer list-none items-center justify-between gap-3 rounded-[2px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-[0.75rem] outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
           <span className="min-w-0 truncate">
             {selected.length > 0 ? selected.map((method) => method.name).join(" · ") : "Seleccionar formas de pago"}
           </span>
-          <CaretDown className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+          <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
         </summary>
         <div className="mt-1 max-h-72 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)]">
           {methods.map((method) => (
@@ -106,7 +106,7 @@ export function InvoicePaymentMethodsField({
               <input className="mt-0.5 size-4 accent-primary" type="checkbox" value={method.id} {...getBinding()} />
               <span className="min-w-0">
                 <span className="block font-bold">{method.name}{method.isDefault ? " · Predeterminada" : ""}</span>
-                <span className="block truncate font-mono text-[0.68rem] text-muted-foreground">
+                <span className="block truncate font-mono text-xs text-muted-foreground">
                   {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}
                 </span>
               </span>
@@ -172,7 +172,7 @@ export function InvoiceLinesEditor({
       <div className="overflow-visible rounded-[2px] border border-window-dark-shadow bg-window-surface">
         <div className={cn("hidden gap-px border-b border-window-dark-shadow bg-window-dark-shadow lg:grid", LINE_GRID)}>
           {['Concepto', 'Cantidad', 'Precio', 'Dto.', 'Impuestos', 'Total', 'Acciones'].map((label) => (
-            <div className="bg-window-panel px-2 py-1.5 font-mono text-[0.67rem] font-bold uppercase tracking-[0.04em]" key={label}>{label}</div>
+            <div className="bg-window-panel px-2 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.04em]" key={label}>{label}</div>
           ))}
         </div>
         <div className="divide-y divide-window-shadow">
@@ -190,9 +190,9 @@ export function InvoiceLinesEditor({
             return (
               <article className={cn("grid gap-2 bg-card p-2 lg:items-start lg:gap-1", LINE_GRID)} data-testid={`invoice-line-${lineNumber}`} key={field.id}>
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={descriptionId}>Concepto</label>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={descriptionId}>Concepto</label>
                   <div className="flex items-center gap-1">
-                    <span className="w-5 shrink-0 text-center font-mono text-[0.68rem] text-muted-foreground">{lineNumber}</span>
+                    <span className="w-5 shrink-0 text-center font-mono text-xs text-muted-foreground">{lineNumber}</span>
                     <Input
                       className="h-9"
                       data-testid={descriptionId}
@@ -208,7 +208,7 @@ export function InvoiceLinesEditor({
                   {lineError.description ? <p className="pl-6 text-xs text-destructive" id={`${descriptionId}-error`} role="alert">{lineError.description}</p> : null}
                 </div>
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={quantityId}>Cantidad</label>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={quantityId}>Cantidad</label>
                   <QuantityInput
                     className="h-9"
                     data-testid={quantityId}
@@ -222,7 +222,7 @@ export function InvoiceLinesEditor({
                   {lineError.quantity ? <p className="text-xs text-destructive" id={`${quantityId}-error`} role="alert">{lineError.quantity}</p> : null}
                 </div>
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={unitPriceId}>Precio unitario</label>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={unitPriceId}>Precio unitario</label>
                   <MoneyInput
                     className="h-9"
                     data-testid={unitPriceId}
@@ -236,7 +236,7 @@ export function InvoiceLinesEditor({
                   {lineError.unitPrice ? <p className="text-xs text-destructive" id={`${unitPriceId}-error`} role="alert">{lineError.unitPrice}</p> : null}
                 </div>
                 <div className="space-y-1">
-                  <label className="font-mono text-[0.67rem] font-bold lg:sr-only" htmlFor={discountId}>Descuento</label>
+                  <label className="font-mono text-xs font-bold lg:sr-only" htmlFor={discountId}>Descuento</label>
                   {bindings.discountPct ? (
                     <PercentInput
                       className="h-9"
@@ -253,13 +253,13 @@ export function InvoiceLinesEditor({
                   {lineError.discountPct ? <p className="text-xs text-destructive" id={`${discountId}-error`} role="alert">{lineError.discountPct}</p> : null}
                 </div>
                 <div className="space-y-1">
-                  <span className="font-mono text-[0.67rem] font-bold lg:sr-only">Impuestos</span>
+                  <span className="font-mono text-xs font-bold lg:sr-only">Impuestos</span>
                   <details className="group relative" data-testid={`invoice-line-${lineNumber}-taxes`}>
-                    <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((tax) => `${tax.name} ${tax.operation === "SUBTRACT" ? "−" : ""}${formatPercent(tax.rate)}`))} className="flex h-9 cursor-pointer list-none items-center justify-between gap-1 rounded-[1px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-[0.7rem] outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+                    <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((tax) => `${tax.name} ${tax.operation === "SUBTRACT" ? "−" : ""}${formatPercent(tax.rate)}`))} className="flex h-9 cursor-pointer list-none items-center justify-between gap-1 rounded-[1px] border border-window-dark-shadow bg-window-highlight px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
                       <span className="truncate">{selectedTaxes.length ? selectedTaxes.map((tax) => tax.name).join(" · ") : "Sin impuestos"}</span>
-                      <CaretDown className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                      <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
-                    <div className="mt-1 max-h-64 min-w-72 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)] lg:min-w-0">
+                    <div className="mt-1 max-h-64 w-full min-w-0 overflow-y-auto rounded-[2px] border border-window-dark-shadow bg-popover p-1.5 shadow-[2px_2px_0_var(--window-shadow)] sm:min-w-72 lg:min-w-0">
                       {taxes.map((tax) => (
                         <label className={cn("flex cursor-pointer items-center gap-2 rounded-[1px] px-2 py-2 font-mono text-xs hover:bg-window-panel", tax.isActive === false && "opacity-60")} key={tax.id}>
                           <input className="size-4 accent-primary" type="checkbox" value={tax.id} {...bindings.taxIds()} />
@@ -275,10 +275,10 @@ export function InvoiceLinesEditor({
                   {lineError.taxIds ? <p className="text-xs text-destructive" role="alert">{lineError.taxIds}</p> : null}
                 </div>
                 <div className="flex min-h-9 items-center justify-between gap-2 lg:justify-end">
-                  <span className="font-mono text-[0.67rem] font-bold lg:hidden">Total</span>
+                  <span className="font-mono text-xs font-bold lg:hidden">Total</span>
                   <div className="text-right font-mono text-[0.78rem] font-bold tabular-nums">
                     {formatMoney(lineTotal?.lineTotal ?? 0)}
-                    {lineTotal?.taxes.length ? <p className="text-[0.62rem] font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal)}</p> : null}
+                    {lineTotal?.taxes.length ? <p className="text-xs font-normal text-muted-foreground">Base {formatMoney(lineTotal.subtotal)}</p> : null}
                   </div>
                 </div>
                 <div className="flex items-center justify-end gap-0.5" role="group" aria-label={`Acciones línea ${lineNumber}`}>
@@ -328,16 +328,16 @@ export function InvoiceTotalsSummary({
   return (
     <aside aria-label={title} className="border-l-4 border-l-primary bg-window-panel p-3" aria-live="polite" data-testid={`${testIdPrefix}-totals`}>
       <div className="mb-2 flex items-center justify-between gap-3 border-b border-window-shadow pb-2">
-        <p className="font-mono text-[0.72rem] font-bold uppercase tracking-[0.05em]">{title}</p>
+        <p className="font-mono text-xs font-bold uppercase tracking-[0.05em]">{title}</p>
         <p className="font-mono text-lg font-bold tabular-nums" data-testid={`${testIdPrefix}-grand-total`}>Total: {money(totals.totalAmount)}</p>
       </div>
-      <dl className="space-y-1 font-mono text-[0.72rem] tabular-nums">
+      <dl className="space-y-1 font-mono text-xs tabular-nums">
         <div className="flex justify-between gap-3" data-testid={`${testIdPrefix}-subtotal`}><dt>Subtotal:</dt>{" "}<dd>{money(totals.subtotal)}</dd></div>
         {[...breakdown.values()].map((row) => (
           <div className="flex justify-between gap-3 text-muted-foreground" key={`${row.name}-${row.rate}-${row.operation}`}>
             <dt>
               {row.operation === "SUBTRACT" ? "−" : "+"} {row.name} {formatPercent(row.rate)}
-              <span className="ml-1 text-[0.65rem]">(base {money(row.base)})</span>
+              <span className="ml-1 text-xs">(base {money(row.base)})</span>
             </dt>
             <dd>{row.operation === "SUBTRACT" ? "−" : ""}{money(row.amount)}</dd>
           </div>

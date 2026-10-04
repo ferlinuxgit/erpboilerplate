@@ -172,7 +172,7 @@ export function PageHeader({
             {title}
           </h1>
           {description ? (
-            <p className="min-w-0 max-w-5xl text-xs leading-4 text-muted-foreground lg:truncate">
+            <p className="min-w-0 max-w-5xl text-pretty text-xs leading-4 text-muted-foreground">
               {description}
             </p>
           ) : null}
@@ -181,7 +181,7 @@ export function PageHeader({
       {actions ? (
         <div
           aria-label="Acciones de la página"
-          className="flex w-full flex-wrap items-center gap-1.5 border-t border-window-shadow pt-2 sm:w-auto sm:max-w-[48rem] sm:justify-end sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0 [&>a]:h-8 [&>a]:grow [&>a]:px-2.5 [&>button]:h-8 [&>button]:grow sm:[&>a]:grow-0 sm:[&>button]:grow-0 [&>[aria-label]]:size-8 [&>[aria-label]]:grow-0 [&>[aria-label]]:px-0"
+          className="flex w-full flex-wrap items-center gap-1.5 border-t border-window-shadow pt-2 sm:w-auto sm:max-w-[48rem] sm:justify-end sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0 [&>a]:h-8 [&>a]:grow [&>a]:px-2.5 [&>button]:h-8 [&>button]:grow sm:[&>a]:grow-0 sm:[&>button]:grow-0 [&>[aria-label]]:size-8 [&>[aria-label]]:grow-0 [&>[aria-label]]:px-0 pointer-coarse:[&>a]:h-10 pointer-coarse:[&>button]:h-10 pointer-coarse:[&>[aria-label]]:size-10"
           role="group"
         >
           {actions}
@@ -213,11 +213,11 @@ export function PageSection({
       >
         <div className="flex flex-col gap-1 border-b border-window-dark-shadow bg-window-panel px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 sm:flex sm:items-baseline sm:gap-2">
-            <h2 className="shrink-0 font-mono text-[0.78rem] font-bold leading-snug">
+            <h2 className="shrink-0 font-mono text-sm font-bold leading-snug">
               {title}
             </h2>
             {description ? (
-              <p className="min-w-0 max-w-5xl text-xs leading-4 text-muted-foreground sm:truncate">
+              <p className="min-w-0 max-w-5xl text-pretty text-xs leading-4 text-muted-foreground">
                 {description}
               </p>
             ) : null}

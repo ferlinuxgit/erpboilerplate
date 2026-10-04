@@ -77,7 +77,7 @@ export function HelpTerm({ children, className, term }: HelpTermProps) {
         aria-controls={open ? panelId : undefined}
         aria-expanded={open}
         aria-label={`¿Qué es ${entry.term}?`}
-        className="inline-grid size-4 translate-y-0.5 place-items-center rounded-[1px] border border-window-dark-shadow bg-window-surface text-window-text hover:bg-window-highlight"
+        className="relative inline-grid size-4 translate-y-0.5 place-items-center after:absolute after:-inset-1 after:content-[''] pointer-coarse:after:-inset-3 rounded-[1px] border border-window-dark-shadow bg-window-surface text-window-text hover:bg-window-highlight"
         data-help-term={entry.id}
         onClick={toggle}
         ref={buttonRef}

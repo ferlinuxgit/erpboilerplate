@@ -19,7 +19,7 @@ export function AuthPageShell({ children }: { children: ReactNode }) {
       </section>
       <section className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-8">
         <div className="w-full max-w-md">
-          <Link className="mb-8 flex items-center gap-2 lg:hidden" href="/"><span className="grid size-8 place-items-center rounded-md bg-primary text-[0.65rem] font-bold text-primary-foreground">ER</span><span className="font-semibold">ERP Suite</span></Link>
+          <Link className="mb-8 flex items-center gap-2 lg:hidden" href="/"><span className="grid size-8 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">ER</span><span className="font-semibold">ERP Suite</span></Link>
           {children}
         </div>
       </section>

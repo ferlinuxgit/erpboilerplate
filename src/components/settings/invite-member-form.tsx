@@ -72,7 +72,7 @@ export function InviteMemberForm({ assignableRoles }: { assignableRoles: AppRole
               {result.emailSent ? <>Hemos enviado la invitación a <strong>{result.email}</strong>.</> : <>Invitación creada para <strong>{result.email}</strong>. {result.emailProblem}</>}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <code className="max-w-full truncate border border-window-shadow bg-window-panel px-1.5 py-0.5 font-mono text-[0.7rem]">{result.url}</code>
+              <code className="max-w-full truncate border border-window-shadow bg-window-panel px-1.5 py-0.5 font-mono text-xs">{result.url}</code>
               <CopyLinkButton url={result.url} />
             </div>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

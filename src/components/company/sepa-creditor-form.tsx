@@ -55,7 +55,7 @@ export function SepaCreditorForm({ initialValue, vatNumber }: { initialValue: st
       </AccessibleField>
       {suggestion ? (
         <p className="text-xs text-muted-foreground">
-          Con tu NIF y el sufijo habitual (000) sería <button className="font-mono text-primary underline" onClick={() => setValue(suggestion)} type="button">{suggestion}</button>. Confírmalo con tu banco: el sufijo puede ser otro.
+          Con tu NIF y el sufijo habitual (000) sería <button className="font-mono text-link underline" onClick={() => setValue(suggestion)} type="button">{suggestion}</button>. Confírmalo con tu banco: el sufijo puede ser otro.
         </p>
       ) : null}
       <Button disabled={saving || Boolean(check && !check.valid)} onClick={() => void save()} type="button">{saving ? "Guardando…" : "Guardar identificador"}</Button>

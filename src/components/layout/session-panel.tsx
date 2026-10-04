@@ -50,7 +50,7 @@ export function SessionPanel({ className, onNavigate }: { className?: string; on
     >
       <span
         aria-hidden="true"
-        className="grid size-7 shrink-0 place-items-center border border-window-dark-shadow bg-window-highlight font-mono text-xs font-black text-primary"
+        className="grid size-7 shrink-0 place-items-center border border-window-dark-shadow bg-window-highlight font-mono text-xs font-black text-window-text"
       >
         {user ? initials(user.name) : "··"}
       </span>

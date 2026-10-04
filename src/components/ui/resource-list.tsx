@@ -239,6 +239,7 @@ export function ResourceList<TItem>({
   const [isNavigating, startNavigation] = useTransition();
   const sectionRef = useRef<HTMLElement>(null);
   const selectPageRef = useRef<HTMLInputElement>(null);
+  const selectPageMobileRef = useRef<HTMLInputElement>(null);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const listId = testId ?? "resource-list";
   const sortHeaderFor = (sortKey: string | null | undefined) =>
@@ -584,6 +585,7 @@ export function ResourceList<TItem>({
 
   useEffect(() => {
     if (selectPageRef.current) selectPageRef.current.indeterminate = somePageSelected;
+    if (selectPageMobileRef.current) selectPageMobileRef.current.indeterminate = somePageSelected;
   }, [somePageSelected]);
 
   function setFilterValue(key: string, value: string) {
@@ -706,6 +708,18 @@ export function ResourceList<TItem>({
     setCurrentPage(1);
     setSelectedIds(new Set());
     setActiveViewName("");
+  }
+
+  function setPageSelected(checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const item of paginatedItems) {
+        const id = getRowId(item);
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
   }
 
   function toggleSelection(id: string) {
@@ -1118,7 +1132,7 @@ export function ResourceList<TItem>({
         {bulkActions && selectedItems.length > 0 ? (
           <div
             aria-label="Acciones sobre la selección"
-            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5"
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 border border-primary bg-primary/10 p-1.5 max-md:sticky max-md:bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-md:z-20 max-md:bg-window-surface max-md:shadow-[3px_3px_0_var(--window-shadow)]"
             role="toolbar"
           >
             <span className="font-mono text-xs font-bold">Con {selectedItems.length} seleccionados:</span>
@@ -1180,17 +1194,7 @@ export function ResourceList<TItem>({
                         aria-label={`Seleccionar las ${paginatedItems.length} filas de esta página`}
                         checked={allPageSelected}
                         ref={selectPageRef}
-                        onChange={(event) =>
-                          setSelectedIds((current) => {
-                            const next = new Set(current);
-                            for (const item of paginatedItems) {
-                              const id = getRowId(item);
-                              if (event.target.checked) next.add(id);
-                              else next.delete(id);
-                            }
-                            return next;
-                          })
-                        }
+                        onChange={(event) => setPageSelected(event.target.checked)}
                         type="checkbox"
                       />
                     </TableHead>
@@ -1300,7 +1304,19 @@ export function ResourceList<TItem>({
             className={cn("grid gap-2 md:hidden", isNavigating && "opacity-60")}
             data-testid="resource-list-mobile"
           >
-            {paginatedItems.map((item) => (
+            {enableSelection ? (
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 font-mono text-xs font-bold">
+                <input
+                  aria-checked={somePageSelected ? "mixed" : allPageSelected}
+                  checked={allPageSelected}
+                  onChange={(event) => setPageSelected(event.target.checked)}
+                  ref={selectPageMobileRef}
+                  type="checkbox"
+                />
+                Seleccionar los {paginatedItems.length} de esta página
+              </label>
+            ) : null}
+            {paginatedItems.map((item, index) => (
               <article
                 aria-keyshortcuts="ArrowUp ArrowDown Home End Enter Space"
                 aria-label={getRowLabel?.(item)}
@@ -1320,6 +1336,17 @@ export function ResourceList<TItem>({
                 onKeyDown={(event) => handleRowKeyDown(event, getRowId(item))}
                 tabIndex={getRowId(item) === focusableRowId ? 0 : -1}
               >
+                {enableSelection ? (
+                  // Casilla con área táctil de 44px que ocupa la esquina del relleno de la tarjeta.
+                  <label className="float-right -mr-2.5 -mt-2.5 ml-1 grid size-11 cursor-pointer place-items-center">
+                    <input
+                      aria-label={`Seleccionar ${rowLabel(item, index)}`}
+                      checked={selectedIds.has(getRowId(item))}
+                      onChange={() => toggleSelection(getRowId(item))}
+                      type="checkbox"
+                    />
+                  </label>
+                ) : null}
                 {renderMobileCard ? (
                   renderMobileCard(item)
                 ) : (

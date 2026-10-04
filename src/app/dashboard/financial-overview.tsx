@@ -178,7 +178,7 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
               </div>
             ))}
           </dl>
-          <p className="font-mono text-[0.7rem] text-muted-foreground">Total pendiente: {money(aging.total)}</p>
+          <p className="font-mono text-xs text-muted-foreground">Total pendiente: {money(aging.total)}</p>
         </PageSection>
       </div>
 

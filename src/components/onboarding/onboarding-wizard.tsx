@@ -251,7 +251,7 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
     return (
       <section className="space-y-3 border border-success bg-success/10 p-3 text-foreground shadow-[inset_1px_1px_0_var(--window-highlight)]" role="status">
         <div>
-          <p className="font-mono text-[0.66rem] font-bold uppercase tracking-[0.04em]">Configuración inicial lista</p>
+          <p className="font-mono text-xs font-bold uppercase tracking-[0.04em]">Configuración inicial lista</p>
           <h2 className="mt-1 font-mono text-lg font-bold">Tu empresa está lista para facturar</h2>
           <p className="mt-1 text-xs">
             Hemos guardado los datos fiscales, la serie de facturas{result.bankAccountCreated ? ", la cuenta bancaria" : ""} y el plan contable. El siguiente paso es dar de alta tu primer cliente.
@@ -265,7 +265,7 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
                 : <>Invitación creada para <strong>{invitation.email}</strong>. {invitation.emailProblem}</>}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <code className="max-w-full truncate border border-window-shadow bg-window-panel px-1.5 py-0.5 font-mono text-[0.7rem]">{invitation.url}</code>
+              <code className="max-w-full truncate border border-window-shadow bg-window-panel px-1.5 py-0.5 font-mono text-xs">{invitation.url}</code>
               <CopyLinkButton url={invitation.url} />
             </div>
           </div>
@@ -336,7 +336,7 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
                     {index + 1}. {step.title}
                     {isDone ? <span className="sr-only"> (guardado)</span> : null}
                   </span>
-                  {step.optional ? <span className={cn("text-[0.62rem] uppercase", isCurrent ? "text-primary-foreground" : "text-muted-foreground")}>Opcional</span> : null}
+                  {step.optional ? <span className={cn("text-xs uppercase", isCurrent ? "text-primary-foreground" : "text-muted-foreground")}>Opcional</span> : null}
                 </button>
               </li>
             );

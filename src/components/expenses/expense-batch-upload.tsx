@@ -546,7 +546,7 @@ export function ExpenseBatchUpload({
             )}
             htmlFor="expense-batch-files"
           >
-            <UploadSimple className="size-6 text-primary" aria-hidden="true" />
+            <UploadSimple className="size-6 text-link" aria-hidden="true" />
             <span>
               <span className="block font-mono text-sm font-bold">{isStarting ? "Subiendo…" : "Seleccionar facturas"}</span>
               <span className="block text-xs text-muted-foreground" id="expense-batch-files-helper">PDF, PNG, JPG o WEBP · hasta 50 archivos de 12 MB</span>
@@ -648,8 +648,8 @@ export function ExpenseBatchUpload({
                   <div className="flex min-w-0 items-center gap-3">
                     {item.status === "POSTED" ? <CheckCircle aria-hidden="true" className="size-5 shrink-0 text-success" weight="fill" />
                       : item.status === "FAILED" ? <XCircle aria-hidden="true" className="size-5 shrink-0 text-destructive" weight="fill" />
-                        : PROCESSING_STATUSES.includes(item.status) || item.status === "POSTING" ? <SpinnerGap aria-hidden="true" className="size-5 shrink-0 animate-spin text-primary" />
-                          : <FileText aria-hidden="true" className="size-5 shrink-0 text-primary" />}
+                        : PROCESSING_STATUSES.includes(item.status) || item.status === "POSTING" ? <SpinnerGap aria-hidden="true" className="size-5 shrink-0 animate-spin text-link" />
+                          : <FileText aria-hidden="true" className="size-5 shrink-0 text-link" />}
                     <div className="min-w-0">
                       <p className="truncate font-mono text-xs font-bold" id={`batch-item-${item.localId}-title`}>{index + 1}. {supplierLabel || item.fileName}</p>
                       <p className="truncate text-xs text-muted-foreground">

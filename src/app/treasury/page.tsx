@@ -197,11 +197,11 @@ export default async function TreasuryPage() {
               href={area.href}
               key={area.href}
             >
-              <h2 className="font-semibold">{area.title}</h2>
+              <h3 className="font-semibold">{area.title}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 {area.description}
               </p>
-              <span className="mt-5 block text-sm font-medium text-primary">
+              <span className="mt-5 block text-sm font-medium text-link">
                 Abrir
               </span>
             </Link>
