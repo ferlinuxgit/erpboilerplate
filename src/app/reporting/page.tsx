@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { ReportingExportButton } from "@/components/reporting/reporting-export-button";
+import { AreaLink, AreaLinkGrid } from "@/components/ui/area-link";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -113,15 +113,12 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
         </PageSection>
       ) : null}
 
-      <PageSection title="Revisar el origen de los datos" description="Si un indicador no cuadra, revisa el módulo del que sale antes de compartir el informe." contentClassName="grid gap-3 md:grid-cols-4">
-        <div className="contents" data-testid="reporting-source-links">
+      <PageSection title="Revisar el origen de los datos" description="Si un indicador no cuadra, revisa el módulo del que sale antes de compartir el informe.">
+        <AreaLinkGrid testId="reporting-source-links">
           {reportingSources.map((source) => (
-            <Link className="rounded-surface border p-3 hover:border-primary hover:bg-muted/50" href={source.href} key={source.href}>
-              <span className="font-semibold">{source.label}</span>
-              <span className="mt-1 block text-sm text-muted-foreground">{source.description}</span>
-            </Link>
+            <AreaLink description={source.description} href={source.href} key={source.href} title={source.label} titleAs="span" />
           ))}
-        </div>
+        </AreaLinkGrid>
       </PageSection>
     </PageShell>
   );

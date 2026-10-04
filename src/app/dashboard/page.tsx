@@ -5,6 +5,7 @@ import { ArrowRight, CheckCircle, Circle } from "@phosphor-icons/react/dist/ssr"
 import { FinancialOverview } from "@/app/dashboard/financial-overview";
 import { TodayPanel } from "@/app/dashboard/today-panel";
 import { SignOutButton } from "@/components/sign-out-button";
+import { AreaLink, AreaLinkGrid } from "@/components/ui/area-link";
 import { buttonVariants } from "@/components/ui/button";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -210,16 +211,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {finance ? <TodayPanel currencyCode={currencyCode} finance={finance} /> : null}
 
       {!showChecklist && can(role, "invoice.create") ? (
-        <PageSection title="Acciones frecuentes" description="Atajos a lo que más se hace en el día a día." contentClassName="grid gap-px overflow-hidden bg-window-dark-shadow p-0 md:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-primary-actions">
-          {cockpit.primaryActions.map((action) => (
-            <Link className="group bg-card p-3 hover:bg-window-highlight focus-visible:relative focus-visible:z-10" href={action.href} key={`${action.href}-${action.title}`}>
-              <span className="font-mono text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground">{action.eyebrow}</span>
-              <div className="mt-3 flex items-end justify-between gap-2">
-                <div><h3 className="font-mono text-xs font-bold">{action.title}</h3><p className="mt-0.5 text-xs text-muted-foreground">{action.description}</p></div>
-                <ArrowRight aria-hidden="true" className="size-4 shrink-0 motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5" />
-              </div>
-            </Link>
-          ))}
+        <PageSection title="Acciones frecuentes" description="Atajos a lo que más se hace en el día a día." data-testid="dashboard-primary-actions">
+          <AreaLinkGrid>
+            {cockpit.primaryActions.map((action) => (
+              <AreaLink description={action.description} eyebrow={action.eyebrow} href={action.href} key={`${action.href}-${action.title}`} title={action.title} />
+            ))}
+          </AreaLinkGrid>
         </PageSection>
       ) : null}
 
