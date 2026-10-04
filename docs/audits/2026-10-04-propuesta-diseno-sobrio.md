@@ -19,6 +19,35 @@ Base: auditoría completa de `src/app` y `src/components`, cruzada con las skill
 > no son un segundo botón "Cerrar"; descripciones de cabecera sin truncar; `h2` de
 > sección a 14px; transiciones de giro bajo `motion-safe`; selector de impuestos sin
 > desbordar en móvil.
+>
+> **Hecho en las fases siguientes (mismo día):**
+> - **Tokens:** `rounded-control`/`rounded-surface`, `shadow-raised`/`sunken`/`pressed`/
+>   `bevel-top`/`raised-tinted`/`pressed-tinted`/`drop`/`drop-sm`/`window`/`window-lg`,
+>   `text-control`, `ease-snappy`, `ease-drawer`. Sustituyen 157 radios y ~60 sombras
+>   copiadas. `src/lib/design-tokens.test.ts` impide volver a escribirlos a mano y el
+>   texto por debajo de 12px.
+> - **Tablas:** `TableContainer` con aviso de desplazamiento en los 8 temas, columna fija,
+>   `MobileRecordList` y `stackedOnMobile`. Las remesas de cobro y de pago pasan a
+>   `ResourceList`. Los detalles de factura, gasto, modelo fiscal, remesas y previsión
+>   tienen tarjetas en móvil. Libro mayor y balance siguen como tabla con scroll y
+>   columna fija.
+> - **Formularios:** `FormActions` fija abajo en móvil, sobre la barra de tareas y con
+>   safe-area. Errores con `text-danger-text`. Los editores de líneas comparten piezas
+>   (`line-editor-parts.tsx`), con un solo nombre accesible por campo, tarjeta por línea
+>   en móvil y un menú «Más». Los selectores de impuestos se cierran al pulsar fuera o
+>   con Escape. Hay un buscador de clientes compartido.
+> - **Shell y coherencia:** barra de tareas inferior en móvil (`--mobile-taskbar-height`)
+>   y cajón animado (250ms de entrada, 200ms de salida, solo con `motion-safe`, sin
+>   animación al abrir con teclado). Diálogos y menús con `@starting-style`. Toasts con
+>   los colores de los 8 temas. Cambio de tema sin transiciones. `AreaLink` único para
+>   los módulos. Landing y acceso en retro, con `84.320 €`. Skeletons con la geometría de
+>   `PageShell`. Enlaces unificados en `text-link` y `.link` eliminado.
+>
+> **Pendiente:** los editores de línea de `credit-note-form` y `recurring-expense-form`,
+> que usan su propio editor. Unificar del todo `InvoiceLinesEditor` y
+> `DocumentLinesEditor`, que hoy usan modelos de estado distintos. Tarjetas propias para
+> las tablas secundarias (asientos, verifactu, almacén), que por ahora se desplazan con
+> aviso.
 
 ## 1. Diagnóstico
 

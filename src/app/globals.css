@@ -665,15 +665,6 @@
     background-position: 0 0, 3px 3px;
     background-size: 6px 6px;
   }
-  /* Enlace de texto con contraste ≥ 4,5:1 en los 8 temas. */
-  .link {
-    color: var(--link);
-    font-weight: 700;
-    text-underline-offset: 2px;
-  }
-  .link:hover {
-    text-decoration-line: underline;
-  }
   /* Compatibilidad: los enlaces que aún usan text-primary heredan el color de enlace del tema. */
   a.text-primary {
     color: var(--link);

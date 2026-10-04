@@ -149,8 +149,8 @@ export function FormActions({ children, className, hint = "Ctrl/Cmd + Enter para
     <div
       className={cn(
         "flex flex-wrap items-center justify-end gap-2 border-t border-window-shadow pt-3",
-        "max-sm:sticky max-sm:bottom-0 max-sm:z-20 max-sm:border-window-dark-shadow max-sm:bg-window-surface max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))] max-sm:shadow-bevel-top max-sm:*:min-w-0 max-sm:*:flex-1",
-        sticky && "sm:sticky sm:bottom-2 sm:z-10 sm:border sm:border-window-dark-shadow sm:bg-window-panel sm:p-2 sm:shadow-drop",
+        "max-sm:sticky max-sm:bottom-(--mobile-taskbar-height,0px) max-sm:z-20 max-sm:border-window-dark-shadow max-sm:bg-window-surface max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))] max-sm:shadow-bevel-top max-sm:*:min-w-0 max-sm:*:flex-1",
+        sticky && "sm:sticky sm:bottom-[calc(var(--mobile-taskbar-height,0px)+0.5rem)] sm:z-10 sm:border sm:border-window-dark-shadow sm:bg-window-panel sm:p-2 sm:shadow-drop",
         className,
       )}
       data-slot="form-actions"

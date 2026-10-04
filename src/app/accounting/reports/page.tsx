@@ -184,7 +184,7 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
                   ...group.accounts.map((row) => (
                     <TableRow key={row.accountId}>
                       <TableCell className="pl-6" sticky>
-                        <AccountName><Link className="link" href={ledgerHref(row.accountId)}>{row.code}</Link> {row.name}</AccountName>
+                        <AccountName><Link className="font-bold text-link underline-offset-2 hover:underline" href={ledgerHref(row.accountId)}>{row.code}</Link> {row.name}</AccountName>
                       </TableCell>
                       <TableCell className="text-right">{formatBalance(row.opening, currency)}</TableCell>
                       <TableCell className="text-right">{money(row.debit)}</TableCell>
@@ -256,7 +256,7 @@ function StatementTable({
                 <TableRow key={`${group.title}-${line.accountId || index}`}>
                   <TableCell className="pl-5">
                     {line.accountId ? (
-                      <Link className="link" href={ledgerHref(line.accountId)}>
+                      <Link className="font-bold text-link underline-offset-2 hover:underline" href={ledgerHref(line.accountId)}>
                         {line.code} · {line.name}
                       </Link>
                     ) : (
