@@ -201,7 +201,7 @@ export function SalesDocumentForm({
   };
 
   return (
-    <form className="space-y-3" data-testid={`${idPrefix}-form`} noValidate onSubmit={submit}>
+    <form className="space-y-4" data-testid={`${idPrefix}-form`} noValidate onSubmit={submit}>
       <RequiredFieldsNote />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <AccessibleField className="md:col-span-2" error={headerErrors.customerId} id={`${idPrefix}-customer`} label="Cliente" required>
