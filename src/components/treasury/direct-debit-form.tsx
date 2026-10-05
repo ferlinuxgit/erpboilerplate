@@ -12,10 +12,11 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/number-input";
 import { EmptyState, InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow, stackedOnMobile } from "@/components/ui/table";
 import { formatIban } from "@/lib/bank-import/iban";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney, parseDecimalInput } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export type CollectableInvoice = {
   id: string;
@@ -106,9 +107,10 @@ export function DirectDebitForm({ accounts, currencyCode, earliestDate, invoices
       {withoutMandate > 0 ? (
         <p className="text-xs text-muted-foreground">{withoutMandate} {withoutMandate === 1 ? "factura es de un cliente" : "facturas son de clientes"} sin mandato SEPA: añádelo desde la ficha del cliente («Domiciliación bancaria») para poder incluirlas.</p>
       ) : null}
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
+      {/* En móvil cada factura se apila como tarjeta con sus campos (mismo DOM, sin duplicar controles). */}
+      <TableContainer className={stackedOnMobile.container}>
+        <Table className={stackedOnMobile.table}>
+          <TableHeader className={stackedOnMobile.header}>
             <TableRow>
               <TableHead className="w-8"><span className="sr-only">Incluir</span></TableHead>
               <TableHead>Factura</TableHead>
@@ -118,33 +120,33 @@ export function DirectDebitForm({ accounts, currencyCode, earliestDate, invoices
               <TableHead>Mandato</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className={stackedOnMobile.body}>
             {invoices.map((invoice) => {
               const line = lines[invoice.id];
               const canInclude = eligible(invoice);
               return (
-                <TableRow data-testid="direct-debit-invoice-row" key={invoice.id}>
-                  <TableCell>
-                    <input aria-label={`Incluir ${invoice.number}`} checked={line.selected} disabled={!canInclude} onChange={(event) => update(invoice.id, { selected: event.target.checked })} type="checkbox" />
+                <TableRow className={stackedOnMobile.row} data-testid="direct-debit-invoice-row" key={invoice.id}>
+                  <TableCell className={stackedOnMobile.cell} data-label="Incluir en la remesa">
+                    <input aria-label={`Incluir ${invoice.number}`} checked={line.selected} className="max-md:size-5" disabled={!canInclude} onChange={(event) => update(invoice.id, { selected: event.target.checked })} type="checkbox" />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={cn(stackedOnMobile.title, "max-md:-order-1")}>
                     <Link className="font-medium text-primary hover:underline" href={invoice.href}>{invoice.number}</Link>
                     <p className="text-xs text-muted-foreground">{invoice.customerName}</p>
                     {invoice.pendingRemittance ? <p className="text-xs text-warning">Ya está en la remesa {invoice.pendingRemittance}</p> : null}
                   </TableCell>
-                  <TableCell className="text-sm">{invoice.dueDate ? formatDate(invoice.dueDate) : "—"}</TableCell>
-                  <TableCell className="text-right font-mono">{formatMoney(invoice.outstanding, currencyCode)}</TableCell>
-                  <TableCell className="w-36">
+                  <TableCell className={stackedOnMobile.cell} data-label="Vence">{invoice.dueDate ? formatDate(invoice.dueDate) : "—"}</TableCell>
+                  <TableCell className={cn("text-right font-mono", stackedOnMobile.cell)} data-label="Pendiente">{formatMoney(invoice.outstanding, currencyCode)}</TableCell>
+                  <TableCell className={cn("w-36", stackedOnMobile.wide, "max-md:w-auto")} data-label="Importe a cobrar">
                     <label className="sr-only" htmlFor={`direct-debit-amount-${invoice.id}`}>Importe a cobrar de {invoice.number}</label>
                     <MoneyInput disabled={!line.selected} id={`direct-debit-amount-${invoice.id}`} onChange={(event) => update(invoice.id, { amount: event.target.value })} value={line.amount} />
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className={cn("text-xs", stackedOnMobile.wide)} data-label="Mandato">
                     {invoice.mandate ? (
-                      <>
+                      <span>
                         <span className="block font-mono">{invoice.mandate.reference}</span>
                         <span className="block text-muted-foreground">{formatIban(invoice.mandate.iban)} · {sequenceTypeHelp[invoice.mandate.sequenceType] ?? invoice.mandate.sequenceType}</span>
                         {invoice.mandate.problem ? <span className="block text-danger-text">{invoice.mandate.problem}</span> : null}
-                      </>
+                      </span>
                     ) : (
                       <Link className="text-primary underline" href={`/customers/${invoice.customerId}`}>Sin mandato · añadir</Link>
                     )}
@@ -154,7 +156,7 @@ export function DirectDebitForm({ accounts, currencyCode, earliestDate, invoices
             })}
           </TableBody>
         </Table>
-      </div>
+      </TableContainer>
       <p aria-live="polite" className="font-mono text-sm">{selected.length} {selected.length === 1 ? "recibo" : "recibos"} · total {formatMoney(total, currencyCode)}</p>
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       <div className="flex flex-wrap items-center gap-2">

@@ -9,7 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { accountChart, paymentMethod } from "@/db/schema";
 import { formatDate, formatMoney } from "@/lib/format";
 import { requireUserSession } from "@/lib/current-user";
@@ -138,7 +138,8 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/expenses/new?supplierId=${supplier.id}`}>Registrar primera factura</Link>}
           />
         ) : (
-          <TableContainer>
+          <>
+          <TableContainer className="hidden md:block">
             <Table className="min-w-[40rem]">
               <TableHeader>
                 <TableRow>
@@ -164,6 +165,23 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               </TableBody>
             </Table>
           </TableContainer>
+          <MobileRecordList aria-label="Facturas recientes">
+            {activity.invoices.map((invoice) => (
+              <MobileRecord
+                aside={formatMoney(invoice.totalAmount, supplier.currencyCode)}
+                key={invoice.id}
+                title={<Link className="text-link hover:underline" href={`/expenses/${invoice.id}`}>{invoice.supplierDocumentNumber ?? invoice.number}</Link>}
+              >
+                <MobileRecordFields>
+                  <MobileRecordField label="Estado pago"><StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}</StatusBadge></MobileRecordField>
+                  <MobileRecordField label="Pendiente" numeric>{formatMoney(invoice.outstandingAmount, supplier.currencyCode)}</MobileRecordField>
+                  <MobileRecordField label="Fecha">{formatDate(invoice.issueDate)}</MobileRecordField>
+                  <MobileRecordField label="Pedido">{invoice.purchaseOrderId ? <Link className="text-link hover:underline" href={`/purchases/orders/${invoice.purchaseOrderId}`}>{invoice.purchaseOrderNumber}</Link> : "Sin pedido"}</MobileRecordField>
+                </MobileRecordFields>
+              </MobileRecord>
+            ))}
+          </MobileRecordList>
+          </>
         )}
       </PageSection>
 

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { InlineAlert, MetricCard } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { BankImportMapping } from "@/lib/bank-import/tabular";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -49,7 +49,8 @@ const roleLabels: Record<Role, string> = {
   balance: "Saldo",
   reference: "Referencia",
 };
-const formatLabels = { CSV: "CSV / texto", XLSX: "Excel", NORMA43: "Norma 43 (AEB)" } as const;
+const roleOptions = (Object.keys(roleLabels) as Role[]).map((option) => <option key={option} value={option}>{roleLabels[option]}</option>);
+const formatLabels ={ CSV: "CSV / texto", XLSX: "Excel", NORMA43: "Norma 43 (AEB)" } as const;
 
 function rolesFromMapping(mapping: BankImportMapping, columnCount: number): Role[] {
   return Array.from({ length: columnCount }, (_, column) => {
@@ -110,6 +111,14 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
   const [busy, setBusy] = useState<"preview" | "import" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dirty = Boolean(preview?.mapping && mapping && mappingKey(mappingFromRoles(mapping, roles)) !== mappingKey(preview.mapping));
+
+  function setRole(column: number, value: Role) {
+    const next = [...roles];
+    // Una columna por papel, salvo el concepto (puede unir varias).
+    if (value !== "ignore" && value !== "description") next.forEach((current, index) => { if (current === value) next[index] = "ignore"; });
+    next[column] = value;
+    setRoles(next);
+  }
 
   function formFor(currentMapping: BankImportMapping | null, index: number | null) {
     const form = new FormData();
@@ -261,7 +270,7 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                   Los cargos vienen en positivo
                 </label>
               </div>
-              <TableContainer>
+              <TableContainer className="hidden md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -269,19 +278,8 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                       {roles.map((role, column) => (
                         <TableHead key={column}>
                           <label className="sr-only" htmlFor={`import-role-${column}`}>Columna {column + 1}</label>
-                          <Select
-                            id={`import-role-${column}`}
-                            onChange={(event) => {
-                              const next = [...roles];
-                              const value = event.target.value as Role;
-                              // Una columna por papel, salvo el concepto (puede unir varias).
-                              if (value !== "ignore" && value !== "description") next.forEach((current, index) => { if (current === value) next[index] = "ignore"; });
-                              next[column] = value;
-                              setRoles(next);
-                            }}
-                            value={role}
-                          >
-                            {(Object.keys(roleLabels) as Role[]).map((option) => <option key={option} value={option}>{roleLabels[option]}</option>)}
+                          <Select id={`import-role-${column}`} onChange={(event) => setRole(column, event.target.value as Role)} value={role}>
+                            {roleOptions}
                           </Select>
                         </TableHead>
                       ))}
@@ -297,6 +295,28 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                   </TableBody>
                 </Table>
               </TableContainer>
+              {/* En móvil la tabla se traspone: una tarjeta por columna del fichero con su papel y unos valores de muestra. */}
+              <MobileRecordList aria-label="Columnas del extracto">
+                {roles.map((role, column) => {
+                  const title = mapping.headerRow >= 0 ? preview.rows[mapping.headerRow]?.[column] : undefined;
+                  const samples = preview.rows.slice(mapping.headerRow + 1).map((row) => row[column] ?? "").filter(Boolean).slice(0, 3);
+                  return (
+                    <MobileRecord key={column} title={`Columna ${column + 1}${title ? ` · ${title}` : ""}`}>
+                      <label className="mb-1 block text-muted-foreground" htmlFor={`import-role-mobile-${column}`}>Qué contiene</label>
+                      <Select id={`import-role-mobile-${column}`} onChange={(event) => setRole(column, event.target.value as Role)} value={role}>
+                        {roleOptions}
+                      </Select>
+                      {samples.length ? (
+                        <MobileRecordFields className="mt-2">
+                          <MobileRecordField label="Ejemplos" stacked>
+                            {samples.map((sample, index) => <span className="block truncate" key={index}>{sample}</span>)}
+                          </MobileRecordField>
+                        </MobileRecordFields>
+                      ) : null}
+                    </MobileRecord>
+                  );
+                })}
+              </MobileRecordList>
               <Button disabled={busy !== null} onClick={() => void loadPreview(mappingFromRoles(mapping, roles), null)} size="sm" type="button" variant={dirty ? "default" : "outline"}>
                 {busy === "preview" ? "Comprobando…" : "Comprobar con estas columnas"}
               </Button>
@@ -306,7 +326,8 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
           <div>
             <p className="text-sm font-bold">Así quedarán los movimientos ({preview.validCount} válidos{preview.skippedCount ? `, ${preview.skippedCount} filas descartadas` : ""})</p>
             {preview.sample.length ? (
-              <TableContainer className="mt-1">
+              <>
+              <TableContainer className="mt-1 hidden md:block">
                 <Table className="min-w-[32rem]">
                   <TableHeader>
                     <TableRow><TableHead>Fecha</TableHead><TableHead>Concepto</TableHead><TableHead className="text-right">Importe</TableHead><TableHead className="text-right">Saldo</TableHead></TableRow>
@@ -323,6 +344,17 @@ export function BankImportWizard({ accounts, currencyCode, initialAccountId }: {
                   </TableBody>
                 </Table>
               </TableContainer>
+              <MobileRecordList aria-label="Vista previa de movimientos" className="mt-1">
+                {preview.sample.map((movement) => (
+                  <MobileRecord aside={formatMoney(movement.amount, currencyCode)} key={movement.line} title={movement.description}>
+                    <MobileRecordFields>
+                      <MobileRecordField label="Fecha">{formatDate(movement.postedAt)}</MobileRecordField>
+                      <MobileRecordField label="Saldo" numeric>{movement.balanceAfter === null ? "—" : formatMoney(movement.balanceAfter, currencyCode)}</MobileRecordField>
+                    </MobileRecordFields>
+                  </MobileRecord>
+                ))}
+              </MobileRecordList>
+              </>
             ) : <p className="text-sm text-muted-foreground">Ninguna fila se puede importar con esta configuración.</p>}
             {preview.skipped.length ? (
               <details className="mt-2 text-sm">

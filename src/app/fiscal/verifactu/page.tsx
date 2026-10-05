@@ -5,7 +5,7 @@ import { VerifactuActions } from "@/components/fiscal/verifactu-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
 import { formatCount } from "@/lib/pluralize";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -26,6 +26,16 @@ const eventLabels: Record<string, string> = {
 };
 
 const modeLabels = { pending: "Sin activar", verifactu: "VERI*FACTU", non_verifactu: "NO VERI*FACTU" } as const;
+
+type VerifactuRecordRow = Awaited<ReturnType<typeof getVerifactuOverview>>["records"][number];
+
+function recordTypeLabel(record: VerifactuRecordRow) {
+  return record.recordType === "ANULACION" ? "Anulación" : verifactuInvoiceTypeLabels[record.invoiceTypeCode ?? ""] ?? record.invoiceTypeCode;
+}
+
+function aeatErrorText(record: VerifactuRecordRow) {
+  return `${record.aeatErrorCode ? `${record.aeatErrorCode}: ` : ""}${record.aeatErrorMessage ?? ""}`;
+}
 
 export default async function VerifactuPage() {
   const ctx = await requireContext("fiscal.read");
@@ -90,7 +100,8 @@ export default async function VerifactuPage() {
         {overview.records.length === 0 ? (
           <EmptyState title="Todavía no hay registros" description={active ? "Se crearán al emitir la próxima factura." : "Activa VERI*FACTU para empezar a registrar tus facturas."} />
         ) : (
-          <TableContainer>
+          <>
+          <TableContainer className="hidden md:block">
             <Table className="min-w-[44rem]">
               <TableHeader>
                 <TableRow>
@@ -110,20 +121,38 @@ export default async function VerifactuPage() {
                       <Link className="font-mono font-semibold text-link hover:underline" href={`/invoices/${record.invoiceId}`}>{record.invoiceNumber}</Link>
                       <span className="block text-xs text-muted-foreground">{record.invoiceIssueDate} · generado {formatDate(record.generatedAt)}</span>
                     </TableCell>
-                    <TableCell className="text-xs">
-                      {record.recordType === "ANULACION" ? "Anulación" : verifactuInvoiceTypeLabels[record.invoiceTypeCode ?? ""] ?? record.invoiceTypeCode}
-                    </TableCell>
+                    <TableCell className="text-xs">{recordTypeLabel(record)}</TableCell>
                     <TableCell className="text-right font-mono">{record.totalAmount ? formatMoney(record.totalAmount, ctx.company.baseCurrencyCode) : "—"}</TableCell>
                     <TableCell className="font-mono text-xs" title={record.hash}>{record.hash.slice(0, 12)}…</TableCell>
                     <TableCell>
                       <StatusBadge tone={verifactuStatusTone[record.status] ?? "neutral"}>{verifactuStatusLabels[record.status] ?? record.status}</StatusBadge>
-                      {record.aeatErrorMessage ? <span className="mt-1 block max-w-xs text-xs text-muted-foreground">{record.aeatErrorCode ? `${record.aeatErrorCode}: ` : ""}{record.aeatErrorMessage}</span> : null}
+                      {record.aeatErrorMessage ? <span className="mt-1 block max-w-xs text-xs text-muted-foreground">{aeatErrorText(record)}</span> : null}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </TableContainer>
+          <MobileRecordList aria-label="Últimos registros">
+            {overview.records.map((record) => (
+              <MobileRecord
+                aside={<StatusBadge tone={verifactuStatusTone[record.status] ?? "neutral"}>{verifactuStatusLabels[record.status] ?? record.status}</StatusBadge>}
+                key={record.id}
+                title={<Link className="font-mono text-link hover:underline" href={`/invoices/${record.invoiceId}`}>{record.invoiceNumber}</Link>}
+              >
+                <MobileRecordFields>
+                  <MobileRecordField label="N.º" numeric>{record.sequence}</MobileRecordField>
+                  <MobileRecordField label="Tipo">{recordTypeLabel(record)}</MobileRecordField>
+                  <MobileRecordField label="Importe" numeric>{record.totalAmount ? formatMoney(record.totalAmount, ctx.company.baseCurrencyCode) : "—"}</MobileRecordField>
+                  <MobileRecordField label="Fecha factura">{record.invoiceIssueDate}</MobileRecordField>
+                  <MobileRecordField label="Generado">{formatDate(record.generatedAt)}</MobileRecordField>
+                  <MobileRecordField label="Huella"><span title={record.hash}>{record.hash.slice(0, 12)}…</span></MobileRecordField>
+                </MobileRecordFields>
+                {record.aeatErrorMessage ? <p className="mt-2 border-t border-window-shadow pt-2 text-danger-text">{aeatErrorText(record)}</p> : null}
+              </MobileRecord>
+            ))}
+          </MobileRecordList>
+          </>
         )}
       </PageSection>
 

@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { item, itemCostHistory, stockLocation, stockMovement, warehouse } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -127,7 +127,8 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
             description={record.isService ? "Los servicios no mantienen existencias en almacén." : "Registra una entrada para dar de alta stock de este artículo."}
           />
         ) : (
-          <TableContainer>
+          <>
+          <TableContainer className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -153,6 +154,25 @@ export default async function ItemDetailPage({ params }: { params: Promise<{ id:
               </TableBody>
             </Table>
           </TableContainer>
+          <MobileRecordList aria-label="Existencias por almacén">
+            {locations.map((row) => (
+              <MobileRecord
+                key={row.id}
+                title={
+                  <Link className="text-link hover:underline" href={`/inventory/warehouses/${row.warehouseId}`}>
+                    {row.warehouseCode} · {row.warehouseName}
+                  </Link>
+                }
+              >
+                <MobileRecordFields>
+                  <MobileRecordField label="Cantidad" numeric>{formatQuantity(row.quantity)}</MobileRecordField>
+                  <MobileRecordField label="Coste medio" numeric>{formatMoney(row.averageCost, currency)}</MobileRecordField>
+                  <MobileRecordField label="Valor" numeric>{formatMoney(Number(row.quantity) * Number(row.averageCost), currency)}</MobileRecordField>
+                </MobileRecordFields>
+              </MobileRecord>
+            ))}
+          </MobileRecordList>
+          </>
         )}
       </PageSection>
       <PageSection title="Movimientos recientes" description="Trazabilidad de entradas, salidas, ajustes y transferencias." contentClassName="space-y-2">

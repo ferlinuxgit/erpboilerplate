@@ -104,13 +104,15 @@ type MobileRecordFieldProps = Omit<React.ComponentProps<"div">, "children"> & {
   children: React.ReactNode;
   /** Importes y cantidades: cifras tabulares y en negrita. */
   numeric?: boolean;
+  /** Textos largos (código, descripciones): etiqueta encima y valor a todo el ancho. */
+  stacked?: boolean;
 };
 
-export function MobileRecordField({ children, className, label, numeric, ...props }: MobileRecordFieldProps) {
+export function MobileRecordField({ children, className, label, numeric, stacked, ...props }: MobileRecordFieldProps) {
   return (
-    <div className={cn("flex items-baseline justify-between gap-3", className)} {...props}>
+    <div className={cn(stacked ? "grid gap-0.5" : "flex items-baseline justify-between gap-3", className)} {...props}>
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className={cn("min-w-0 break-words text-right", numeric && "font-bold tabular-nums")}>{children}</dd>
+      <dd className={cn("min-w-0 break-words", !stacked && "text-right", numeric && "font-bold tabular-nums")}>{children}</dd>
     </div>
   );
 }

@@ -11,10 +11,11 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/number-input";
 import { EmptyState, InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow, stackedOnMobile } from "@/components/ui/table";
 import { checkIban, formatIban } from "@/lib/bank-import/iban";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney, parseDecimalInput } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export type RemittableInvoice = {
   id: string;
@@ -121,9 +122,10 @@ export function RemittanceForm({ accounts, currencyCode, invoices }: { accounts:
           <Input min={new Date().toISOString().slice(0, 10)} onChange={(event) => setExecutionDate(event.target.value)} type="date" value={executionDate} />
         </AccessibleField>
       </div>
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
+      {/* En móvil cada factura se apila como tarjeta con sus campos (mismo DOM, sin duplicar controles). */}
+      <TableContainer className={stackedOnMobile.container}>
+        <Table className={stackedOnMobile.table}>
+          <TableHeader className={stackedOnMobile.header}>
             <TableRow>
               <TableHead className="w-8"><span className="sr-only">Incluir</span></TableHead>
               <TableHead>Factura</TableHead>
@@ -134,32 +136,32 @@ export function RemittanceForm({ accounts, currencyCode, invoices }: { accounts:
               <TableHead>BIC (opcional)</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className={stackedOnMobile.body}>
             {invoices.map((invoice) => {
               const line = lines[invoice.id];
               const iban = line.iban ? checkIban(line.iban) : null;
               return (
-                <TableRow data-testid="remittance-invoice-row" key={invoice.id}>
-                  <TableCell>
-                    <input aria-label={`Incluir ${invoice.number}`} checked={line.selected} disabled={Boolean(invoice.pendingRemittance)} onChange={(event) => update(invoice.id, { selected: event.target.checked })} type="checkbox" />
+                <TableRow className={stackedOnMobile.row} data-testid="remittance-invoice-row" key={invoice.id}>
+                  <TableCell className={stackedOnMobile.cell} data-label="Incluir en la remesa">
+                    <input aria-label={`Incluir ${invoice.number}`} checked={line.selected} className="max-md:size-5" disabled={Boolean(invoice.pendingRemittance)} onChange={(event) => update(invoice.id, { selected: event.target.checked })} type="checkbox" />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={cn(stackedOnMobile.title, "max-md:-order-1")}>
                     <Link className="font-medium text-primary hover:underline" href={invoice.href}>{invoice.number}</Link>
                     <p className="text-xs text-muted-foreground">{invoice.partnerName}{invoice.altNumber ? ` · ${invoice.altNumber}` : ""}</p>
                     {invoice.pendingRemittance ? <p className="text-xs text-warning">Ya está en la remesa {invoice.pendingRemittance}</p> : null}
                   </TableCell>
-                  <TableCell className="text-sm">{invoice.dueDate ? formatDate(invoice.dueDate) : "—"}</TableCell>
-                  <TableCell className="text-right font-mono">{formatMoney(invoice.outstanding, currencyCode)}</TableCell>
-                  <TableCell className="w-36">
+                  <TableCell className={stackedOnMobile.cell} data-label="Vence">{invoice.dueDate ? formatDate(invoice.dueDate) : "—"}</TableCell>
+                  <TableCell className={cn("text-right font-mono", stackedOnMobile.cell)} data-label="Pendiente">{formatMoney(invoice.outstanding, currencyCode)}</TableCell>
+                  <TableCell className={cn("w-36", stackedOnMobile.wide, "max-md:w-auto")} data-label="Importe a pagar">
                     <label className="sr-only" htmlFor={`remittance-amount-${invoice.id}`}>Importe a pagar de {invoice.number}</label>
                     <MoneyInput disabled={!line.selected} id={`remittance-amount-${invoice.id}`} onChange={(event) => update(invoice.id, { amount: event.target.value })} value={line.amount} />
                   </TableCell>
-                  <TableCell className="min-w-64">
+                  <TableCell className={cn("min-w-64", stackedOnMobile.wide, "max-md:min-w-0")} data-label="IBAN del proveedor">
                     <label className="sr-only" htmlFor={`remittance-iban-${invoice.id}`}>IBAN de {invoice.partnerName}</label>
                     <Input aria-invalid={line.selected && iban !== null && !iban.valid ? true : undefined} disabled={!line.selected} id={`remittance-iban-${invoice.id}`} onChange={(event) => update(invoice.id, { iban: event.target.value.toUpperCase() })} placeholder="ES00 0000 0000 00 0000000000" value={line.iban} />
                     {line.selected && iban && !iban.valid ? <p className="text-xs text-danger-text">{iban.reason}</p> : null}
                   </TableCell>
-                  <TableCell className="w-32">
+                  <TableCell className={cn("w-32", stackedOnMobile.wide, "max-md:w-auto")} data-label="BIC (opcional)">
                     <label className="sr-only" htmlFor={`remittance-bic-${invoice.id}`}>BIC de {invoice.partnerName}</label>
                     <Input disabled={!line.selected} id={`remittance-bic-${invoice.id}`} maxLength={11} onChange={(event) => update(invoice.id, { bic: event.target.value.toUpperCase() })} value={line.bic} />
                   </TableCell>
@@ -168,7 +170,7 @@ export function RemittanceForm({ accounts, currencyCode, invoices }: { accounts:
             })}
           </TableBody>
         </Table>
-      </div>
+      </TableContainer>
       <p className="font-mono text-sm" aria-live="polite">{selected.length} {selected.length === 1 ? "pago" : "pagos"} · total {formatMoney(total, currencyCode)}</p>
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       <div className="flex flex-wrap items-center gap-2">

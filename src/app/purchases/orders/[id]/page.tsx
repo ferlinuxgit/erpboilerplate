@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
+  MobileRecord,
+  MobileRecordField,
+  MobileRecordFields,
+  MobileRecordList,
   Table,
   TableBody,
   TableCell,
@@ -288,7 +292,7 @@ export default async function PurchaseDetailPage({
         title="Líneas del pedido"
         description="Productos, cantidades y precios acordados."
       >
-        <TableContainer>
+        <TableContainer className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -318,6 +322,16 @@ export default async function PurchaseDetailPage({
             </TableBody>
           </Table>
         </TableContainer>
+        <MobileRecordList aria-label="Líneas del pedido">
+          {lines.map((line) => (
+            <MobileRecord aside={formatMoney(line.lineTotal, ctx.company.baseCurrencyCode)} key={line.id} title={line.description}>
+              <MobileRecordFields>
+                <MobileRecordField label="Cantidad" numeric>{Number(line.quantity).toLocaleString("es-ES")}</MobileRecordField>
+                <MobileRecordField label="Precio" numeric>{formatMoney(line.unitPrice, ctx.company.baseCurrencyCode)}</MobileRecordField>
+              </MobileRecordFields>
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
       </PageSection>
       <section className="grid gap-4 lg:grid-cols-2">
         <PageSection

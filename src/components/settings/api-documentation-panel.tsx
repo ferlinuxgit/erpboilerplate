@@ -9,7 +9,7 @@ import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type ApiEndpoint = {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -237,7 +237,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
         </p>
       </div>
 
-      <TableContainer>
+      <TableContainer className="hidden md:block">
         <Table className="min-w-[48rem]">
           <TableHeader>
             <TableRow>
@@ -269,6 +269,25 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
           </TableBody>
         </Table>
       </TableContainer>
+      <MobileRecordList aria-label="Endpoints de la API">
+        {endpoints.map((endpoint) => (
+          <MobileRecord
+            aside={<StatusBadge tone={methodTone[endpoint.method]}>{endpoint.method}</StatusBadge>}
+            key={`${endpoint.method}-${endpoint.path}`}
+            title={<code className="break-all">{endpoint.path}</code>}
+          >
+            <p className="mb-2 font-sans">{endpoint.summary}</p>
+            <MobileRecordFields>
+              <MobileRecordField label="Petición" stacked>
+                <code className="break-all text-muted-foreground">{endpoint.request}</code>
+              </MobileRecordField>
+              <MobileRecordField label="Respuesta" stacked>
+                <code className="break-all text-muted-foreground">{endpoint.response}</code>
+              </MobileRecordField>
+            </MobileRecordFields>
+          </MobileRecord>
+        ))}
+      </MobileRecordList>
 
       <div className="border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top">
         <div className="mb-3 flex items-center justify-between gap-3">
