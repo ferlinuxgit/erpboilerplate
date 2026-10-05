@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
 import { HttpError } from "@/lib/http";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
+import { taxSignatureKey } from "@/server/taxes/duplicates";
 
 type SetupItem = {
   key: string;
@@ -63,7 +64,6 @@ export async function getCompanyDefaultsStatus(input: {
 
   const accountCodes = template.accounts.map((account) => account.code);
   const journalCodes = template.journals.map((entry) => entry.code);
-  const taxNames = template.taxes.map((entry) => entry.name);
   const seriesTypes = template.documentSeries.map((entry) => entry.type);
 
   const [settingsRows, accountRows, journalRows, taxRows, seriesRows] = await Promise.all([
@@ -81,9 +81,9 @@ export async function getCompanyDefaultsStatus(input: {
       .from(journal)
       .where(and(eq(journal.companyId, input.companyId), inArray(journal.code, journalCodes))),
     db
-      .select({ name: tax.name })
+      .select({ name: tax.name, kind: tax.kind, rate: tax.rate, operation: tax.operation })
       .from(tax)
-      .where(and(eq(tax.companyId, input.companyId), inArray(tax.name, taxNames))),
+      .where(and(eq(tax.companyId, input.companyId), eq(tax.isActive, true))),
     db
       .select({ type: documentSeries.type })
       .from(documentSeries)
@@ -98,7 +98,15 @@ export async function getCompanyDefaultsStatus(input: {
 
   const existingAccounts = new Set(accountRows.map((entry) => entry.code));
   const existingJournals = new Set(journalRows.map((entry) => entry.code));
-  const existingTaxes = new Set(taxRows.map((entry) => entry.name));
+  // Un impuesto de la plantilla está si la empresa lo tiene con ese nombre o con otro («IVA» vale
+  // por «IVA general 21%»): mismo tipo, porcentaje y operación.
+  const existingTaxNames = new Set(taxRows.map((entry) => entry.name));
+  const existingTaxSignatures = new Set(taxRows.map((entry) => taxSignatureKey(entry)));
+  const hasTemplateTax = (entry: CompanyTemplate["taxes"][number]) => {
+    const kind = entry.kind ?? "VAT";
+    return existingTaxNames.has(entry.name) || existingTaxSignatures.has(taxSignatureKey({ kind, rate: entry.rate, operation: entry.operation ?? (kind === "WITHHOLDING" ? "SUBTRACT" : "ADD") }));
+  };
+  const hasActiveVat = taxRows.some((entry) => entry.kind === "VAT");
   const existingSeries = new Set(seriesRows.map((entry) => entry.type));
 
   const groups = [
@@ -145,7 +153,7 @@ export async function getCompanyDefaultsStatus(input: {
         key: entry.name,
         label: entry.name,
         description: `Tipo ${Number(entry.rate).toLocaleString("es-ES", { maximumFractionDigits: 3 })}%`,
-        created: existingTaxes.has(entry.name),
+        created: hasTemplateTax(entry),
       })),
     }),
     buildGroup({
@@ -163,12 +171,15 @@ export async function getCompanyDefaultsStatus(input: {
 
   const missingCount = groups.reduce((total, group) => total + group.missingCount, 0);
   const totalCount = groups.reduce((total, group) => total + group.totalCount, 0);
+  // Los impuestos de la plantilla son sugerencias: la empresa puede renombrarlos o borrar los que no
+  // usa (IVA 4 %, recargos…) sin que se vuelvan a crear. Para emitir basta con un IVA activo.
+  const blockingMissing = groups.filter((group) => group.key !== "taxes").reduce((total, group) => total + group.missingCount, 0);
 
   return {
     countryCode: input.countryCode,
     preset: template.id,
     label: template.label,
-    ready: missingCount === 0,
+    ready: blockingMissing === 0 && hasActiveVat,
     missingCount,
     totalCount,
     groups,

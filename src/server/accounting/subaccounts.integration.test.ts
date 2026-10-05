@@ -59,6 +59,7 @@ import { createCustomerWithPartner } from "@/server/customers/service";
 import { fetchAccountingTaxBalances } from "@/server/fiscal/spain";
 import { applyEsSeeds } from "@/server/seeds/apply";
 import { createSupplierWithPartner } from "@/server/suppliers/service";
+import { getCompanyDefaultsStatus } from "@/server/company/defaults";
 import { dedupeCompanyTaxes } from "@/server/taxes/duplicates";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
 import { createBankAccount, recordBankTransaction } from "@/server/treasury/service";
@@ -751,6 +752,28 @@ describe("motor de asientos contra base de datos", () => {
     expect((await state.db.select().from(schema.invoiceLineTax).where(eq(schema.invoiceLineTax.invoiceLineId, invoiceRow.id)))[0]).toMatchObject({ taxId: dupIrpf.id, name: "Retencion IRPF 15%" });
     // Idempotente.
     expect((await state.db.transaction((tx: DbClient) => dedupeCompanyTaxes(tx, co))).merges).toEqual([]);
+  });
+
+  it("emitir no exige los nombres de la plantilla ni recrea los impuestos borrados: basta un IVA activo", async () => {
+    const co = "taxready";
+    await createCompany(co);
+    await applyEsSeeds({ tenantId: TENANT, companyId: co, actorUserId: USER, activeFiscalYearId: `${co}-fy2026` });
+    const statusInput = { companyId: co, fiscalYearId: `${co}-fy2026`, countryCode: "ES" };
+    expect((await getCompanyDefaultsStatus(statusInput)).ready).toBe(true);
+
+    // Lo que hizo el usuario: renombrar a «IVA» e «IRPF» y borrar los impuestos que no usa.
+    await state.db.update(schema.tax).set({ name: "IVA" }).where(and(eq(schema.tax.companyId, co), eq(schema.tax.name, "IVA general 21%")));
+    await state.db.update(schema.tax).set({ name: "IRPF" }).where(and(eq(schema.tax.companyId, co), eq(schema.tax.name, "Retención IRPF 15%")));
+    await state.db.delete(schema.tax).where(and(eq(schema.tax.companyId, co), inArray(schema.tax.name, ["IVA reducido 10%", "IVA superreducido 4%", "Retención IRPF 7%"])));
+    const renamed = await getCompanyDefaultsStatus(statusInput);
+    expect(renamed.ready).toBe(true);
+    const taxItems = renamed.groups.find((group) => group.key === "taxes")!.items;
+    expect(taxItems.find((entry) => entry.label === "IVA general 21%")?.created).toBe(true);
+    expect(taxItems.find((entry) => entry.label === "IVA superreducido 4%")?.created).toBe(false);
+
+    // Sin ningún IVA activo sí falta configuración.
+    await state.db.update(schema.tax).set({ isActive: false }).where(and(eq(schema.tax.companyId, co), eq(schema.tax.kind, "VAT")));
+    expect((await getCompanyDefaultsStatus(statusInput)).ready).toBe(false);
   });
 
   it("crea la forma de pago «Efectivo» si la empresa no tiene ninguna en efectivo", async () => {
