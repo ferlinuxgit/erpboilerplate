@@ -142,6 +142,30 @@ function formatDate(value: string) {
   return formatDateTime(value);
 }
 
+const stockAnchorPrefix = "stock-";
+const stockMobileAnchorPrefix = "stock-mobile-";
+
+function stockAnchorKey(row: { itemId: string; warehouseId: string | null }) {
+  return `${row.itemId}-${row.warehouseId ?? "sin-almacen"}`;
+}
+
+/**
+ * Las alertas enlazan a `#stock-…`, la fila de la tabla. En móvil la tabla está oculta y cada
+ * existencia es una tarjeta con id `stock-mobile-…` (ids distintos: nunca se duplican en el DOM).
+ * Si la fila no se ve, lleva la vista y el foco a la tarjeta equivalente. Devuelve si lo ha hecho.
+ */
+function revealMobileStockRecord(hash: string) {
+  if (!hash.startsWith(`#${stockAnchorPrefix}`) || hash.startsWith(`#${stockMobileAnchorPrefix}`)) return false;
+  const key = decodeURIComponent(hash.slice(stockAnchorPrefix.length + 1));
+  const row = document.getElementById(`${stockAnchorPrefix}${key}`);
+  if (row && row.getClientRects().length > 0) return false;
+  const card = document.getElementById(`${stockMobileAnchorPrefix}${key}`);
+  if (!card || card.getClientRects().length === 0) return false;
+  card.scrollIntoView({ block: "center" });
+  card.focus({ preventScroll: true });
+  return true;
+}
+
 export function InventoryOperationsPanel({
   items,
   warehouses,
@@ -243,6 +267,15 @@ export function InventoryOperationsPanel({
     // `historyStateKey` captures every field of `movementHistory`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyStateKey, isHistoryNavigating]);
+
+  // Al abrir la página con `#stock-…` (o cambiar el hash por otra vía) en móvil, mostrar la tarjeta.
+  useEffect(() => {
+    if (!showOverview) return;
+    const reveal = () => revealMobileStockRecord(window.location.hash);
+    reveal();
+    window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, [showOverview]);
 
   const historyPageCount = movementHistory ? Math.max(1, Math.ceil(movementHistory.total / movementHistory.pageSize)) : 1;
 
@@ -455,13 +488,19 @@ export function InventoryOperationsPanel({
           <div className="mt-2 grid gap-1.5 md:grid-cols-2">
             {alerts.map((row) => (
               <a
-                key={`alert-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
+                key={`alert-${stockAnchorKey(row)}`}
                 className="border border-window-shadow p-2 text-xs hover:bg-window-highlight"
-                href={`#stock-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
-                onClick={() => {
+                href={`#${stockAnchorPrefix}${stockAnchorKey(row)}`}
+                onClick={(event) => {
                   setHistoryItemFilter(row.itemId);
                   setHistoryWarehouseFilter(row.warehouseId ?? "all");
                   setHistoryPage(1);
+                  // En móvil el destino es la tarjeta: se evita el salto nativo a la fila oculta.
+                  const hash = `#${stockAnchorPrefix}${stockAnchorKey(row)}`;
+                  if (revealMobileStockRecord(hash)) {
+                    event.preventDefault();
+                    window.history.pushState(window.history.state, "", hash);
+                  }
                 }}
               >
                 <span className="font-medium">{row.itemSku} · {row.itemName}</span>
@@ -483,8 +522,10 @@ export function InventoryOperationsPanel({
             {stock.map((row) => (
               <MobileRecord
                 aside={<span className="text-sm">{formatQuantity(row.quantity)}</span>}
-                id={`stock-mobile-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
-                key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}
+                className="scroll-mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                id={`${stockMobileAnchorPrefix}${stockAnchorKey(row)}`}
+                key={stockAnchorKey(row)}
+                tabIndex={-1}
                 title={<>{row.itemName}<span className="block font-normal text-muted-foreground">{row.itemSku} · {row.warehouseName ?? "Sin almacén"}</span></>}
               >
                 <MobileRecordFields>
@@ -513,7 +554,7 @@ export function InventoryOperationsPanel({
                 </TableRow>
               ) : (
                 stock.map((row) => (
-                  <TableRow key={`${row.itemId}-${row.warehouseId ?? "sin-almacen"}`} id={`stock-${row.itemId}-${row.warehouseId ?? "sin-almacen"}`}>
+                  <TableRow key={stockAnchorKey(row)} id={`${stockAnchorPrefix}${stockAnchorKey(row)}`}>
                     <TableCell>
                       <span className="font-medium">{row.itemName}</span>
                       <span className="block text-xs text-muted-foreground">{row.itemSku}</span>

@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { item, stockLocation, stockMovement, warehouse } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -106,7 +106,8 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
             description="Este almacén todavía no tiene stock. Registra una entrada con «Nuevo movimiento»."
           />
         ) : (
-          <TableContainer>
+          <>
+          <TableContainer className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -133,6 +134,26 @@ export default async function WarehouseDetailPage({ params }: { params: Promise<
               </TableBody>
             </Table>
           </TableContainer>
+          <MobileRecordList aria-label="Existencias">
+            {locations.map((row) => (
+              <MobileRecord
+                key={row.id}
+                title={
+                  <Link className="text-link hover:underline" href={`/inventory/items/${row.itemId}`}>
+                    {row.name}
+                    <span className="block font-normal text-muted-foreground">{row.sku}</span>
+                  </Link>
+                }
+              >
+                <MobileRecordFields>
+                  <MobileRecordField label="Cantidad" numeric>{formatQuantity(row.quantity)}</MobileRecordField>
+                  <MobileRecordField label="Coste medio" numeric>{formatMoney(row.averageCost, currency)}</MobileRecordField>
+                  <MobileRecordField label="Valor" numeric>{formatMoney(Number(row.quantity) * Number(row.averageCost), currency)}</MobileRecordField>
+                </MobileRecordFields>
+              </MobileRecord>
+            ))}
+          </MobileRecordList>
+          </>
         )}
       </PageSection>
       <PageSection title="Movimientos recientes" description="Actividad de esta ubicación." contentClassName="space-y-2">

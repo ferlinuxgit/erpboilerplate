@@ -15,9 +15,10 @@ import { MoneyInput } from "@/components/ui/number-input";
 import { EmptyState, InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow, stackedOnMobile } from "@/components/ui/table";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney, parseDecimalInput } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export type RuleRow = {
   id: string;
@@ -154,9 +155,10 @@ export function ReconciliationRulesManager({ accounts, canWrite, currencyCode, p
       {rules.length === 0 ? (
         <EmptyState title="Todavía no hay reglas" description="Crea una aquí o marca «Recordar para la próxima vez» al asignar un movimiento a una cuenta en la conciliación." />
       ) : (
-        <TableContainer>
-          <Table className="min-w-[40rem]">
-            <TableHeader>
+        // En móvil cada regla se apila como tarjeta con el mismo DOM: sin duplicar botones ni testids.
+        <TableContainer className={stackedOnMobile.container}>
+          <Table className={cn("md:min-w-[40rem]", stackedOnMobile.table)}>
+            <TableHeader className={stackedOnMobile.header}>
               <TableRow>
                 <TableHead>Si el concepto contiene</TableHead>
                 <TableHead>Condiciones</TableHead>
@@ -165,25 +167,29 @@ export function ReconciliationRulesManager({ accounts, canWrite, currencyCode, p
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <TableBody className={stackedOnMobile.body}>
               {rules.map((rule) => (
-                <TableRow data-testid="reconciliation-rule-row" key={rule.id}>
-                  <TableCell>
+                <TableRow className={stackedOnMobile.row} data-testid="reconciliation-rule-row" key={rule.id}>
+                  <TableCell className={stackedOnMobile.title}>
                     <p className="font-mono font-bold">«{rule.conceptContains}»</p>
                     {rule.name !== rule.conceptContains ? <p className="text-xs text-muted-foreground">{rule.name}</p> : null}
                   </TableCell>
-                  <TableCell>{directionLabels[rule.direction] ?? rule.direction}<br /><span className="text-xs text-muted-foreground">{range(rule)}</span></TableCell>
-                  <TableCell>
-                    {rule.accountId ? `Asignar a ${rule.accountCode} · ${rule.accountName}` : `Buscar facturas de ${rule.partnerName ?? "—"}`}
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {!rule.isActive ? <StatusBadge>Desactivada</StatusBadge> : null}
-                      {rule.autoApply ? <StatusBadge tone="info">Se aplica sola al importar</StatusBadge> : null}
-                    </div>
+                  <TableCell className={stackedOnMobile.wide} data-label="Condiciones">
+                    <span>{directionLabels[rule.direction] ?? rule.direction}<br /><span className="text-xs text-muted-foreground">{range(rule)}</span></span>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{rule.timesApplied} {rule.timesApplied === 1 ? "vez" : "veces"}{rule.lastAppliedAt ? ` · última ${formatDate(rule.lastAppliedAt)}` : ""}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className={stackedOnMobile.wide} data-label="Entonces">
+                    <span>
+                      {rule.accountId ? `Asignar a ${rule.accountCode} · ${rule.accountName}` : `Buscar facturas de ${rule.partnerName ?? "—"}`}
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {!rule.isActive ? <StatusBadge>Desactivada</StatusBadge> : null}
+                        {rule.autoApply ? <StatusBadge tone="info">Se aplica sola al importar</StatusBadge> : null}
+                      </span>
+                    </span>
+                  </TableCell>
+                  <TableCell className={cn("text-xs text-muted-foreground", stackedOnMobile.cell)} data-label="Uso">{rule.timesApplied} {rule.timesApplied === 1 ? "vez" : "veces"}{rule.lastAppliedAt ? ` · última ${formatDate(rule.lastAppliedAt)}` : ""}</TableCell>
+                  <TableCell className={cn("text-right", stackedOnMobile.title, !canWrite && "max-md:hidden")}>
                     {canWrite ? (
-                      <div className="flex flex-wrap justify-end gap-1">
+                      <div className="flex flex-wrap justify-end gap-1 max-md:justify-start max-md:border-t max-md:border-window-shadow max-md:pt-2">
                         <Button onClick={() => { setError(null); setDraft(draftFrom(rule)); }} size="sm" type="button" variant="outline">Editar</Button>
                         <Button onClick={() => void toggle(rule, { isActive: !rule.isActive })} size="sm" type="button" variant="ghost">{rule.isActive ? "Desactivar" : "Activar"}</Button>
                         <Button onClick={() => { setDeleteError(null); setDeleting(rule); }} size="sm" type="button" variant="ghost">Borrar</Button>

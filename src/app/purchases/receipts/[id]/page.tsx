@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
+  MobileRecord,
+  MobileRecordField,
+  MobileRecordFields,
+  MobileRecordList,
   Table,
   TableBody,
   TableCell,
@@ -166,7 +170,7 @@ export default async function PurchaseReceiptDetailPage({
         title="Detalle recibido"
         description="Cantidades incorporadas al stock con esta recepción."
       >
-        <TableContainer>
+        <TableContainer className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -188,6 +192,17 @@ export default async function PurchaseReceiptDetailPage({
             </TableBody>
           </Table>
         </TableContainer>
+        <MobileRecordList aria-label="Detalle recibido">
+          {receiptLines.map((line) => (
+            <MobileRecord key={line.id} title={line.itemName ?? "Artículo sin ficha"}>
+              <MobileRecordFields>
+                <MobileRecordField label="Cantidad" numeric>
+                  {Number(line.quantity).toLocaleString("es-ES", { maximumFractionDigits: 3 })}
+                </MobileRecordField>
+              </MobileRecordFields>
+            </MobileRecord>
+          ))}
+        </MobileRecordList>
       </PageSection>
     </PageShell>
   );
