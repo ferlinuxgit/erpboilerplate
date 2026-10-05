@@ -86,7 +86,6 @@ export function EditInvoiceForm({
   const [customerOptions, setCustomerOptions] = useState(customers);
   const [customerSearchDialogOpen, setCustomerSearchDialogOpen] = useState(false);
   const [customerCreateDialogOpen, setCustomerCreateDialogOpen] = useState(false);
-  const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
   // Un tratamiento guardado distinto del que corresponde al país del cliente se considera elegido a mano.
@@ -179,29 +178,11 @@ export function EditInvoiceForm({
     setValue("dueDate", defaultDueDateInput(issueDate, days), { shouldDirty: true });
   };
 
-  useEffect(() => {
-    if (pendingFocusLineIndex === null) return;
-    requestAnimationFrame(() => {
-      document.getElementById(`invoice-line-${pendingFocusLineIndex + 1}-description`)?.focus();
-      setPendingFocusLineIndex(null);
-    });
-  }, [fields.length, pendingFocusLineIndex]);
-
-  const addLineAndFocus = () => {
-    append(emptyLine);
-    setPendingFocusLineIndex(fields.length);
-  };
-
-  const removeLineAndFocus = (index: number) => {
-    remove(index);
-    setPendingFocusLineIndex(Math.max(0, index - 1));
-  };
-
-  const duplicateLineAndFocus = (index: number) => {
+  // El editor de líneas gestiona el foco tras añadir, duplicar, mover o quitar (y Alt+L).
+  const duplicateLine = (index: number) => {
     const source = watchedLines?.[index];
     if (!source) return;
     insert(index + 1, { ...source, taxIds: [...(source.taxIds ?? [])] });
-    setPendingFocusLineIndex(index + 1);
   };
 
   const handleInvoiceKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
@@ -211,11 +192,6 @@ export function EditInvoiceForm({
       event.preventDefault();
       setCustomerSearchDialogOpen(false);
       setCustomerCreateDialogOpen(true);
-      return;
-    }
-    if (event.altKey && (key === "l" || code === "keyl")) {
-      event.preventDefault();
-      addLineAndFocus();
       return;
     }
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -408,10 +384,10 @@ export function EditInvoiceForm({
             taxIds: () => register(`lines.${index}.taxIds`),
           })}
           lines={watchedLines ?? []}
-          onAdd={addLineAndFocus}
-          onDuplicate={duplicateLineAndFocus}
+          onAdd={() => append(emptyLine)}
+          onDuplicate={duplicateLine}
           onMove={move}
-          onRemove={removeLineAndFocus}
+          onRemove={remove}
           taxes={taxes}
           totals={totals}
         />

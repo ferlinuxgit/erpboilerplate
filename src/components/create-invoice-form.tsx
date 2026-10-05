@@ -121,7 +121,6 @@ export function CreateInvoiceForm({
   const [customerOptions, setCustomerOptions] = useState(customers);
   const [customerSearchDialogOpen, setCustomerSearchDialogOpen] = useState(false);
   const [customerCreateDialogOpen, setCustomerCreateDialogOpen] = useState(false);
-  const [pendingFocusLineIndex, setPendingFocusLineIndex] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
   const [vatTreatmentTouched, setVatTreatmentTouched] = useState(false);
@@ -229,15 +228,6 @@ export function CreateInvoiceForm({
   }, [defaultTaxIds]);
 
   useEffect(() => {
-    if (pendingFocusLineIndex === null) return;
-    const descriptionId = `invoice-line-${pendingFocusLineIndex + 1}-description`;
-    requestAnimationFrame(() => {
-      document.getElementById(descriptionId)?.focus();
-      setPendingFocusLineIndex(null);
-    });
-  }, [fields.length, pendingFocusLineIndex]);
-
-  useEffect(() => {
     const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
       const form = document.querySelector('[data-testid="invoice-create-form"]');
       if (!form?.contains(document.activeElement) || customerSearchDialogOpen || customerCreateDialogOpen) return;
@@ -258,38 +248,25 @@ export function CreateInvoiceForm({
     setCustomerCreateDialogOpen(true);
   };
 
-  const addLineAndFocus = () => {
+  // El editor de líneas gestiona el foco tras añadir, duplicar, mover o quitar (y Alt+L).
+  const addLine = () => {
     append({ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: [...defaultTaxIds] });
-    setPendingFocusLineIndex(fields.length);
   };
 
-  const removeLineAndFocus = (index: number) => {
-    remove(index);
-    setPendingFocusLineIndex(Math.max(0, index - 1));
-  };
-
-  const duplicateLineAndFocus = (index: number) => {
+  const duplicateLine = (index: number) => {
     const source = watchedLines?.[index];
     if (!source) return;
     insert(index + 1, { ...source, taxIds: [...(source.taxIds ?? [])] });
-    setPendingFocusLineIndex(index + 1);
   };
 
   const handleInvoiceKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
     const key = event.key.toLowerCase();
     const code = event.code.toLowerCase();
     const isNewCustomerShortcut = key === "n" || code === "keyn";
-    const isAddLineShortcut = key === "l" || code === "keyl";
 
     if (event.altKey && isNewCustomerShortcut && canCreateCustomer) {
       event.preventDefault();
       openCustomerCreateDialog();
-      return;
-    }
-
-    if (event.altKey && isAddLineShortcut) {
-      event.preventDefault();
-      addLineAndFocus();
       return;
     }
 
@@ -510,10 +487,10 @@ export function CreateInvoiceForm({
             taxIds: () => register(`lines.${index}.taxIds`),
           })}
           lines={watchedLines ?? []}
-          onAdd={addLineAndFocus}
-          onDuplicate={duplicateLineAndFocus}
+          onAdd={addLine}
+          onDuplicate={duplicateLine}
           onMove={move}
-          onRemove={removeLineAndFocus}
+          onRemove={remove}
           taxes={taxes}
           totals={totals}
         />

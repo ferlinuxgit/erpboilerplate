@@ -23,8 +23,8 @@ const coveredForms = [
   // create/edit purchase order and sales quote/order forms are thin wrappers around these editors.
   "src/components/purchases/purchase-order-form.tsx",
   "src/components/sales/sales-document-form.tsx",
-  "src/components/invoices/document-lines-editor.tsx",
-  "src/components/invoices/invoice-form-controls.tsx",
+  // Único editor de líneas: los adaptadores (document-lines-editor, invoice-form-controls) no pintan controles.
+  "src/components/invoices/lines-editor.tsx",
   "src/components/expenses/create-expense-invoice-form.tsx",
   "src/components/accounting/edit-account-form.tsx",
   "src/components/accounting/edit-journal-entry-form.tsx",
@@ -101,6 +101,8 @@ describe("form accessibility and submit feedback", () => {
     ["src/components/purchases/edit-purchase-order-form.tsx", "<PurchaseOrderForm"],
     ["src/components/sales/create-sales-quote-form.tsx", "<SalesDocumentForm"],
     ["src/components/sales/create-sales-order-form.tsx", "<SalesDocumentForm"],
+    ["src/components/invoices/document-lines-editor.tsx", "<LinesEditor"],
+    ["src/components/invoices/invoice-form-controls.tsx", "<LinesEditor"],
   ])("%s delegates to the shared, covered document editor", (path, editor) => {
     const source = sourceFor(path);
     expect(source).toContain(editor);

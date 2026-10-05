@@ -5,10 +5,10 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
+import { LinesEditor, type LinesEditorRow } from "@/components/invoices/lines-editor";
 import { Button } from "@/components/ui/button";
 import { AccessibleField, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { MoneyInput, QuantityInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -113,6 +113,18 @@ export function CreditNoteForm({
     type === "SUBSTITUTION" ? [...negate(lines), ...parsedLines.map(forCalculation)] : scope === "FULL" ? negate(lines) : negate(parsedLines),
     { allowNegative: true },
   );
+
+  // Importe de cada línea con su signo en la rectificativa: en negativo lo que se abona, en positivo las líneas correctas.
+  const lineAmounts = calculateInvoiceTotals(type === "SUBSTITUTION" ? parsedLines.map(forCalculation) : negate(parsedLines), { allowNegative: true }).lines;
+  // Las líneas vienen de la factura original: no se añaden ni se reordenan, solo se ajustan o se quitan (incluso todas).
+  const lineRows: LinesEditorRow[] = editableLines.map((line, index) => ({
+    key: line.key,
+    description: { value: line.description, onChange: (event) => updateLine(line.key, { description: event.target.value }) },
+    quantity: { value: line.quantityInput, onChange: (event) => updateLine(line.key, { quantityInput: event.target.value }) },
+    unitPrice: { value: line.unitPriceInput, onChange: (event) => updateLine(line.key, { unitPriceInput: event.target.value }) },
+    taxText: lineTaxLabel(line),
+    total: { amount: lineAmounts[index]?.lineTotal ?? 0 },
+  }));
 
   const exceedsPending = preview.totalAmount < 0 && -preview.totalAmount > pendingToRectify + 0.001;
 
@@ -238,38 +250,24 @@ export function CreditNoteForm({
       </fieldset>
 
       {usesLines ? (
-        <section aria-labelledby="credit-note-lines-title" className="space-y-2">
-          <h3 className="font-mono text-xs font-bold uppercase tracking-wide" id="credit-note-lines-title">
-            {type === "SUBSTITUTION" ? "Líneas correctas" : "Importes que se abonan"}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {type === "SUBSTITUTION"
+        <LinesEditor
+          currencyCode={currencyCode}
+          description={
+            type === "SUBSTITUTION"
               ? "Escribe los datos como deberían haber sido. Se mantienen los impuestos de cada línea original."
-              : "Indica en positivo lo que devuelves: por ejemplo, 1 unidad de 3, o el importe del descuento. Elimina las líneas que no cambian."}
-          </p>
-          <div className="space-y-2">
-            {editableLines.map((line, index) => (
-              <div className="grid gap-2 rounded-surface border border-window-dark-shadow bg-card p-2 md:grid-cols-[minmax(12rem,1fr)_6rem_8rem_minmax(8rem,.6fr)_auto] md:items-end" data-testid={`credit-note-line-${index + 1}`} key={line.key}>
-                <AccessibleField id={`credit-note-line-${index + 1}-description`} label="Concepto">
-                  <Input id={`credit-note-line-${index + 1}-description`} value={line.description} onChange={(event) => updateLine(line.key, { description: event.target.value })} />
-                </AccessibleField>
-                <AccessibleField id={`credit-note-line-${index + 1}-quantity`} label="Cantidad">
-                  <QuantityInput id={`credit-note-line-${index + 1}-quantity`} value={line.quantityInput} onChange={(event) => updateLine(line.key, { quantityInput: event.target.value })} />
-                </AccessibleField>
-                <AccessibleField id={`credit-note-line-${index + 1}-price`} label="Precio">
-                  <MoneyInput id={`credit-note-line-${index + 1}-price`} value={line.unitPriceInput} onChange={(event) => updateLine(line.key, { unitPriceInput: event.target.value })} />
-                </AccessibleField>
-                <p className="pb-2 text-xs text-muted-foreground">{lineTaxLabel(line)}</p>
-                <Button aria-label={`Quitar línea ${index + 1}`} onClick={() => setEditableLines((current) => current.filter((candidate) => candidate.key !== line.key))} size="sm" type="button" variant="outline">
-                  Quitar
-                </Button>
-              </div>
-            ))}
-            {editableLines.length === 0 ? (
-              <Button onClick={() => setEditableLines(toEditable(lines))} size="sm" type="button" variant="outline">Recuperar las líneas de la factura</Button>
-            ) : null}
-          </div>
-        </section>
+              : "Indica en positivo lo que devuelves: por ejemplo, 1 unidad de 3, o el importe del descuento. Quita las líneas que no cambian."
+          }
+          empty={<Button onClick={() => setEditableLines(toEditable(lines))} size="sm" type="button" variant="outline">Recuperar las líneas de la factura</Button>}
+          headingLevel={3}
+          idPrefix="credit-note-line"
+          minLines={0}
+          onRemove={(index) => setEditableLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}
+          removeVerb="Quitar"
+          rows={lineRows}
+          tax={{ kind: "fixed" }}
+          title={type === "SUBSTITUTION" ? "Líneas correctas" : "Importes que se abonan"}
+          titleId="credit-note-lines-title"
+        />
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">

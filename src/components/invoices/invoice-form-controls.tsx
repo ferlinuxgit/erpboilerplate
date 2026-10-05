@@ -1,23 +1,10 @@
 "use client";
 
 import { CaretDown } from "@phosphor-icons/react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { UseFormRegisterReturn } from "react-hook-form";
 
-import {
-  DismissibleDetails,
-  LineActions,
-  LineEditorRow,
-  LineEditorSection,
-  LineEditorTable,
-  LineErrorText,
-  LineField,
-  LineFooter,
-  LineTotal,
-  type LineColumn,
-} from "@/components/invoices/line-editor-parts";
-import { Input } from "@/components/ui/input";
-import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
+import { DismissibleDetails, LineErrorText, LinesEditor, PICKER_OPTION, PICKER_PANEL, PICKER_SUMMARY, type LinesEditorRow } from "@/components/invoices/lines-editor";
 import { formatMoney, formatPercent } from "@/lib/format";
 import type { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
@@ -60,11 +47,6 @@ export const discountRegisterOptions = {
   },
 } as const;
 
-/** Nombre accesible del selector de impuestos: incluye los impuestos elegidos. */
-export function taxPickerLabel(lineNumber: number, selectedNames: string[]) {
-  return `Impuestos línea ${lineNumber}: ${selectedNames.length ? selectedNames.join(", ") : "sin impuestos"}`;
-}
-
 type InvoiceTotals = ReturnType<typeof calculateInvoiceTotals>;
 
 type LineBindings = {
@@ -83,24 +65,6 @@ type LineError = {
   discountPct?: string;
   taxIds?: string;
 };
-
-const LINE_GRID = "lg:grid-cols-[minmax(13rem,1fr)_5.5rem_7rem_5rem_minmax(10rem,.7fr)_7rem_7.5rem]";
-const LINE_COLUMNS: LineColumn[] = [
-  { label: "Concepto" },
-  { label: "Cantidad", numeric: true },
-  { label: "Precio", numeric: true },
-  { label: "Dto.", numeric: true },
-  { label: "Impuestos" },
-  { label: "Total", numeric: true },
-  { label: "Acciones" },
-];
-
-/** Estilos compartidos de los desplegables con casillas (impuestos, formas de pago). */
-const PICKER_SUMMARY =
-  "flex h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-control border border-window-dark-shadow bg-window-highlight px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-focus pointer-coarse:h-10 [&::-webkit-details-marker]:hidden";
-// En el flujo del documento (no flotante): nunca se sale de pantallas estrechas.
-const PICKER_PANEL = "mt-1 w-full min-w-0 max-w-full overflow-y-auto rounded-surface border border-window-dark-shadow bg-popover p-1.5 shadow-drop-sm";
-const PICKER_OPTION = "flex cursor-pointer gap-2 rounded-control px-2 py-2 font-mono text-xs hover:bg-window-panel pointer-coarse:min-h-10";
 
 export function InvoicePaymentMethodsField({
   error,
@@ -147,6 +111,10 @@ export function InvoicePaymentMethodsField({
   );
 }
 
+/**
+ * Adaptador react-hook-form del editor de líneas único (`LinesEditor`): varios
+ * impuestos por línea (`taxIds`) y bindings `register()` no controlados.
+ */
 export function InvoiceLinesEditor({
   errors,
   fields,
@@ -170,146 +138,37 @@ export function InvoiceLinesEditor({
   taxes: InvoiceTaxOption[];
   totals: InvoiceTotals;
 }) {
-  const focus = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.focus());
-  const isPlainEnter = (event: KeyboardEvent<HTMLElement>) => event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey;
-  const handleFieldEnter = (event: KeyboardEvent<HTMLInputElement>, targetId: string) => {
-    if (!isPlainEnter(event)) return;
-    event.preventDefault();
-    focus(targetId);
-  };
-  const handlePriceEnter = (event: KeyboardEvent<HTMLInputElement>, index: number) => {
-    if (!isPlainEnter(event)) return;
-    event.preventDefault();
-    if (index === fields.length - 1) onAdd();
-    else focus(`invoice-line-${index + 2}-description`);
-  };
-
+  const rows: LinesEditorRow[] = fields.map((field, index) => {
+    const bindings = getBindings(index);
+    const lineError = errors[index] ?? {};
+    const lineTotal = totals.lines[index];
+    return {
+      key: field.id,
+      description: bindings.description,
+      quantity: bindings.quantity,
+      unitPrice: bindings.unitPrice,
+      discountPct: bindings.discountPct,
+      taxCheckbox: () => bindings.taxIds(),
+      selectedTaxIds: lines[index]?.taxIds ?? [],
+      total: { amount: lineTotal?.lineTotal ?? 0, base: lineTotal?.taxes.length ? lineTotal.subtotal : null },
+      errors: { ...lineError, tax: lineError.taxIds },
+    };
+  });
   return (
-    <LineEditorSection
+    <LinesEditor
       addTestId="invoice-add-line"
-      count={fields.length}
-      description="Enter avanza por la fila; desde el precio crea la siguiente línea. Alt+L añade una línea desde cualquier campo."
+      idPrefix="invoice-line"
       onAdd={onAdd}
+      onDuplicate={onDuplicate}
+      onMove={onMove}
+      onRemove={onRemove}
+      rows={rows}
+      tax={{ kind: "multi", taxes }}
       title="Líneas de factura"
       titleId="invoice-lines-title"
-    >
-      <LineEditorTable columns={LINE_COLUMNS} gridTemplate={LINE_GRID}>
-        {fields.map((field, index) => {
-          const lineNumber = index + 1;
-          const descriptionId = `invoice-line-${lineNumber}-description`;
-          const quantityId = `invoice-line-${lineNumber}-quantity`;
-          const unitPriceId = `invoice-line-${lineNumber}-unit-price`;
-          const discountId = `invoice-line-${lineNumber}-discount`;
-          const bindings = getBindings(index);
-          const line = lines[index] ?? {};
-          const lineError = errors[index] ?? {};
-          const lineTotal = totals.lines[index];
-          const selectedTaxes = taxes.filter((tax) => line.taxIds?.includes(tax.id));
-          const errorId = (id: string, message?: string) => (message ? `${id}-error` : undefined);
-          return (
-            <LineEditorRow as="article" gridTemplate={LINE_GRID} key={field.id} lineNumber={lineNumber} testId={`invoice-line-${lineNumber}`}>
-              <LineField error={lineError.description} errorId={errorId(descriptionId, lineError.description)} htmlFor={descriptionId} label="Concepto" lineNumber={lineNumber} wide>
-                <div className="flex items-center gap-1">
-                  <span aria-hidden="true" className="w-5 shrink-0 text-center font-mono text-xs text-muted-foreground">{lineNumber}</span>
-                  <Input
-                    className="h-9"
-                    data-testid={descriptionId}
-                    id={descriptionId}
-                    aria-invalid={Boolean(lineError.description)}
-                    aria-describedby={errorId(descriptionId, lineError.description)}
-                    placeholder="Descripción del producto o servicio"
-                    onKeyDown={(event) => handleFieldEnter(event, quantityId)}
-                    {...bindings.description}
-                  />
-                </div>
-              </LineField>
-              <LineField error={lineError.quantity} errorId={errorId(quantityId, lineError.quantity)} htmlFor={quantityId} label="Cantidad" lineNumber={lineNumber}>
-                <QuantityInput
-                  className="h-9"
-                  data-testid={quantityId}
-                  id={quantityId}
-                  aria-invalid={Boolean(lineError.quantity)}
-                  aria-describedby={errorId(quantityId, lineError.quantity)}
-                  onKeyDown={(event) => handleFieldEnter(event, unitPriceId)}
-                  {...bindings.quantity}
-                />
-              </LineField>
-              <LineField error={lineError.unitPrice} errorId={errorId(unitPriceId, lineError.unitPrice)} htmlFor={unitPriceId} label="Precio unitario" lineNumber={lineNumber}>
-                <MoneyInput
-                  className="h-9"
-                  data-testid={unitPriceId}
-                  id={unitPriceId}
-                  aria-invalid={Boolean(lineError.unitPrice)}
-                  aria-describedby={errorId(unitPriceId, lineError.unitPrice)}
-                  onKeyDown={(event) => handlePriceEnter(event, index)}
-                  {...bindings.unitPrice}
-                />
-              </LineField>
-              {bindings.discountPct ? (
-                <LineField error={lineError.discountPct} errorId={errorId(discountId, lineError.discountPct)} htmlFor={discountId} label="Descuento (%)" lineNumber={lineNumber}>
-                  <PercentInput
-                    className="h-9"
-                    data-testid={discountId}
-                    id={discountId}
-                    aria-invalid={Boolean(lineError.discountPct)}
-                    aria-describedby={errorId(discountId, lineError.discountPct)}
-                    placeholder="0"
-                    onKeyDown={(event) => handlePriceEnter(event, index)}
-                    {...bindings.discountPct}
-                  />
-                </LineField>
-              ) : <span aria-hidden="true" className="hidden lg:block" />}
-              <LineField error={lineError.taxIds} label="Impuestos" lineNumber={lineNumber}>
-                <LineTaxPicker binding={bindings.taxIds} lineNumber={lineNumber} selectedTaxes={selectedTaxes} taxes={taxes} />
-              </LineField>
-              <LineFooter>
-                <LineTotal
-                  amount={formatMoney(lineTotal?.lineTotal ?? 0)}
-                  base={lineTotal?.taxes.length ? formatMoney(lineTotal.subtotal) : null}
-                  label="Total"
-                />
-                <LineActions canRemove={fields.length > 1} index={index} lineCount={fields.length} onDuplicate={onDuplicate} onMove={onMove} onRemove={onRemove} />
-              </LineFooter>
-            </LineEditorRow>
-          );
-        })}
-      </LineEditorTable>
-    </LineEditorSection>
-  );
-}
-
-/** Desplegable de impuestos de una línea (casillas): se cierra al pulsar fuera o con Escape. */
-function LineTaxPicker({
-  binding,
-  lineNumber,
-  selectedTaxes,
-  taxes,
-}: {
-  binding: () => UseFormRegisterReturn;
-  lineNumber: number;
-  selectedTaxes: InvoiceTaxOption[];
-  taxes: InvoiceTaxOption[];
-}) {
-  const signedRate = (tax: InvoiceTaxOption) => `${tax.operation === "SUBTRACT" ? "−" : ""}${formatPercent(tax.rate)}`;
-  return (
-    <DismissibleDetails data-testid={`invoice-line-${lineNumber}-taxes`}>
-      <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((tax) => `${tax.name} ${signedRate(tax)}`))} className={PICKER_SUMMARY}>
-        <span className="truncate">{selectedTaxes.length ? selectedTaxes.map((tax) => tax.name).join(" · ") : "Sin impuestos"}</span>
-        <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className={cn(PICKER_PANEL, "max-h-64")}>
-        {taxes.map((tax) => (
-          <label className={cn(PICKER_OPTION, "items-center", tax.isActive === false && "opacity-60")} key={tax.id}>
-            <input className="size-4 shrink-0 accent-primary" type="checkbox" value={tax.id} {...binding()} />
-            <span className="flex min-w-0 flex-1 justify-between gap-2">
-              <span className="truncate">{tax.name}{tax.isActive === false ? " (archivado)" : ""}</span>
-              <span className="shrink-0 font-mono text-muted-foreground">{tax.operation === "SUBTRACT" ? "−" : "+"}{formatPercent(tax.rate)}</span>
-            </span>
-          </label>
-        ))}
-        {taxes.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay impuestos configurados. Créalos en Configuración › Maestros.</p> : null}
-      </div>
-    </DismissibleDetails>
+      totalLabel="Total"
+      withDiscount
+    />
   );
 }
 

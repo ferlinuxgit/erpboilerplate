@@ -2,10 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState, type FormEvent } from "react";
-import { Plus, Trash } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
-import { standardRetentionRates, standardVatRates } from "@/components/invoices/document-lines-editor";
+import { LinesEditor, type LinesEditorRow, type LinesExtraColumn } from "@/components/invoices/lines-editor";
+import { moveItem, retentionRateLabel, retentionRateOptions } from "@/components/invoices/lines-editor-model";
 import { IssueModeFields } from "@/components/recurring/issue-mode-fields";
 import {
   ScheduleFields,
@@ -17,10 +17,9 @@ import {
 } from "@/components/recurring/schedule-fields";
 import { SupplierPicker, type SupplierPickerOption } from "@/components/suppliers/supplier-picker";
 import { AccountPicker } from "@/components/ui/account-picker";
-import { Button } from "@/components/ui/button";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { MoneyInput, PercentInput } from "@/components/ui/number-input";
+import { PercentInput } from "@/components/ui/number-input";
 import { PageSection } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -172,16 +171,68 @@ export function RecurringExpenseForm({ accounts, generated, initial, suppliers, 
     if (!name.trim()) setName(chosen.name);
   }
 
-  function addLine() {
-    if (lines.length >= MAX_LINES) return;
-    const line = newExpenseLine(nextKey(), supplier?.defaults);
-    setLines((current) => [...current, line]);
-    requestAnimationFrame(() => document.getElementById(id(`${line.key}-description`))?.focus());
-  }
-
-  function removeLine(key: string) {
-    setLines((current) => (current.length > 1 ? current.filter((line) => line.key !== key) : current));
-  }
+  // Importe de cada línea (base + IVA − IRPF) y, si hay impuestos, su base.
+  const lineTotals = calculateInvoiceTotals(lines.map((line, index) => ({ description: line.description || "—", quantity: 1, unitPrice: amounts[index] ?? 0, taxRate: line.taxRate, retentionRate: line.retentionRate }))).lines;
+  const lineRows: LinesEditorRow[] = lines.map((line, index) => {
+    const lineError = lineErrors[index] ?? {};
+    const lineTotal = lineTotals[index];
+    return {
+      key: line.key,
+      description: { maxLength: 500, placeholder: "Alquiler {mes} {año}", value: line.description, onChange: (event) => updateLine(line.key, { description: event.target.value }) },
+      unitPrice: { value: line.amount, onChange: (event) => updateLine(line.key, { amount: event.target.value }) },
+      taxRate: { value: String(line.taxRate), onChange: (event) => updateLine(line.key, { taxRate: Number(event.target.value) }) },
+      total: { amount: lineTotal?.lineTotal ?? 0, base: lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount) ? lineTotal.subtotal : null },
+      errors: { account: lineError.account, description: lineError.description, unitPrice: lineError.amount, deductible: lineError.deductible },
+    };
+  });
+  // Columnas propias del gasto: cuenta contable (primera), retención y % de IVA deducible.
+  const expenseColumns: LinesExtraColumn[] = [
+    {
+      key: "account",
+      label: "Cuenta de gasto",
+      position: "start",
+      track: "minmax(12rem,.8fr)",
+      wide: true,
+      render: ({ describedBy, id: fieldId, index, invalid }) => (
+        <AccountPicker
+          accounts={accounts}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          groupFilter={["6", "2"]}
+          id={fieldId}
+          onChange={(nextId) => updateLine(lines[index].key, { accountId: nextId })}
+          recentKey="recurring-expense"
+          required
+          value={lines[index].accountId}
+        />
+      ),
+    },
+    {
+      key: "retention",
+      label: "Retención IRPF",
+      header: "IRPF",
+      hint: "Alquileres de local: 19 %.",
+      position: "end",
+      track: "6.5rem",
+      render: ({ describedBy, id: fieldId, index, onEnter }) => (
+        <Select aria-describedby={describedBy} className="h-9" id={fieldId} onChange={(event) => updateLine(lines[index].key, { retentionRate: Number(event.target.value) })} onKeyDown={onEnter} value={String(lines[index].retentionRate)}>
+          {retentionRateOptions(lines[index].retentionRate).map((rate) => <option key={rate} value={rate}>{retentionRateLabel(rate)}</option>)}
+        </Select>
+      ),
+    },
+    {
+      key: "deductible",
+      label: "IVA deducible",
+      header: "Deducible",
+      hint: "100 % salvo uso mixto.",
+      numeric: true,
+      position: "end",
+      track: "5.5rem",
+      render: ({ describedBy, id: fieldId, index, invalid, onEnter }) => (
+        <PercentInput aria-describedby={describedBy} aria-invalid={invalid || undefined} className="h-9" id={fieldId} onChange={(event) => updateLine(lines[index].key, { deductible: event.target.value })} onKeyDown={onEnter} value={lines[index].deductible} />
+      ),
+    },
+  ];
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -266,70 +317,28 @@ export function RecurringExpenseForm({ accounts, generated, initial, suppliers, 
         </div>
       </PageSection>
 
-      <PageSection
-        title="Líneas"
-        description={`Añade una línea por cada concepto con distinta cuenta o IVA (p. ej. alquiler y gastos de comunidad). El concepto admite ${TEMPLATE_VARIABLES.map((variable) => variable.token).join(", ")}, p. ej. «Alquiler {mes} {año}».`}
-      >
-        <ol className="space-y-3" data-testid="recurring-expense-lines">
-          {lines.map((line, index) => {
-            const lineError = lineErrors[index] ?? {};
-            const lineId = (suffix: string) => id(`${line.key}-${suffix}`);
-            return (
-              <li className="space-y-2 border border-window-shadow bg-card p-2.5" data-testid="recurring-expense-line" key={line.key}>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-mono text-xs font-bold">Línea {index + 1}</p>
-                  {lines.length > 1 ? (
-                    <Button aria-label={`Quitar la línea ${index + 1}`} size="sm" type="button" variant="ghost" onClick={() => removeLine(line.key)}>
-                      <Trash aria-hidden="true" />
-                      Quitar
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <AccessibleField error={lineError.account} id={lineId("account")} label="Cuenta de gasto" required>
-                    <AccountPicker
-                      accounts={accounts}
-                      groupFilter={["6", "2"]}
-                      id={lineId("account")}
-                      onChange={(nextId) => updateLine(line.key, { accountId: nextId })}
-                      recentKey="recurring-expense"
-                      value={line.accountId}
-                    />
-                  </AccessibleField>
-                  <AccessibleField error={lineError.description} id={lineId("description")} label="Concepto" required>
-                    <Input maxLength={500} value={line.description} onChange={(event) => updateLine(line.key, { description: event.target.value })} />
-                  </AccessibleField>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-4">
-                  <AccessibleField error={lineError.amount} helperText="Importe sin IVA." id={lineId("amount")} label="Base imponible" required>
-                    <MoneyInput value={line.amount} onChange={(event) => updateLine(line.key, { amount: event.target.value })} />
-                  </AccessibleField>
-                  <AccessibleField id={lineId("vat")} label="IVA">
-                    <Select value={String(line.taxRate)} onChange={(event) => updateLine(line.key, { taxRate: Number(event.target.value) })}>
-                      {[...new Set([...standardVatRates, line.taxRate])].sort((a, b) => b - a).map((rate) => <option key={rate} value={rate}>{rate === 0 ? "Sin IVA (exento)" : `${rate} %`}</option>)}
-                    </Select>
-                  </AccessibleField>
-                  <AccessibleField helperText="Alquileres de local: 19 %." id={lineId("retention")} label="Retención IRPF">
-                    <Select value={String(line.retentionRate)} onChange={(event) => updateLine(line.key, { retentionRate: Number(event.target.value) })}>
-                      {[...new Set([...standardRetentionRates, line.retentionRate])].sort((a, b) => a - b).map((rate) => <option key={rate} value={rate}>{rate === 0 ? "Sin retención" : `${rate} %`}</option>)}
-                    </Select>
-                  </AccessibleField>
-                  <AccessibleField error={lineError.deductible} helperText="100 % salvo uso mixto." id={lineId("deductible")} label="IVA deducible">
-                    <PercentInput value={line.deductible} onChange={(event) => updateLine(line.key, { deductible: event.target.value })} />
-                  </AccessibleField>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <Button disabled={lines.length >= MAX_LINES} type="button" variant="outline" onClick={addLine}>
-            <Plus aria-hidden="true" />
-            Añadir línea
-          </Button>
-          {total !== null ? <p className="font-mono text-sm" data-testid="recurring-expense-total">Total de cada recibo: {formatMoney(total)}</p> : null}
-        </div>
-      </PageSection>
+      <div className="space-y-2">
+        <LinesEditor
+          description={`Una línea por cada concepto con distinta cuenta o IVA (p. ej. alquiler y gastos de comunidad). El concepto admite ${TEMPLATE_VARIABLES.map((variable) => variable.token).join(", ")}, p. ej. «Alquiler {mes} {año}». Enter avanza; Alt+L añade una línea.`}
+          extraColumns={expenseColumns}
+          idPrefix="recurring-expense-line"
+          listTestId="recurring-expense-lines"
+          maxLines={MAX_LINES}
+          onAdd={() => setLines((current) => [...current, newExpenseLine(nextKey(), supplier?.defaults)])}
+          onDuplicate={(index) => setLines((current) => (current[index] ? [...current.slice(0, index + 1), { ...current[index], key: nextKey() }, ...current.slice(index + 1)] : current))}
+          onMove={(from, to) => setLines((current) => moveItem(current, from, to))}
+          onRemove={(index) => setLines((current) => (current.length > 1 ? current.filter((_, lineIndex) => lineIndex !== index) : current))}
+          rowTestId={() => "recurring-expense-line"}
+          rows={lineRows}
+          tax={{ kind: "vat", defaultRate: 21 }}
+          title="Líneas"
+          totalLabel="Total"
+          unitPriceHint="Importe sin IVA."
+          unitPriceLabel="Base imponible"
+          withQuantity={false}
+        />
+        {total !== null ? <p className="text-right font-mono text-sm" data-testid="recurring-expense-total">Total de cada recibo: {formatMoney(total)}</p> : null}
+      </div>
 
       <PageSection title="Cuándo">
         <ScheduleFields draft={schedule} errors={scheduleErrors} generated={generated} noun="factura del gasto" onChange={setSchedule} />
