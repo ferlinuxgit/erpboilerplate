@@ -240,7 +240,7 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
         <details className="rounded-surface border px-3 py-2 text-sm">
           <summary className="cursor-pointer font-medium">Opción avanzada: NO VERI*FACTU</summary>
           <p className="mt-2 text-muted-foreground">
-            Las facturas se registran y encadenan igual, pero no se envían a Hacienda. Obliga a firmar y custodiar los registros y a
+            Las facturas se registran, encadenan y llevan el QR igual, pero no se envían a Hacienda. Obliga a firmar y custodiar los registros y a
             atender requerimientos de la AEAT. Solo recomendable si tu asesor te lo indica.
           </p>
           <label className="mt-2 flex items-center gap-2" htmlFor="verifactu-non">
