@@ -7,7 +7,7 @@ test("series de facturas: crear una serie de tickets y elegirla al crear la fact
   await registerAndSignIn(page, "Series E2E");
   await completeOnboarding(page, "Empresa series E2E S.L.");
 
-  await page.goto("/settings/masters");
+  await page.goto("/settings/documents");
   await expect(page.getByRole("heading", { name: "Series de numeración" })).toBeVisible();
   await expect(page.getByTestId("invoice-series-preview")).toBeVisible();
   const createForm = page.getByTestId("series-create-form");

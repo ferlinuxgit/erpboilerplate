@@ -225,7 +225,7 @@ export async function createDirectDebitRemittance(
       .limit(1);
     const creditor = checkCreditorId(owner?.sepaCreditorId);
     if (!creditor.valid) {
-      throw new AccountingRuleError(422, "CREDITOR_ID_MISSING", "Falta tu identificador de acreedor SEPA (o no es válido). Te lo da tu banco al contratar las remesas de recibos: añádelo en Ajustes › Empresa.");
+      throw new AccountingRuleError(422, "CREDITOR_ID_MISSING", "Falta tu identificador de acreedor SEPA (o no es válido). Te lo da tu banco al contratar las remesas de recibos: añádelo en Configuración › Cobros y pagos.");
     }
 
     const invoices = await tx

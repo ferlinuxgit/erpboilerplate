@@ -31,7 +31,7 @@ export default async function TeamSettingsPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Administración"
+        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "Equipo" }]}
         title="Equipo"
         description={`Personas con acceso a ${ctx.tenant.name} y qué puede hacer cada una.`}
         actions={canManage ? <InviteMemberForm assignableRoles={assignableRoles(ctx.membership.role)} /> : null}

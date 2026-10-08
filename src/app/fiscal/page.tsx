@@ -48,7 +48,7 @@ export default async function FiscalPage() {
             <Link className={buttonVariants({ variant: "outline" })} href="/fiscal/verifactu">
               VERI*FACTU
             </Link>
-            <Link className={buttonVariants({ variant: "outline" })} href="/fiscal/settings">
+            <Link className={buttonVariants({ variant: "outline" })} href="/settings/fiscal">
               Configuración
             </Link>
             <Link className={buttonVariants({ variant: "outline" })} href="/fiscal/glossary">

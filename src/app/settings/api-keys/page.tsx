@@ -22,7 +22,7 @@ export default async function ApiKeysPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Administración"
+        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "API" }]}
         title="API"
         description={`Documentación y credenciales técnicas del espacio ${ctx.tenant.name} para conectar otros programas.`}
         meta={<StatusBadge tone={canManage ? "success" : "warning"}>{canManage ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}

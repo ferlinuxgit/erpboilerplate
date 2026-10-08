@@ -1,30 +1,25 @@
 import {
   Bank,
   BookOpenText,
-  BracketsCurly,
-  Buildings,
   Calculator,
   ChartLineUp,
   ClipboardText,
-  ClockCounterClockwise,
   Coins,
-  CreditCard,
   Factory,
   FileArrowDown,
   FileText,
+  GearSix,
   Package,
   Receipt,
-  ShieldCheck,
   ShoppingCart,
-  SlidersHorizontal,
   SquaresFour,
   Tray,
   Truck,
-  UserCircleGear,
   UsersThree,
   type Icon,
 } from "@phosphor-icons/react";
 
+import { SETTINGS_HOME, settingsSections } from "@/components/settings/settings-catalog";
 import type { BusinessType } from "@/lib/company-readiness";
 import { can, isAppRole, type PermissionKey } from "@/lib/rbac";
 
@@ -95,20 +90,7 @@ export const navGroups: NavigationGroup[] = [
     code: "40",
     label: "Administración",
     links: [
-      { href: "/settings/company", label: "Empresa", code: "40", icon: Buildings, keywords: "datos fiscales nif cif dirección logo razón social", permission: "settings.manage" },
-      { href: "/settings/team", label: "Equipo", code: "41", icon: UserCircleGear, keywords: "usuarios invitar gestor asesor roles permisos", permission: "team.read" },
-      { href: "/settings/security", label: "Seguridad", code: "42", icon: ShieldCheck, keywords: "contraseña doble factor sesiones ip", permission: "settings.manage" },
-      { href: "/billing", label: "Suscripción", code: "43", icon: CreditCard, keywords: "plan pago tarjeta", permission: "billing.read" },
-    ],
-  },
-  {
-    code: "50",
-    label: "Avanzado",
-    collapsible: true,
-    links: [
-      { href: "/settings/masters", label: "Maestros", code: "50", icon: SlidersHorizontal, keywords: "series numeración impuestos formas de pago unidades catálogos", permission: "settings.manage" },
-      { href: "/settings/api-keys", label: "API", code: "51", icon: BracketsCurly, keywords: "integración claves desarrolladores", permission: "apiKey.read" },
-      { href: "/settings/audit", label: "Auditoría", code: "52", icon: ClockCounterClockwise, keywords: "historial registro cambios quién", permission: "settings.manage" },
+      { href: SETTINGS_HOME, label: "Configuración", shortLabel: "Ajustes", code: "40", icon: GearSix, keywords: "ajustes configurar preferencias empresa equipo usuarios seguridad suscripción series impuestos formas de pago maestros api auditoría" },
     ],
   },
 ];
@@ -129,6 +111,8 @@ export type ContextLink = {
   productsOnly?: boolean;
   /** Nombre completo en la paleta de comandos cuando la pestaña es ambigua fuera de su grupo ("Recurrentes"). */
   commandLabel?: string;
+  /** Permiso para ver la pestaña (sigue accesible por URL si se tiene). */
+  permission?: PermissionKey;
 };
 
 export const contextGroups: ContextGroup[] = [
@@ -208,7 +192,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/fiscal", label: "Modelos", exact: true, keywords: "303 111 130 390 347 349 iva impuestos declaraciones" },
       { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos vencimientos trimestre fechas hacienda" },
       { href: "/fiscal/verifactu", label: "VERI*FACTU", keywords: "verifactu registro aeat facturación antifraude" },
-      { href: "/fiscal/settings", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo" },
+      { href: "/settings/fiscal", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo" },
       { href: "/fiscal/glossary", label: "Glosario", commandLabel: "Glosario fiscal", keywords: "glosario ayuda qué es términos 303 555 recargo irpf devolución" },
     ],
   },
@@ -224,17 +208,14 @@ export const contextGroups: ContextGroup[] = [
     ],
   },
   {
-    roots: ["/settings", "/billing"],
+    roots: [SETTINGS_HOME, "/billing"],
     code: "40",
-    label: "Administración",
+    label: "Configuración",
     links: [
-      { href: "/settings/company", label: "Empresa" },
-      { href: "/settings/team", label: "Equipo" },
-      { href: "/settings/security", label: "Seguridad" },
-      { href: "/billing", label: "Suscripción" },
-      { href: "/settings/masters", label: "Maestros" },
-      { href: "/settings/api-keys", label: "API" },
-      { href: "/settings/audit", label: "Auditoría" },
+      { href: SETTINGS_HOME, label: "Inicio", exact: true, commandLabel: "Configuración" },
+      ...settingsSections.flatMap((section) => section.href
+        ? [{ href: section.href, label: section.label, commandLabel: `Configuración: ${section.label}`, keywords: section.items.map((item) => item.keywords ?? "").join(" "), permission: section.permission, productsOnly: section.productsOnly }]
+        : []),
     ],
   },
 ];
@@ -286,11 +267,14 @@ export function getMobileTaskbarLinks(groups: NavigationGroup[], size = MOBILE_T
 }
 
 export function filterContextLinks(group: ContextGroup, audience: NavigationAudience): ContextGroup["links"] {
-  return group.links.filter((link) => !hiddenForBusiness(link, audience.businessType));
+  const role = isAppRole(audience.role) ? audience.role : null;
+  return group.links.filter((link) => !hiddenForBusiness(link, audience.businessType) && (!role || !link.permission || can(role, link.permission)));
 }
 
 export function isActiveRoute(pathname: string, href: string) {
   if (href === "/sales/quotes" && (pathname === "/sales/new" || pathname.startsWith("/sales/new/"))) return true;
+  // La suscripción es una sección de Configuración aunque viva en /billing (retorno de Stripe).
+  if (href === SETTINGS_HOME && (pathname === "/billing" || pathname.startsWith("/billing/"))) return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

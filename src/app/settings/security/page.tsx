@@ -16,7 +16,7 @@ export default async function SecuritySettingsPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Administración"
+        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "Seguridad" }]}
         title="Seguridad"
         description={`Controles de sesión, doble factor, claves API, dominios e IPs permitidas para ${ctx.tenant.name}.`}
         meta={

@@ -52,7 +52,7 @@ export default async function CollectionsPage() {
         title="Cobros pendientes"
         description="Lo que te deben tus clientes, ordenado por antigüedad. Selecciona facturas vencidas para enviar recordatorios en bloque."
         actions={
-          <Link className={buttonVariants({ variant: "outline" })} href="/invoices/collections/settings">
+          <Link className={buttonVariants({ variant: "outline" })} href="/settings/payments#emails">
             Plantillas y recordatorios automáticos
           </Link>
         }
@@ -60,14 +60,14 @@ export default async function CollectionsPage() {
 
       {!smtpConfigured ? (
         <InlineAlert title="El correo no está configurado" tone="warning">
-          Para enviar recordatorios hay que configurar el servidor de correo (SMTP) en Configuración. Mientras tanto puedes consultar la antigüedad de la deuda.
+          Para enviar recordatorios, el administrador de la instalación tiene que configurar el servidor de correo (SMTP). Mientras tanto puedes consultar la antigüedad de la deuda.
         </InlineAlert>
       ) : null}
       <p className="text-xs text-muted-foreground" data-testid="dunning-schedule-status">
         Recordatorios automáticos: {settings.dunning.enabled
           ? `activados (el primero ${settings.dunning.firstDelayDays} días tras el vencimiento, luego cada ${settings.dunning.intervalDays} días, máximo ${settings.dunning.maxReminders}).`
           : "desactivados."}{" "}
-        <Link className="underline" href="/invoices/collections/settings">Cambiar</Link>
+        <Link className="underline" href="/settings/payments#emails">Cambiar</Link>
       </p>
 
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6" data-testid="aging-summary">

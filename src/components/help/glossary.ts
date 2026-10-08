@@ -82,7 +82,7 @@ export const glossaryEntries = [
     term: "Prorrata",
     short: "Porcentaje del IVA de tus gastos que puedes deducir cuando parte de tu actividad está exenta de IVA (formación, sanidad…). Si toda tu actividad lleva IVA, es el 100 %.",
     category: "fiscal",
-    href: "/fiscal/settings",
+    href: "/settings/fiscal#perfil",
   },
   {
     id: "isp",

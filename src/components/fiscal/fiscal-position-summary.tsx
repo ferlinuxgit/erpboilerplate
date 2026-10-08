@@ -48,7 +48,7 @@ export function FiscalPositionSummary({ currencyCode, profile, reports }: Fiscal
       <p className="text-xs text-muted-foreground">
         Perfil: {profile.taxpayerType === "individual" ? "autónomo" : "sociedad"} · IVA {statusLabel(fiscalRegimeLabels, profile.fiscalRegime).toLowerCase()} · {statusLabel(taxPeriodicityLabels, profile.taxPeriodicity).toLowerCase()} ·{" "}
         <HelpTerm term="prorrata">prorrata</HelpTerm> {profile.prorrataPct} % · <HelpTerm term="verifactu">VERI*FACTU</HelpTerm>: {statusLabel(verifactuModeLabels, profile.verifactuMode)}.{" "}
-        <Link className="font-bold text-link underline-offset-2 hover:underline" href="/fiscal/settings">Cambiar perfil fiscal</Link>
+        <Link className="font-bold text-link underline-offset-2 hover:underline" href="/settings/fiscal#perfil">Cambiar perfil fiscal</Link>
       </p>
     </div>
   );

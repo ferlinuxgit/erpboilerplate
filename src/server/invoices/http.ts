@@ -23,7 +23,7 @@ export function invoiceErrorResponse(error: unknown, scope: string, fallbackMess
   }
   const databaseError = error as { code?: string; constraint?: string } | null;
   if (databaseError?.code === "23505" || databaseError?.constraint === "invoice_company_number_unique") {
-    return jsonError(409, "El número generado ya existe. Revisa el siguiente número de la serie de facturación en Configuración > Maestros.");
+    return jsonError(409, "El número generado ya existe. Revisa el siguiente número de la serie de facturación en Configuración › Documentos (series de numeración).");
   }
   return handleRouteError(error, scope, fallbackMessage);
 }

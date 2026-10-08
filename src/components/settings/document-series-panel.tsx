@@ -228,9 +228,8 @@ export function DocumentSeriesPanel() {
   const newErrors = fieldErrors["series-new"] ?? {};
 
   return (
-    <section aria-labelledby="masters-series-title" className={panelClass}>
+    <section aria-label="Series de numeración" className={panelClass}>
       <div className="space-y-0.5">
-        <h3 className="font-mono text-sm font-bold" id="masters-series-title">Series de numeración</h3>
         <p className="text-xs text-muted-foreground">
           Usa series distintas para tickets, facturas de exportación o rectificativas: cada serie tiene su propia numeración
           correlativa y el número se asigna al emitir. La serie «por defecto» es la que se usa si no eliges otra.

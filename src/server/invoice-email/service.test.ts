@@ -103,7 +103,7 @@ describe("deliverInvoiceEmail", () => {
 describe("sendInvoiceEmail", () => {
   it("sin SMTP configurado da un error claro (409)", () => {
     expect(() => requireMailTransport(null)).toThrow(HttpError);
-    expect(() => requireMailTransport(null)).toThrow(/Configura el correo en Configuración/);
+    expect(() => requireMailTransport(null)).toThrow(/administrador de la instalación/);
   });
 
   function queueInvoice(patch: Record<string, unknown> = {}) {

@@ -60,10 +60,10 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
     setLoading(true);
     setError(null);
     try {
-      // El modo VERI*FACTU se guarda aparte (VerifactuSettingsForm).
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { verifactuMode: _verifactuMode, ...payload } = values;
-      const response = await fetch("/api/company-settings", {
+      // Solo el perfil fiscal: el modo VERI*FACTU se guarda aparte (VerifactuSettingsForm).
+      const { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct } = values;
+      const payload = { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct };
+      const response = await fetch("/api/fiscal-profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
         body: JSON.stringify(payload),

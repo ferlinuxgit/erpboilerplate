@@ -25,7 +25,7 @@ export type MailTransport = {
 };
 
 export const SMTP_NOT_CONFIGURED_MESSAGE =
-  "El correo saliente no está configurado. Configura el correo en Configuración (servidor SMTP: SMTP_HOST y SMTP_FROM_EMAIL) o pide ayuda al administrador.";
+  "El correo saliente no está configurado en el servidor (SMTP_HOST y SMTP_FROM_EMAIL). Pide al administrador de la instalación que lo active.";
 
 /** Transporte real, o null si el SMTP no está configurado (nunca se simula un envío en silencio). */
 export function getMailTransport(env: Record<string, string | undefined> = process.env): MailTransport | null {

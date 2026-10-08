@@ -45,7 +45,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
     name: "Transferencia factura",
     isDefault: true,
   });
-  await page.goto("/settings/masters");
+  await page.goto("/settings/payments");
   await expect(page.getByText("Formas de pago", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Nombre Transferencia factura")).toHaveValue("Transferencia factura");
   await expect(page.getByText("ES12 3456 7890 1234 5678 9012", { exact: true })).toBeVisible();

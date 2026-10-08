@@ -141,7 +141,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Administración"
+        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "Auditoría" }]}
         title="Auditoría"
         description={`Eventos sensibles de ${ctx.company.name}; usa este registro para revisar cambios operativos y de seguridad.`}
       />

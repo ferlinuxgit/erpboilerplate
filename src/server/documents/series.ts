@@ -153,18 +153,18 @@ export async function reserveSeriesNumberDetailed(client: DbClient, input: Reser
     if (requested && dateYear) {
       throw new HttpError(
         422,
-        `La serie ${seriesLabel(requested)} no existe en el ejercicio ${dateYear.code}. Créala en Configuración > Maestros o elige otra serie.`,
+        `La serie ${seriesLabel(requested)} no existe en el ejercicio ${dateYear.code}. Créala en Configuración › Documentos o elige otra serie.`,
       );
     }
     throw new HttpError(
       422,
       dateYear
-        ? `No existe serie de numeración para ${input.type} en el ejercicio ${dateYear.code}. Créala en Configuración > Maestros.`
+        ? `No existe serie de numeración para ${input.type} en el ejercicio ${dateYear.code}. Créala en Configuración › Documentos.`
         : `No existe serie para ${input.type}.`,
     );
   }
   if (!isActiveSeries(series)) {
-    throw new HttpError(422, `La serie ${seriesLabel(series)} está desactivada. Actívala en Configuración > Maestros o elige otra serie.`);
+    throw new HttpError(422, `La serie ${seriesLabel(series)} está desactivada. Actívala en Configuración › Documentos o elige otra serie.`);
   }
 
   const nextNumber = effectiveNextNumber(seriesRows, series);

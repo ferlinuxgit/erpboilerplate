@@ -88,9 +88,9 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
             </form>
           ) : null}
           {!ready && !canRepair ? (
-            <Link className={buttonVariants({ variant: "outline" })} href="/settings/masters">
+            <Link className={buttonVariants({ variant: "outline" })} href="/settings">
               <Settings2 aria-hidden="true" />
-              Revisar maestros
+              Revisar la configuración
             </Link>
           ) : null}
         </div>

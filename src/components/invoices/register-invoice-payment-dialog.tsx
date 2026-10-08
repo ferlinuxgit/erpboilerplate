@@ -139,7 +139,7 @@ export function RegisterInvoicePaymentDialog({ invoice, paymentMethods, triggerS
 
           <AccessibleField
             error={fieldErrors.paymentMethod}
-            helperText={hasPaymentMethods ? undefined : "Crea una forma de pago en Configuración > Maestros antes de registrar el cobro."}
+            helperText={hasPaymentMethods ? undefined : "Crea una forma de pago en Configuración › Cobros y pagos antes de registrar el cobro."}
             id={paymentMethodId}
             label="Forma de pago"
             required

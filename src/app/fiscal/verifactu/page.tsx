@@ -55,13 +55,13 @@ export default async function VerifactuPage() {
         backHref="/fiscal"
         backLabel="Volver a fiscalidad"
         meta={<StatusBadge tone={overview.settings.mode === "verifactu" ? "success" : active ? "info" : "warning"}>{modeLabels[overview.settings.mode]}</StatusBadge>}
-        actions={<Link className={buttonVariants({ variant: "outline" })} href="/fiscal/settings">Configurar</Link>}
+        actions={<Link className={buttonVariants({ variant: "outline" })} href="/settings/fiscal#verifactu">Configurar</Link>}
       />
 
       {!active ? (
         <InlineAlert tone="warning" title="VERI*FACTU no está activado">
           Tus facturas todavía no generan registros de facturación. Actívalo en{" "}
-          <Link className="font-bold text-link underline underline-offset-2" href="/fiscal/settings">Fiscalidad › Configuración</Link> antes de la fecha en la que te sea obligatorio
+          <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Configuración › Fiscalidad</Link> antes de la fecha en la que te sea obligatorio
           (según el calendario vigente, a partir de 2027 para la mayoría de empresas y autónomos; confírmalo con tu asesor).
         </InlineAlert>
       ) : null}

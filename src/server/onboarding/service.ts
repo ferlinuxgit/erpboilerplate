@@ -186,7 +186,7 @@ export async function saveOnboardingStep(actor: OnboardingActor, payload: Onboar
       if (series && series.prefix !== invoicePrefix) {
         // Cambiar el prefijo con facturas ya numeradas rompería la correlación de la serie.
         if (series.nextNumber > 1) {
-          throw new HttpError(409, `Ya has emitido facturas con la serie ${series.prefix}. Para usar otra serie, créala en Configuración › Maestros.`);
+          throw new HttpError(409, `Ya has emitido facturas con la serie ${series.prefix}. Para usar otra serie, créala en Configuración › Documentos.`);
         }
         await tx.update(documentSeries).set({ prefix: invoicePrefix }).where(and(eq(documentSeries.id, series.id), eq(documentSeries.companyId, actor.companyId)));
       }

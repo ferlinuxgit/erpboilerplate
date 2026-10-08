@@ -424,7 +424,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         ) : null}
 
-        <ContextNavigation businessType={activeContext?.businessType} keyboardMode={keyboardMode} />
+        <ContextNavigation businessType={activeContext?.businessType} keyboardMode={keyboardMode} role={activeContext?.user.role} />
         <div
           // Reserva el alto de la barra inferior móvil para que no tape el final de la página.
           className="min-w-0 flex-1 pb-(--mobile-taskbar-height) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"

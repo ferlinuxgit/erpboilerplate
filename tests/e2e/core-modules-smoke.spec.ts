@@ -4,6 +4,8 @@ import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-s
 
 type ModuleSmokeCase = {
   path: string;
+  /** Entrada del menú que se marca como activa, si no es la propia ruta. */
+  navPath?: string;
   navLabel: string;
   heading: string | RegExp;
   evidence: string | RegExp;
@@ -66,6 +68,8 @@ const coreModules: ModuleSmokeCase[] = [
   },
   {
     path: "/settings/security",
+    // Las secciones de configuración cuelgan de la entrada única «Configuración».
+    navPath: "/settings",
     navLabel: "Seguridad",
     heading: "Seguridad",
     evidence: "Gestión habilitada",
@@ -90,7 +94,8 @@ test.describe("core product module smoke coverage", () => {
       const surface = page.locator("body");
       await expect(surface).toContainText(moduleCase.heading, { timeout: 15_000 });
       await expect(surface).toContainText(moduleCase.evidence);
-      const navTestId = `nav-link-${moduleCase.path.replace(/\//g, "-").replace(/^-/, "")}`;
+      const navPath = moduleCase.navPath ?? moduleCase.path;
+      const navTestId = `nav-link-${navPath.replace(/\//g, "-").replace(/^-/, "")}`;
       await expect(page.getByTestId(navTestId).and(page.locator("[aria-current='page']"))).toBeVisible();
 
       if (moduleCase.path === "/dashboard") {

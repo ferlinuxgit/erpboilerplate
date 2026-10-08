@@ -50,6 +50,14 @@ const nextConfig: NextConfig = {
     // the Node heap via NODE_OPTIONS.
     cpus: 1,
   },
+  // Pantallas de configuración que se unificaron en /settings: los enlaces antiguos siguen funcionando.
+  async redirects() {
+    return [
+      { source: "/settings/masters", destination: "/settings", permanent: false },
+      { source: "/fiscal/settings", destination: "/settings/fiscal", permanent: false },
+      { source: "/invoices/collections/settings", destination: "/settings/payments#emails", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

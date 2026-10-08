@@ -139,7 +139,7 @@ export function CustomerCashActions({ invoice, invoices, paymentMethods }: Custo
           <Input required type="date" value={postedAt} onChange={(event) => setPostedAt(event.target.value)} />
         </AccessibleField>
         <AccessibleField
-          helperText={hasPaymentMethods ? undefined : "Crea una forma de pago en Configuración › Maestros antes de registrar el cobro."}
+          helperText={hasPaymentMethods ? undefined : "Crea una forma de pago en Configuración › Cobros y pagos antes de registrar el cobro."}
           id={ids.method}
           label="Forma de pago"
           required

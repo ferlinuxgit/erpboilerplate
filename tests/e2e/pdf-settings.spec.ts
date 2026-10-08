@@ -6,8 +6,8 @@ test("la configuración PDF permite ocultar email y teléfono", async ({ page })
   await registerAndSignIn(page, "PDF Settings E2E");
   await completeOnboarding(page, "Empresa PDF Settings E2E S.L.");
 
-  await page.goto("/settings/company");
-  await expect(page.getByRole("heading", { name: "Diseño y contenido de PDFs" })).toBeVisible();
+  await page.goto("/settings/documents");
+  await expect(page.getByRole("heading", { name: "Contenido del PDF" })).toBeVisible();
   await page.getByLabel("Mostrar email").uncheck();
   await page.getByLabel("Mostrar teléfono").uncheck();
 

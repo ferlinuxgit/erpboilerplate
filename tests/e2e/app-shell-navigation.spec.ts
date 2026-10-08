@@ -34,7 +34,7 @@ for (const viewport of viewports) {
           await expect(page.getByTestId("desktop-sidebar").getByText("Compras y gastos", { exact: true })).toBeVisible();
           await expect(page.getByTestId("desktop-sidebar").getByText("Finanzas", { exact: true })).toBeVisible();
           await expect(page.getByTestId("desktop-sidebar").getByText("Administración", { exact: true })).toBeVisible();
-          await expect(page.getByTestId("desktop-sidebar").getByText("Avanzado")).toBeVisible();
+          await expect(page.getByTestId("desktop-sidebar").getByText("Avanzado")).toHaveCount(0);
           await expect(page.getByTestId("desktop-sidebar").getByText("10 · Ventas", { exact: true })).toHaveCount(0);
           await expect(page.getByLabel("Empresa y ejercicio activos")).toBeVisible();
           await expect(page.getByLabel("Paleta de interfaz")).toBeVisible();

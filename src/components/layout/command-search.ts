@@ -1,4 +1,5 @@
 import { contextGroups, navigationLinks } from "@/components/layout/navigation-config";
+import { settingsSections } from "@/components/settings/settings-catalog";
 
 /**
  * Catálogo y búsqueda de la paleta de comandos (sin React, para poder probarlo).
@@ -44,7 +45,6 @@ export const quickActions: Command[] = [
   { href: "/fiscal/calendar", label: "Ver plazos de impuestos", kind: "action", keywords: "iva impuestos hacienda calendario fiscal vencimientos cuándo presentar" },
   { href: "/settings/team", label: "Invitar a mi gestor o a un compañero", kind: "action", keywords: "invitar gestor asesor gestoría usuarios equipo compañero empleado permisos roles" },
   { href: "/settings/company", label: "Editar datos de la empresa", kind: "action", keywords: "datos fiscales nif cif dirección razón social logo empresa" },
-  { href: "/settings/security", label: "Seguridad y contraseña", kind: "action", keywords: "contraseña clave password doble factor sesiones seguridad" },
   { href: "/auth/forgot-password", label: "Cambiar mi contraseña", kind: "action", keywords: "contraseña clave password olvidé restablecer cambiar" },
   { href: "/onboarding", label: "Asistente de puesta en marcha", kind: "action", keywords: "configurar empresa empezar primeros pasos serie numeración asistente" },
   { href: "/inventory/movements/new", label: "Registrar movimiento de stock", kind: "action", keywords: "inventario ajuste entrada salida traspaso" },
@@ -55,7 +55,7 @@ export const quickActions: Command[] = [
   { href: "/accounting/accounts/new", label: "Nueva cuenta contable", kind: "action", keywords: "plan contable subcuenta pgc" },
 ];
 
-/** Módulos del menú y sus subpáginas (Conciliación, Calendario fiscal, Plan contable…). */
+/** Módulos del menú, sus subpáginas (Conciliación, Calendario fiscal, Plan contable…) y cada ajuste de Configuración. */
 export function buildNavigationCommands(): Command[] {
   const modules: Command[] = navigationLinks.map((link) => ({
     href: link.href,
@@ -80,7 +80,22 @@ export function buildNavigationCommands(): Command[] {
       });
     }
   }
-  return [...modules, ...subPages];
+  const settings: Command[] = [];
+  for (const section of settingsSections) {
+    for (const item of section.items) {
+      // Sin duplicar módulos, pestañas ni acciones rápidas que ya llevan al mismo sitio.
+      if (seen.has(item.href) || quickActions.some((action) => action.href === item.href)) continue;
+      seen.add(item.href);
+      settings.push({
+        href: item.href,
+        label: item.label,
+        kind: "navigation",
+        keywords: item.keywords,
+        description: `Configuración › ${section.label}`,
+      });
+    }
+  }
+  return [...modules, ...subPages, ...settings];
 }
 
 export function normalizeSearchText(value: string) {

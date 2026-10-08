@@ -186,7 +186,6 @@ export function PaymentMethodsPanel() {
   return (
     <div className="space-y-3">
       <div className="space-y-0.5">
-        <h3 className="font-mono text-sm font-bold">Formas de pago</h3>
         <p className="text-xs text-muted-foreground">
           La predeterminada se selecciona automáticamente en facturas nuevas. Cada cuenta bancaria de Tesorería aparece como transferencia disponible.
         </p>

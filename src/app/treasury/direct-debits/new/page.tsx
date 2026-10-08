@@ -29,7 +29,7 @@ export default async function NewDirectDebitRemittancePage() {
       {!creditorCheck.valid ? (
         <InlineAlert tone="warning" title="Falta tu identificador de acreedor SEPA">
           Te lo da tu banco al contratar el cobro de recibos domiciliados. Sin él el banco rechaza el fichero.{" "}
-          {can(ctx.membership.role, "settings.manage") ? <Link className="underline" href="/settings/company">Añádelo en Ajustes › Empresa</Link> : "Pide a un administrador que lo añada en Ajustes › Empresa."}
+          {can(ctx.membership.role, "settings.manage") ? <Link className="underline" href="/settings/payments#sepa">Añádelo en Configuración › Cobros y pagos</Link> : "Pide a un administrador que lo añada en Configuración › Cobros y pagos."}
         </InlineAlert>
       ) : null}
       <PageSection title="Facturas pendientes de cobro" description="Solo se pueden incluir las de clientes con un mandato SEPA activo (se añade en la ficha del cliente).">

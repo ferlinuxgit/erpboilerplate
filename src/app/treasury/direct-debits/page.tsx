@@ -23,7 +23,7 @@ export default async function DirectDebitRemittancesPage() {
       />
       <PageSection title="Remesas" description="Las más recientes primero.">
         {remittances.length === 0 ? (
-          <EmptyState title="Todavía no hay remesas de cobros" description="Necesitas tu identificador de acreedor SEPA (Ajustes › Empresa) y un mandato firmado en la ficha de cada cliente." />
+          <EmptyState title="Todavía no hay remesas de cobros" description="Necesitas tu identificador de acreedor SEPA (Configuración › Cobros y pagos) y un mandato firmado en la ficha de cada cliente." />
         ) : (
           <DirectDebitRemittancesList currency={ctx.company.baseCurrencyCode} rows={remittances} />
         )}

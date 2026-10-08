@@ -117,7 +117,7 @@ export function ExpenseBatchUpload({
   const context = useMemo(() => ({ expenseAccounts, suppliers }), [expenseAccounts, suppliers]);
   const [items, setItems] = useState<BatchItem[]>(() => initialJobs.map((job) => itemFromInboxJob(job, { expenseAccounts, suppliers })));
   const [openItemId, setOpenItemId] = useState<string | null>(null);
-  const [aiSettings, setAiSettings] = useState(initialAiSettings);
+  const aiSettings = initialAiSettings;
   const aiAvailable = aiSettings.externalAiEnabled && aiSettings.externalAiConfigured;
   const [engine, setEngine] = useState<"local" | "openai">("local");
   const effectiveEngine = aiAvailable ? engine : "local";
@@ -444,21 +444,6 @@ export function ExpenseBatchUpload({
     }
   }
 
-  async function toggleExternalAi(enabled: boolean) {
-    try {
-      const response = await fetch("/api/expenses/ocr/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ externalAiEnabled: enabled }),
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar la preferencia."));
-      setAiSettings((current) => ({ ...current, externalAiEnabled: enabled }));
-      if (!enabled) setEngine("local");
-      toast.success(enabled ? "Análisis con OpenAI permitido para la empresa." : "Análisis con OpenAI desactivado: solo se usará el OCR local.");
-    } catch (error) {
-      toast.error(errorMessage(error, "No se pudo guardar la preferencia."));
-    }
-  }
 
   const summaryLine = items.length === 0
     ? "Bandeja vacía."
@@ -526,16 +511,10 @@ export function ExpenseBatchUpload({
             </p>
           ) : null}
           {canManageAiSettings && aiSettings.externalAiConfigured ? (
-            <label className="flex items-start gap-2 text-xs" htmlFor="expense-external-ai-enabled">
-              <input
-                checked={aiSettings.externalAiEnabled}
-                className="mt-0.5"
-                id="expense-external-ai-enabled"
-                onChange={(event) => void toggleExternalAi(event.target.checked)}
-                type="checkbox"
-              />
-              <span>Permitir leer facturas con OpenAI en esta empresa (preferencia de administración).</span>
-            </label>
+            <p className="text-xs text-muted-foreground">
+              {aiSettings.externalAiEnabled ? "La lectura con OpenAI está permitida en esta empresa." : "La lectura con OpenAI está desactivada en esta empresa."}{" "}
+              <Link className="font-bold text-link underline-offset-2 hover:underline" href="/settings/automation#ocr">Cambiar en Configuración</Link>
+            </p>
           ) : null}
         </div>
         <div className="space-y-2">

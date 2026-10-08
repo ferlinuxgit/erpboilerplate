@@ -50,28 +50,37 @@ describe("navigation adapted to the business and the role", () => {
     expect(sales && filterContextLinks(sales, { businessType: "both" }).map((link) => link.href)).toContain("/sales/delivery-notes");
   });
 
-  it("hides administration the role cannot open and drops empty groups", () => {
+  it("hides modules the role cannot open and drops empty groups", () => {
     const accountant = filterNavigationGroups(navGroups, { role: "ACCOUNTANT" });
     expect(hrefs(accountant)).toEqual(expect.arrayContaining(["/accounting", "/fiscal", "/invoices"]));
-    expect(hrefs(accountant)).not.toContain("/settings/team");
-    expect(hrefs(accountant)).not.toContain("/billing");
-    expect(accountant.some((group) => group.label === "Administración" || group.label === "Avanzado")).toBe(false);
-    // Only owners and admins see billing; admins see every administration page.
-    expect(hrefs(filterNavigationGroups(navGroups, { role: "ADMIN" }))).toEqual(expect.arrayContaining(["/settings/team", "/settings/masters", "/billing"]));
-    expect(hrefs(filterNavigationGroups(navGroups, { role: "MEMBER" }))).not.toContain("/settings/company");
   });
 
-  it("groups API, audit and masters under a collapsible Avanzado section", () => {
-    const advanced = navGroups.find((group) => group.label === "Avanzado");
-    expect(advanced?.collapsible).toBe(true);
-    expect(advanced?.links.map((link) => link.href)).toEqual(["/settings/masters", "/settings/api-keys", "/settings/audit"]);
+  it("offers a single Configuración entry instead of scattered administration links", () => {
+    const settingsLinks = navigationLinks.filter((link) => link.href.startsWith("/settings") || link.href === "/billing");
+    expect(settingsLinks.map((link) => link.href)).toEqual(["/settings"]);
+    expect(navGroups.some((group) => group.label === "Avanzado")).toBe(false);
+    // Everyone can open it: each role then sees only the sections it may change.
+    for (const role of ["OWNER", "ADMIN", "MEMBER", "ACCOUNTANT", "VIEWER"]) {
+      expect(hrefs(filterNavigationGroups(navGroups, { role }))).toContain("/settings");
+    }
   });
 
-  it("uses unique two-digit codes and G 4 0 opens the administration section", () => {
+  it("shows each role only the settings tabs it can open", () => {
+    const settings = getContextGroup("/settings");
+    const tabs = (role: string, businessType: string = "both") => (settings ? filterContextLinks(settings, { role, businessType }).map((link) => link.href) : []);
+    expect(tabs("ADMIN")).toEqual(expect.arrayContaining(["/settings", "/settings/company", "/settings/documents", "/settings/fiscal", "/settings/team", "/settings/api-keys", "/settings/audit", "/billing"]));
+    expect(tabs("ACCOUNTANT")).toEqual(expect.arrayContaining(["/settings", "/settings/fiscal", "/settings/security"]));
+    expect(tabs("ACCOUNTANT")).not.toContain("/settings/company");
+    expect(tabs("ACCOUNTANT")).not.toContain("/billing");
+    expect(tabs("MEMBER")).not.toContain("/settings/documents");
+    expect(tabs("ADMIN", "services")).not.toContain("/settings/inventory");
+  });
+
+  it("uses unique two-digit codes and G 4 0 opens Configuración", () => {
     const codes = navigationLinks.map((link) => link.code);
     expect(new Set(codes).size).toBe(codes.length);
     expect(codes.every((code) => /^\d{2}$/.test(code))).toBe(true);
-    expect(navigationLinks.find((link) => link.code === "40")?.href).toBe("/settings/company");
+    expect(navigationLinks.find((link) => link.code === "40")?.href).toBe("/settings");
     expect(navigationLinks.find((link) => link.code === "31")?.href).toBe("/accounting");
   });
 
@@ -103,8 +112,8 @@ describe("mobile taskbar destinations", () => {
   });
 
   it("never offers collapsible advanced sections and short labels fit the bar", () => {
-    const hrefs = getMobileTaskbarLinks([navGroups.find((group) => group.collapsible)!]);
-    expect(hrefs).toEqual([]);
+    const advanced = { code: "90", label: "Avanzado", collapsible: true, links: navigationLinks.slice(0, 2) };
+    expect(getMobileTaskbarLinks([advanced])).toEqual([]);
     expect(navigationLinks.find((link) => link.href === "/expenses")?.shortLabel).toBe("Gastos");
   });
 });
@@ -123,7 +132,6 @@ describe("context tabs for the newer pages", () => {
     ["/invoices/new", "Facturas", "/invoices"],
     ["/invoices/inv-1", "Facturas", "/invoices"],
     ["/invoices/collections", "Cobros pendientes", "/invoices"],
-    ["/invoices/collections/settings", "Cobros pendientes", "/invoices"],
     ["/invoices/recurring", "Recurrentes", "/invoices"],
     ["/invoices/recurring/new", "Recurrentes", "/invoices"],
     ["/sales/new", "Presupuestos", "/sales/quotes"],
@@ -145,6 +153,10 @@ describe("context tabs for the newer pages", () => {
     ["/fiscal", "Modelos", "/fiscal"],
     ["/fiscal/verifactu", "VERI*FACTU", "/fiscal"],
     ["/fiscal/glossary", "Glosario", "/fiscal"],
+    ["/settings", "Inicio", "/settings"],
+    ["/settings/fiscal", "Fiscalidad", "/settings"],
+    ["/settings/documents", "Documentos", "/settings"],
+    ["/billing", "Suscripción", "/settings"],
   ])("%s highlights the «%s» tab and the %s sidebar item only", (pathname, tab, sidebarHref) => {
     expect(activeTab(pathname)).toBe(tab);
     expect(sidebarItem(pathname)).toEqual([sidebarHref]);

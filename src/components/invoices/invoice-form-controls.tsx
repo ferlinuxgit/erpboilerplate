@@ -103,7 +103,7 @@ export function InvoicePaymentMethodsField({
               </span>
             </label>
           ))}
-          {methods.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay formas de pago configuradas. Créalas en Configuración › Maestros.</p> : null}
+          {methods.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay formas de pago configuradas. Créalas en Configuración › Cobros y pagos.</p> : null}
         </div>
       </DismissibleDetails>
       <LineErrorText>{error}</LineErrorText>

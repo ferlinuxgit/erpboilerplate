@@ -82,7 +82,7 @@ export class CompanyDefaultsMissingError extends HttpError {
     // Lo que falta, con nombre: quien emite por API solo ve este texto.
     const missing = status.groups.flatMap((group) => group.items.filter((item) => !item.created).map((item) => item.label));
     const detail = missing.length ? ` Falta: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` y ${missing.length - 5} más` : ""}.` : "";
-    const message = `Faltan ajustes de empresa necesarios para emitir facturas.${detail} Revisa Configuración > Maestros.`;
+    const message = `Faltan ajustes de empresa necesarios para emitir facturas.${detail} Revísalo en Configuración › Contabilidad (plantilla de la empresa).`;
     super(409, message);
     this.name = "CompanyDefaultsMissingError";
     this.status409Payload = {

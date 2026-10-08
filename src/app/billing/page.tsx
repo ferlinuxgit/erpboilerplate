@@ -15,11 +15,9 @@ export default async function BillingPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Administración"
+        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "Suscripción" }]}
         title="Suscripción"
         description="Tu plan, sus límites y la renovación del espacio de trabajo."
-        backHref="/dashboard"
-        backLabel="Volver al panel"
         meta={<StatusBadge tone="info">{billing.subscription.statusLabel}</StatusBadge>}
       />
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

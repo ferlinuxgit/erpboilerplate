@@ -25,7 +25,7 @@ export default async function RecurringInvoicesPage() {
         description="Cuotas, mantenimientos o alquileres que facturas cada periodo. Se preparan solas en su fecha: como borrador para revisar o emitidas y enviadas."
         actions={
           <>
-            <Link className={buttonVariants({ variant: "outline" })} href="/invoices/collections/settings">Plantillas de email</Link>
+            <Link className={buttonVariants({ variant: "outline" })} href="/settings/payments#emails">Plantillas de email</Link>
             {canEdit ? <Link className={buttonVariants()} href="/invoices/recurring/new">Nueva factura recurrente</Link> : null}
           </>
         }

@@ -59,7 +59,14 @@ function hasErrors(errors: FieldErrors) {
   return Object.values(errors).some(Boolean);
 }
 
-export function MastersPanel() {
+export type MastersBlock = "series" | "category" | "unit" | "paymentMethods" | "taxes";
+
+/** Catálogos base; cada sección de Configuración muestra solo los bloques que le corresponden. */
+export function MastersPanel({ blocks }: { blocks: MastersBlock[] }) {
+  const shows = (block: MastersBlock) => blocks.includes(block);
+  const loadsCategories = shows("category");
+  const loadsUnits = shows("unit");
+  const loadsTaxes = shows("taxes");
   const [pending, setPending] = useState<string | null>(null);
   const [categoryCode, setCategoryCode] = useState("");
   const [categoryName, setCategoryName] = useState("");
@@ -81,18 +88,24 @@ export function MastersPanel() {
   useEffect(() => {
     let ignore = false;
     async function loadCatalogs() {
-      const endpoints = ["/api/item-categories", "/api/unit-of-measure", "/api/taxes?includeInactive=true"];
-      const responses = await Promise.all(endpoints.map((endpoint) => fetch(endpoint)));
+      const load = async <T,>(enabled: boolean, endpoint: string): Promise<T[]> => {
+        if (!enabled) return [];
+        const response = await fetch(endpoint);
+        return response.ok ? ((await response.json()) as T[]) : [];
+      };
+      const [categoryRows, unitRows, taxRows] = await Promise.all([
+        load<CodeNameRow>(loadsCategories, "/api/item-categories"),
+        load<CodeNameRow>(loadsUnits, "/api/unit-of-measure"),
+        load<TaxRow>(loadsTaxes, "/api/taxes?includeInactive=true"),
+      ]);
       if (ignore) return;
-      const payloads = await Promise.all(responses.map((response) => response.ok ? response.json() : []));
-      if (ignore) return;
-      setCategories(payloads[0] as CodeNameRow[]);
-      setUnits(payloads[1] as CodeNameRow[]);
-      setTaxes((payloads[2] as TaxRow[]).map((row) => ({ ...row, rate: toPercentDraft(row.rate) })));
+      setCategories(categoryRows);
+      setUnits(unitRows);
+      setTaxes(taxRows.map((row) => ({ ...row, rate: toPercentDraft(row.rate) })));
     }
     void loadCatalogs().catch(() => { if (!ignore) toast.error("No se pudieron cargar todos los catálogos. Recarga la página para intentarlo de nuevo."); });
     return () => { ignore = true; };
-  }, [catalogVersion]);
+  }, [catalogVersion, loadsCategories, loadsUnits, loadsTaxes]);
 
   const setErrorsFor = (key: string, errors: FieldErrors) => setFieldErrors((current) => ({ ...current, [key]: errors }));
   const setFormError = (key: string, message: string | null) => setFormErrors((current) => ({ ...current, [key]: message }));
@@ -203,15 +216,14 @@ export function MastersPanel() {
 
   return (
     <div className="space-y-3">
-      <DocumentSeriesPanel />
+      {shows("series") ? <DocumentSeriesPanel /> : null}
 
-      {(["category", "unit"] as const).map((kind) => {
+      {(["category", "unit"] as const).filter(shows).map((kind) => {
         const isCategory = kind === "category";
         const rows = isCategory ? categories : units;
         const errors = fieldErrors[kind] ?? {};
         return (
-          <section aria-labelledby={`masters-${kind}-title`} className={panelClass} key={kind}>
-            <h3 className="font-mono text-sm font-bold" id={`masters-${kind}-title`}>{isCategory ? "Categorías de artículos" : "Unidades de medida"}</h3>
+          <section aria-label={isCategory ? "Categorías de artículos" : "Unidades de medida"} className={panelClass} key={kind}>
             <form className="grid gap-2 md:grid-cols-[1fr_2fr_auto] md:items-start" noValidate onSubmit={(event) => createCodeName(event, kind)}>
               <AccessibleField error={errors.code} id={`masters-${kind}-code`} label="Código" required>
                 <Input
@@ -247,97 +259,100 @@ export function MastersPanel() {
         );
       })}
 
-      <div className={panelClass}>
-        <PaymentMethodsPanel />
-      </div>
+      {shows("paymentMethods") ? (
+        <div className={panelClass}>
+          <PaymentMethodsPanel />
+        </div>
+      ) : null}
 
-      <section aria-labelledby="masters-taxes-title" className={panelClass}>
-        <div className="space-y-0.5">
-          <h3 className="font-mono text-sm font-bold" id="masters-taxes-title">Impuestos y retenciones</h3>
-          <p className="text-xs text-muted-foreground">
-            Puedes marcar varios valores por defecto. El IVA y los recargos suman; las retenciones e IRPF restan del total a cobrar.
-          </p>
-        </div>
-        <form className="grid gap-2 md:grid-cols-12 md:items-start" noValidate onSubmit={createTax}>
-          <AccessibleField className="md:col-span-3" error={fieldErrors["tax-new"]?.name} id="masters-tax-new-name" label="Nombre" required>
-            <Input id="masters-tax-new-name" aria-label="Nombre del impuesto" placeholder="IVA general" value={taxName} onChange={(event) => setTaxName(event.target.value)} />
-          </AccessibleField>
-          <AccessibleField className="md:col-span-2" error={fieldErrors["tax-new"]?.rate} id="masters-tax-new-rate" label="Porcentaje" required>
-            <PercentInput id="masters-tax-new-rate" aria-label="Porcentaje del impuesto" placeholder="21" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
-          </AccessibleField>
-          <AccessibleField className="md:col-span-3" helperText="Las retenciones restan del total." id="masters-tax-new-kind" label="Tipo" required>
-            <Select id="masters-tax-new-kind" aria-label="Tipo de impuesto" value={taxKind} onChange={(event) => setTaxKind(event.target.value as TaxKind)}>
-              {taxKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </Select>
-          </AccessibleField>
-          <label className="flex items-center gap-2 font-mono text-xs font-bold md:col-span-2 md:mt-6" htmlFor="masters-tax-new-default">
-            <input checked={taxIsDefault} id="masters-tax-new-default" type="checkbox" onChange={(event) => setTaxIsDefault(event.target.checked)} />
-            Seleccionar por defecto
-          </label>
-          <SubmitButton className="md:col-span-2 md:mt-5" disabled={loading} pending={pending === "tax-new"}>
-            Crear
-          </SubmitButton>
-          <FormErrorMessage className="md:col-span-12">{formErrors["tax-new"]}</FormErrorMessage>
-        </form>
-        <div className={listClass}>
-          {taxes.map((row) => {
-            const key = `tax-${row.id}`;
-            const errors = fieldErrors[key] ?? {};
-            return (
-              <form className={cn("grid gap-2 py-2.5 md:grid-cols-12 md:items-start", !row.isActive && "opacity-60")} key={row.id} noValidate onSubmit={(event) => saveTax(event, row)}>
-                <AccessibleField className="md:col-span-3" error={errors.name} hideLabel id={`masters-${key}-name`} label="Nombre">
-                  <Input id={`masters-${key}-name`} aria-label={`Nombre ${row.name}`} value={row.name} onChange={(event) => updateTax(row.id, { name: event.target.value })} />
-                </AccessibleField>
-                <AccessibleField className="md:col-span-2" error={errors.rate} hideLabel id={`masters-${key}-rate`} label="Porcentaje">
-                  <PercentInput id={`masters-${key}-rate`} aria-label={`Porcentaje ${row.name}`} value={row.rate} onChange={(event) => updateTax(row.id, { rate: event.target.value })} />
-                </AccessibleField>
-                <AccessibleField className="md:col-span-3" hideLabel id={`masters-${key}-kind`} label="Tipo">
-                  <Select id={`masters-${key}-kind`} aria-label={`Tipo ${row.name}`} value={row.kind} onChange={(event) => updateTax(row.id, { kind: event.target.value as TaxKind })}>
-                    {taxKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </Select>
-                </AccessibleField>
-                <label className="flex h-8 items-center gap-2 font-mono text-xs font-bold md:col-span-2" htmlFor={`masters-${key}-default`}>
-                  <input checked={row.isDefault} disabled={!row.isActive} id={`masters-${key}-default`} type="checkbox" onChange={(event) => updateTax(row.id, { isDefault: event.target.checked })} />
-                  Por defecto<span className="sr-only"> {row.name}</span>
-                </label>
-                <div className="flex flex-wrap gap-2 md:col-span-2">
-                  <SubmitButton disabled={loading} pending={pending === key} size="sm" variant="outline">
-                    Guardar
-                  </SubmitButton>
-                  {row.isActive ? (
-                    <Button disabled={loading} size="sm" type="button" variant="ghost" onClick={() => { setFormError("tax-delete", null); setTaxToDelete(row); }}>
-                      Eliminar
-                    </Button>
-                  ) : (
-                    <Button
-                      disabled={loading}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                      onClick={() => void submit({
-                        fallback: "No se pudo restaurar el impuesto.",
-                        formKey: key,
-                        method: "PATCH",
-                        payload: { isActive: true },
-                        reset: () => undefined,
-                        success: `Impuesto «${row.name}» restaurado.`,
-                        url: `/api/taxes/${row.id}`,
-                      })}
-                    >
-                      Restaurar
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground md:col-span-12">
-                  {row.isActive ? "Activo" : "Archivado"} · {row.operation === "SUBTRACT" || row.kind === "WITHHOLDING" ? "Resta del total" : "Suma al total"}
-                </p>
-                <FormErrorMessage className="md:col-span-12">{formErrors[key]}</FormErrorMessage>
-              </form>
-            );
-          })}
-          {taxes.length === 0 ? <p className="py-2 text-xs text-muted-foreground">Sin impuestos configurados. Crea el primero (por ejemplo, IVA general 21 %) con el formulario de arriba.</p> : null}
-        </div>
-      </section>
+      {shows("taxes") ? (
+        <section aria-label="Impuestos y retenciones" className={panelClass}>
+          <div className="space-y-0.5">
+            <p className="text-xs text-muted-foreground">
+              Puedes marcar varios valores por defecto. El IVA y los recargos suman; las retenciones e IRPF restan del total a cobrar.
+            </p>
+          </div>
+          <form className="grid gap-2 md:grid-cols-12 md:items-start" noValidate onSubmit={createTax}>
+            <AccessibleField className="md:col-span-3" error={fieldErrors["tax-new"]?.name} id="masters-tax-new-name" label="Nombre" required>
+              <Input id="masters-tax-new-name" aria-label="Nombre del impuesto" placeholder="IVA general" value={taxName} onChange={(event) => setTaxName(event.target.value)} />
+            </AccessibleField>
+            <AccessibleField className="md:col-span-2" error={fieldErrors["tax-new"]?.rate} id="masters-tax-new-rate" label="Porcentaje" required>
+              <PercentInput id="masters-tax-new-rate" aria-label="Porcentaje del impuesto" placeholder="21" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
+            </AccessibleField>
+            <AccessibleField className="md:col-span-3" helperText="Las retenciones restan del total." id="masters-tax-new-kind" label="Tipo" required>
+              <Select id="masters-tax-new-kind" aria-label="Tipo de impuesto" value={taxKind} onChange={(event) => setTaxKind(event.target.value as TaxKind)}>
+                {taxKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </Select>
+            </AccessibleField>
+            <label className="flex items-center gap-2 font-mono text-xs font-bold md:col-span-2 md:mt-6" htmlFor="masters-tax-new-default">
+              <input checked={taxIsDefault} id="masters-tax-new-default" type="checkbox" onChange={(event) => setTaxIsDefault(event.target.checked)} />
+              Seleccionar por defecto
+            </label>
+            <SubmitButton className="md:col-span-2 md:mt-5" disabled={loading} pending={pending === "tax-new"}>
+              Crear
+            </SubmitButton>
+            <FormErrorMessage className="md:col-span-12">{formErrors["tax-new"]}</FormErrorMessage>
+          </form>
+          <div className={listClass}>
+            {taxes.map((row) => {
+              const key = `tax-${row.id}`;
+              const errors = fieldErrors[key] ?? {};
+              return (
+                <form className={cn("grid gap-2 py-2.5 md:grid-cols-12 md:items-start", !row.isActive && "opacity-60")} key={row.id} noValidate onSubmit={(event) => saveTax(event, row)}>
+                  <AccessibleField className="md:col-span-3" error={errors.name} hideLabel id={`masters-${key}-name`} label="Nombre">
+                    <Input id={`masters-${key}-name`} aria-label={`Nombre ${row.name}`} value={row.name} onChange={(event) => updateTax(row.id, { name: event.target.value })} />
+                  </AccessibleField>
+                  <AccessibleField className="md:col-span-2" error={errors.rate} hideLabel id={`masters-${key}-rate`} label="Porcentaje">
+                    <PercentInput id={`masters-${key}-rate`} aria-label={`Porcentaje ${row.name}`} value={row.rate} onChange={(event) => updateTax(row.id, { rate: event.target.value })} />
+                  </AccessibleField>
+                  <AccessibleField className="md:col-span-3" hideLabel id={`masters-${key}-kind`} label="Tipo">
+                    <Select id={`masters-${key}-kind`} aria-label={`Tipo ${row.name}`} value={row.kind} onChange={(event) => updateTax(row.id, { kind: event.target.value as TaxKind })}>
+                      {taxKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </Select>
+                  </AccessibleField>
+                  <label className="flex h-8 items-center gap-2 font-mono text-xs font-bold md:col-span-2" htmlFor={`masters-${key}-default`}>
+                    <input checked={row.isDefault} disabled={!row.isActive} id={`masters-${key}-default`} type="checkbox" onChange={(event) => updateTax(row.id, { isDefault: event.target.checked })} />
+                    Por defecto<span className="sr-only"> {row.name}</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 md:col-span-2">
+                    <SubmitButton disabled={loading} pending={pending === key} size="sm" variant="outline">
+                      Guardar
+                    </SubmitButton>
+                    {row.isActive ? (
+                      <Button disabled={loading} size="sm" type="button" variant="ghost" onClick={() => { setFormError("tax-delete", null); setTaxToDelete(row); }}>
+                        Eliminar
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled={loading}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                        onClick={() => void submit({
+                          fallback: "No se pudo restaurar el impuesto.",
+                          formKey: key,
+                          method: "PATCH",
+                          payload: { isActive: true },
+                          reset: () => undefined,
+                          success: `Impuesto «${row.name}» restaurado.`,
+                          url: `/api/taxes/${row.id}`,
+                        })}
+                      >
+                        Restaurar
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground md:col-span-12">
+                    {row.isActive ? "Activo" : "Archivado"} · {row.operation === "SUBTRACT" || row.kind === "WITHHOLDING" ? "Resta del total" : "Suma al total"}
+                  </p>
+                  <FormErrorMessage className="md:col-span-12">{formErrors[key]}</FormErrorMessage>
+                </form>
+              );
+            })}
+            {taxes.length === 0 ? <p className="py-2 text-xs text-muted-foreground">Sin impuestos configurados. Crea el primero (por ejemplo, IVA general 21 %) con el formulario de arriba.</p> : null}
+          </div>
+        </section>
+      ) : null}
 
       <DestructiveActionDialog
         confirmLabel="Eliminar impuesto"

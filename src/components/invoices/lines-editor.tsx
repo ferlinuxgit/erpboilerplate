@@ -726,7 +726,7 @@ function LineTaxPicker({
             </span>
           </label>
         ))}
-        {taxes.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay impuestos configurados. Créalos en Configuración › Maestros.</p> : null}
+        {taxes.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay impuestos configurados. Créalos en Configuración › Fiscalidad.</p> : null}
       </div>
     </DismissibleDetails>
   );

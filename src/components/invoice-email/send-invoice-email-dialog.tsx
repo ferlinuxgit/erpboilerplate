@@ -170,7 +170,7 @@ export function SendInvoiceEmailDialog({
         {loading && !draft ? <p className="text-sm text-muted-foreground" role="status">Preparando el email…</p> : null}
         {smtpMissing ? (
           <InlineAlert className="mb-3" title="El correo no está configurado" tone="warning">
-            Para enviar emails hay que configurar el servidor de correo (SMTP) en Configuración. Mientras tanto puedes{" "}
+            Para enviar emails, el administrador de la instalación tiene que configurar el servidor de correo (SMTP). Mientras tanto puedes{" "}
             <Link className="underline" href={`/api/invoices/${invoiceId}/pdf`} prefetch={false} target="_blank">descargar el PDF</Link> y enviarlo desde tu correo.
           </InlineAlert>
         ) : null}
