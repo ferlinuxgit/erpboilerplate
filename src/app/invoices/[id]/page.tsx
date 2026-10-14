@@ -229,6 +229,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 />
               </>
             ) : null}
+            {canEditInvoice && lifecycle === "ISSUED" ? (
+              <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-edit-issued-link" href={`/invoices/${data.id}/edit`}>
+                Editar notas y formas de pago
+              </Link>
+            ) : null}
             {canEditInvoice && isIssuedInvoice ? (
               <>
                 <RegisterInvoicePaymentDialog
@@ -287,7 +292,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         <p className="text-xs text-muted-foreground" data-testid="invoice-locked-hint">
           {documentNoun} emitida: cliente, fechas, líneas e importes no se pueden cambiar.{" "}
           {isIssuedInvoice ? "Para corregirla crea una rectificativa. " : ""}
-          <Link className="underline" href={`/invoices/${data.id}/edit`}>Editar notas o formas de pago</Link>
+          Las notas y las formas de pago sí se pueden cambiar con «Editar notas y formas de pago».
         </p>
       ) : null}
 
@@ -378,8 +383,17 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         </PageSection>
       </div>
 
-      {displayedPaymentMethods.length > 0 && !isCreditNote ? (
-        <PageSection title="Formas de pago" description="Alternativas indicadas para el pago de esta factura.">
+      {(displayedPaymentMethods.length > 0 || (isIssuedInvoice && canEditInvoice)) && !isCreditNote ? (
+        <PageSection
+          actions={canEditInvoice && isIssuedInvoice ? (
+            <Link className={buttonVariants({ size: "sm", variant: "outline" })} data-testid="invoice-edit-payment-methods-link" href={`/invoices/${data.id}/edit`}>
+              {displayedPaymentMethods.length > 0 ? "Cambiar formas de pago" : "Añadir formas de pago"}
+            </Link>
+          ) : undefined}
+          description="Alternativas indicadas para el pago de esta factura."
+          title="Formas de pago"
+        >
+          {displayedPaymentMethods.length === 0 ? <p className="text-sm text-muted-foreground">Sin formas de pago indicadas.</p> : null}
           <div className="grid gap-3 md:grid-cols-2">
             {displayedPaymentMethods.map((method, index) => {
               const typeLabel = method.type && method.type in paymentMethodTypeLabels

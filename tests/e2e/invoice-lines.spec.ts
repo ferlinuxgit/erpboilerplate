@@ -219,6 +219,9 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   const issuedInvoice = (await issueResponse.json()) as { number: string };
   expect(issuedInvoice.number).not.toMatch(/^BORRADOR-/);
   await expect(page.getByRole("heading", { name: issuedInvoice.number })).toBeVisible();
+  // Notas y formas de pago siguen siendo editables: acceso visible en la cabecera y en su sección.
+  await expect(page.getByTestId("invoice-edit-issued-link")).toHaveAttribute("href", `/invoices/${invoiceId}/edit`);
+  await expect(page.getByTestId("invoice-edit-payment-methods-link")).toBeVisible();
 
   const issuedPayload = await (await page.request.get(`/api/invoices/${invoiceId}`)).json();
   expect(issuedPayload.lifecycle).toBe("ISSUED");
