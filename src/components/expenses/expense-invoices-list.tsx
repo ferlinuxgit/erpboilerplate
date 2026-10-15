@@ -8,10 +8,13 @@ import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DeleteButton } from "@/components/delete-button";
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
+import { invoiceAmountExportColumns } from "@/components/ui/amount-export-columns";
 import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
+import { readApiError } from "@/components/ui/form";
 import {
   ResourceList,
   type ResourceListColumn,
+  type ResourceListExportColumn,
   type ServerListState,
 } from "@/components/ui/resource-list";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -36,10 +39,33 @@ type ExpenseInvoice = {
   dueDate: Date | string | null;
   status: string;
   paymentStatus: string;
+  /** Importes para la exportación (Base, IVA, IRPF). */
+  subtotalAmount?: string;
+  taxAmount?: string;
+  retentionAmount?: string;
   totalAmount: string;
   paidAmount: string;
   outstandingAmount: string;
 };
+
+/** Todas las facturas del filtro actual (no solo la página) para exportarlas. */
+async function fetchAllExpenseInvoices(query: URLSearchParams): Promise<ExpenseInvoice[]> {
+  query.set("export", "all");
+  const response = await fetch(`/api/expenses?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readApiError(response, "No se pudieron exportar las facturas."));
+  return (await response.json()) as ExpenseInvoice[];
+}
+
+const exportColumns: ResourceListExportColumn<ExpenseInvoice>[] = [
+  { header: "Nº registro", exportValue: (invoice) => invoice.number },
+  { header: "Nº factura proveedor", exportValue: (invoice) => invoice.supplierDocumentNumber ?? "" },
+  ...invoiceAmountExportColumns<ExpenseInvoice>({
+    base: (invoice) => invoice.subtotalAmount,
+    tax: (invoice) => invoice.taxAmount,
+    retention: (invoice) => invoice.retentionAmount,
+    total: (invoice) => invoice.totalAmount,
+  }),
+];
 
 function sumAmounts(rows: ExpenseInvoice[], pick: (invoice: ExpenseInvoice) => string) {
   // Sum in cents to avoid floating point drift.
@@ -164,7 +190,7 @@ export function ExpenseInvoicesList({
       header: "Total",
       className: "text-right font-mono tabular-nums",
       cell: (invoice) => formatMoney(invoice.totalAmount),
-      exportValue: (invoice) => Number(invoice.totalAmount),
+      // Se exporta con Base, IVA e IRPF (columnas opcionales al final), no aquí.
       sortValue: (invoice) => Number(invoice.totalAmount),
       sortKey: "total",
       summary: (filtered) =>
@@ -225,7 +251,9 @@ export function ExpenseInvoicesList({
         columns={columns}
         emptyDescription="Sube o fotografía la primera factura recibida (se lee sola) o regístrala a mano."
         emptyTitle="Sin facturas de proveedor"
-        exportFileName="facturas-proveedor.csv"
+        exportFileName="facturas-proveedor"
+        exportAll={server ? fetchAllExpenseInvoices : undefined}
+        exportColumns={exportColumns}
         getRowId={(invoice) => invoice.id}
         getRowTestId={(invoice) => `expense-invoice-${invoice.number}`}
         getRowLabel={(invoice) => `${invoice.supplierDocumentNumber || invoice.number} · ${invoice.supplierName}`}

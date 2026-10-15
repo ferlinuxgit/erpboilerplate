@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
-import { customer, invoice } from "@/db/schema";
+import { company, customer, invoice } from "@/db/schema";
 import { db } from "@/lib/db";
 import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { parseListParams } from "@/lib/list-params";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
 import { invoiceErrorResponse, toInvoiceActor } from "@/server/invoices/http";
 import { createInvoiceSchema } from "@/server/invoices/schemas";
 import { createInvoice } from "@/server/invoices/service";
 import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
 import { getInvoicePdf } from "@/server/invoices/stored-pdf";
+import { invoiceListConfig, listInvoicesForExport } from "@/server/invoices/list";
 
 export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
@@ -17,6 +19,22 @@ export async function GET(request: Request) {
 
   if (!hasApiActorPermission(actor, "invoice.read")) {
     return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+  }
+
+  // ?export=all: todas las facturas del filtro del listado (?q=&from=&to=&status=&due=&type=&sort=&dir=)
+  // con Base, IVA e IRPF, para exportarlas completas.
+  const url = new URL(request.url);
+  if (url.searchParams.get("export") === "all") {
+    try {
+      const params = parseListParams(Object.fromEntries(url.searchParams), invoiceListConfig);
+      const [companyRow] = await db.select({ timezone: company.timezone }).from(company).where(eq(company.id, actor.context.company.id)).limit(1);
+      return NextResponse.json(await listInvoicesForExport(actor.context.company.id, params, {
+        timezone: companyRow?.timezone || undefined,
+        currencyCode: actor.context.company.baseCurrencyCode,
+      }));
+    } catch (error) {
+      return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudieron exportar las facturas." }, { status: 422 });
+    }
   }
 
   // ?pending=1: facturas emitidas con algo pendiente de cobro (neto de cobros y rectificativas).

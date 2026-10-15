@@ -6,6 +6,8 @@ import { invalidJsonResponse, isSafeAttachmentUrl, readJsonBody } from "@/lib/ht
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createExpenseInvoice, listExpenseInvoices } from "@/server/supplier-invoices/service";
+import { parseListParams } from "@/lib/list-params";
+import { expenseInvoiceListConfig, listExpenseInvoicesForExport } from "@/server/supplier-invoices/list";
 
 const payloadSchema = z.object({
   supplierPartnerId: z.string().trim().optional().or(z.literal("")),
@@ -67,11 +69,21 @@ function expenseCreationError(error: unknown) {
   return error instanceof Error ? error.message : "No se pudo crear la factura de proveedor.";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
   if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver facturas de proveedor." }, { status: 403 });
+  // ?export=all: todas las facturas del filtro del listado (?q=&from=&to=&status=&sort=&dir=) para exportarlas.
+  const url = new URL(request.url);
+  if (url.searchParams.get("export") === "all") {
+    try {
+      const params = parseListParams(Object.fromEntries(url.searchParams), expenseInvoiceListConfig);
+      return NextResponse.json(await listExpenseInvoicesForExport(ctx.company.id, params));
+    } catch (error) {
+      return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudieron exportar las facturas." }, { status: 422 });
+    }
+  }
   return NextResponse.json(await listExpenseInvoices(ctx.company.id));
 }
 

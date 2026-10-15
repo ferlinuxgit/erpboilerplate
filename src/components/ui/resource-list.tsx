@@ -20,6 +20,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
@@ -36,6 +37,7 @@ import {
 import { buildListSearch, LIST_PARAM, type ServerListState } from "@/lib/list-params";
 import { restoreVisibleHeaders } from "@/lib/resource-list-columns";
 import { cn } from "@/lib/utils";
+import { buildXlsx } from "@/lib/xlsx-lite";
 
 export type { ServerListState };
 
@@ -53,6 +55,16 @@ export type ResourceListColumn<TItem> = {
    * In server mode `rows` is only the current page: return a server-computed total instead.
    */
   summary?: (rows: TItem[]) => ReactNode;
+};
+
+/**
+ * Columna que solo existe en la exportación (no se pinta en la tabla), p. ej. base, IVA o IRPF de
+ * una factura. Las `optional` se pueden marcar o desmarcar en el menú de exportar (por defecto incluidas).
+ */
+export type ResourceListExportColumn<TItem> = {
+  header: string;
+  exportValue: (item: TItem) => string | number | null | undefined;
+  optional?: boolean;
 };
 
 export type ResourceListCreateAction = {
@@ -120,9 +132,12 @@ type ResourceListProps<TItem> = {
    * Without it, server-mode lists export the current page.
    */
   exportAll?: (query: URLSearchParams) => Promise<TItem[]>;
+  /** Columnas añadidas a la exportación (después de las visibles). */
+  exportColumns?: ResourceListExportColumn<TItem>[];
 };
 
 type SortDirection = "asc" | "desc";
+type ExportFormat = "xlsx" | "csv";
 const defaultPageSizeOptions = [10, 25, 50, 100];
 const DATE_FROM_KEY = "date-from";
 const DATE_TO_KEY = "date-to";
@@ -232,9 +247,12 @@ export function ResourceList<TItem>({
   summaryLabel = "Total",
   server,
   exportAll,
+  exportColumns = [],
 }: ResourceListProps<TItem>) {
   const isServerMode = Boolean(server);
   const [isExporting, setIsExporting] = useState(false);
+  // Columnas opcionales de la exportación desmarcadas por el usuario (por defecto van todas).
+  const [excludedExportColumns, setExcludedExportColumns] = useState<Set<string>>(() => new Set());
   const [exportError, setExportError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -568,9 +586,11 @@ export function ResourceList<TItem>({
         safePage * activePageSize,
       );
   const hasSearch = searchQuery.trim().length > 0;
-  const exportableColumns = visibleColumns.filter(
-    (column) => column.exportValue,
-  );
+  const exportableColumns: Array<{ header: string; exportValue?: (item: TItem) => string | number | null | undefined }> = [
+    ...visibleColumns.filter((column) => column.exportValue),
+    ...exportColumns.filter((column) => !column.optional || !excludedExportColumns.has(column.header)),
+  ];
+  const optionalExportColumns = exportColumns.filter((column) => column.optional);
   const selectedItems = sortedItems.filter((item) =>
     selectedIds.has(getRowId(item)),
   );
@@ -611,13 +631,13 @@ export function ResourceList<TItem>({
     });
   }
 
-  async function exportCurrentView() {
+  async function exportCurrentView(format: ExportFormat) {
     if (selectedItems.length > 0) {
-      exportRows(selectedItems);
+      exportRows(selectedItems, format);
       return;
     }
     if (!isServerMode || !exportAll) {
-      exportRows(sortedItems);
+      exportRows(sortedItems, format);
       return;
     }
     const query = new URLSearchParams(serverSearch.replace(/^\?/, ""));
@@ -626,7 +646,7 @@ export function ResourceList<TItem>({
     setIsExporting(true);
     setExportError(null);
     try {
-      exportRows(await exportAll(query));
+      exportRows(await exportAll(query), format);
     } catch (error) {
       setExportError(error instanceof Error && error.message ? error.message : "No se pudo exportar. Inténtalo de nuevo.");
     } finally {
@@ -634,22 +654,21 @@ export function ResourceList<TItem>({
     }
   }
 
-  function exportRows(rows: TItem[]) {
-    const csv = buildCsv([
+  function exportRows(rows: TItem[], format: ExportFormat) {
+    const table = [
       exportableColumns.map((column) => column.header),
       ...rows.map((item) =>
         exportableColumns.map((column) => column.exportValue?.(item)),
       ),
-    ]);
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8",
-    });
+    ];
+    const blob = format === "xlsx"
+      ? new Blob([buildXlsx(table, title).slice().buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      : new Blob([buildCsv(table)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download =
-      exportFileName ??
-      `${title.toLocaleLowerCase().replaceAll(/\s+/g, "-")}.csv`;
+    const baseName = (exportFileName ?? title.toLocaleLowerCase().replaceAll(/\s+/g, "-")).replace(/\.(csv|xlsx)$/i, "");
+    anchor.download = `${baseName}.${format}`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -903,36 +922,60 @@ export function ResourceList<TItem>({
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-1 lg:justify-end">
                 {exportableColumns.length > 0 ? (
-                  <Button
-                    aria-busy={isExporting || undefined}
-                    aria-label={
-                      selectedItems.length > 0
-                        ? `Exportar ${selectedItems.length} registros seleccionados`
-                        : isServerMode && exportAll
-                          ? `Exportar los ${matchingCount} registros filtrados`
-                          : isServerMode
-                            ? "Exportar los registros de esta página"
-                            : "Exportar registros visibles"
-                    }
-                    disabled={paginatedItems.length === 0 || isExporting}
-                    onClick={() => void exportCurrentView()}
-                    size="icon-lg"
-                    title={
+                  <DropdownMenu
+                    label={
                       isExporting
                         ? "Preparando la exportación…"
                         : selectedItems.length > 0
-                          ? `Exportar ${selectedItems.length} seleccionados`
+                          ? `Exportar ${selectedItems.length} registros seleccionados`
                           : isServerMode && exportAll
                             ? `Exportar los ${matchingCount} registros filtrados`
                             : isServerMode
-                              ? "Exportar esta página"
-                              : "Exportar registros"
+                              ? "Exportar los registros de esta página"
+                              : "Exportar registros visibles"
                     }
-                    type="button"
-                    variant="outline"
+                    trigger={<DownloadSimple aria-hidden="true" />}
+                    triggerSize="icon-lg"
+                    triggerTestId={testId ? `${testId}-export` : undefined}
                   >
-                    <DownloadSimple aria-hidden="true" />
-                  </Button>
+                    <p className="px-2 pb-1 font-mono text-[11px] text-muted-foreground">
+                      {selectedItems.length > 0
+                        ? `${selectedItems.length} seleccionados`
+                        : isServerMode && exportAll
+                          ? `${matchingCount} registros filtrados`
+                          : isServerMode
+                            ? "Registros de esta página"
+                            : "Registros visibles"}
+                    </p>
+                    {optionalExportColumns.length > 0 ? (
+                      <>
+                        <p className="px-2 pt-1 font-mono text-[11px] font-bold">Incluir columnas</p>
+                        {optionalExportColumns.map((column) => (
+                          <DropdownMenuCheckboxItem
+                            checked={!excludedExportColumns.has(column.header)}
+                            key={column.header}
+                            onCheckedChange={(checked) =>
+                              setExcludedExportColumns((current) => {
+                                const next = new Set(current);
+                                if (checked) next.delete(column.header);
+                                else next.add(column.header);
+                                return next;
+                              })
+                            }
+                          >
+                            {column.header}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                      </>
+                    ) : null}
+                    <DropdownMenuItem disabled={paginatedItems.length === 0 || isExporting} onClick={() => void exportCurrentView("xlsx")}>
+                      Descargar Excel (.xlsx)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={paginatedItems.length === 0 || isExporting} onClick={() => void exportCurrentView("csv")}>
+                      Descargar CSV
+                    </DropdownMenuItem>
+                  </DropdownMenu>
                 ) : null}
                 <details
                   className="relative"

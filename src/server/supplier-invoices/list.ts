@@ -56,7 +56,10 @@ export function expenseExpressions(paid: ReturnType<typeof paidByInvoice>, now: 
   return { paidAmount, isVoid, outstanding, paymentStatus };
 }
 
-export async function listExpenseInvoicesPage(companyId: string, params: ListParams<ExpenseInvoiceSortKey, "status">) {
+/** Tope de la exportación de todo lo filtrado (se genera en el navegador). */
+export const EXPENSE_LIST_EXPORT_LIMIT = 10_000;
+
+function expenseListParts(companyId: string, params: ListParams<ExpenseInvoiceSortKey, "status">) {
   const paid = paidByInvoice(companyId);
   const { paidAmount, outstanding, paymentStatus } = expenseExpressions(paid, new Date());
 
@@ -79,6 +82,94 @@ export async function listExpenseInvoicesPage(companyId: string, params: ListPar
     total: supplierInvoice.totalAmount,
     outstanding,
   };
+  const columns = {
+    id: supplierInvoice.id,
+    number: supplierInvoice.number,
+    supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
+    supplierName: partner.name,
+    purchaseOrderId: supplierInvoice.purchaseOrderId,
+    purchaseOrderNumber: purchaseOrder.number,
+    goodsReceiptId: supplierInvoice.goodsReceiptId,
+    goodsReceiptNumber: goodsReceipt.number,
+    issueDate: supplierInvoice.issueDate,
+    dueDate: supplierInvoice.dueDate,
+    status: supplierInvoice.status,
+    paymentStatus,
+    subtotalAmount: supplierInvoice.subtotalAmount,
+    taxAmount: supplierInvoice.taxAmount,
+    retentionAmount: supplierInvoice.retentionAmount,
+    totalAmount: supplierInvoice.totalAmount,
+    paidAmount: paidAmount.mapWith(Number),
+    outstandingAmount: outstanding.mapWith(Number),
+  };
+  return { paid, outstanding, where, sortColumns, columns };
+}
+
+type ExpenseListDbRow = {
+  id: string;
+  number: string;
+  supplierDocumentNumber: string | null;
+  supplierName: string;
+  purchaseOrderId: string | null;
+  purchaseOrderNumber: string | null;
+  goodsReceiptId: string | null;
+  goodsReceiptNumber: string | null;
+  issueDate: Date;
+  dueDate: Date | null;
+  status: string;
+  paymentStatus: string;
+  subtotalAmount: string;
+  taxAmount: string;
+  retentionAmount: string;
+  totalAmount: string;
+  paidAmount: number;
+  outstandingAmount: number;
+};
+
+function toExpenseListRow(row: ExpenseListDbRow) {
+  return {
+    id: row.id,
+    number: row.number,
+    supplierDocumentNumber: row.supplierDocumentNumber,
+    supplierName: row.supplierName,
+    purchaseOrderId: row.purchaseOrderId,
+    purchaseOrderNumber: row.purchaseOrderNumber,
+    goodsReceiptId: row.goodsReceiptId,
+    goodsReceiptNumber: row.goodsReceiptNumber,
+    issueDate: row.issueDate,
+    dueDate: row.dueDate,
+    status: row.status,
+    paymentStatus: row.paymentStatus,
+    subtotalAmount: row.subtotalAmount,
+    taxAmount: row.taxAmount,
+    retentionAmount: row.retentionAmount,
+    totalAmount: row.totalAmount,
+    paidAmount: row.paidAmount.toFixed(2),
+    outstandingAmount: row.outstandingAmount.toFixed(2),
+  };
+}
+
+/** Todas las facturas del filtro del listado (sin paginar) para exportarlas. */
+export async function listExpenseInvoicesForExport(companyId: string, params: ListParams<ExpenseInvoiceSortKey, "status">) {
+  const { paid, where, sortColumns, columns } = expenseListParts(companyId, params);
+  const rows = await db
+    .select(columns)
+    .from(supplierInvoice)
+    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .leftJoin(purchaseOrder, eq(purchaseOrder.id, supplierInvoice.purchaseOrderId))
+    .leftJoin(goodsReceipt, eq(goodsReceipt.id, supplierInvoice.goodsReceiptId))
+    .leftJoin(paid, eq(paid.supplierInvoiceId, supplierInvoice.id))
+    .where(where)
+    .orderBy(...listOrderBy(sortColumns, params, supplierInvoice.id))
+    .limit(EXPENSE_LIST_EXPORT_LIMIT + 1);
+  if (rows.length > EXPENSE_LIST_EXPORT_LIMIT) {
+    throw new Error(`Hay más de ${EXPENSE_LIST_EXPORT_LIMIT} facturas en el filtro. Acota las fechas o la búsqueda para exportar.`);
+  }
+  return rows.map(toExpenseListRow);
+}
+
+export async function listExpenseInvoicesPage(companyId: string, params: ListParams<ExpenseInvoiceSortKey, "status">) {
+  const { paid, outstanding, where, sortColumns, columns } = expenseListParts(companyId, params);
 
   const result = await paginate({
     page: params.page,
@@ -86,21 +177,7 @@ export async function listExpenseInvoicesPage(companyId: string, params: ListPar
     fetchPage: (limit, offset) =>
       db
         .select({
-          id: supplierInvoice.id,
-          number: supplierInvoice.number,
-          supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
-          supplierName: partner.name,
-          purchaseOrderId: supplierInvoice.purchaseOrderId,
-          purchaseOrderNumber: purchaseOrder.number,
-          goodsReceiptId: supplierInvoice.goodsReceiptId,
-          goodsReceiptNumber: goodsReceipt.number,
-          issueDate: supplierInvoice.issueDate,
-          dueDate: supplierInvoice.dueDate,
-          status: supplierInvoice.status,
-          paymentStatus,
-          totalAmount: supplierInvoice.totalAmount,
-          paidAmount: paidAmount.mapWith(Number),
-          outstandingAmount: outstanding.mapWith(Number),
+          ...columns,
           total: windowCount(),
           ...windowTotals({ sumTotal: supplierInvoice.totalAmount, sumOutstanding: outstanding }),
         })
@@ -135,23 +212,7 @@ export async function listExpenseInvoicesPage(companyId: string, params: ListPar
     ...result,
     unfilteredTotal: recordCount,
     totals: { totalAmount: firstRow?.sumTotal ?? 0, outstandingAmount: firstRow?.sumOutstanding ?? 0 },
-    rows: result.rows.map((row) => ({
-      id: row.id,
-      number: row.number,
-      supplierDocumentNumber: row.supplierDocumentNumber,
-      supplierName: row.supplierName,
-      purchaseOrderId: row.purchaseOrderId,
-      purchaseOrderNumber: row.purchaseOrderNumber,
-      goodsReceiptId: row.goodsReceiptId,
-      goodsReceiptNumber: row.goodsReceiptNumber,
-      issueDate: row.issueDate,
-      dueDate: row.dueDate,
-      status: row.status,
-      paymentStatus: row.paymentStatus,
-      totalAmount: row.totalAmount,
-      paidAmount: row.paidAmount.toFixed(2),
-      outstandingAmount: row.outstandingAmount.toFixed(2),
-    })),
+    rows: result.rows.map(toExpenseListRow),
   };
 }
 

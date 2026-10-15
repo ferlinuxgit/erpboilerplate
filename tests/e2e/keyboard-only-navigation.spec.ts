@@ -11,6 +11,8 @@ test.describe("keyboard-only application operation", () => {
 
   test("navigates help, focus zones, tabs, command search and module codes", async ({ page }, testInfo) => {
     await page.goto("/customers");
+    // Los atajos se registran al hidratar: con la app compilada el HTML llega antes que React.
+    await page.waitForLoadState("networkidle");
 
     await page.keyboard.press("F1");
     const helpDialog = page.getByRole("dialog", { name: "Atajos de teclado" });

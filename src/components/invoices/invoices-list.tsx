@@ -4,6 +4,8 @@ import Link from "next/link";
 
 import { BulkInvoiceEmailButton } from "@/components/invoice-email/bulk-invoice-email-actions";
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
+import { invoiceAmountExportColumns } from "@/components/ui/amount-export-columns";
+import { readApiError } from "@/components/ui/form";
 import {
   ResourceList,
   type ResourceListColumn,
@@ -33,7 +35,26 @@ type InvoiceListRow = {
   dueDateLabel: string | null;
   isOverdue: boolean;
   customerName: string;
+  /** Importes para la exportación (Base, IVA, IRPF). */
+  subtotalAmount?: number | null;
+  taxAmount?: number | null;
+  retentionAmount?: number | null;
 };
+
+/** Todas las facturas del filtro actual (no solo la página) para exportarlas. */
+async function fetchAllInvoices(query: URLSearchParams): Promise<InvoiceListRow[]> {
+  query.set("export", "all");
+  const response = await fetch(`/api/invoices?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readApiError(response, "No se pudieron exportar las facturas."));
+  return (await response.json()) as InvoiceListRow[];
+}
+
+const amountExportColumns = invoiceAmountExportColumns<InvoiceListRow>({
+  base: (invoice) => invoice.subtotalAmount,
+  tax: (invoice) => invoice.taxAmount,
+  retention: (invoice) => invoice.retentionAmount,
+  total: (invoice) => invoice.totalAmount,
+});
 
 type InvoicesListProps = {
   rows: InvoiceListRow[];
@@ -174,7 +195,7 @@ export function InvoicesList({ currencyCode = "EUR", paymentMethods, rows, serve
       header: "Total",
       className: "text-right font-mono tabular-nums",
       cell: (invoice) => invoice.totalAmountLabel,
-      exportValue: (invoice) => Number(invoice.totalAmount),
+      // Se exporta con Base, IVA e IRPF (columnas opcionales al final), no aquí.
       sortValue: (invoice) => Number(invoice.totalAmount),
       sortKey: "total",
       summary: (filtered) =>
@@ -252,7 +273,9 @@ export function InvoicesList({ currencyCode = "EUR", paymentMethods, rows, serve
       }
       emptyTitle="Todavía no hay facturas registradas."
       emptyDescription="Crea la primera factura cuando tengas al menos un cliente activo."
-      exportFileName="facturas.csv"
+      exportFileName="facturas"
+      exportAll={server ? fetchAllInvoices : undefined}
+      exportColumns={amountExportColumns}
       searchPlaceholder="Buscar factura por número, cliente o importe"
       testId="invoices-list"
       summaryLabel={totals?.draftCount ? `Total emitido (sin ${totals.draftCount} ${totals.draftCount === 1 ? "borrador" : "borradores"}: ${formatMoney(totals.draftAmount ?? 0, currencyCode)})` : "Total emitido (sin borradores)"}

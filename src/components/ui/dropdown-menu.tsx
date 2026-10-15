@@ -14,7 +14,7 @@ type DropdownMenuProps = {
   label?: string;
   align?: "start" | "end";
   triggerVariant?: "outline" | "ghost" | "secondary" | "default";
-  triggerSize?: "xs" | "sm" | "default" | "icon-sm" | "icon";
+  triggerSize?: "xs" | "sm" | "default" | "icon-sm" | "icon" | "icon-lg";
   triggerClassName?: string;
   triggerTestId?: string;
 };
@@ -22,7 +22,7 @@ type DropdownMenuProps = {
 const DropdownMenuContext = React.createContext<{ close: (restoreFocus?: boolean) => void } | null>(null);
 
 function menuItems(root: HTMLElement | null) {
-  return Array.from(root?.querySelectorAll<HTMLElement>("[role='menuitem']:not([aria-disabled='true'])") ?? []);
+  return Array.from(root?.querySelectorAll<HTMLElement>("[role='menuitem']:not([aria-disabled='true']), [role='menuitemcheckbox']:not([aria-disabled='true'])") ?? []);
 }
 
 /**
@@ -230,4 +230,27 @@ export function DropdownMenuLinkItem({ className, onClick, ...props }: DropdownM
 
 export function DropdownMenuSeparator() {
   return <div aria-hidden="true" className="my-1 border-t border-window-shadow" role="separator" />;
+}
+
+type DropdownMenuCheckboxItemProps = Omit<React.ComponentProps<"button">, "onChange"> & {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+};
+
+/** Opción con casilla: alterna sin cerrar el menú (p. ej. columnas a incluir en una exportación). */
+export function DropdownMenuCheckboxItem({ checked, children, className, onCheckedChange, ...props }: DropdownMenuCheckboxItemProps) {
+  return (
+    <button
+      aria-checked={checked}
+      className={cn(itemClasses, className)}
+      onClick={() => onCheckedChange(!checked)}
+      role="menuitemcheckbox"
+      tabIndex={-1}
+      type="button"
+      {...props}
+    >
+      <span aria-hidden="true" className="inline-grid size-3.5 shrink-0 place-items-center border border-current text-[10px] leading-none">{checked ? "✓" : ""}</span>
+      {children}
+    </button>
+  );
 }

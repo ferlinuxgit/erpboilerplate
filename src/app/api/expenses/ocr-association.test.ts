@@ -11,6 +11,7 @@ vi.mock("@/lib/current-user", () => ({ getUserSession: mocks.getUserSession }));
 vi.mock("@/lib/tenant", () => ({ ensureUserTenant: mocks.ensureUserTenant }));
 vi.mock("@/lib/rbac", () => ({ can: mocks.can }));
 vi.mock("@/server/supplier-invoices/service", () => ({ createExpenseInvoice: mocks.createExpenseInvoice, listExpenseInvoices: vi.fn() }));
+vi.mock("@/server/supplier-invoices/list", () => ({ expenseInvoiceListConfig: { sortKeys: ["recent"], defaultSort: { key: "recent", dir: "desc" }, filters: {} }, listExpenseInvoicesForExport: vi.fn() }));
 
 describe("expense OCR association", () => {
   beforeEach(() => {
