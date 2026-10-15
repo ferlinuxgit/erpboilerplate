@@ -150,8 +150,18 @@ export type ExpenseInvoiceAiDraft = {
 };
 
 function isoDateOrUndefined(value: string | null) {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
-  return new Date(`${value}T12:00:00.000Z`).toISOString();
+  const match = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+  if (!match) return undefined;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  // Fechas imposibles (2026-02-31, mes 13) se descartan en vez de saltar a otro mes.
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+  return date.toISOString();
+}
+
+function normalizedTaxId(value: string | null | undefined) {
+  const normalized = (value ?? "").toUpperCase().replace(/[\s.-]/g, "");
+  return normalized.startsWith("ES") && normalized.length > 9 ? normalized.slice(2) : normalized;
 }
 
 function confidenceLabel(score: number): "high" | "medium" | "low" {
@@ -196,15 +206,28 @@ function netUnitPrice(line: ExpenseInvoiceAiAnalysis["lines"][number], fallback:
   return Math.round((netLineSubtotal(line, fallback) / safeQuantity + Number.EPSILON) * 100) / 100;
 }
 
-export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): ExpenseInvoiceAiDraft {
+export function toExpenseInvoiceAiDraft(
+  analysis: ExpenseInvoiceAiAnalysis,
+  options: { ownTaxIds?: readonly (string | null | undefined)[] } = {},
+): ExpenseInvoiceAiDraft {
   const fallbackUnitPrice = analysis.subtotal_amount ?? analysis.total_amount ?? 0;
+  // El primer impuesto puede ser la retención: el tipo por defecto de las líneas sale del IVA (o IGIC/IPSI).
+  const vatTax = analysis.taxes.find((tax) => tax.tax_type === "VAT" || tax.tax_type === "IGIC" || tax.tax_type === "IPSI");
+  const ownTaxIds = new Set((options.ownTaxIds ?? []).map(normalizedTaxId).filter(Boolean));
+  const readTaxId = analysis.supplier_tax_id ?? undefined;
+  const taxIdIsOwn = Boolean(readTaxId && ownTaxIds.has(normalizedTaxId(readTaxId)));
+  const issueDate = isoDateOrUndefined(analysis.invoice_issue_date);
+  const extraWarnings = [
+    ...(taxIdIsOwn ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
+    ...(issueDate ? [] : ["No se pudo leer la fecha de factura: indícala antes de registrar."]),
+  ];
   const lines = analysis.lines.length > 0
     ? analysis.lines.map((line) => ({
       description: line.description || analysis.description || "Gasto analizado por IA",
       quantity: numberOrFallback(line.quantity, 1),
       unitPrice: netUnitPrice(line, fallbackUnitPrice),
-      taxRate: numberOrFallback(line.tax_rate, analysis.taxes[0]?.rate ?? 21),
-      taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, analysis.taxes[0]?.deductible_pct ?? 100),
+      taxRate: numberOrFallback(line.tax_rate, vatTax?.rate ?? 21),
+      taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, vatTax?.deductible_pct ?? 100),
       retentionRate: numberOrFallback(line.retention_rate, 0),
       suggestedExpenseAccountCode: line.suggested_expense_account_code ?? analysis.suggested_expense_account_code ?? undefined,
     }))
@@ -212,15 +235,15 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
       description: analysis.description || analysis.invoice_number || "Gasto analizado por IA",
       quantity: 1,
       unitPrice: fallbackUnitPrice,
-      taxRate: numberOrFallback(analysis.taxes[0]?.rate ?? null, 21),
-      taxDeductiblePct: numberOrFallback(analysis.taxes[0]?.deductible_pct ?? null, 100),
+      taxRate: numberOrFallback(vatTax?.rate ?? null, 21),
+      taxDeductiblePct: numberOrFallback(vatTax?.deductible_pct ?? null, 100),
       retentionRate: 0,
       suggestedExpenseAccountCode: analysis.suggested_expense_account_code ?? undefined,
     }];
 
   return {
     supplierName: analysis.supplier_name ?? undefined,
-    supplierTaxId: analysis.supplier_tax_id ?? undefined,
+    supplierTaxId: taxIdIsOwn ? undefined : readTaxId,
     supplierEmail: analysis.supplier_email ?? undefined,
     supplierPhone: analysis.supplier_phone ?? undefined,
     supplierAddress: analysis.supplier_address ?? undefined,
@@ -230,15 +253,15 @@ export function toExpenseInvoiceAiDraft(analysis: ExpenseInvoiceAiAnalysis): Exp
     supplierCountryCode: analysis.supplier_country_code ?? undefined,
     supplierDocumentNumber: analysis.invoice_number ?? undefined,
     currencyCode: analysis.currency_code ?? undefined,
-    issueDate: isoDateOrUndefined(analysis.invoice_issue_date),
+    issueDate,
     dueDate: isoDateOrUndefined(analysis.invoice_due_date),
     subtotalAmount: analysis.subtotal_amount ?? undefined,
     taxAmount: analysis.tax_amount ?? undefined,
     retentionAmount: analysis.retention_amount ?? undefined,
     totalAmount: analysis.total_amount ?? undefined,
     lines,
-    confidence: cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis),
-    warnings: [...analysis.warnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
+    confidence: extraWarnings.length > 0 ? "low" : cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis),
+    warnings: [...analysis.warnings, ...extraWarnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
   };
 }
 
@@ -246,6 +269,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
   fileName: string;
   contentType: string;
   buffer: Buffer;
+  ownTaxIds?: readonly (string | null | undefined)[];
 }) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY no está configurada.");
 
@@ -282,7 +306,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
   if (!response.output_parsed) throw new Error("OpenAI no devolvió un análisis estructurado.");
   return {
     analysis: response.output_parsed,
-    draft: toExpenseInvoiceAiDraft(response.output_parsed),
+    draft: toExpenseInvoiceAiDraft(response.output_parsed, { ownTaxIds: input.ownTaxIds }),
     model,
   };
 }

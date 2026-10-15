@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { accountChart, company, companySettings, partner, supplierInvoice, supplierInvoiceLine, supplierInvoicePayment } from "@/db/schema";
+import { accountChart, company, companySettings, journalEntry, partner, supplierInvoice, supplierInvoiceLine, supplierInvoicePayment, supplierPayment } from "@/db/schema";
+import { AccountingRuleError } from "@/server/accounting/errors";
 
 const mocks = vi.hoisted(() => {
   const state = {
     selectResults: new Map<unknown, unknown[]>(),
+    /** Resultados consumidos en orden por tabla antes de caer en `selectResults`. */
+    selectQueues: new Map<unknown, unknown[][]>(),
     inserts: [] as Array<{ table: unknown; values: unknown }>,
     updates: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
   };
@@ -23,7 +26,7 @@ const mocks = vi.hoisted(() => {
   let header: Record<string, unknown> = {};
   const tx = {
     execute: vi.fn(async () => undefined),
-    select: vi.fn(() => ({ from: (table: unknown) => chain(() => state.selectResults.get(table) ?? []) })),
+    select: vi.fn(() => ({ from: (table: unknown) => chain(() => state.selectQueues.get(table)?.shift() ?? state.selectResults.get(table) ?? []) })),
     insert: vi.fn((table: unknown) => ({
       values: (values: Record<string, unknown>) => {
         state.inserts.push({ table, values });
@@ -49,6 +52,7 @@ const mocks = vi.hoisted(() => {
     tx,
     transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     postSupplierInvoice: vi.fn(),
+    assertFiscalPeriodOpen: vi.fn(),
     recordAudit: vi.fn(),
   };
 });
@@ -56,7 +60,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: { transaction: mocks.transaction } }));
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: vi.fn(async () => "FP-2026-0001") }));
-vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: vi.fn() }));
+vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: mocks.assertFiscalPeriodOpen }));
 vi.mock("@/server/partners/numbers", () => ({ reservePartnerNumber: vi.fn(async () => "P-0001") }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSupplierInvoice: mocks.postSupplierInvoice, reverseAutomaticEntries: vi.fn() }));
 
@@ -64,6 +68,8 @@ import {
   assessExpenseDuplicate,
   computeSupplierInvoiceAmounts,
   createExpenseInvoice,
+  deleteVoidedExpenseInvoice,
+  isPurchaseLineAccount,
   refreshSupplierInvoicePaymentStatus,
   type CreateExpenseInvoiceInput,
 } from "@/server/supplier-invoices/service";
@@ -101,6 +107,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.state.inserts.length = 0;
   mocks.state.updates.length = 0;
+  mocks.state.selectQueues = new Map<unknown, unknown[][]>();
   mocks.state.selectResults = new Map<unknown, unknown[]>([
     [partner, supplierRow("ES")],
     [companySettings, []],
@@ -268,5 +275,54 @@ describe("assessExpenseDuplicate", () => {
     mocks.state.selectResults.set(supplierInvoice, []);
 
     expect(await assessExpenseDuplicate({ ...input, supplierDocumentNumber: "F-9" }, mocks.tx as never)).toEqual({ level: "none", matches: [] });
+  });
+});
+
+describe("purchase line accounts", () => {
+  it("accepts expense (6) and fixed-asset (2) accounts and rejects banks or customers in Spain", () => {
+    expect(isPurchaseLineAccount({ code: "62800000", type: "EXPENSE" }, "ES")).toBe(true);
+    expect(isPurchaseLineAccount({ code: "21700000", type: "ASSET" }, "ES")).toBe(true);
+    expect(isPurchaseLineAccount({ code: "57200000", type: "ASSET" }, "ES")).toBe(false);
+    expect(isPurchaseLineAccount({ code: "43000000", type: "ASSET" }, "ES")).toBe(false);
+    expect(isPurchaseLineAccount({ code: "2000", type: "LIABILITY" }, "US")).toBe(false);
+  });
+
+  it("refuses to post an expense line to a bank account", async () => {
+    mocks.state.selectResults.set(accountChart, [{ id: "acc-572", code: "57200000", name: "Bancos", type: "ASSET" }]);
+    mocks.state.selectResults.set(company, [{ baseCurrencyCode: "EUR", countryCode: "ES" }]);
+
+    await expect(createExpenseInvoice(baseInput({
+      lines: [{ description: "Servicio", quantity: 1, unitPrice: 100, taxRate: 21, expenseAccountId: "acc-572" }],
+    }))).rejects.toThrow(/no es de gasto ni de inmovilizado/);
+    expect(mocks.postSupplierInvoice).not.toHaveBeenCalled();
+  });
+});
+
+describe("supplier resolution by name", () => {
+  it("never overwrites the tax id of an existing supplier with the same name: creates a new one", async () => {
+    // 1) Sin coincidencia por CIF. 2) Coincide el nombre, pero ese proveedor ya tiene otro CIF.
+    mocks.state.selectQueues.set(partner, [[], [{ id: "supplier-old", name: "Proveedor", type: "SUPPLIER", taxIdNormalized: "ESB87654315" }]]);
+
+    await createExpenseInvoice(baseInput({ supplierPartnerId: undefined, supplierName: "Proveedor", supplierTaxId: "B12345674" }));
+
+    expect(mocks.state.updates.some((entry) => entry.table === partner && "taxId" in entry.values)).toBe(false);
+    expect(mocks.state.inserts.find((entry) => entry.table === partner)?.values).toMatchObject({ name: "Proveedor", taxId: "B12345674" });
+  });
+});
+
+describe("deleteVoidedExpenseInvoice", () => {
+  const input = { tenantId: "tenant-1", companyId: "company-1", actorUserId: "user-1", id: "supplier-invoice-1" };
+
+  it("keeps the voided invoice and its entries when an entry falls in a closed or filed period", async () => {
+    mocks.state.selectResults.set(supplierInvoice, [{ id: "supplier-invoice-1", number: "FP-2026-0001", status: "VOID" }]);
+    mocks.state.selectResults.set(supplierInvoicePayment, []);
+    mocks.state.selectResults.set(supplierPayment, []);
+    mocks.state.selectResults.set(journalEntry, [{ id: "entry-1", number: "AS-2026/000010", postedAt: new Date("2026-03-10T12:00:00.000Z") }]);
+    mocks.assertFiscalPeriodOpen.mockRejectedValueOnce(new AccountingRuleError(409, "FISCAL_PERIOD_LOCKED", "Periodo presentado"));
+    const remove = vi.fn();
+    Object.assign(mocks.tx, { delete: remove });
+
+    await expect(deleteVoidedExpenseInvoice(input)).rejects.toThrow(/AS-2026\/000010 del 2026-03-10/);
+    expect(remove).not.toHaveBeenCalled();
   });
 });

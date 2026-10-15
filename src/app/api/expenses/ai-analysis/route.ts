@@ -4,7 +4,7 @@ import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { analyzeExpenseInvoiceWithOpenAI } from "@/server/ai/expense-invoice-analysis";
-import { completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { companyOwnTaxIds, completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
 import { getExpenseOcrSettings } from "@/server/ocr/settings";
 
 const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       fileName: file.name,
       contentType: file.type,
       buffer,
+      ownTaxIds: await companyOwnTaxIds(ctx.company.id),
     });
     await completeExpenseOcrJob(job.id, result.draft, JSON.stringify(result.analysis), { provider: "openai", model: result.model });
     return NextResponse.json({

@@ -73,6 +73,60 @@ describe("expense OCR parser", () => {
     expect(draft.warnings.join(" ")).toMatch(/cuenta de gasto/);
   });
 
+  it("reads a realistic layout: FACTURA heading, plain Fecha label, Subtotal before Total and the customer's own NIF", () => {
+    const draft = parseExpenseOcrText(`
+      Suministros Levante SL
+      CIF: B12345674
+      FACTURA
+      Fecha: 03/06/2026
+      Nº factura: A-2026/118
+      Cliente: Mi Empresa SL
+      NIF cliente: B87654315
+      Cooperativa 12 unidades
+      Subtotal: 100,00
+      IVA 21%: 21,00
+      Total IVA: 21,00
+      Total: 121,00
+    `, { ownTaxIds: ["ESB87654315"] });
+
+    expect(draft).toMatchObject({
+      supplierTaxId: "B12345674",
+      supplierDocumentNumber: "A-2026/118",
+      issueDate: "2026-06-03T12:00:00.000Z",
+      subtotalAmount: 100,
+      taxAmount: 21,
+      totalAmount: 121,
+    });
+    expect(draft.warnings.join(" ")).not.toMatch(/no cuadran/);
+  });
+
+  it("never takes the company's own NIF as the supplier's", () => {
+    const draft = parseExpenseOcrText(`
+      Cliente: Mi Empresa SL
+      NIF: B87654315
+      Factura: F-1
+      Fecha: 03/06/2026
+      Total: 121,00
+    `, { ownTaxIds: ["B87654315"] });
+    expect(draft.supplierTaxId).toBeUndefined();
+  });
+
+  it("does not take the next word as invoice number nor the due date as issue date", () => {
+    const draft = parseExpenseOcrText(`
+      FACTURA SIMPLIFICADA
+      Due date: 20/06/2026
+      Base imponible: 50,00
+      IVA 21%
+      10,50
+      Total: 60,50
+    `);
+    expect(draft.supplierDocumentNumber).toBeUndefined();
+    expect(draft.issueDate).toBeUndefined();
+    expect(draft.dueDate).toBe("2026-06-20T12:00:00.000Z");
+    expect(draft.taxAmount).not.toBe(21);
+    expect(draft.warnings.join(" ")).toMatch(/fecha de factura/);
+  });
+
   it("never reports high confidence when the VAT rate was assumed", () => {
     const draft = parseExpenseOcrText(`
       Proveedor: Gasolinera Repsol Norte SL

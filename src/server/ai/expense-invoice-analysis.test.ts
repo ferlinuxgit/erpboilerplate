@@ -115,4 +115,27 @@ describe("expense invoice AI analysis mapping", () => {
     expect(draft.confidence).toBe("high");
     expect(draft.lines[0].suggestedExpenseAccountCode).toBe("628");
   });
+
+  it("discards the company's own tax id and impossible dates, and warns about both", () => {
+    const draft = toExpenseInvoiceAiDraft(
+      baseAnalysis({ supplier_tax_id: "B87654315", invoice_issue_date: "2026-02-31", suggested_expense_account_code: "628" }),
+      { ownTaxIds: ["ES-B87654315"] },
+    );
+    expect(draft.supplierTaxId).toBeUndefined();
+    expect(draft.issueDate).toBeUndefined();
+    expect(draft.confidence).toBe("low");
+    expect(draft.warnings.join(" ")).toMatch(/tu empresa/);
+    expect(draft.warnings.join(" ")).toMatch(/fecha de factura/);
+  });
+
+  it("takes the default VAT rate from the VAT entry, not from a withholding listed first", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      lines: [],
+      taxes: [
+        { tax_type: "withholding", tax_name: "IRPF", rate: 15, base_amount: 100, tax_amount: 15, deductible_pct: null },
+        { tax_type: "VAT", tax_name: "IVA", rate: 21, base_amount: 100, tax_amount: 21, deductible_pct: 100 },
+      ],
+    }));
+    expect(draft.lines[0].taxRate).toBe(21);
+  });
 });

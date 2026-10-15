@@ -163,7 +163,9 @@ export function hydrateItem(
   if (item.hydrated) return { ...item, status: item.status === "POSTED" || item.status === "POSTING" ? item.status : "DONE", duplicate: item.duplicate.level === "none" ? duplicate : item.duplicate };
   const matched = matchSupplierByTaxId(context.suppliers, draft.supplierTaxId, draft.supplierCountryCode);
   const source = accountSourceFor(item.provider);
-  const issueDate = draft.issueDate?.slice(0, 10) ?? todayInput();
+  // Sin fecha leída se deja vacía (bloquea el registro hasta indicarla): poner la de hoy llevaría
+  // la factura a otro periodo de IVA sin que nadie lo note.
+  const issueDate = draft.issueDate?.slice(0, 10) ?? "";
   const hydrated: BatchItem = {
     ...item,
     status: "DONE",

@@ -53,6 +53,11 @@ describe("hydrateItem", () => {
     const hydrated = hydrateItem(base(), draft({ supplierTaxId: "B12345674", dueDate: "2026-09-15T12:00:00.000Z" }), { level: "none", matches: [] }, context);
     expect(hydrated.dueDate).toBe("2026-09-15");
   });
+
+  it("leaves the issue date empty when it was not read instead of using today", () => {
+    const hydrated = hydrateItem(base(), draft({ issueDate: undefined }), { level: "none", matches: [] }, context);
+    expect(hydrated.issueDate).toBe("");
+  });
 });
 
 describe("applySupplierToItem", () => {

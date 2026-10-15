@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
-import { expenseIngestionBatch, expenseOcrJob } from "@/db/schema";
+import { company, expenseIngestionBatch, expenseOcrJob } from "@/db/schema";
 import { suggestAccountCodeFromText } from "@/lib/account-aliases";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -130,20 +130,45 @@ function firstMatch(text: string, patterns: RegExp[]) {
   return undefined;
 }
 
+/** Última coincidencia: el total final de la factura suele ir al pie, tras los parciales. */
+function lastMatch(text: string, pattern: RegExp) {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  let found: string | undefined;
+  for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
+    if (match[1]) found = match[1].trim();
+  }
+  return found;
+}
+
+// Importe: no puede ir seguido de "%" (sería el tipo, no la cuota).
+const AMOUNT = String.raw`([-+]?\d[\d.,]*)(?![\d.,]*\s*%)`;
+const DATE = String.raw`(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})`;
+// Número de documento en la misma línea que su etiqueta y con al menos un dígito
+// (evita capturar "Fecha" tras un título "FACTURA" o "simplificada" en "Factura simplificada").
+const DOCUMENT_NUMBER = String.raw`[ \t]*:?[ \t]*((?=[A-Z0-9./_-]*\d)[A-Z0-9][A-Z0-9./_-]{2,})`;
+const RATE = String.raw`(?:[ \t]*\(?[ \t]*\d{1,2}(?:[,.]\d+)?[ \t]*%[ \t]*\)?)?`;
+
 function inferSupplierName(lines: string[]) {
   const ignored = /factura|invoice|ticket|recibo|fecha|nif|cif|total|base|iva/i;
   return lines.find((line) => line.length >= 3 && line.length <= 80 && !ignored.test(line));
 }
 
-function findTaxId(text: string) {
-  const labeled = firstMatch(text, [
-    /(?:cif|nif|nie|vat|tax id|n\.i\.f\.|nif\/cif)\s*:?\s*([A-Z0-9\s.-]{8,16})/i,
-  ]);
-  const normalizedLabeled = normalizeSpanishTaxId(labeled);
-  if (isValidSpanishTaxId(normalizedLabeled)) return normalizedLabeled;
+/** CIF/NIF comparable: sin separadores ni prefijo de país "ES". */
+export function comparableTaxId(value: string | null | undefined) {
+  const normalized = normalizeSpanishTaxId(value);
+  return normalized.startsWith("ES") && normalized.length > 9 ? normalized.slice(2) : normalized;
+}
+
+function findTaxId(text: string, ownTaxIds: ReadonlySet<string>) {
+  // El CIF propio aparece en la factura como destinatario: nunca es el del proveedor.
+  const isSupplierCandidate = (value: string) => isValidSpanishTaxId(value) && !ownTaxIds.has(value);
+  const labeled = [...text.matchAll(/\b(?:cif|nif|nie|vat|tax id|n\.i\.f\.|nif\/cif)[ \t]*:?[ \t]*([A-Z0-9 \t.-]{8,16})/gi)]
+    .map((match) => comparableTaxId(match[1]))
+    .find(isSupplierCandidate);
+  if (labeled) return labeled;
 
   const matches = text.match(/[A-Z]\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*[0-9A-Z]|\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*[A-Z]/gi) ?? [];
-  return matches.map(normalizeSpanishTaxId).find(isValidSpanishTaxId);
+  return matches.map(normalizeSpanishTaxId).find(isSupplierCandidate);
 }
 
 function findEmail(text: string) {
@@ -156,14 +181,21 @@ function findPhone(text: string) {
   ]);
 }
 
-export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
+/** CIF/NIF de la propia empresa: en una factura recibida es el del destinatario, no el del proveedor. */
+export async function companyOwnTaxIds(companyId: string) {
+  const [owner] = await db.select({ vatNumber: company.vatNumber }).from(company).where(eq(company.id, companyId)).limit(1);
+  return owner?.vatNumber ? [owner.vatNumber] : [];
+}
+
+export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonly (string | null | undefined)[] } = {}): ExpenseOcrDraft {
   const cleanText = text.replace(/\u00a0/g, " ");
   const lines = cleanText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const supplierName = firstMatch(cleanText, [
     /(?:proveedor|emisor|supplier|vendor)\s*:?\s*([^\n]+)/i,
     /(?:raz[oó]n social)\s*:?\s*([^\n]+)/i,
   ]) ?? inferSupplierName(lines);
-  const supplierTaxId = findTaxId(cleanText);
+  const ownTaxIds = new Set((options.ownTaxIds ?? []).map(comparableTaxId).filter(Boolean));
+  const supplierTaxId = findTaxId(cleanText, ownTaxIds);
   const supplierEmail = findEmail(cleanText);
   const supplierPhone = findPhone(cleanText);
   const supplierAddress = firstMatch(cleanText, [/(?:direcci[oó]n|domicilio|address)\s*:?\s*([^\n]+)/i]);
@@ -171,29 +203,35 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   const supplierCity = firstMatch(cleanText, [/(?:poblaci[oó]n|ciudad|city)\s*:?\s*([^\n]+)/i]);
   const supplierProvince = firstMatch(cleanText, [/(?:provincia|province)\s*:?\s*([^\n]+)/i]);
   const supplierDocumentNumber = firstMatch(cleanText, [
-    /(?:factura|invoice|n[úu]mero|num\.?|nº)\s*(?:n[úu]mero|num\.?|nº|#)?\s*:?\s*([A-Z0-9./_-]{3,})/i,
+    new RegExp(String.raw`\b(?:n[úu]mero de factura|n[ºo°]\.?[ \t]*(?:de[ \t]+)?factura|invoice[ \t]+(?:no\.?|number|#))${DOCUMENT_NUMBER}`, "i"),
+    new RegExp(String.raw`\b(?:factura|invoice)\b[ \t]*(?:n[úu]mero|num\.?|n[ºo°]\.?|#)?${DOCUMENT_NUMBER}`, "i"),
+    new RegExp(String.raw`(?:\bn[úu]mero|\bnum\.?|\bn[º°])${DOCUMENT_NUMBER}`, "i"),
   ]);
+  // "Fecha:" a secas es la etiqueta más habitual; "Fecha vencimiento" / "Due date" no son la de emisión.
   const issueDate = normalizeDate(firstMatch(cleanText, [
-    /(?:fecha factura|fecha de factura|fecha emisi[oó]n|issue date|date)\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
+    new RegExp(String.raw`\b(?:fecha(?:[ \t]+de)?[ \t]+(?:factura|emisi[oó]n|expedici[oó]n)|issue date|invoice date)\s*:?\s*${DATE}`, "i"),
+    new RegExp(String.raw`\b(?:fecha|(?<!due[ \t])date)\s*:?\s*${DATE}`, "i"),
   ]));
   const dueDate = normalizeDate(firstMatch(cleanText, [
-    /(?:vencimiento|fecha vencimiento|due date)\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i,
+    new RegExp(String.raw`\b(?:fecha(?:[ \t]+de)?[ \t]+vencimiento|vencimiento|due date)\s*:?\s*${DATE}`, "i"),
   ]));
   const subtotalAmount = normalizeMoney(firstMatch(cleanText, [
-    /(?:base imponible|subtotal|base)\s*:?\s*([-+]?\d[\d.,]*)/i,
+    new RegExp(String.raw`\b(?:base imponible|subtotal|base)\b${RATE}\s*:?\s*${AMOUNT}`, "i"),
   ]));
   const taxAmount = normalizeMoney(firstMatch(cleanText, [
-    /(?:iva|vat)(?:\s+\d{1,2}(?:[,.]\d+)?\s*%)?\s*:?\s*([-+]?\d[\d.,]*)/i,
+    new RegExp(String.raw`\b(?:iva|vat)\b${RATE}\s*:?\s*${AMOUNT}`, "i"),
   ]));
   const retentionAmount = normalizeMoney(firstMatch(cleanText, [
-    /(?:retenci[oó]n|irpf|withholding)(?:\s+\d{1,2}(?:[,.]\d+)?\s*%)?\s*:?\s*([-+]?\d[\d.,]*)/i,
+    new RegExp(String.raw`\b(?:retenci[oó]n|irpf|withholding)\b${RATE}\s*:?\s*${AMOUNT}`, "i"),
   ])) ?? 0;
-  const totalAmount = normalizeMoney(firstMatch(cleanText, [
-    /(?:total factura|importe total|total a pagar|total)\s*:?\s*([-+]?\d[\d.,]*)/i,
-  ]));
-  const detectedTaxRate = firstMatch(cleanText, [/(?:iva|vat)\s*(\d{1,2}(?:[,.]\d+)?)\s*%/i]);
+  // "Subtotal" o "Total IVA" no son el total; si hay varios "Total", el último (pie de factura).
+  const totalAmount = normalizeMoney(
+    firstMatch(cleanText, [new RegExp(String.raw`\b(?:total factura|importe total|total a pagar)\b\s*(?:\(?(?:eur|€)\)?)?\s*:?\s*${AMOUNT}`, "i")])
+    ?? lastMatch(cleanText, new RegExp(String.raw`\btotal\b(?![ \t]*(?:iva|vat|impuestos|base|bruto|retenci))\s*(?:\(?(?:eur|€)\)?)?\s*:?\s*${AMOUNT}`, "i")),
+  );
+  const detectedTaxRate = firstMatch(cleanText, [/\b(?:iva|vat)\b[ \t]*\(?[ \t]*(\d{1,2}(?:[,.]\d+)?)[ \t]*%/i]);
   const taxRate = Number(detectedTaxRate?.replace(",", ".") ?? 21);
-  const retentionRate = Number(firstMatch(cleanText, [/(?:retenci[oó]n|irpf)\s*(\d{1,2}(?:[,.]\d+)?)\s*%/i])?.replace(",", ".") ?? 0);
+  const retentionRate = Number(firstMatch(cleanText, [/\b(?:retenci[oó]n|irpf)\b[ \t]*\(?[ \t]*(\d{1,2}(?:[,.]\d+)?)[ \t]*%/i])?.replace(",", ".") ?? 0);
   const computedSubtotal = subtotalAmount ?? (totalAmount !== undefined && taxAmount !== undefined ? totalAmount - taxAmount + retentionAmount : undefined);
   const warnings: string[] = [];
   if (totalAmount !== undefined && computedSubtotal !== undefined && taxAmount !== undefined) {
@@ -203,6 +241,7 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   if (!supplierName && !supplierTaxId) warnings.push("No se pudo identificar el proveedor con confianza.");
   if (!supplierTaxId) warnings.push("No se pudo identificar el CIF/NIF del proveedor con confianza.");
   if (!supplierDocumentNumber) warnings.push("No se pudo identificar el numero de factura proveedor.");
+  if (!issueDate) warnings.push("No se pudo leer la fecha de factura: indícala antes de registrar.");
   if (!totalAmount) warnings.push("No se pudo identificar el total con confianza.");
 
   const readingConfidence = warnings.length === 0 ? "high" : warnings.length <= 2 ? "medium" : "low";
@@ -498,7 +537,7 @@ export async function processExpenseOcrJob(jobId: string) {
         ? "No se ha extraido texto del PDF. Si es un PDF escaneado, sube la pagina como imagen o instala renderizado PDF OCR en el worker."
         : "No se ha extraido texto suficiente de la imagen.");
     }
-    const draft = parseExpenseOcrText(sourceText);
+    const draft = parseExpenseOcrText(sourceText, { ownTaxIds: await companyOwnTaxIds(job.companyId) });
     const [updated] = await db
       .update(expenseOcrJob)
       .set({

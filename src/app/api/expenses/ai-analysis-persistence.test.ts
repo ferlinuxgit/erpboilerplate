@@ -15,7 +15,7 @@ vi.mock("@/lib/current-user", () => ({ getUserSession: mocks.getUserSession }));
 vi.mock("@/lib/tenant", () => ({ ensureUserTenant: mocks.ensureUserTenant }));
 vi.mock("@/lib/rbac", () => ({ can: mocks.can }));
 vi.mock("@/server/ai/expense-invoice-analysis", () => ({ analyzeExpenseInvoiceWithOpenAI: mocks.analyze }));
-vi.mock("@/server/ocr/expense-ocr", () => ({ createExpenseOcrJob: mocks.createJob, completeExpenseOcrJob: mocks.completeJob, failExpenseOcrJob: mocks.failJob }));
+vi.mock("@/server/ocr/expense-ocr", () => ({ companyOwnTaxIds: async () => [], createExpenseOcrJob: mocks.createJob, completeExpenseOcrJob: mocks.completeJob, failExpenseOcrJob: mocks.failJob }));
 vi.mock("@/server/ocr/settings", () => ({ getExpenseOcrSettings: mocks.getSettings }));
 
 describe("OpenAI expense analysis persistence", () => {

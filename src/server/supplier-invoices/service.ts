@@ -321,14 +321,32 @@ async function getPostableAccountId(companyId: string, accountId: string, client
   return row?.id;
 }
 
+/**
+ * Cuenta válida para una línea de compra: de gasto o de inmovilizado. En España se decide por el
+ * grupo del PGC (6 gastos, 2 inmovilizado), porque el tipo genérico ASSET también incluye bancos (57)
+ * o clientes (43); en otros planes, cualquier cuenta que no sea de pasivo, patrimonio o ingresos.
+ */
+export function isPurchaseLineAccount(account: { code: string; type: string }, countryCode: string | null | undefined) {
+  if (account.type === "EXPENSE") return true;
+  if ((countryCode ?? "ES").toUpperCase() === "ES") return account.code.startsWith("6") || account.code.startsWith("2");
+  return account.type === "ASSET" || account.type === "MIXED";
+}
+
 async function assertExpenseAccountsBelongToCompany(companyId: string, accountIds: string[], client: DbClient) {
   const uniqueIds = [...new Set(accountIds.filter(Boolean))];
   if (uniqueIds.length === 0) return;
-  const rows = await client
-    .select({ id: accountChart.id })
-    .from(accountChart)
-    .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, uniqueIds), eq(accountChart.isPostable, true)));
+  const [rows, [companyRow]] = await Promise.all([
+    client
+      .select({ id: accountChart.id, code: accountChart.code, name: accountChart.name, type: accountChart.type })
+      .from(accountChart)
+      .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, uniqueIds), eq(accountChart.isPostable, true))),
+    client.select({ countryCode: company.countryCode }).from(company).where(eq(company.id, companyId)).limit(1),
+  ]);
   if (rows.length !== uniqueIds.length) throw new Error("Cuenta de gasto invalida para la empresa activa.");
+  const invalid = rows.find((account) => !isPurchaseLineAccount(account, companyRow?.countryCode));
+  if (invalid) {
+    throw new Error(`La cuenta ${invalid.code} ${invalid.name} no es de gasto ni de inmovilizado: elige una cuenta del grupo 6 (gastos) o 2 (inmovilizado).`);
+  }
 }
 
 function partnerTypeForSupplier(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
@@ -413,12 +431,17 @@ async function resolveSupplier(input: {
   if (!supplierName && !supplierTaxId) throw new Error("Indica un proveedor o su CIF/NIF.");
   const [existing] = supplierName
     ? await input.client
-      .select({ id: partner.id, name: partner.name, type: partner.type })
+      .select({ id: partner.id, name: partner.name, type: partner.type, taxIdNormalized: partner.taxIdNormalized })
       .from(partner)
       .where(and(eq(partner.companyId, input.companyId), eq(partner.name, supplierName)))
       .limit(1)
     : [];
-  if (existing) {
+  // Mismo nombre pero otro CIF/NIF ya guardado: es otra empresa (o un CIF mal leído) y nunca se
+  // sobrescribe el del proveedor existente; se da de alta uno nuevo con el CIF indicado.
+  const nameMatchHasOtherTaxId = Boolean(
+    existing?.taxIdNormalized && supplierTaxId && existing.taxIdNormalized !== normalizeTaxIdentity(supplierTaxId, supplierCountryCode),
+  );
+  if (existing && !nameMatchHasOtherTaxId) {
     await input.client
       .update(partner)
       .set({
@@ -1274,9 +1297,21 @@ export async function deleteVoidedExpenseInvoice(input: { tenantId: string; comp
     if (applications[0] || linkedPayments[0]) throw new Error("No se puede eliminar una factura que conserva pagos vinculados.");
 
     const accountingEntries = await tx
-      .select({ id: journalEntry.id })
+      .select({ id: journalEntry.id, number: journalEntry.number, postedAt: journalEntry.postedAt })
       .from(journalEntry)
       .where(and(eq(journalEntry.companyId, input.companyId), eq(journalEntry.sourceType, "supplierInvoice"), eq(journalEntry.sourceId, input.id)));
+    // Borrar un asiento de un ejercicio cerrado o de un periodo con el modelo ya presentado
+    // cambiaría saldos y declaraciones ya cerrados: en ese caso la factura anulada se conserva.
+    for (const entry of accountingEntries) {
+      try {
+        await assertFiscalPeriodOpen(input.companyId, entry.postedAt, tx);
+      } catch (error) {
+        if (!(error instanceof AccountingRuleError)) throw error;
+        throw new Error(
+          `No se puede eliminar: el asiento ${entry.number} del ${entry.postedAt.toISOString().slice(0, 10)} está en un ejercicio cerrado o en un periodo con el modelo fiscal ya presentado. La factura anulada se conserva con su asiento de anulación.`,
+        );
+      }
+    }
 
     await recordAudit({
       tenantId: input.tenantId,
