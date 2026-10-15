@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 
-import { accountChart, company, companySettings, expenseOcrJob, partner, purchaseOrder, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { accountChart, company, expenseOcrJob, partner, purchaseOrder, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import { recordAudit } from "@/server/audit";
@@ -52,14 +52,15 @@ export async function generateExpenseExport(input: {
     filters: [input.filters.status ? sql`${paymentStatus} = ${input.filters.status}` : undefined],
   });
 
-  const [[companyRow], [settings], headers] = await Promise.all([
+  const [[companyRow], headers] = await Promise.all([
     db.select({ name: company.name, vatNumber: company.vatNumber }).from(company).where(eq(company.id, input.companyId)).limit(1),
-    db.select({ prorrataPct: companySettings.prorrataPct }).from(companySettings).where(eq(companySettings.companyId, input.companyId)).limit(1),
     db
       .select({
         id: supplierInvoice.id,
         number: supplierInvoice.number,
         issueDate: supplierInvoice.issueDate,
+        accountingDate: supplierInvoice.accountingDate,
+        prorrataPct: supplierInvoice.prorrataPct,
         dueDate: supplierInvoice.dueDate,
         supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
         supplierName: partner.name,
@@ -129,11 +130,11 @@ export async function generateExpenseExport(input: {
     }
   }
 
-  const prorrataPct = Number(settings?.prorrataPct ?? 100);
   const invoices: ExpenseExportInvoice[] = headers.map((row) => ({
     id: row.id,
     number: row.number,
     issueDate: row.issueDate,
+    accountingDate: row.accountingDate,
     dueDate: row.dueDate,
     supplierDocumentNumber: row.supplierDocumentNumber,
     supplierName: row.supplierName,
@@ -149,7 +150,8 @@ export async function generateExpenseExport(input: {
     paymentStatus: row.paymentStatus,
     purchaseOrderNumber: row.purchaseOrderNumber,
     notes: row.notes,
-    prorrataPct,
+    // Prorrata guardada al contabilizar la factura.
+    prorrataPct: Number(row.prorrataPct),
     lines: lines
       .filter((line) => line.supplierInvoiceId === row.id)
       .map((line) => ({

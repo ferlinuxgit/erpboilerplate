@@ -29,8 +29,14 @@ export type Modelo303Box = {
 
 export type FiscalSourceDocument = {
   id: string;
+  /** Factura de origen (difiere de `id` en la fila de anulación de una factura recibida). */
+  sourceId?: string;
   number: string;
   issueDate: string;
+  /** Fecha de registro (solo recibidas): la que determina el periodo. */
+  registrationDate?: string;
+  /** Cuota de IVA soportada según la factura (solo recibidas; `taxAmount` es la deducible). */
+  chargedTaxAmount?: number;
   totalAmount: number;
   taxBase: number;
   taxAmount: number;
@@ -75,6 +81,12 @@ export type SupplierLineInput = {
   retentionAmount?: string | number | null;
   retentionRate?: string | number | null;
   expenseAccountCode?: string | null;
+  /** Fecha de registro (periodo de IVA); por defecto la de la factura. */
+  accountingDate?: Date;
+  /** Prorrata aplicada al contabilizar la factura; si falta, la indicada al cálculo. */
+  prorrataPct?: string | number | null;
+  /** −1 en la fila de anulación de una factura recibida (resta en el periodo de la anulación). */
+  sign?: 1 | -1;
 };
 
 type CentsBucket = { rate: number; base: number; tax: number };
@@ -236,16 +248,18 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
   let defaultRateLines = 0;
   // Autorepercusión: el total a pagar al proveedor debe ser base − retención (el IVA no se le paga).
   const selfAssessedInvoices = new Map<string, { totalCents: number; baseCents: number; withholdingCents: number }>();
-  const documents = new Map<string, { doc: FiscalSourceDocument; base: number; tax: number; withholding: number }>();
+  const documents = new Map<string, { doc: FiscalSourceDocument; base: number; tax: number; charged: number; withholding: number }>();
 
   for (const line of lines) {
-    const base = toCents(line.subtotal);
-    const charged = toCents(line.taxAmount);
+    // Importes de la factura tal cual; en la fila de anulación se restan.
+    const sign = line.sign ?? 1;
+    const base = sign * toCents(line.subtotal);
+    const charged = sign * toCents(line.taxAmount);
     const selfAssessedLine = isSelfAssessedTreatment(line.treatment);
-    const vat = selfAssessedLine ? toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount))) : charged;
+    const vat = selfAssessedLine ? sign * toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount))) : charged;
     const rate = selfAssessedLine && charged === 0 ? 21 : rateKey(line.taxRate);
-    if (selfAssessedLine && charged === 0 && base !== 0) defaultRateLines += 1;
-    if (selfAssessedLine) {
+    if (selfAssessedLine && charged === 0 && base !== 0 && sign === 1) defaultRateLines += 1;
+    if (selfAssessedLine && sign === 1) {
       const selfAssessedInvoice = selfAssessedInvoices.get(line.invoiceId) ?? { totalCents: toCents(line.totalAmount), baseCents: 0, withholdingCents: 0 };
       selfAssessedInvoice.baseCents += base;
       selfAssessedInvoice.withholdingCents += toCents(line.retentionAmount ?? 0);
@@ -253,7 +267,8 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     }
 
     const lineDeductiblePct = Math.min(Math.max(num(line.taxDeductiblePct ?? 100), 0), 100);
-    const effectivePct = (lineDeductiblePct * prorrataPct) / 100;
+    const lineProrrataPct = line.prorrataPct === null || line.prorrataPct === undefined ? prorrataPct : Math.min(Math.max(num(line.prorrataPct), 0), 100);
+    const effectivePct = (lineDeductiblePct * lineProrrataPct) / 100;
     const lineDeductible = applyPct(vat, effectivePct);
     const deductibleBase = vat !== 0 ? applyPct(base, effectivePct) : 0;
     const investment = (line.expenseAccountCode ?? "").startsWith("2");
@@ -274,19 +289,22 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
       addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible);
     }
 
-    const withholding = toCents(line.retentionAmount ?? 0);
-    if (withholding > 0) {
+    const withholding = sign * toCents(line.retentionAmount ?? 0);
+    if (withholding !== 0) {
       const retentionRate = rateKey(line.retentionRate) || (base !== 0 ? Math.round((withholding / base) * 10_000) / 100 : 0);
       // Arrendamientos (cuenta 621) → modelo 115; resto (profesionales) → modelo 111.
       addBucket((line.expenseAccountCode ?? "").startsWith("621") ? rent : professional, retentionRate, base, withholding);
     }
 
-    const entry = documents.get(line.invoiceId) ?? {
+    const documentId = sign === 1 ? line.invoiceId : `${line.invoiceId}:anulacion`;
+    const entry = documents.get(documentId) ?? {
       doc: {
-        id: line.invoiceId,
-        number: line.number,
+        id: documentId,
+        sourceId: line.invoiceId,
+        number: sign === 1 ? line.number : `${line.number} (anulación)`,
         issueDate: line.issueDate.toISOString(),
-        totalAmount: centsToNumber(toCents(line.totalAmount)),
+        registrationDate: (line.accountingDate ?? line.issueDate).toISOString(),
+        totalAmount: centsToNumber(sign * toCents(line.totalAmount)),
         taxBase: 0,
         taxAmount: 0,
         withholdingAmount: 0,
@@ -294,12 +312,14 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
       },
       base: 0,
       tax: 0,
+      charged: 0,
       withholding: 0,
     };
     entry.base += base;
     entry.tax += lineDeductible;
+    entry.charged += vat;
     entry.withholding += withholding;
-    documents.set(line.invoiceId, entry);
+    documents.set(documentId, entry);
   }
 
   return {
@@ -312,10 +332,16 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     deductibleCents: deductibleTotal,
     defaultRateLines,
     invoicesWithChargedSelfAssessedVat: countSelfAssessedTotalMismatches(selfAssessedInvoices),
-    invoiceIds: new Set(documents.keys()),
+    invoiceIds: new Set([...documents.values()].map(({ doc }) => doc.sourceId ?? doc.id)),
     documents: [...documents.values()]
-      .map(({ doc, base, tax, withholding }) => ({ ...doc, taxBase: centsToNumber(base), taxAmount: centsToNumber(tax), withholdingAmount: centsToNumber(withholding) }))
-      .sort((left, right) => right.issueDate.localeCompare(left.issueDate)),
+      .map(({ doc, base, tax, charged, withholding }) => ({
+        ...doc,
+        taxBase: centsToNumber(base),
+        taxAmount: centsToNumber(tax),
+        chargedTaxAmount: centsToNumber(charged),
+        withholdingAmount: centsToNumber(withholding),
+      }))
+      .sort((left, right) => (right.registrationDate ?? right.issueDate).localeCompare(left.registrationDate ?? left.issueDate)),
   };
 }
 
@@ -663,11 +689,13 @@ export function computeIncomeTaxExpenseCents(lines: SupplierLineInput[], prorrat
   for (const line of lines) {
     const investment = (line.expenseAccountCode ?? "").startsWith("2");
     if (investment) continue;
-    const base = toCents(line.subtotal);
+    const sign = line.sign ?? 1;
+    const base = sign * toCents(line.subtotal);
     const selfAssessed = isSelfAssessedTreatment(line.treatment);
-    const vat = selfAssessed ? toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount))) : toCents(line.taxAmount);
+    const vat = sign * (selfAssessed ? toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount))) : toCents(line.taxAmount));
     const deductiblePct = Math.min(Math.max(num(line.taxDeductiblePct ?? 100), 0), 100);
-    const deductible = applyPct(vat, (deductiblePct * prorrataPct) / 100);
+    const lineProrrataPct = line.prorrataPct === null || line.prorrataPct === undefined ? prorrataPct : Math.min(Math.max(num(line.prorrataPct), 0), 100);
+    const deductible = applyPct(vat, (deductiblePct * lineProrrataPct) / 100);
     total += base + (vat - deductible);
   }
   return total;

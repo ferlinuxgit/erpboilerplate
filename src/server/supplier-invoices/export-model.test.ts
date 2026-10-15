@@ -16,6 +16,7 @@ function invoice(patch: Partial<ExpenseExportInvoice> = {}): ExpenseExportInvoic
     id: "inv-1",
     number: "FP-2026/0001",
     issueDate: new Date("2026-02-10T12:00:00.000Z"),
+    accountingDate: new Date("2026-02-10T12:00:00.000Z"),
     dueDate: new Date("2026-03-12T12:00:00.000Z"),
     supplierDocumentNumber: "A-118",
     supplierName: "Suministros Levante, S.L.",

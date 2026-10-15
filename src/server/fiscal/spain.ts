@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt, ne, notInArray, or, sql, isNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 
 import { alias } from "drizzle-orm/pg-core";
 
@@ -283,31 +283,56 @@ async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusiv
   })));
 }
 
-/** Líneas de facturas recibidas del periodo (sin anuladas ni borradores) con su tratamiento IVA. */
+/**
+ * Líneas de facturas recibidas del periodo de IVA, con su tratamiento y su prorrata:
+ * - cada factura computa en su fecha de registro (por defecto la de la factura);
+ * - una factura anulada sigue en su periodo y su anulación resta (sign −1) en el periodo del asiento
+ *   de anulación, como en el diario; las anuladas sin fecha de anulación (antiguas) no computan.
+ */
 async function fetchSupplierLines(companyId: string, start: Date, endExclusive: Date): Promise<SupplierLineInput[]> {
-  const lines = await db
-    .select({
-      subtotal: supplierInvoiceLine.subtotalAmount,
-      taxAmount: supplierInvoiceLine.taxAmount,
-      taxRate: supplierInvoiceLine.taxRate,
-      taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
-      retentionAmount: supplierInvoiceLine.retentionAmount,
-      retentionRate: supplierInvoiceLine.retentionRate,
-      expenseAccountCode: accountChart.code,
-      invoiceId: supplierInvoice.id,
-      number: supplierInvoice.number,
-      issueDate: supplierInvoice.issueDate,
-      totalAmount: supplierInvoice.totalAmount,
-      vatTreatment: supplierInvoice.vatTreatment,
-      countryCode: partner.countryCode,
-    })
+  const columns = {
+    subtotal: supplierInvoiceLine.subtotalAmount,
+    taxAmount: supplierInvoiceLine.taxAmount,
+    taxRate: supplierInvoiceLine.taxRate,
+    taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
+    retentionAmount: supplierInvoiceLine.retentionAmount,
+    retentionRate: supplierInvoiceLine.retentionRate,
+    expenseAccountCode: accountChart.code,
+    invoiceId: supplierInvoice.id,
+    number: supplierInvoice.number,
+    issueDate: supplierInvoice.issueDate,
+    accountingDate: supplierInvoice.accountingDate,
+    prorrataPct: supplierInvoice.prorrataPct,
+    totalAmount: supplierInvoice.totalAmount,
+    vatTreatment: supplierInvoice.vatTreatment,
+    countryCode: partner.countryCode,
+  };
+  const query = () => db
+    .select(columns)
     .from(supplierInvoiceLine)
     .innerJoin(supplierInvoice, eq(supplierInvoiceLine.supplierInvoiceId, supplierInvoice.id))
     .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
-    .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
-    .where(supplierInvoiceFiscalFilter(companyId, start, endExclusive));
+    .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId));
+  const [registered, voided] = await Promise.all([
+    query().where(and(
+      eq(supplierInvoice.companyId, companyId),
+      ne(supplierInvoice.status, "DRAFT"),
+      or(ne(supplierInvoice.status, "VOID"), isNotNull(supplierInvoice.voidedAt)),
+      gte(supplierInvoice.accountingDate, start),
+      lt(supplierInvoice.accountingDate, endExclusive),
+    )),
+    query().where(and(
+      eq(supplierInvoice.companyId, companyId),
+      eq(supplierInvoice.status, "VOID"),
+      gte(supplierInvoice.voidedAt, start),
+      lt(supplierInvoice.voidedAt, endExclusive),
+    )),
+  ]);
 
-  return lines.map((line) => ({
+  return [
+    ...registered.map((line) => ({ ...line, sign: 1 as const })),
+    ...voided.map((line) => ({ ...line, sign: -1 as const })),
+  ].map((line) => ({
     ...line,
     treatment: resolveSupplierVatTreatment(line.vatTreatment, line.countryCode),
   }));
@@ -872,6 +897,8 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
 export type VatRegisterRow = {
   id: string;
   issueDate: string;
+  /** Fecha de registro (solo recibidas): determina el periodo de deducción. */
+  registrationDate?: string;
   number: string;
   /** Número de factura del proveedor (solo recibidas). */
   supplierNumber: string | null;
@@ -879,7 +906,10 @@ export type VatRegisterRow = {
   counterpartyTaxId: string | null;
   vatTreatment: string | null;
   taxBase: number;
+  /** Expedidas: IVA repercutido. Recibidas: IVA deducible (el que computa en el 303). */
   taxAmount: number;
+  /** Recibidas: cuota de IVA soportada según la factura. */
+  chargedTaxAmount?: number;
   withholdingAmount: number;
   totalAmount: number;
 };
@@ -895,7 +925,7 @@ export async function loadVatRegisters(companyId: string, start: Date, endExclus
     fetchSupplierInvoiceVat(companyId, start, endExclusive, profile.prorrataPct),
   ]);
   const issuedIds = issued.documents.map((document) => document.id);
-  const receivedIds = supplier.documents.map((document) => document.id);
+  const receivedIds = [...new Set(supplier.documents.map((document) => document.sourceId ?? document.id))];
   const [customers, suppliers] = await Promise.all([
     issuedIds.length
       ? db
@@ -931,18 +961,23 @@ export async function loadVatRegisters(companyId: string, start: Date, endExclus
       withholdingAmount: document.withholdingAmount ?? 0,
       totalAmount: document.totalAmount,
     })).sort(byDate),
-    received: supplier.documents.map((document) => ({
-      id: document.id,
-      issueDate: document.issueDate,
-      number: document.number,
-      supplierNumber: supplierById.get(document.id)?.supplierNumber ?? null,
-      counterpartyName: supplierById.get(document.id)?.name ?? "",
-      counterpartyTaxId: supplierById.get(document.id)?.taxId ?? null,
-      vatTreatment: document.vatTreatment ?? null,
-      taxBase: document.taxBase,
-      taxAmount: document.taxAmount,
-      withholdingAmount: document.withholdingAmount ?? 0,
-      totalAmount: document.totalAmount,
-    })).sort(byDate),
+    received: supplier.documents.map((document) => {
+      const source = supplierById.get(document.sourceId ?? document.id);
+      return {
+        id: document.id,
+        issueDate: document.issueDate,
+        registrationDate: document.registrationDate ?? document.issueDate,
+        number: document.number,
+        supplierNumber: source?.supplierNumber ?? null,
+        counterpartyName: source?.name ?? "",
+        counterpartyTaxId: source?.taxId ?? null,
+        vatTreatment: document.vatTreatment ?? null,
+        taxBase: document.taxBase,
+        taxAmount: document.taxAmount,
+        chargedTaxAmount: document.chargedTaxAmount ?? document.taxAmount,
+        withholdingAmount: document.withholdingAmount ?? 0,
+        totalAmount: document.totalAmount,
+      };
+    }).sort((left, right) => (left.registrationDate ?? left.issueDate).localeCompare(right.registrationDate ?? right.issueDate) || left.number.localeCompare(right.number)),
   };
 }

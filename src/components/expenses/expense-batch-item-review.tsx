@@ -189,6 +189,13 @@ export function ExpenseBatchItemReview({
             <Input disabled={disabled} onChange={(event) => changeIssueDate(event.target.value)} type="date" value={item.issueDate} />
           </AccessibleField>
           <AccessibleField
+            helperText="Opcional: si la factura llega tarde y su trimestre ya está presentado, indica hoy."
+            id={`accounting-date-${idBase}`}
+            label="Fecha de registro"
+          >
+            <Input disabled={disabled} min={item.issueDate || undefined} onChange={(event) => onPatch({ accountingDate: event.target.value })} type="date" value={item.accountingDate} />
+          </AccessibleField>
+          <AccessibleField
             helperText={selectedSupplier?.defaults?.paymentTermsDays !== null && selectedSupplier?.defaults?.paymentTermsDays !== undefined && !item.dueDateEdited && !item.draft?.dueDate ? `Calculado: fecha + ${selectedSupplier.defaults.paymentTermsDays} días de pago del proveedor.` : "Fecha límite para pagarla."}
             id={`due-date-${idBase}`}
             label="Vencimiento"

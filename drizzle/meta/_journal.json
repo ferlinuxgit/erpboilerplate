@@ -260,6 +260,13 @@
       "when": 1792061884432,
       "tag": "0036_invoice_stored_pdf",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792062557519,
+      "tag": "0037_supplier_invoice_fiscal_dates",
+      "breakpoints": true
     }
   ]
 }

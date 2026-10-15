@@ -802,6 +802,9 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   idempotencyKey: text("idempotencyKey"),
   currencyCode: text("currencyCode").notNull().default("EUR"),
   issueDate: timestamp("issueDate", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  // Fecha de registro (contabilización y periodo de IVA): por defecto la de la factura; una factura
+  // recibida tarde se deduce en el periodo en que se registra (art. 99 LIVA, plazo de 4 años).
+  accountingDate: timestamp("accountingDate", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   dueDate: timestamp("dueDate", { withTimezone: true, mode: "date" }),
   status: text("status").notNull().default("POSTED"),
   paymentStatus: paymentStatusEnum("paymentStatus").notNull().default("PENDING"),
@@ -812,6 +815,10 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   // Tratamiento IVA: DOMESTIC, INTRA_EU (adquisición intracomunitaria), REVERSE_CHARGE (ISP),
   // IMPORT, NOT_SUBJECT. null = automático según el país del proveedor.
   vatTreatment: text("vatTreatment"),
+  // Prorrata aplicada al contabilizar: el 303 y los libros usan esta, no la vigente hoy.
+  prorrataPct: numeric("prorrataPct", { precision: 6, scale: 3 }).notNull().default("100"),
+  // Fecha del asiento de anulación: la factura sigue en su periodo y la anulación resta en este.
+  voidedAt: timestamp("voidedAt", { withTimezone: true, mode: "date" }),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

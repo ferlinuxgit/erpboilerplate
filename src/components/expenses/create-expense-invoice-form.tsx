@@ -24,7 +24,7 @@ import { applySupplierDefaultsToLine, dueDateInputFor, parseSupplierVatTreatment
 
 import type { DuplicateAssessment } from "./expense-batch-model";
 
-type Supplier = { id: string; number: string; name: string; taxId: string | null; countryCode?: string | null; isActive?: boolean; defaults?: SupplierDefaults };
+type Supplier = { id: string; number: string; name: string; taxId: string | null; countryCode?: string | null; supplierKind?: string | null; isActive?: boolean; defaults?: SupplierDefaults };
 type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
 type GoodsReceiptRelation = { id: string; number: string; purchaseOrderId: string; supplierPartnerId: string };
 
@@ -125,6 +125,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [supplierDocumentNumber, setSupplierDocumentNumber] = useState("");
   const [issueDate, setIssueDate] = useState(todayInputValue);
+  // Vacía = la fecha de la factura. Solo se indica si la factura llega tarde (periodo ya presentado).
+  const [accountingDate, setAccountingDate] = useState("");
   const [dueDate, setDueDate] = useState(() => dueDateInputFor(todayInputValue(), initialSupplier?.defaults?.paymentTermsDays));
   const [dueDateEdited, setDueDateEdited] = useState(false);
   const [notes, setNotes] = useState("");
@@ -142,7 +144,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   const supplierDefaults = selectedSupplier?.defaults;
   const supplierCountryForVat = selectedSupplier ? selectedSupplier.countryCode : newSupplier?.countryCode;
   // Por defecto se deduce del país del proveedor (o su valor habitual); si el usuario lo cambia, prevalece su elección.
-  const vatTreatment = vatTreatmentOverride ?? resolveSupplierVatTreatment(null, supplierCountryForVat);
+  // Fuera de la UE: servicios por inversión del sujeto pasivo, bienes como importación.
+  const vatTreatment = vatTreatmentOverride ?? resolveSupplierVatTreatment(null, supplierCountryForVat, selectedSupplier?.supplierKind);
   const selfAssessedVat = isSelfAssessedTreatment(vatTreatment);
   const availablePurchaseOrders = purchaseOrders.filter((order) => !supplierPartnerId || order.supplierPartnerId === supplierPartnerId);
   const availableGoodsReceipts = goodsReceipts.filter((receipt) => (purchaseOrderId ? receipt.purchaseOrderId === purchaseOrderId : !supplierPartnerId || receipt.supplierPartnerId === supplierPartnerId));
@@ -301,6 +304,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
     if (!supplierPartnerId && !newSupplier) nextErrors.supplier = "Elige el proveedor o créalo.";
     if (!issueDate) nextErrors.issueDate = "Indica la fecha de la factura.";
     if (dueDate && issueDate && dueDate < issueDate) nextErrors.dueDate = "El vencimiento no puede ser anterior a la fecha de la factura.";
+    if (accountingDate && issueDate && accountingDate < issueDate) nextErrors.accountingDate = "La fecha de registro no puede ser anterior a la fecha de la factura.";
     const parsedLines = lines.map((line) => {
       const quantity = decimal(line.quantity);
       const unitPrice = money(line.unitPrice);
@@ -321,7 +325,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
       const firstKey = Object.keys(nextErrors)[0];
       const fieldMap: Record<string, string> = { account: "account", description: "description", quantity: "quantity", price: "price", tax: "tax", deductible: "deductible", retention: "retention" };
       const separator = firstKey.lastIndexOf("-");
-      const targetId = firstKey === "supplier" ? "expense-supplier" : firstKey === "issueDate" ? "expense-issue-date" : firstKey === "dueDate" ? "expense-due-date" : `expense-line-${fieldMap[firstKey.slice(separator + 1)]}-${firstKey.slice(0, separator)}`;
+      const targetId = firstKey === "supplier" ? "expense-supplier" : firstKey === "issueDate" ? "expense-issue-date" : firstKey === "dueDate" ? "expense-due-date" : firstKey === "accountingDate" ? "expense-accounting-date" : `expense-line-${fieldMap[firstKey.slice(separator + 1)]}-${firstKey.slice(0, separator)}`;
       requestAnimationFrame(() => document.getElementById(targetId)?.focus());
       const message = "Revisa los campos marcados antes de registrar la factura.";
       setError(message);
@@ -367,6 +371,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
           purchaseOrderId: purchaseOrderId || undefined,
           goodsReceiptId: goodsReceiptId || undefined,
           issueDate: toIsoDate(issueDate),
+          accountingDate: accountingDate ? toIsoDate(accountingDate) : undefined,
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
           notes,
           ocrJobId: attachment?.jobId,
@@ -463,6 +468,14 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
           </AccessibleField>
           <AccessibleField error={fieldErrors.issueDate} id="expense-issue-date" label="Fecha de la factura" required>
             <Input onChange={(event) => changeIssueDate(event.target.value)} required type="date" value={issueDate} />
+          </AccessibleField>
+          <AccessibleField
+            error={fieldErrors.accountingDate}
+            helperText="Opcional. Si la factura te llega tarde y su trimestre ya está presentado, indica hoy: el IVA se deduce en el periodo de registro."
+            id="expense-accounting-date"
+            label="Fecha de registro"
+          >
+            <Input min={issueDate || undefined} onChange={(event) => setAccountingDate(event.target.value)} placeholder="Igual que la factura" type="date" value={accountingDate} />
           </AccessibleField>
           <AccessibleField
             error={fieldErrors.dueDate}

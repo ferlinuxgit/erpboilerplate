@@ -35,7 +35,7 @@ import { AccountingRuleError } from "@/server/accounting/errors";
 import { ensureSubaccount, syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
-import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
+import { assertFiscalPeriodOpen, resolveOpenPostingDate } from "@/server/fiscal/locks";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
 
@@ -76,6 +76,8 @@ export type CreatePurchaseSupplierInvoiceInput = {
   number?: string;
   supplierDocumentNumber?: string;
   issueDate?: Date;
+  /** Fecha de registro (periodo de IVA y asiento); por defecto la de la factura. */
+  accountingDate?: Date;
   dueDate?: Date;
   notes?: string;
   lines: SupplierInvoiceLineInput[];
@@ -107,6 +109,8 @@ export type CreateExpenseInvoiceInput = {
   number?: string;
   supplierDocumentNumber?: string;
   issueDate: Date;
+  /** Fecha de registro (periodo de IVA y asiento); por defecto la de la factura. */
+  accountingDate?: Date;
   dueDate?: Date;
   notes?: string;
   lines: SupplierInvoiceLineInput[];
@@ -117,6 +121,23 @@ export type CreateExpenseInvoiceInput = {
   /** Tratamiento de IVA; si no se indica se deduce del país del proveedor. */
   vatTreatment?: SupplierVatTreatment;
 };
+
+const ACCOUNTING_DATE_MAX_DELAY_MS = 4 * 366 * 86_400_000;
+
+/**
+ * Fecha de registro: la de la factura salvo que se indique otra posterior (factura recibida tarde).
+ * Nunca anterior a la factura ni más allá del plazo de 4 años para deducir el IVA.
+ */
+export function resolveAccountingDate(issueDate: Date, accountingDate: Date | undefined) {
+  if (!accountingDate) return issueDate;
+  if (Number.isNaN(accountingDate.getTime())) throw new Error("La fecha de registro no es válida.");
+  const day = (value: Date) => value.toISOString().slice(0, 10);
+  if (day(accountingDate) < day(issueDate)) throw new Error("La fecha de registro no puede ser anterior a la fecha de la factura.");
+  if (accountingDate.getTime() - issueDate.getTime() > ACCOUNTING_DATE_MAX_DELAY_MS) {
+    throw new Error("La fecha de registro supera el plazo de 4 años desde la factura para deducir el IVA.");
+  }
+  return accountingDate;
+}
 
 function clampPct(value: number | undefined, fallback: number) {
   const pct = value ?? fallback;
@@ -178,8 +199,10 @@ export type SupplierInvoiceAmounts = {
  */
 export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[], vatTreatment: SupplierVatTreatment): SupplierInvoiceAmounts {
   const selfAssessed = isSelfAssessedTreatment(vatTreatment);
+  // Operación no sujeta: no hay IVA que soportar ni deducir, aunque la línea traiga un tipo.
+  const notSubject = vatTreatment === "NOT_SUBJECT";
   const rates = lines.map((line) => ({
-    taxRate: clampPct(line.taxRate, 21),
+    taxRate: notSubject ? 0 : clampPct(line.taxRate, 21),
     taxDeductiblePct: clampPct(line.taxDeductiblePct, 100),
     retentionRate: clampPct(line.retentionRate, 0),
   }));
@@ -504,6 +527,7 @@ async function createSupplierInvoiceHeader(input: {
   number?: string;
   supplierDocumentNumber?: string;
   issueDate: Date;
+  accountingDate?: Date;
   dueDate?: Date;
   notes?: string;
   lines: SupplierInvoiceLineInput[];
@@ -516,12 +540,26 @@ async function createSupplierInvoiceHeader(input: {
   client: AppDbTransaction;
 }) {
   assertValidLines(input.lines);
-  await assertFiscalPeriodOpen(input.companyId, input.issueDate, input.client);
+  const accountingDate = resolveAccountingDate(input.issueDate, input.accountingDate);
+  try {
+    await assertFiscalPeriodOpen(input.companyId, accountingDate, input.client);
+  } catch (error) {
+    // Factura recibida tarde: se puede deducir en el periodo en que se registra.
+    if (error instanceof AccountingRuleError && !input.accountingDate) {
+      throw new AccountingRuleError(
+        409,
+        "SUPPLIER_INVOICE_PERIOD_LOCKED",
+        `${error.message} Si la factura te ha llegado tarde, indica una fecha de registro en un periodo abierto: el IVA se deduce en el periodo en que se registra.`,
+      );
+    }
+    throw error;
+  }
   const [supplierRow] = await input.client
     .select({
       name: partner.name,
       taxId: partner.taxId,
       countryCode: partner.countryCode,
+      supplierKind: partner.supplierKind,
       paymentTermsDays: partner.paymentTermsDays,
       defaultExpenseAccountId: partner.defaultExpenseAccountId,
       defaultRetentionRate: partner.defaultRetentionRate,
@@ -558,15 +596,24 @@ async function createSupplierInvoiceHeader(input: {
     taxId: supplierRow?.taxId,
     countryCode: supplierRow?.countryCode,
   });
-  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment ?? supplierDefaults.defaultVatTreatment, supplierRow?.countryCode);
+  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment ?? supplierDefaults.defaultVatTreatment, supplierRow?.countryCode, supplierRow?.supplierKind);
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim() || null;
   const supplierDocumentNumberNormalized = normalizeSupplierDocumentNumber(supplierDocumentNumber) || null;
-  const [ownedCompany] = await input.client
-    .select({ baseCurrencyCode: company.baseCurrencyCode })
-    .from(company)
-    .where(eq(company.id, input.companyId))
-    .limit(1);
+  const [[ownedCompany], [settingsRow]] = await Promise.all([
+    input.client
+      .select({ baseCurrencyCode: company.baseCurrencyCode })
+      .from(company)
+      .where(eq(company.id, input.companyId))
+      .limit(1),
+    input.client
+      .select({ prorrataPct: companySettings.prorrataPct })
+      .from(companySettings)
+      .where(eq(companySettings.companyId, input.companyId))
+      .limit(1),
+  ]);
   if (!ownedCompany) throw new Error("Empresa activa no encontrada.");
+  // Prorrata vigente al registrar: queda guardada en la factura para el 303 y los libros.
+  const prorrataPct = clampPct(Number(settingsRow?.prorrataPct ?? 100), 100);
   const currencyCode = input.currencyCode?.trim().toUpperCase() || ownedCompany.baseCurrencyCode;
   if (currencyCode !== ownedCompany.baseCurrencyCode) {
     throw new Error(`La factura está en ${currencyCode}; falta convertirla a ${ownedCompany.baseCurrencyCode} antes de contabilizar.`);
@@ -588,7 +635,9 @@ async function createSupplierInvoiceHeader(input: {
       idempotencyKey: input.idempotencyKey?.trim() || null,
       currencyCode,
       vatTreatment,
+      prorrataPct: prorrataPct.toString(),
       issueDate: input.issueDate,
+      accountingDate,
       dueDate: dueDate ?? null,
       status: "POSTED",
       paymentStatus: getPaymentStatus(0, 0, dueDate),
@@ -631,13 +680,14 @@ async function createSupplierInvoiceHeader(input: {
     companyId: input.companyId,
     actorUserId: input.actorUserId,
     supplierInvoiceId: header.id,
-    postedAt: input.issueDate,
+    postedAt: accountingDate,
     reference: `Factura proveedor ${updated.number}`,
     subtotal: totals.subtotalAmount,
     taxAmount: totals.taxAmount,
     retentionAmount: totals.retentionAmount,
     totalAmount: totals.totalAmount,
     vatTreatment,
+    prorrataPct,
     expenseLines: lineValues.map((line, index) => ({
       accountId: line.expenseAccountId ?? fallbackExpenseAccountId,
       subtotal: totals.lines[index].subtotalAmount,
@@ -1078,6 +1128,7 @@ export async function listSupplierPartners(companyId: string) {
       name: partner.name,
       taxId: partner.taxId,
       countryCode: partner.countryCode,
+      supplierKind: partner.supplierKind,
       isActive: partner.isActive,
       paymentTermsDays: partner.paymentTermsDays,
       defaultExpenseAccountId: partner.defaultExpenseAccountId,
@@ -1094,6 +1145,7 @@ export async function listSupplierPartners(companyId: string) {
     name: row.name,
     taxId: row.taxId,
     countryCode: row.countryCode,
+    supplierKind: row.supplierKind,
     isActive: row.isActive,
     defaults: supplierDefaultsFromRow(row),
   }));
@@ -1113,6 +1165,8 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       supplierPartnerId: supplierInvoice.supplierPartnerId,
       supplierName: partner.name,
       issueDate: supplierInvoice.issueDate,
+      accountingDate: supplierInvoice.accountingDate,
+      voidedAt: supplierInvoice.voidedAt,
       dueDate: supplierInvoice.dueDate,
       status: supplierInvoice.status,
       paymentStatus: supplierInvoice.paymentStatus,
@@ -1195,10 +1249,13 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
         retentionAmount: supplierInvoice.retentionAmount,
         totalAmount: supplierInvoice.totalAmount,
         issueDate: supplierInvoice.issueDate,
+        accountingDate: supplierInvoice.accountingDate,
         purchaseOrderId: supplierInvoice.purchaseOrderId,
       })
       .from(supplierInvoice)
       .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id)))
+      // Bloqueo: un pago o una anulación simultáneos esperan a que termine esta.
+      .for("update")
       .limit(1);
     if (!invoiceRow) return null;
     if (invoiceRow.status === "VOID") throw new Error("La factura de proveedor ya está anulada.");
@@ -1210,8 +1267,12 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
     const paidAmount = paymentRows.reduce((total, payment) => total + Number(payment.amountApplied), 0);
     if (paidAmount > 0) throw new Error("No se puede anular una factura con pagos registrados. Anula o corrige el pago primero.");
 
-    const reversedAt = new Date();
-    await assertFiscalPeriodOpen(input.companyId, reversedAt, tx);
+    // La anulación se contabiliza en el periodo de la factura si sigue abierto (la factura y su
+    // anulación se compensan en el mismo 303); si ya está cerrado o presentado, hoy.
+    const today = new Date();
+    const reversedAt = invoiceRow.accountingDate <= today
+      ? await resolveOpenPostingDate(input.companyId, invoiceRow.accountingDate, today, tx)
+      : today;
     await reverseAutomaticEntries({
       tenantId: input.tenantId,
       companyId: input.companyId,
@@ -1226,7 +1287,7 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
 
     const [updated] = await tx
       .update(supplierInvoice)
-      .set({ status: "VOID", paymentStatus: "VOID", notes: input.reason?.trim() || undefined, updatedAt: new Date() })
+      .set({ status: "VOID", paymentStatus: "VOID", voidedAt: reversedAt, notes: input.reason?.trim() || undefined, updatedAt: new Date() })
       .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.id)))
       .returning();
 

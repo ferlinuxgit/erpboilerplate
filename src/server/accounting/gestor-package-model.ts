@@ -196,21 +196,25 @@ export async function buildVatRegisterWorkbook(data: GestorPackageData, kind: "i
   const workbook = newWorkbook(data, title);
   const sheet = sheetWithHeader(workbook, kind === "issued" ? "Expedidas" : "Recibidas", [
     { header: "Fecha de expedición", key: "date", width: 14, style: { numFmt: DATE_FORMAT } },
+    ...(kind === "received" ? [{ header: "Fecha de registro", key: "registrationDate", width: 14, style: { numFmt: DATE_FORMAT } }] : []),
     { header: kind === "issued" ? "Número" : "Número de registro", key: "number", width: 16 },
     ...(kind === "received" ? [{ header: "Número de factura del proveedor", key: "supplierNumber", width: 22 }] : []),
     { header: kind === "issued" ? "Cliente" : "Proveedor", key: "name", width: 36 },
     { header: "NIF", key: "taxId", width: 14 },
     { header: "Tipo de operación", key: "treatment", width: 24 },
     { header: "Base imponible", key: "base", width: 16, style: { numFmt: MONEY_FORMAT } },
-    { header: kind === "issued" ? "IVA repercutido" : "IVA soportado", key: "tax", width: 16, style: { numFmt: MONEY_FORMAT } },
+    ...(kind === "received" ? [{ header: "Cuota soportada", key: "charged", width: 16, style: { numFmt: MONEY_FORMAT } }] : []),
+    { header: kind === "issued" ? "IVA repercutido" : "IVA deducible", key: "tax", width: 16, style: { numFmt: MONEY_FORMAT } },
     { header: "Retención IRPF", key: "withholding", width: 16, style: { numFmt: MONEY_FORMAT } },
     { header: "Total factura", key: "total", width: 16, style: { numFmt: MONEY_FORMAT } },
   ]);
   const rows = kind === "issued" ? data.vatIssued : data.vatReceived;
-  const totals = { base: 0, tax: 0, withholding: 0, total: 0 };
+  const totals = { base: 0, charged: 0, tax: 0, withholding: 0, total: 0 };
   for (const row of rows) {
     sheet.addRow({
       date: new Date(row.issueDate),
+      registrationDate: new Date(row.registrationDate ?? row.issueDate),
+      charged: row.chargedTaxAmount ?? row.taxAmount,
       number: row.number,
       supplierNumber: row.supplierNumber ?? "",
       name: row.counterpartyName,
@@ -222,11 +226,12 @@ export async function buildVatRegisterWorkbook(data: GestorPackageData, kind: "i
       total: row.totalAmount,
     });
     totals.base += row.taxBase;
+    totals.charged += row.chargedTaxAmount ?? row.taxAmount;
     totals.tax += row.taxAmount;
     totals.withholding += row.withholdingAmount;
     totals.total += row.totalAmount;
   }
-  const total = sheet.addRow({ name: "Total", base: round2(totals.base), tax: round2(totals.tax), withholding: round2(totals.withholding), total: round2(totals.total) });
+  const total = sheet.addRow({ name: "Total", base: round2(totals.base), charged: round2(totals.charged), tax: round2(totals.tax), withholding: round2(totals.withholding), total: round2(totals.total) });
   total.font = { bold: true };
   return toBytes(workbook);
 }

@@ -74,3 +74,60 @@ test("exporta las facturas recibidas para el asesor en Excel y en ZIP con sus PD
   expect(excelOnly.ok()).toBe(true);
   expect(excelOnly.headers()["content-type"]).toContain("spreadsheetml");
 });
+
+test("una factura recibida tarde se registra con su fecha de registro y al anularla se fecha la anulación", async ({ page }) => {
+  test.setTimeout(120_000);
+  const runId = Date.now();
+  await registerAndSignIn(page, "Expense Late E2E");
+  await completeOnboarding(page, "Empresa registro tardío E2E S.L.");
+
+  const today = new Date();
+  const utcDay = (offsetDays: number) => new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate() - offsetDays, 12));
+  // Factura de hace unos días (dentro del ejercicio abierto) registrada hoy.
+  const issueDate = utcDay(today.getDate() > 3 ? 3 : 0);
+  const accountingDate = utcDay(0);
+  const created = await postJson<{ id: string; number: string }>(page, "/api/expenses", {
+    supplierName: `Proveedor tardío ${runId}`,
+    supplierTaxId: "B12345674",
+    supplierDocumentNumber: `LATE-${runId}`,
+    issueDate: issueDate.toISOString(),
+    accountingDate: accountingDate.toISOString(),
+    lines: [{ description: "Servicio", quantity: 1, unitPrice: 100, taxRate: 21 }],
+  });
+
+  const rejected = await page.evaluate(async (payload) => {
+    const csrfToken = document.cookie.split("; ").find((cookie) => cookie.startsWith("csrf-token="))?.split("=")[1];
+    const response = await fetch("/api/expenses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": decodeURIComponent(csrfToken) } : {}) },
+      body: JSON.stringify(payload),
+    });
+    return { status: response.status, body: await response.text() };
+  }, {
+    supplierName: `Proveedor tardío ${runId}`,
+    supplierDocumentNumber: `EARLY-${runId}`,
+    issueDate: accountingDate.toISOString(),
+    accountingDate: new Date(accountingDate.getTime() - 5 * 86_400_000).toISOString(),
+    lines: [{ description: "Servicio", quantity: 1, unitPrice: 100, taxRate: 21 }],
+  });
+  expect(rejected.status).toBeGreaterThanOrEqual(400);
+  expect(rejected.body).toContain("anterior a la fecha de la factura");
+
+  if (issueDate.getTime() !== accountingDate.getTime()) {
+    await page.goto(`/expenses/${created.id}`);
+    await expect(page.getByText(/registrada el/)).toBeVisible();
+  }
+
+  const voided = await page.evaluate(async (id) => {
+    const csrfToken = document.cookie.split("; ").find((cookie) => cookie.startsWith("csrf-token="))?.split("=")[1];
+    const response = await fetch(`/api/expenses/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": decodeURIComponent(csrfToken) } : {}) },
+      body: JSON.stringify({ reason: "Registrada por error" }),
+    });
+    return response.status;
+  }, created.id);
+  expect(voided).toBeLessThan(300);
+  await page.goto(`/expenses/${created.id}`);
+  await expect(page.getByText(/anulada el/)).toBeVisible();
+});

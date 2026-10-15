@@ -89,7 +89,12 @@ export default async function ExpenseDetailPage({
           { label: expense.supplierDocumentNumber || expense.number },
         ]}
         title={expense.supplierDocumentNumber || expense.number}
-        description={`${expense.supplierName} · ${formatDate(expense.issueDate)}`}
+        description={[
+          `${expense.supplierName} · ${formatDate(expense.issueDate)}`,
+          // Factura registrada tarde: su IVA computa en el periodo de la fecha de registro.
+          formatDate(expense.accountingDate) !== formatDate(expense.issueDate) ? `registrada el ${formatDate(expense.accountingDate)}` : null,
+          expense.voidedAt ? `anulada el ${formatDate(expense.voidedAt)}` : null,
+        ].filter(Boolean).join(" · ")}
         meta={
           <StatusBadge tone={invoicePaymentStatusTone(expense.paymentStatus)}>
             {statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}

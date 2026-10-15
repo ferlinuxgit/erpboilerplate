@@ -35,6 +35,8 @@ export type ExpenseExportInvoice = {
   id: string;
   number: string;
   issueDate: Date;
+  /** Fecha de registro (periodo de IVA). */
+  accountingDate: Date;
   dueDate: Date | null;
   supplierDocumentNumber: string | null;
   supplierName: string;
@@ -147,6 +149,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
   const invoicesSheet = sheetWithHeader(workbook, "Facturas", [
     { header: "Nº registro", key: "number", width: 16 },
     { header: "Fecha factura", key: "issueDate", width: 13, style: { numFmt: DATE_FORMAT } },
+    { header: "Fecha de registro", key: "accountingDate", width: 13, style: { numFmt: DATE_FORMAT } },
     { header: "Nº factura proveedor", key: "supplierNumber", width: 20 },
     { header: "Proveedor", key: "supplier", width: 34 },
     { header: "NIF", key: "taxId", width: 14 },
@@ -177,6 +180,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     const row = invoicesSheet.addRow({
       number: invoice.number,
       issueDate: invoice.issueDate,
+      accountingDate: invoice.accountingDate,
       supplierNumber: invoice.supplierDocumentNumber ?? "",
       supplier: invoice.supplierName,
       taxId: invoice.supplierTaxId ?? "",

@@ -72,6 +72,8 @@ export type BatchItem = {
   supplierCountryCode: string;
   supplierDocumentNumber: string;
   issueDate: string;
+  /** Fecha de registro; vacía = la de la factura (solo para facturas recibidas tarde). */
+  accountingDate: string;
   dueDate: string;
   dueDateEdited: boolean;
   currencyCode: string;
@@ -115,6 +117,7 @@ export function newBatchItem(input: { file?: File; fileName: string; sizeBytes: 
     supplierCountryCode: "ES",
     supplierDocumentNumber: "",
     issueDate: todayInput(),
+    accountingDate: "",
     dueDate: "",
     dueDateEdited: false,
     currencyCode: "EUR",

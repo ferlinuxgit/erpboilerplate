@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     postSupplierInvoice: vi.fn(),
     assertFiscalPeriodOpen: vi.fn(),
+    resolveOpenPostingDate: vi.fn(async (_companyId: string, preferred: Date) => preferred),
     recordAudit: vi.fn(),
   };
 });
@@ -60,7 +61,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: { transaction: mocks.transaction } }));
 vi.mock("@/server/audit", () => ({ recordAudit: mocks.recordAudit }));
 vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: vi.fn(async () => "FP-2026-0001") }));
-vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: mocks.assertFiscalPeriodOpen }));
+vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: mocks.assertFiscalPeriodOpen, resolveOpenPostingDate: mocks.resolveOpenPostingDate }));
 vi.mock("@/server/partners/numbers", () => ({ reservePartnerNumber: vi.fn(async () => "P-0001") }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSupplierInvoice: mocks.postSupplierInvoice, reverseAutomaticEntries: vi.fn() }));
 
@@ -71,6 +72,7 @@ import {
   deleteVoidedExpenseInvoice,
   isPurchaseLineAccount,
   refreshSupplierInvoicePaymentStatus,
+  voidExpenseInvoice,
   type CreateExpenseInvoiceInput,
 } from "@/server/supplier-invoices/service";
 
@@ -324,5 +326,39 @@ describe("deleteVoidedExpenseInvoice", () => {
 
     await expect(deleteVoidedExpenseInvoice(input)).rejects.toThrow(/AS-2026\/000010 del 2026-03-10/);
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("registration date and stored prorrata", () => {
+  it("stores the registration date and today's prorrata, and posts on the registration date", async () => {
+    mocks.state.selectResults.set(companySettings, [{ prorrataPct: "80" }]);
+    const accountingDate = new Date("2026-07-02T12:00:00.000Z");
+
+    await createExpenseInvoice(baseInput({ accountingDate }));
+
+    expect(insertedHeader()).toMatchObject({ accountingDate, prorrataPct: "80", issueDate: new Date("2026-05-10T12:00:00.000Z") });
+    expect(mocks.assertFiscalPeriodOpen).toHaveBeenCalledWith("company-1", accountingDate, expect.anything());
+    expect(mocks.postSupplierInvoice).toHaveBeenCalledWith(expect.objectContaining({ postedAt: accountingDate, prorrataPct: 80 }));
+  });
+
+  it("explains how to register a late invoice when the invoice period is filed", async () => {
+    mocks.assertFiscalPeriodOpen.mockRejectedValueOnce(new AccountingRuleError(409, "FISCAL_PERIOD_LOCKED", "El periodo fiscal 2T del modelo 303 ya está presentado y bloqueado."));
+
+    await expect(createExpenseInvoice(baseInput())).rejects.toThrow(/indica una fecha de registro en un periodo abierto/);
+  });
+});
+
+describe("voidExpenseInvoice", () => {
+  const input = { tenantId: "tenant-1", companyId: "company-1", actorUserId: "user-1", id: "supplier-invoice-1" };
+
+  it("reverses in the invoice's own period when it is still open and records the annulment date", async () => {
+    const accountingDate = new Date("2026-05-10T12:00:00.000Z");
+    mocks.state.selectResults.set(supplierInvoice, [{ id: "supplier-invoice-1", status: "POSTED", number: "FP-2026-0001", accountingDate, purchaseOrderId: null }]);
+    mocks.state.selectResults.set(supplierInvoicePayment, []);
+
+    await voidExpenseInvoice(input);
+
+    expect(mocks.resolveOpenPostingDate).toHaveBeenCalledWith("company-1", accountingDate, expect.any(Date), expect.anything());
+    expect(mocks.state.updates.find((entry) => entry.table === supplierInvoice)?.values).toMatchObject({ status: "VOID", voidedAt: accountingDate });
   });
 });

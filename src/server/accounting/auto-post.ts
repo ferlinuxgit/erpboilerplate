@@ -737,6 +737,8 @@ export async function postSupplierInvoice(
     retentionAmount?: number;
     vatTreatment?: SupplierVatTreatment;
     expenseLines?: SupplierExpenseLine[];
+    /** Prorrata guardada en la factura; si no se indica, la vigente de la empresa. */
+    prorrataPct?: number;
   },
 ) {
   const client = input.dbClient ?? db;
@@ -756,7 +758,7 @@ export async function postSupplierInvoice(
     accounts: { ...ids, supplier: supplierId },
     expenseLines,
     totalAmount: input.totalAmount,
-    prorrataPct: settings.prorrataPct,
+    prorrataPct: input.prorrataPct ?? settings.prorrataPct,
     vatTreatment,
   });
   await createAutomaticEntry({

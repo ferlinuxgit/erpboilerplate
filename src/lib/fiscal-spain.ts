@@ -404,15 +404,21 @@ export function resolveSalesVatTreatment(explicit: string | null | undefined, cu
 }
 
 /**
- * Tratamiento IVA de una compra: explícito o deducido del país del proveedor.
- * Proveedor UE → adquisición intracomunitaria (autorepercusión). Fuera de la UE → importación
+ * Tratamiento IVA de una compra: explícito o deducido del país y del tipo de proveedor.
+ * Proveedor UE → adquisición intracomunitaria (autorepercusión). Fuera de la UE: servicios →
+ * inversión del sujeto pasivo (art. 84.Uno.2º LIVA, se autorepercute); bienes → importación
  * (el IVA se liquida en aduana con el DUA, no en la factura del proveedor).
  */
-export function resolveSupplierVatTreatment(explicit: string | null | undefined, supplierCountryCode: string | null | undefined): SupplierVatTreatment {
+export function resolveSupplierVatTreatment(
+  explicit: string | null | undefined,
+  supplierCountryCode: string | null | undefined,
+  supplierKind?: string | null,
+): SupplierVatTreatment {
   if (explicit && supplierVatTreatments.has(explicit as SupplierVatTreatment)) return explicit as SupplierVatTreatment;
   const country = normalizeCountry(supplierCountryCode);
   if (country === "ES") return "DOMESTIC";
-  return EU_COUNTRY_CODES.has(country) ? "INTRA_EU" : "IMPORT";
+  if (EU_COUNTRY_CODES.has(country)) return "INTRA_EU";
+  return supplierKind === "SERVICES" ? "REVERSE_CHARGE" : "IMPORT";
 }
 
 /** Venta a empresa de otro país de la UE (bienes o servicios): casilla 59 del 303 y modelo 349. */

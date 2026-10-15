@@ -20,6 +20,7 @@ const payloadSchema = z.object({
   number: z.string().trim().optional().or(z.literal("")),
   supplierDocumentNumber: z.string().trim().optional().or(z.literal("")),
   issueDate: z.string().datetime().optional(),
+  accountingDate: z.string().datetime().optional().or(z.literal("")),
   dueDate: z.string().datetime().optional(),
   notes: z.string().trim().optional().or(z.literal("")),
   lines: z
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
       number: parsed.data.number || undefined,
       supplierDocumentNumber: parsed.data.supplierDocumentNumber || undefined,
       issueDate: parsed.data.issueDate ? new Date(parsed.data.issueDate) : undefined,
+      accountingDate: parsed.data.accountingDate ? new Date(parsed.data.accountingDate) : undefined,
       dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
       notes: parsed.data.notes || undefined,
       lines: parsed.data.lines.map((line) => ({

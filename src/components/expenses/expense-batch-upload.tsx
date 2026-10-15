@@ -355,6 +355,7 @@ export function ExpenseBatchUpload({
           purchaseOrderId: item.purchaseOrderId || undefined,
           goodsReceiptId: item.goodsReceiptId || undefined,
           issueDate: isoDate(item.issueDate),
+          accountingDate: item.accountingDate ? isoDate(item.accountingDate) : undefined,
           dueDate: item.dueDate ? isoDate(item.dueDate) : undefined,
           currencyCode: item.currencyCode,
           vatTreatment: item.vatTreatment || undefined,
