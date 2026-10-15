@@ -12,7 +12,7 @@ test.describe("admin security policy", () => {
     const currentTimeout = Number(await page.getByLabel("Tiempo de sesión (minutos)").inputValue());
     const timeoutMinutes = `${Number.isFinite(currentTimeout) && currentTimeout >= 5 && currentTimeout < 1440 ? currentTimeout + 1 : 45}`;
     await page.getByLabel("Tiempo de sesión (minutos)").fill(timeoutMinutes);
-    await page.getByRole("radio", { name: "Activo", exact: true }).check();
+    // Sin activar el doble factor: exigirlo requiere SMTP configurado y los tests no envían correo.
     await page.getByRole("button", { name: "Guardar política" }).click();
 
     await expect(page.getByText("Política actualizada y auditada.")).toBeVisible();

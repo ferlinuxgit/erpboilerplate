@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { shouldUseSecureCookies } from "@/lib/secure-cookies";
 
 const encoder = new TextEncoder();
 
@@ -136,7 +137,7 @@ export function getAuthCookieOptions(remember = false) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     path: "/",
     ...(remember ? { maxAge: REMEMBERED_AUTH_TOKEN_MAX_AGE_SECONDS } : {}),
   };

@@ -9,33 +9,42 @@ if (!Number.isInteger(requestedDatabasePort) || requestedDatabasePort < 0) {
   throw new Error(`Invalid E2E_DATABASE_PORT: ${process.env.E2E_DATABASE_PORT}`);
 }
 
-const db = new PGlite();
-await db.waitReady;
+// With an external test database (CI service, scripts/e2e-fast.mjs) PGlite is not needed.
+const externalDatabaseUrl = process.env.E2E_DATABASE_URL;
+let pgServer = null;
+let databaseUrl = externalDatabaseUrl;
 
-const pgServer = createServer(db);
+if (!externalDatabaseUrl) {
+  const db = new PGlite();
+  await db.waitReady;
 
-await new Promise((resolve, reject) => {
-  pgServer.once("error", reject);
-  pgServer.listen(requestedDatabasePort, "127.0.0.1", () => {
-    pgServer.off("error", reject);
-    resolve();
+  pgServer = createServer(db);
+
+  await new Promise((resolve, reject) => {
+    pgServer.once("error", reject);
+    pgServer.listen(requestedDatabasePort, "127.0.0.1", () => {
+      pgServer.off("error", reject);
+      resolve();
+    });
   });
-});
 
-const address = pgServer.address();
-if (!address || typeof address === "string") {
-  throw new Error("Could not resolve PGlite server address.");
+  const address = pgServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Could not resolve PGlite server address.");
+  }
+
+  databaseUrl = `postgres://postgres:postgres@127.0.0.1:${address.port}/postgres`;
 }
 
-const databasePort = address.port;
-const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${databasePort}/postgres`;
+const closeDatabase = (callback) => (pgServer ? pgServer.close(callback) : callback());
+
 const child = spawn("node", ["scripts/e2e-web-server.mjs"], {
   cwd: root,
   env: {
     ...process.env,
     // E2E is isolated from the build/runtime DATABASE_URL by default. Opt in to
     // an external test database explicitly; never let tests mutate production.
-    DATABASE_URL: process.env.E2E_DATABASE_URL ?? databaseUrl,
+    DATABASE_URL: databaseUrl,
     PGSSLMODE: "disable",
   },
   stdio: "inherit",
@@ -45,14 +54,14 @@ const shutdown = (signal) => {
   if (!child.killed) {
     child.kill(signal);
   }
-  pgServer.close(() => undefined);
+  closeDatabase(() => undefined);
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
 child.on("exit", (code, signal) => {
-  pgServer.close(() => {
+  closeDatabase(() => {
     if (signal) {
       process.kill(process.pid, signal);
       return;

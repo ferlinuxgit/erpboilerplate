@@ -11,6 +11,7 @@ import { hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
 import { REQUEST_PATH_HEADER } from "@/lib/auth";
 import { getClientIp } from "@/lib/ip-policy";
 import { getRateLimiter, rateLimitKey, resolveRateLimitRule, tooManyRequestsResponse } from "@/lib/rate-limit";
+import { shouldUseSecureCookies } from "@/lib/secure-cookies";
 
 /** Endpoints previos a la autenticación: no hay sesión que proteger con CSRF. */
 const CSRF_EXEMPT_PATHS = new Set([
@@ -61,7 +62,7 @@ export async function proxy(request: NextRequest) {
     response.cookies.set("csrf-token", crypto.randomUUID(), {
       httpOnly: false,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(),
       path: "/",
     });
   }

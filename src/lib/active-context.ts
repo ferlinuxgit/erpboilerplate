@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { shouldUseSecureCookies } from "@/lib/secure-cookies";
 
 export const ACTIVE_TENANT_COOKIE = "active-tenant-id";
 export const ACTIVE_COMPANY_COOKIE = "active-company-id";
@@ -30,7 +31,7 @@ export function activeContextCookieOptions() {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
   };

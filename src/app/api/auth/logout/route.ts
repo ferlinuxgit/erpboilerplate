@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { session } from "@/db/schema";
 import { AUTH_TOKEN_COOKIE, hashAuthToken } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { shouldUseSecureCookies } from "@/lib/secure-cookies";
 
 export async function POST() {
   const token = (await cookies()).get(AUTH_TOKEN_COOKIE)?.value;
@@ -13,7 +14,7 @@ export async function POST() {
   response.cookies.set(AUTH_TOKEN_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     path: "/",
     maxAge: 0,
   });

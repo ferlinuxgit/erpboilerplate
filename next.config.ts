@@ -23,6 +23,8 @@ function sentryIngestOrigin() {
 const connectSrc = ["'self'", sentryIngestOrigin()].filter(Boolean).join(" ");
 
 const nextConfig: NextConfig = {
+  // Los e2e compilan y sirven desde su propia carpeta para no pisar `.next` (dev o despliegue).
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   serverExternalPackages: [
     "@aws-sdk/s3-request-presigner",
     "@upstash/ratelimit",
@@ -49,6 +51,9 @@ const nextConfig: NextConfig = {
     // `experimental.turbopackMemoryLimit`; the Docker builder additionally caps
     // the Node heap via NODE_OPTIONS.
     cpus: 1,
+    // E2E (scripts/e2e-sandbox.mjs): Turbopack libera de RAM todo lo que ya ha guardado en su
+    // caché de disco, para que `next dev` quepa en el límite de memoria del sandbox.
+    ...(process.env.E2E_LOW_MEMORY === "1" ? { turbopackMemoryEviction: "full" as const } : {}),
   },
   // Pantallas de configuración que se unificaron en /settings: los enlaces antiguos siguen funcionando.
   async redirects() {

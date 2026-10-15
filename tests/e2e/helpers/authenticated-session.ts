@@ -21,7 +21,7 @@ export async function registerAndSignIn(page: Page, prefix: string): Promise<Tes
     },
   });
 
-  expect(response.ok()).toBeTruthy();
+  expect(response.ok(), `POST /api/auth/register → ${response.status()}: ${await response.text()}`).toBeTruthy();
 
   await page.goto("/dashboard");
   await expect(page.getByText("Vista general").first()).toBeVisible();
@@ -37,7 +37,7 @@ export async function signIn(page: Page, user: TestUser) {
     },
   });
 
-  expect(response.ok()).toBeTruthy();
+  expect(response.ok(), `POST /api/auth/login → ${response.status()}: ${await response.text()}`).toBeTruthy();
 
   await page.goto("/dashboard");
   await expect(page.getByText("Vista general").first()).toBeVisible();
