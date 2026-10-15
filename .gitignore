@@ -49,3 +49,6 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Archivos subidos y PDF guardados en local (LOCAL_UPLOAD_DIR)
+.data/

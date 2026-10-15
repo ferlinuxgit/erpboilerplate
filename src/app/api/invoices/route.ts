@@ -9,8 +9,7 @@ import { invoiceErrorResponse, toInvoiceActor } from "@/server/invoices/http";
 import { createInvoiceSchema } from "@/server/invoices/schemas";
 import { createInvoice } from "@/server/invoices/service";
 import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
-import { getInvoicePdfData } from "@/server/pdf/invoice-pdf";
-import { renderInvoicePdf } from "@/server/pdf/render";
+import { getInvoicePdf } from "@/server/invoices/stored-pdf";
 
 export async function GET(request: Request) {
   const actor = await authenticateApiActor(request);
@@ -98,17 +97,16 @@ export async function POST(request: Request) {
     const body = { ...createdInvoice, pdfUrl: `/api/invoices/${createdInvoice.id}/pdf` };
 
     if (parsedPayload.data.returnPdf) {
-      const pdfData = await getInvoicePdfData(actor.context.company.id, createdInvoice.id);
-      if (pdfData) {
-        const pdf = await renderInvoicePdf(pdfData.input);
+      const pdf = await getInvoicePdf(actor.context.company.id, createdInvoice.id);
+      if (pdf) {
         return NextResponse.json(
           {
             ...body,
             pdf: {
-              filename: pdfData.filename,
+              filename: pdf.fileName,
               contentType: "application/pdf",
               encoding: "base64",
-              data: Buffer.from(pdf).toString("base64"),
+              data: pdf.bytes.toString("base64"),
             },
           },
           { status: 201 },

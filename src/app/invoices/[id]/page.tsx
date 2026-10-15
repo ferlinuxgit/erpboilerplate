@@ -15,7 +15,7 @@ import { customer, invoice, invoicePayment, invoicePaymentMethod, partner, payme
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import { canManageInvoices } from "@/lib/rbac";
@@ -293,6 +293,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           {documentNoun} emitida: cliente, fechas, líneas e importes no se pueden cambiar.{" "}
           {isIssuedInvoice ? "Para corregirla crea una rectificativa. " : ""}
           Las notas y las formas de pago sí se pueden cambiar con «Editar notas y formas de pago».
+          {data.pdfGeneratedAt ? (
+            <span className="mt-1 block" data-testid="invoice-stored-pdf">
+              PDF conservado con el número {data.number}, generado el {formatDateTime(data.pdfGeneratedAt)}: es el que se descarga y se envía por email.
+            </span>
+          ) : null}
         </p>
       ) : null}
 

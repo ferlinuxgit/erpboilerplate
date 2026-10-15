@@ -54,6 +54,7 @@ import {
 import { loadCustomerSnapshot, loadIssuerSnapshot } from "@/server/invoices/snapshot";
 import { toCents } from "@/server/accounting/money";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
+import { storeInvoicePdfQuietly } from "@/server/invoices/stored-pdf";
 import { registerInvoiceAnnulmentRecord, registerIssuedInvoiceRecord } from "@/server/verifactu/hooks";
 
 /**
@@ -520,7 +521,9 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
 
 export async function issueInvoice(actor: InvoiceActor, invoiceId: string) {
   await ensureCompanyDefaults(actor);
-  return db.transaction((tx) => issueInvoiceInTransaction(tx, actor, invoiceId));
+  const issued = await db.transaction((tx) => issueInvoiceInTransaction(tx, actor, invoiceId));
+  await storeInvoicePdfQuietly(actor.companyId, issued.id);
+  return issued;
 }
 
 export type DraftInvoiceInput = {
@@ -622,7 +625,7 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
   if (mode === "issue") await ensureCompanyDefaults(actor);
 
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     // Fallar pronto (antes de crear el cliente) si el periodo no admite facturas.
     if (mode === "issue") await assertFiscalPeriodOpen(actor.companyId, issueDate, tx);
     const createdCustomer = shouldCreateCustomer && input.newCustomer
@@ -660,8 +663,10 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
       status: result.status,
       lifecycle: mode === "issue" ? "ISSUED" : "DRAFT",
       customer: createdCustomer ? { id: createdCustomer.id, name: createdCustomer.name } : null,
-    };
+    } satisfies CreatedInvoice;
   });
+  if (created.lifecycle === "ISSUED") await storeInvoicePdfQuietly(actor.companyId, created.id);
+  return created;
 }
 
 /**
@@ -691,7 +696,7 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
   if (lifecycle === "ISSUED") {
     const lockedFields = ISSUED_LOCKED_FIELDS.filter((field) => input[field] !== undefined);
     if (lockedFields.length > 0 || input.issue) throw new HttpError(409, ISSUED_EDIT_MESSAGE);
-    return db.transaction(async (tx) => {
+    const updatedIssued = await db.transaction(async (tx) => {
       const row = await lockInvoice(tx, actor.companyId, invoiceId);
       if (!row) return null;
       const [updated] = await tx
@@ -715,6 +720,9 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
       }, tx);
       return updated;
     });
+    // Las formas de pago salen en el PDF: la copia guardada se regenera (las notas no se imprimen).
+    if (updatedIssued && paymentMethods) await storeInvoicePdfQuietly(actor.companyId, invoiceId);
+    return updatedIssued;
   }
 
   const issueDate = parseDate(input.issueDate, "La fecha de emisión no es válida.");
@@ -733,7 +741,7 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
   const seriesId = input.seriesId === undefined ? undefined : input.seriesId?.trim() || null;
   if (input.issue) await ensureCompanyDefaults(actor);
 
-  return db.transaction(async (tx) => {
+  const updatedDraft = await db.transaction(async (tx) => {
     const row = await lockInvoice(tx, actor.companyId, invoiceId);
     if (!row) return null;
     if (invoiceLifecycle(row) !== "DRAFT") throw new HttpError(409, ISSUED_EDIT_MESSAGE);
@@ -786,6 +794,8 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
     }
     return updated;
   });
+  if (updatedDraft && input.issue) await storeInvoicePdfQuietly(actor.companyId, invoiceId);
+  return updatedDraft;
 }
 
 /** Anula un borrador. Una factura emitida no se anula: se rectifica. */
@@ -845,7 +855,7 @@ export async function updateCreditNoteDraft(actor: InvoiceActor, creditNoteId: s
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["CREDIT_NOTE"]);
   if (shouldIssue) await ensureCompanyDefaults(actor);
 
-  return db.transaction(async (tx) => {
+  const creditNote = await db.transaction(async (tx) => {
     const row = await lockInvoice(tx, actor.companyId, creditNoteId);
     if (!row) return null;
     if (row.invoiceType !== "CREDIT_NOTE") throw new HttpError(409, "Este documento no es una rectificativa.");
@@ -887,6 +897,8 @@ export async function updateCreditNoteDraft(actor: InvoiceActor, creditNoteId: s
     const result = shouldIssue ? await issueInvoiceInTransaction(tx, actor, row.id) : { id: row.id, number: row.number, status: row.status };
     return { id: result.id, number: result.number, status: result.status, totalAmount: totals.totalAmount, rectifiedInvoiceId: original.id };
   });
+  if (creditNote && shouldIssue) await storeInvoicePdfQuietly(actor.companyId, creditNote.id);
+  return creditNote;
 }
 
 /**
@@ -904,7 +916,7 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["CREDIT_NOTE"]);
   if (shouldIssue) await ensureCompanyDefaults(actor);
 
-  return db.transaction(async (tx) => {
+  const creditNote = await db.transaction(async (tx) => {
     const original = await lockInvoice(tx, actor.companyId, originalId);
     if (!original) return null;
     if (original.invoiceType !== "INVOICE") throw new HttpError(409, "No se puede rectificar una factura rectificativa; rectifica la factura original.");
@@ -963,6 +975,8 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
     const result = shouldIssue ? await issueInvoiceInTransaction(tx, actor, created.id) : created;
     return { id: result.id, number: result.number, status: result.status, totalAmount: totals.totalAmount, rectifiedInvoiceId: original.id };
   });
+  if (creditNote && shouldIssue) await storeInvoicePdfQuietly(actor.companyId, creditNote.id);
+  return creditNote;
 }
 
 /** Duplica una factura (emitida o borrador) como nuevo borrador con fecha de hoy. Útil para facturas recurrentes. */

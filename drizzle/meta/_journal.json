@@ -253,6 +253,13 @@
       "when": 1791470437440,
       "tag": "0035_verifactu_reset_unconfirmed_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792061884432,
+      "tag": "0036_invoice_stored_pdf",
+      "breakpoints": true
     }
   ]
 }

@@ -563,6 +563,12 @@ export const invoice = pgTable(
     salesQuoteId: text("salesQuoteId").references((): AnyPgColumn => salesQuote.id, { onDelete: "set null" }),
     salesOrderId: text("salesOrderId").references((): AnyPgColumn => salesOrder.id, { onDelete: "set null" }),
     deliveryNoteId: text("deliveryNoteId").references((): AnyPgColumn => deliveryNote.id, { onDelete: "set null" }),
+    // PDF guardado al emitir (copia conservada con su número definitivo): se sirve, se envía por
+    // email y se exporta tal cual. Solo se regenera si cambian las formas de pago (salen impresas).
+    pdfStorageKey: text("pdfStorageKey"),
+    pdfFileName: text("pdfFileName"),
+    pdfSha256: text("pdfSha256"),
+    pdfGeneratedAt: timestamp("pdfGeneratedAt", { withTimezone: true, mode: "date" }),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },

@@ -313,12 +313,11 @@ export async function deliverInvoiceEmail(input: DeliverEmailInput, deps: Delive
 }
 
 async function renderInvoicePdfAttachment(companyId: string, invoiceId: string): Promise<MailAttachment | null> {
-  // Import diferido: el renderizador PDF es pesado y solo hace falta al enviar.
-  const [{ getInvoicePdfData }, { renderInvoicePdf }] = await Promise.all([import("@/server/pdf/invoice-pdf"), import("@/server/pdf/render")]);
-  const data = await getInvoicePdfData(companyId, invoiceId);
-  if (!data) return null;
-  const content = await renderInvoicePdf(data.input);
-  return { filename: data.filename, content: Buffer.from(content), contentType: "application/pdf" };
+  // Se envía la copia guardada al emitir (la misma que se conserva); import diferido por el renderizador.
+  const { getInvoicePdf } = await import("@/server/invoices/stored-pdf");
+  const pdf = await getInvoicePdf(companyId, invoiceId);
+  if (!pdf) return null;
+  return { filename: pdf.fileName, content: pdf.bytes, contentType: "application/pdf" };
 }
 
 export function defaultDeliverDeps(transport: MailTransport): DeliverEmailDeps {

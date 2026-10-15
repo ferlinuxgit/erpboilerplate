@@ -222,6 +222,13 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   // Notas y formas de pago siguen siendo editables: acceso visible en la cabecera y en su sección.
   await expect(page.getByTestId("invoice-edit-issued-link")).toHaveAttribute("href", `/invoices/${invoiceId}/edit`);
   await expect(page.getByTestId("invoice-edit-payment-methods-link")).toBeVisible();
+  // El PDF se guarda al emitir con su número: dos descargas devuelven exactamente la misma copia.
+  await expect(page.getByTestId("invoice-stored-pdf")).toContainText(issuedInvoice.number);
+  const firstPdf = await page.request.get(`/api/invoices/${invoiceId}/pdf`);
+  const secondPdf = await page.request.get(`/api/invoices/${invoiceId}/pdf`);
+  expect(firstPdf.ok()).toBe(true);
+  expect(firstPdf.headers()["content-disposition"]).toContain(issuedInvoice.number.replace(/[^a-zA-Z0-9._-]+/g, "-"));
+  expect(Buffer.compare(await firstPdf.body(), await secondPdf.body())).toBe(0);
 
   const issuedPayload = await (await page.request.get(`/api/invoices/${invoiceId}`)).json();
   expect(issuedPayload.lifecycle).toBe("ISSUED");
