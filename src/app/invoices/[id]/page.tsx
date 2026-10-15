@@ -8,6 +8,7 @@ import { InvoiceVerifactuCard } from "@/components/fiscal/invoice-verifactu-card
 import { DuplicateInvoiceButton, IssueInvoiceButton } from "@/components/invoices/invoice-lifecycle-actions";
 import { RegisterInvoicePaymentDialog } from "@/components/invoices/register-invoice-payment-dialog";
 import { buttonVariants } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuLinkItem } from "@/components/ui/dropdown-menu";
 import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -230,7 +231,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               </>
             ) : null}
             {canEditInvoice && lifecycle === "ISSUED" ? (
-              <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-edit-issued-link" href={`/invoices/${data.id}/edit`}>
+              <Link className={buttonVariants({ variant: "outline", className: "max-sm:hidden" })} data-testid="invoice-edit-issued-link" href={`/invoices/${data.id}/edit`}>
                 Editar notas y formas de pago
               </Link>
             ) : null}
@@ -248,7 +249,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   paymentMethods={paymentMethods}
                 />
                 {balance.totalCents + balance.creditedCents > 0 ? (
-                  <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-create-credit-note" href={`/invoices/${data.id}/rectify`}>
+                  <Link className={buttonVariants({ variant: "outline", className: "max-sm:hidden" })} data-testid="invoice-create-credit-note" href={`/invoices/${data.id}/rectify`}>
                     Crear rectificativa
                   </Link>
                 ) : null}
@@ -258,15 +259,32 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             {canEditInvoice && dueStatus?.kind === "overdue" ? (
               <SendInvoiceEmailDialog invoiceId={data.id} kind="REMINDER" number={data.number} reminderLevel={nextReminderLevel(reminderStats.get(data.id)?.count ?? 0)} />
             ) : null}
-            {canEditInvoice && !isCreditNote ? <DuplicateInvoiceButton invoiceId={data.id} /> : null}
+            {canEditInvoice && !isCreditNote ? <span className="contents max-sm:hidden"><DuplicateInvoiceButton invoiceId={data.id} /></span> : null}
             {canEditInvoice && !isCreditNote && lifecycle !== "VOID" ? (
-              <Link className={buttonVariants({ variant: "outline" })} data-testid="invoice-make-recurring" href={`/invoices/recurring/new?invoiceId=${data.id}`}>
+              <Link className={buttonVariants({ variant: "outline", className: "max-sm:hidden" })} data-testid="invoice-make-recurring" href={`/invoices/recurring/new?invoiceId=${data.id}`}>
                 Hacer recurrente
               </Link>
             ) : null}
             <Link className={buttonVariants()} href={`/api/invoices/${data.id}/pdf`} prefetch={false} target="_blank">
               PDF
             </Link>
+            {/* Móvil: las acciones secundarias van en «Más» para que los datos de la factura se vean enseguida. */}
+            {canEditInvoice && (lifecycle === "ISSUED" || !isCreditNote) ? (
+              <div className="sm:hidden">
+                <DropdownMenu label="Más acciones de la factura" trigger="Más…" triggerSize="default" triggerTestId="invoice-more-actions">
+                  {lifecycle === "ISSUED" ? (
+                    <DropdownMenuLinkItem href={`/invoices/${data.id}/edit`}>Editar notas y formas de pago</DropdownMenuLinkItem>
+                  ) : null}
+                  {isIssuedInvoice && balance.totalCents + balance.creditedCents > 0 ? (
+                    <DropdownMenuLinkItem href={`/invoices/${data.id}/rectify`}>Crear rectificativa</DropdownMenuLinkItem>
+                  ) : null}
+                  {!isCreditNote ? <DuplicateInvoiceButton asMenuItem invoiceId={data.id} /> : null}
+                  {!isCreditNote && lifecycle !== "VOID" ? (
+                    <DropdownMenuLinkItem href={`/invoices/recurring/new?invoiceId=${data.id}`}>Hacer recurrente</DropdownMenuLinkItem>
+                  ) : null}
+                </DropdownMenu>
+              </div>
+            ) : null}
           </>
         }
       />

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { customerLineTaxIds, type CustomerOption } from "@/components/create-invoice-form";
 import { DueDateHint } from "@/components/invoices/due-date-hint";
 import { CustomerSearchDialog } from "@/components/invoices/customer-search-dialog";
+import { InvoiceCustomerPicker } from "@/components/invoices/invoice-customer-picker";
 import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
 import {
   discountRegisterOptions,
@@ -292,7 +293,7 @@ export function EditInvoiceForm({
   return (
     <>
     <form
-      className="grid gap-4 md:grid-cols-3"
+      className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-3"
       data-testid="invoice-edit-form"
       noValidate
       onKeyDown={handleInvoiceKeyDown}
@@ -305,33 +306,15 @@ export function EditInvoiceForm({
       ) : null}
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
-      <section className="space-y-3 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 id="invoice-customer-title" className="font-mono text-xs font-bold uppercase tracking-wide">Cliente</h3>
-            <p className="text-xs text-muted-foreground">Es un borrador: puedes cambiar cualquier dato hasta emitirlo.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => setCustomerSearchDialogOpen(true)}>Buscar cliente</Button>
-            {canCreateCustomer ? (
-              <Button aria-keyshortcuts="Alt+N" data-testid="invoice-new-customer-toggle" type="button" variant="secondary" onClick={() => setCustomerCreateDialogOpen(true)}>
-                Crear cliente
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        {selectedCustomer ? (
-          <div className="rounded-surface border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
-            <p className="font-mono text-sm font-bold">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
-            </p>
-          </div>
-        ) : (
-          <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Selecciona un cliente activo.</p>
-        )}
-        {errors.customerId ? <p className="font-mono text-xs text-danger-text" role="alert">{errors.customerId.message}</p> : null}
-      </section>
+      <InvoiceCustomerPicker
+        canCreateCustomer={canCreateCustomer}
+        customer={selectedCustomer}
+        description="Es un borrador: puedes cambiar cualquier dato hasta emitirlo."
+        error={errors.customerId?.message}
+        hasCustomers
+        onCreate={() => setCustomerCreateDialogOpen(true)}
+        onSearch={() => setCustomerSearchDialogOpen(true)}
+      />
       <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3">
         <p className="font-mono text-xs font-bold">Número provisional</p>
         <p className="font-mono text-sm tabular-nums" data-testid="invoice-number-preview">{invoiceNumber}</p>
@@ -420,6 +403,11 @@ export function EditInvoiceForm({
         hint={submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
         sticky
       >
+        {/* Móvil: el total siempre a la vista mientras se editan las líneas. */}
+        <p aria-live="polite" className="flex basis-full! items-baseline justify-between font-mono text-sm sm:hidden">
+          <span className="text-xs text-muted-foreground">{fields.length} línea{fields.length === 1 ? "" : "s"} · Total</span>
+          <span className="text-base font-bold tabular-nums">{formatMoney(totals.totalAmount)}</span>
+        </p>
         <SubmitButton className="min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting} variant="outline">
           Guardar borrador
         </SubmitButton>

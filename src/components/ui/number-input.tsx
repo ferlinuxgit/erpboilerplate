@@ -102,6 +102,17 @@ export function DecimalInput({
         }}
         onFocus={(event) => {
           if (isControlled) setDraft(format(value));
+          // Un 0 («0,00») se selecciona entero: lo que se teclee lo sustituye, sin borrarlo antes
+          // (en el móvil no hay forma cómoda de seleccionar). Tras el frame, porque iOS coloca el cursor después.
+          const input = event.currentTarget;
+          if (parseDecimalInput(input.value, { maximumFractionDigits }) === 0) {
+            const zero = input.value;
+            input.select();
+            // iOS recoloca el cursor al soltar el dedo: se vuelve a seleccionar solo si aún no se ha tecleado.
+            requestAnimationFrame(() => {
+              if (document.activeElement === input && input.value === zero) input.select();
+            });
+          }
           onFocus?.(event);
         }}
         ref={setRefs}

@@ -253,6 +253,8 @@ export function ResourceList<TItem>({
   const [isExporting, setIsExporting] = useState(false);
   // Columnas opcionales de la exportación desmarcadas por el usuario (por defecto van todas).
   const [excludedExportColumns, setExcludedExportColumns] = useState<Set<string>>(() => new Set());
+  // Móvil: el panel de filtros empieza plegado para que la lista se vea sin desplazar.
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -1086,13 +1088,29 @@ export function ResourceList<TItem>({
             ) : null}
             {filters.length > 0 || dateRange ? (
               <div className="flex w-full flex-col gap-1.5 border border-window-shadow bg-window-panel p-2 lg:flex-row lg:items-end">
-                <div className="flex min-h-8 shrink-0 items-center gap-1.5 font-mono text-xs font-bold text-foreground lg:pr-1">
+                <div className="flex min-h-8 shrink-0 items-center gap-1.5 font-mono text-xs font-bold text-foreground max-sm:hidden lg:pr-1">
                   <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-link shadow-bevel-top">
                     <Funnel aria-hidden="true" />
                   </span>
                   <span>Filtrar</span>
                 </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:flex-wrap">
+                <button
+                  aria-controls={`${listId}-filters`}
+                  aria-expanded={mobileFiltersOpen}
+                  className="flex min-h-10 items-center gap-1.5 font-mono text-xs font-bold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus sm:hidden"
+                  onClick={() => setMobileFiltersOpen((open) => !open)}
+                  type="button"
+                >
+                  <span className="grid size-7 place-items-center border border-window-dark-shadow bg-window-surface text-link shadow-bevel-top">
+                    <Funnel aria-hidden="true" />
+                  </span>
+                  <span>Filtrar</span>
+                  {Object.values(activeFilters).filter(Boolean).length > 0 ? (
+                    <StatusBadge tone="info">{Object.values(activeFilters).filter(Boolean).length} activos</StatusBadge>
+                  ) : null}
+                  <span aria-hidden="true" className="ml-auto text-muted-foreground">{mobileFiltersOpen ? "▲" : "▼"}</span>
+                </button>
+                <div className={cn("flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:flex-wrap", !mobileFiltersOpen && "max-sm:hidden")} id={`${listId}-filters`}>
                   {filters.map((filter) => (
                     <label
                       className="min-w-0 flex-1 space-y-0.5 sm:min-w-40 sm:max-w-56"

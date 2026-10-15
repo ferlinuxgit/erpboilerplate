@@ -10,13 +10,14 @@ import { Input } from "@/components/ui/input";
 
 type CustomerQuery = { text: string; location: string; taxId: string };
 
-/** Filtra clientes por texto (número, nombre, email, teléfono), ubicación y CIF/NIF. */
+/** Filtra clientes por texto (número, nombre, email, teléfono o CIF/NIF), ubicación y CIF/NIF. */
 export function filterCustomers<T extends CustomerOption>(customers: T[], query: CustomerQuery) {
   const textQuery = query.text.trim().toLocaleLowerCase();
   const locationQuery = query.location.trim().toLocaleLowerCase();
   const taxQuery = query.taxId.trim().toLocaleLowerCase();
   return customers.filter((customer) => {
-    const text = [customer.number, customer.name, customer.email, customer.phone].filter(Boolean).join(" ").toLocaleLowerCase();
+    // El buscador principal también encuentra por CIF/NIF: en el móvil basta con un solo campo.
+    const text = [customer.number, customer.name, customer.email, customer.phone, customer.taxId].filter(Boolean).join(" ").toLocaleLowerCase();
     const location = [customer.city, customer.province].filter(Boolean).join(" ").toLocaleLowerCase();
     const taxId = (customer.taxId ?? "").toLocaleLowerCase();
     return (!textQuery || text.includes(textQuery)) && (!locationQuery || location.includes(locationQuery)) && (!taxQuery || taxId.includes(taxQuery));
@@ -44,6 +45,8 @@ export function CustomerSearchDialog<T extends CustomerOption>({
   open: boolean;
 }) {
   const [query, setQuery] = useState<CustomerQuery>({ text: "", location: "", taxId: "" });
+  // Móvil: los filtros de ciudad y CIF quedan plegados para que los resultados se vean sin desplazar.
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const results = useMemo(() => filterCustomers(customers, query), [customers, query]);
   const setField = (field: keyof CustomerQuery) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -62,14 +65,21 @@ export function CustomerSearchDialog<T extends CustomerOption>({
       <div className="space-y-4" data-testid="invoice-customer-search-dialog">
         <div className="grid gap-3 md:grid-cols-3">
           <AccessibleField id="invoice-customer-search" label="Número, nombre, email o teléfono">
-            <Input autoComplete="off" id="invoice-customer-search" value={query.text} onChange={setField("text")} />
+            <Input autoComplete="off" enterKeyHint="search" id="invoice-customer-search" placeholder="También por CIF/NIF" type="search" value={query.text} onChange={setField("text")} />
           </AccessibleField>
-          <AccessibleField id="invoice-customer-location-search" label="Ciudad o provincia">
-            <Input autoComplete="off" id="invoice-customer-location-search" value={query.location} onChange={setField("location")} />
-          </AccessibleField>
-          <AccessibleField id="invoice-customer-tax-search" label="CIF/NIF/VAT">
-            <Input autoComplete="off" id="invoice-customer-tax-search" value={query.taxId} onChange={setField("taxId")} />
-          </AccessibleField>
+          <div className={showMoreFilters ? "contents" : "contents max-sm:hidden"}>
+            <AccessibleField id="invoice-customer-location-search" label="Ciudad o provincia">
+              <Input autoComplete="off" id="invoice-customer-location-search" value={query.location} onChange={setField("location")} />
+            </AccessibleField>
+            <AccessibleField id="invoice-customer-tax-search" label="CIF/NIF/VAT">
+              <Input autoComplete="off" id="invoice-customer-tax-search" value={query.taxId} onChange={setField("taxId")} />
+            </AccessibleField>
+          </div>
+          {showMoreFilters ? null : (
+            <Button aria-expanded={false} className="justify-self-start sm:hidden" onClick={() => setShowMoreFilters(true)} size="sm" type="button" variant="ghost">
+              Más filtros (ciudad, CIF/NIF)
+            </Button>
+          )}
         </div>
 
         <p aria-live="polite" className="text-xs text-muted-foreground" role="status">

@@ -317,10 +317,16 @@ export function LinesEditor({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Heading className="font-mono text-sm font-bold" id={titleId}>{title}</Heading>
-          <p className="text-xs text-muted-foreground">{description ?? (addButtons ? DEFAULT_DESCRIPTION : null)}</p>
+          {description ? (
+            <p className="text-xs text-muted-foreground">{description}</p>
+          ) : addButtons ? (
+            // Atajos de teclado: no aportan nada en pantallas táctiles.
+            <p className="text-xs text-muted-foreground pointer-coarse:hidden">{DEFAULT_DESCRIPTION}</p>
+          ) : null}
         </div>
         {addButtons ? (
-          <Button aria-keyshortcuts="Alt+L" className="max-sm:w-full" data-testid={addTestId ?? `${idPrefix}-add`} disabled={!canAdd} onClick={add} type="button" variant="outline">
+          // En móvil se usa el botón de debajo de la última línea (donde está el pulgar); aquí sobraba.
+          <Button aria-keyshortcuts="Alt+L" className="max-sm:hidden" data-testid={addTestId ?? `${idPrefix}-add`} disabled={!canAdd} onClick={add} type="button" variant="outline">
             <Plus aria-hidden="true" />
             Añadir línea
           </Button>
@@ -534,9 +540,10 @@ export function LinesEditor({
         </div>
       )}
       {addButtons ? (
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">{lineCount} línea{lineCount === 1 ? "" : "s"}{Number.isFinite(maxLines) && !canAdd ? ` (máximo ${maxLines})` : ""}</p>
-          <Button disabled={!canAdd} onClick={add} size="sm" type="button" variant="ghost"><Plus aria-hidden="true" />Añadir otra línea</Button>
+        <div className="flex items-center justify-between gap-3 max-sm:flex-col-reverse max-sm:items-stretch">
+          <p className="text-xs text-muted-foreground max-sm:text-center">{lineCount} línea{lineCount === 1 ? "" : "s"}{Number.isFinite(maxLines) && !canAdd ? ` (máximo ${maxLines})` : ""}</p>
+          {/* En móvil, botón ancho y fácil de pulsar (es el único para añadir líneas). */}
+          <Button className="max-sm:h-11 max-sm:w-full max-sm:border max-sm:border-dashed max-sm:border-window-dark-shadow" disabled={!canAdd} onClick={add} size="sm" type="button" variant="ghost"><Plus aria-hidden="true" />Añadir otra línea</Button>
         </div>
       ) : null}
     </section>

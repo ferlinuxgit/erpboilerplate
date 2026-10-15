@@ -607,7 +607,7 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
   const mode = input.mode ?? "issue";
   const issueDate = parseDate(input.issueDate, "La fecha de emisión no es válida.");
   const dueDate = parseDate(input.dueDate, "La fecha de vencimiento no es válida.");
-  if (!issueDate) throw new HttpError(400, "Debes informar una fecha válida e importe mayor de 0.");
+  if (!issueDate) throw new HttpError(400, "La fecha de emisión no es válida.");
   if (dueDate && dueDate < issueDate) throw new HttpError(400, "El vencimiento no puede ser anterior a la fecha de emisión.");
 
   let customerId = input.customerId?.trim() ?? "";
@@ -619,7 +619,7 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
   const paymentMethods = (await resolvePaymentMethods(actor.companyId, input)) ?? [];
   const lines = await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: true });
   const totals = calculateInvoiceTotals(lines);
-  if (totals.totalAmount <= 0) throw new HttpError(400, "Debes informar una fecha válida e importe mayor de 0.");
+  if (totals.totalAmount <= 0) throw new HttpError(400, "El total de la factura debe ser mayor que 0: indica el precio de las líneas.");
   if (customerId) await assertActiveCustomer(db, actor.companyId, customerId);
   const seriesId = input.seriesId?.trim() || null;
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);

@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
 import { CustomerSearchDialog } from "@/components/invoices/customer-search-dialog";
+import { InvoiceCustomerPicker } from "@/components/invoices/invoice-customer-picker";
 import { DueDateHint } from "@/components/invoices/due-date-hint";
 import {
   InvoiceLinesEditor,
@@ -319,8 +320,29 @@ export function CreateInvoiceForm({
    * Enviar el formulario (Enter o Ctrl/Cmd + Enter) solo guarda un BORRADOR. Emitir es irreversible:
    * el botón "Emitir factura" valida y abre siempre la confirmación.
    */
-  const onSubmit = handleSubmit((values) => submitInvoice(values, "draft"));
+  /**
+   * Total 0 (precio sin rellenar): se avisa aquí y se lleva el foco al primer precio a 0, en vez de
+   * abrir la confirmación y recibir el error del servidor.
+   */
+  const hasPositiveTotal = (values: CreateInvoicePayload) => {
+    const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
+      ...line,
+      taxes: taxes.filter((configuredTax) => line.taxIds?.includes(configuredTax.id)),
+    })));
+    if (invoiceTotals.totalAmount > 0) return true;
+    const message = "Indica el precio de al menos una línea: el total de la factura debe ser mayor que 0.";
+    setSubmitError(message);
+    toast.error(message);
+    const emptyIndex = Math.max(0, values.lines.findIndex((line) => !(Number(line.unitPrice) > 0)));
+    const priceInput = document.getElementById(`invoice-line-${emptyIndex + 1}-unit-price`);
+    priceInput?.scrollIntoView({ block: "center" });
+    priceInput?.focus();
+    return false;
+  };
+
+  const onSubmit = handleSubmit((values) => (hasPositiveTotal(values) ? submitInvoice(values, "draft") : undefined));
   const onRequestIssue = handleSubmit((values) => {
+    if (!hasPositiveTotal(values)) return;
     setPendingIssueValues(values);
     setIssueError(null);
     setIssueDialogOpen(true);
@@ -364,59 +386,20 @@ export function CreateInvoiceForm({
 
   return (
     <>
-    <form className="grid gap-4 md:grid-cols-3" data-testid="invoice-create-form" onKeyDown={handleInvoiceKeyDown} onSubmit={onSubmit}>
+    <form className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-3" data-testid="invoice-create-form" onKeyDown={handleInvoiceKeyDown} onSubmit={onSubmit}>
       <input type="hidden" {...register("totalAmount", { valueAsNumber: true })} />
       <input type="hidden" {...register("customerId")} />
-      <section className="space-y-3 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-3" aria-labelledby="invoice-customer-title">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 id="invoice-customer-title" className="font-mono text-xs font-bold uppercase tracking-wide">
-              Cliente
-            </h3>
-            <p className="text-xs text-muted-foreground">Selecciona el cliente desde el buscador avanzado antes de emitir la factura.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={openCustomerSearchDialog}
-            >
-              Buscar cliente
-            </Button>
-            {canCreateCustomer ? (
-              <Button
-                aria-keyshortcuts="Alt+N"
-                data-testid="invoice-new-customer-toggle"
-                type="button"
-                variant="secondary"
-                onClick={openCustomerCreateDialog}
-              >
-                Crear cliente
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {customerOptions.length === 0 ? (
-          <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">
-            {canCreateCustomer
-              ? "Todavía no hay clientes activos. Crea uno desde el botón Crear cliente para poder emitir la factura."
-              : "No hay clientes activos y tu rol no permite crear clientes desde la factura."}
-          </p>
-        ) : selectedCustomer ? (
-          <div className="rounded-surface border border-window-dark-shadow bg-window-surface p-3" data-slot="selected-customer">
-            <p className="font-mono text-sm font-bold">{selectedCustomer.number ? `${selectedCustomer.number} · ` : ""}{selectedCustomer.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {[selectedCustomer.taxId, selectedCustomer.city, selectedCustomer.province, selectedCustomer.email].filter(Boolean).join(" · ") || "Cliente activo"}
-            </p>
-          </div>
-        ) : (
-          <p className="rounded-surface border border-dashed border-window-shadow bg-window-surface p-3 text-xs text-muted-foreground">Pulsa Buscar cliente para seleccionar uno.</p>
-        )}
-        {errors.customerId ? <p className="font-mono text-xs text-danger-text" role="alert">{errors.customerId.message}</p> : null}
-      </section>
-      <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3">
-        <p className="font-mono text-xs font-bold">Número automático</p>
+      <InvoiceCustomerPicker
+        canCreateCustomer={canCreateCustomer}
+        customer={selectedCustomer}
+        description="Su ficha propone el vencimiento, el IVA y la retención."
+        error={errors.customerId?.message}
+        hasCustomers={customerOptions.length > 0}
+        onCreate={openCustomerCreateDialog}
+        onSearch={openCustomerSearchDialog}
+      />
+      <div className="space-y-2 rounded-surface border border-window-dark-shadow bg-window-panel p-3 max-sm:py-2">
+        <p className="font-mono text-xs font-bold max-sm:sr-only">Número automático</p>
         {invoiceSeries.length > 1 ? (
           <AccessibleField
             helperText="Usa series distintas para tickets, facturas de exportación…"
@@ -435,12 +418,20 @@ export function CreateInvoiceForm({
           <input type="hidden" {...register("seriesId")} />
         )}
         <p className="text-xs text-muted-foreground" data-testid="invoice-number-preview">
-          {nextInvoiceNumberPreview
-            ? `Al emitir tendrá el siguiente número de la serie${invoiceSeries.length > 1 && selectedSeries ? ` «${selectedSeries.name}»` : ""} (previsto: ${nextInvoiceNumberPreview}). Los borradores no consumen número.`
-            : "Al emitir se asignará el siguiente número correlativo. Los borradores no consumen número."}
+          {nextInvoiceNumberPreview ? (
+            <>
+              <span className="font-mono font-bold text-window-text">Nº previsto {nextInvoiceNumberPreview}</span>
+              {invoiceSeries.length > 1 && selectedSeries ? ` · serie «${selectedSeries.name}»` : ""}
+              {" · se asigna al emitir; los borradores no consumen número."}
+            </>
+          ) : (
+            "Al emitir se asignará el siguiente número correlativo. Los borradores no consumen número."
+          )}
         </p>
       </div>
-      <AccessibleField id="invoice-issue-date" label="Fecha emisión" required error={errors.issueDate?.message}>
+      {/* Fechas: en móvil, una al lado de la otra; desde md, cada una en su columna. */}
+      <div className="grid grid-cols-2 gap-3 md:contents">
+      <AccessibleField id="invoice-issue-date" label="Emisión" required error={errors.issueDate?.message}>
         <Input
           data-testid="invoice-issue-date-input"
           id="invoice-issue-date"
@@ -453,7 +444,7 @@ export function CreateInvoiceForm({
       </AccessibleField>
       <AccessibleField
         id="invoice-due-date"
-        label="Fecha vencimiento"
+        label="Vencimiento"
         error={errors.dueDate?.message}
         helperText={<DueDateHint dueDate={watchedDueDate} termsDays={termsDays} termsSource={termsSource} />}
       >
@@ -466,6 +457,7 @@ export function CreateInvoiceForm({
           {...register("dueDate", { onChange: () => setDueDateTouched(true) })}
         />
       </AccessibleField>
+      </div>
       <div className="md:col-span-3">
         <InvoiceLinesEditor
           errors={fields.map((_, index) => {
@@ -531,6 +523,11 @@ export function CreateInvoiceForm({
         hint="Enter o Ctrl/Cmd + Enter guardan un borrador. «Emitir factura» te pide confirmación: al emitir se asigna el número y deja de ser editable."
         sticky
       >
+        {/* Móvil: el total siempre a la vista mientras se rellenan las líneas, encima de los botones. */}
+        <p aria-live="polite" className="flex basis-full! items-baseline justify-between font-mono text-sm sm:hidden" data-testid="invoice-sticky-total">
+          <span className="text-xs text-muted-foreground">{fields.length} línea{fields.length === 1 ? "" : "s"} · Total</span>
+          <span className="text-base font-bold tabular-nums">{formatMoney(totals.totalAmount)}</span>
+        </p>
         <SubmitButton
           aria-keyshortcuts="Control+Enter Meta+Enter"
           data-testid="invoice-save-draft"

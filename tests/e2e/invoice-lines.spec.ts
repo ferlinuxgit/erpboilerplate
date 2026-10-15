@@ -175,7 +175,7 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await expect(editPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
   await expect(editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`)).toBeChecked();
   await editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).uncheck();
-  await page.getByRole("button", { name: "Buscar cliente" }).click();
+  await page.getByRole("button", { name: "Cambiar cliente" }).click();
   await page.getByLabel("CIF/NIF/VAT").fill("B87654321");
   await page.getByRole("button", { name: /Cliente corregido/ }).click();
   await page.getByTestId("invoice-edit-issue-date-input").fill("2026-05-10");

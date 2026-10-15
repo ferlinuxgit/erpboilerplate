@@ -208,7 +208,9 @@ export function PageSection({
     return (
       <section
         className={cn(
-          "overflow-hidden rounded-surface border border-window-dark-shadow bg-card shadow-raised",
+          // overflow-clip (no hidden): recorta igual las esquinas pero no crea un contenedor de scroll,
+          // así las barras sticky de dentro (acciones del formulario, selección) siguen pegadas al borde.
+          "overflow-clip rounded-surface border border-window-dark-shadow bg-card shadow-raised",
           className,
         )}
         {...props}
