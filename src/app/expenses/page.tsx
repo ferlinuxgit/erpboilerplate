@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { ExpenseExportDialog } from "@/components/expenses/expense-export-dialog";
 import { ExpenseInvoicesList } from "@/components/expenses/expense-invoices-list";
 import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -35,16 +36,19 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         backLabel="Volver al panel"
         meta={<StatusBadge tone={canWriteExpenses ? "success" : "warning"}>{canWriteExpenses ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
         actions={
-          canWriteExpenses ? (
-            <>
-              <Link className={buttonVariants({ variant: pendingInboxCount > 0 ? "secondary" : "outline" })} href="/expenses/inbox">
-                Bandeja pendiente{pendingInboxCount > 0 ? ` (${pendingInboxCount})` : ""}
-              </Link>
-              <Link className={buttonVariants()} href="/expenses/new">
-                Nueva factura
-              </Link>
-            </>
-          ) : null
+          <>
+            <ExpenseExportDialog defaultFrom={params.from} defaultTo={params.to} q={params.q} status={params.filters.status ?? null} />
+            {canWriteExpenses ? (
+              <>
+                <Link className={buttonVariants({ variant: pendingInboxCount > 0 ? "secondary" : "outline" })} href="/expenses/inbox">
+                  Bandeja pendiente{pendingInboxCount > 0 ? ` (${pendingInboxCount})` : ""}
+                </Link>
+                <Link className={buttonVariants()} href="/expenses/new">
+                  Nueva factura
+                </Link>
+              </>
+            ) : null}
+          </>
         }
       />
 

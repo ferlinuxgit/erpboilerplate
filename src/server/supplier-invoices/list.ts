@@ -28,7 +28,7 @@ export const expenseInvoiceListConfig: ListParamsConfig<ExpenseInvoiceSortKey, "
   filters: { status: paymentStatusEnum.enumValues },
 };
 
-function paidByInvoice(companyId: string) {
+export function paidByInvoice(companyId: string) {
   return db
     .select({
       supplierInvoiceId: supplierInvoicePayment.supplierInvoiceId,
@@ -41,7 +41,7 @@ function paidByInvoice(companyId: string) {
 }
 
 /** SQL versions of the amounts/status `listExpenseInvoices` derives in JS. */
-function expenseExpressions(paid: ReturnType<typeof paidByInvoice>, now: Date) {
+export function expenseExpressions(paid: ReturnType<typeof paidByInvoice>, now: Date) {
   const paidAmount = sql<string>`coalesce(${paid.paidAmount}, 0)`;
   const isVoid = sql`(${supplierInvoice.status} = 'VOID')`;
   const outstanding = sql<string>`case when ${isVoid} then 0 else greatest(${supplierInvoice.totalAmount} - ${paidAmount}, 0) end`;
