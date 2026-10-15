@@ -147,7 +147,7 @@ export default async function ExpenseDetailPage({
         }
       />
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MetricCard label="Base" value={formatMoney(expense.subtotalAmount, currency)} />
         <MetricCard label="IVA" value={formatMoney(expense.taxAmount, currency)} />
         <MetricCard

@@ -144,7 +144,12 @@ export function SubmitButton({ children, disabled, pending = false, pendingLabel
  * (respeta el área segura del iPhone) y los botones se reparten todo el ancho.
  * Escritorio: fila al final del formulario; con `sticky` flota como panel.
  */
-export function FormActions({ children, className, hint = "Ctrl/Cmd + Enter para guardar", sticky = false }: { children: React.ReactNode; className?: string; hint?: React.ReactNode; sticky?: boolean }) {
+/**
+ * Barra de acciones del formulario. En móvil siempre va fija encima de la barra inferior; `summary`
+ * (p. ej. «2 líneas · Total 1.507,06 €») se muestra en esa barra, sobre los botones, para tener el
+ * importe a la vista mientras se rellenan las líneas.
+ */
+export function FormActions({ children, className, hint = "Ctrl/Cmd + Enter para guardar", sticky = false, summary }: { children: React.ReactNode; className?: string; hint?: React.ReactNode; sticky?: boolean; summary?: React.ReactNode }) {
   return (
     <div
       className={cn(
@@ -155,6 +160,11 @@ export function FormActions({ children, className, hint = "Ctrl/Cmd + Enter para
       )}
       data-slot="form-actions"
     >
+      {summary ? (
+        <div aria-live="polite" className="flex basis-full! items-baseline justify-between gap-3 font-mono text-sm sm:hidden" data-slot="form-actions-summary">
+          {summary}
+        </div>
+      ) : null}
       {hint ? <p className="mr-auto hidden text-xs text-muted-foreground sm:block">{hint}</p> : null}
       {children}
     </div>

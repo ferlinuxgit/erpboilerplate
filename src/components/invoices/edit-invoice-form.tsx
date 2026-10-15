@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField, FormActions, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { FormTotalSummary } from "@/components/ui/form-total-summary";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -402,12 +403,8 @@ export function EditInvoiceForm({
         className="md:col-span-3"
         hint={submissionError ? "Corrige el error indicado y vuelve a guardar." : isDirty ? "Hay cambios pendientes · Ctrl/Cmd + Enter para guardar" : "Sin cambios pendientes"}
         sticky
+        summary={<FormTotalSummary lines={fields.length} total={totals.totalAmount} />}
       >
-        {/* Móvil: el total siempre a la vista mientras se editan las líneas. */}
-        <p aria-live="polite" className="flex basis-full! items-baseline justify-between font-mono text-sm sm:hidden">
-          <span className="text-xs text-muted-foreground">{fields.length} línea{fields.length === 1 ? "" : "s"} · Total</span>
-          <span className="text-base font-bold tabular-nums">{formatMoney(totals.totalAmount)}</span>
-        </p>
         <SubmitButton className="min-w-36" data-testid="invoice-edit-submit" aria-keyshortcuts="Control+Enter Meta+Enter" pending={isSubmitting} variant="outline">
           Guardar borrador
         </SubmitButton>

@@ -313,7 +313,7 @@ export function MetricCard({
   const content = (
     <>
       <p className="font-mono text-xs font-bold uppercase tracking-[0.02em] text-muted-foreground">{label}</p>
-      <p className="mt-1 font-mono text-xl font-bold tabular-nums">{value}</p>
+      <p className="mt-1 font-mono text-lg font-bold tabular-nums [overflow-wrap:anywhere] sm:text-xl">{value}</p>
       {helper ? (
         <p className="mt-1 text-xs leading-4 text-muted-foreground">{helper}</p>
       ) : null}

@@ -18,6 +18,7 @@ import {
 import { InvoiceTotalsSummary } from "@/components/invoices/invoice-form-controls";
 import { buttonVariants } from "@/components/ui/button";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { FormTotalSummary } from "@/components/ui/form-total-summary";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
@@ -268,7 +269,7 @@ export function SalesDocumentForm({
       </div>
 
       <FormErrorMessage id={`${idPrefix}-form-error`}>{formError}</FormErrorMessage>
-      <FormActions sticky>
+      <FormActions sticky summary={<FormTotalSummary lines={lines.length} total={totals.totalAmount} />}>
         <SubmitButton aria-keyshortcuts="Control+Enter Meta+Enter" className="min-w-36" data-testid={`${idPrefix}-submit`} pending={pending}>
           {isEdit ? "Guardar cambios" : text.submit}
         </SubmitButton>

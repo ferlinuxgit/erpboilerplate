@@ -11,6 +11,7 @@ import { AccountPicker } from "@/components/ui/account-picker";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { FormTotalSummary } from "@/components/ui/form-total-summary";
 import { Input } from "@/components/ui/input";
 import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
@@ -629,7 +630,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
         ) : null}
 
         <FormErrorMessage id="expense-invoice-error">{error}</FormErrorMessage>
-        <FormActions sticky>
+        <FormActions sticky summary={<FormTotalSummary label={selfAssessedVat ? "A pagar" : "Total"} lines={lines.length} total={payable(preview)} currencyCode={baseCurrencyCode} />}>
           <SubmitButton disabled={expenseAccounts.length === 0 || isUploading || duplicate?.level === "exact" || (duplicate?.level === "possible" && !duplicateAcknowledged)} pending={isLoading} pendingLabel="Registrando…">
             Registrar factura
           </SubmitButton>

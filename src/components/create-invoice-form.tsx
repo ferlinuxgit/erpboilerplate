@@ -10,6 +10,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField, FormActions, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { FormTotalSummary } from "@/components/ui/form-total-summary";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/number-input";
@@ -522,12 +523,8 @@ export function CreateInvoiceForm({
         className="md:col-span-3"
         hint="Enter o Ctrl/Cmd + Enter guardan un borrador. «Emitir factura» te pide confirmación: al emitir se asigna el número y deja de ser editable."
         sticky
+        summary={<FormTotalSummary lines={fields.length} total={totals.totalAmount} testId="invoice-sticky-total" />}
       >
-        {/* Móvil: el total siempre a la vista mientras se rellenan las líneas, encima de los botones. */}
-        <p aria-live="polite" className="flex basis-full! items-baseline justify-between font-mono text-sm sm:hidden" data-testid="invoice-sticky-total">
-          <span className="text-xs text-muted-foreground">{fields.length} línea{fields.length === 1 ? "" : "s"} · Total</span>
-          <span className="text-base font-bold tabular-nums">{formatMoney(totals.totalAmount)}</span>
-        </p>
         <SubmitButton
           aria-keyshortcuts="Control+Enter Meta+Enter"
           data-testid="invoice-save-draft"

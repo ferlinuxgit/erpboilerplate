@@ -1352,7 +1352,8 @@ export function ResourceList<TItem>({
           </div>
 
           <div
-            className={cn("grid gap-2 md:hidden", isNavigating && "opacity-60")}
+            // minmax(0,1fr): un texto largo truncado (nombre de proveedor…) no ensancha las tarjetas.
+            className={cn("grid grid-cols-[minmax(0,1fr)] gap-2 md:hidden", isNavigating && "opacity-60")}
             data-testid="resource-list-mobile"
           >
             {enableSelection ? (

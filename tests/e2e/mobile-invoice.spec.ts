@@ -82,3 +82,39 @@ test("crear y emitir una factura desde el móvil", async ({ page }) => {
   await expect(page.getByRole("combobox", { name: /Estado de cobro/i })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
+
+test("gastos y pedidos de compra en el móvil: tarjetas completas y total a la vista", async ({ page }) => {
+  test.setTimeout(120_000);
+  const runId = Date.now();
+  await registerAndSignIn(page, "Mobile Expenses E2E");
+  await completeOnboarding(page, "Empresa gastos móvil E2E S.L.");
+  const expense = await postJson<{ id: string }>(page, "/api/expenses", {
+    supplierName: `Suministros Eléctricos del Levante Mediterráneo y Asociados ${runId} SL`,
+    supplierTaxId: "B12345674",
+    supplierDocumentNumber: `SUM-${runId}`,
+    issueDate: new Date().toISOString(),
+    lines: [{ description: "Material eléctrico", quantity: 1, unitPrice: 300, taxRate: 21 }],
+  });
+
+  // Un proveedor muy largo no ensancha la tarjeta: la etiqueta de estado queda dentro de la pantalla.
+  await page.goto("/expenses");
+  await page.waitForLoadState("networkidle");
+  await expectNoHorizontalOverflow(page);
+  const card = page.getByTestId("resource-list-mobile").locator("article").first();
+  const badge = card.getByText("Pendiente", { exact: true }).first();
+  const badgeBox = await badge.boundingBox();
+  expect(badgeBox, "etiqueta de estado visible").not.toBeNull();
+  expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(390);
+
+  await page.goto(`/expenses/${expense.id}`);
+  await page.waitForLoadState("networkidle");
+  await expectNoHorizontalOverflow(page);
+
+  // Pedido de compra: el total estimado acompaña a la barra fija del formulario.
+  await page.goto("/purchases/new");
+  await page.waitForLoadState("networkidle");
+  const summary = page.locator('[data-slot="form-actions-summary"]');
+  await expect(summary).toBeInViewport();
+  await expect(summary).toContainText("Total estimado");
+  await expectNoHorizontalOverflow(page);
+});

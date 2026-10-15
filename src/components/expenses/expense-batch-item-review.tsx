@@ -133,7 +133,7 @@ export function ExpenseBatchItemReview({
   const hasBlocking = warnings.some(isBlockingWarning);
 
   return (
-    <div className="grid gap-3 border-t border-window-shadow p-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 border-t border-window-shadow p-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
       <div className="lg:sticky lg:top-2 lg:self-start">
         <Button className="mb-2 w-full lg:hidden" onClick={() => setShowPreviewOnMobile((current) => !current)} size="sm" type="button" variant="outline">
           <Eye aria-hidden="true" /> {showPreviewOnMobile ? "Ocultar documento" : "Ver documento"}

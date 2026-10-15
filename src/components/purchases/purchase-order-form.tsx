@@ -18,6 +18,7 @@ import { CreateSupplierForm } from "@/components/suppliers/create-supplier-form"
 import { SupplierPicker } from "@/components/suppliers/supplier-picker";
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
+import { FormTotalSummary } from "@/components/ui/form-total-summary";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -187,7 +188,7 @@ export function PurchaseOrderForm({
       </div>
 
       <FormErrorMessage id="purchase-order-error">{formError}</FormErrorMessage>
-      <FormActions sticky>
+      <FormActions sticky summary={<FormTotalSummary label="Total estimado" lines={lines.length} total={totals.totalAmount} />}>
         <SubmitButton aria-keyshortcuts="Control+Enter Meta+Enter" className="min-w-36" data-testid="purchase-order-submit" pending={pending}>
           {isEdit ? "Guardar cambios" : "Crear pedido de compra"}
         </SubmitButton>

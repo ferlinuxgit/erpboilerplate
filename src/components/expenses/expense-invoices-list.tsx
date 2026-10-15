@@ -274,6 +274,7 @@ export function ExpenseInvoicesList({
                 </p>
               </div>
               <StatusBadge
+                className="shrink-0"
                 tone={invoicePaymentStatusTone(invoice.paymentStatus)}
               >
                 {statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}

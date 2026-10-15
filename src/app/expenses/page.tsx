@@ -52,7 +52,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         }
       />
 
-      <section className="grid gap-3 md:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 max-md:[&>*:last-child]:col-span-2">
         <MetricCard label="Facturas activas" value={summary.activeCount} helper={summary.voidCount > 0 ? `${summary.voidCount} anuladas excluidas` : "Documentos recibidos"} />
         <MetricCard label="Total facturado" value={formatMoney(summary.totalAmount)} helper="No incluye facturas anuladas" />
         <MetricCard label="Pendiente de pago" value={formatMoney(summary.pendingAmount)} helper={`IVA soportado ${formatMoney(summary.inputTaxAmount)}`} tone={summary.pendingAmount > 0 ? "warning" : "success"} />
