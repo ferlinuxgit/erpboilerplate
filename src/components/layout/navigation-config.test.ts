@@ -31,7 +31,25 @@ describe("navigation adapted to the business and the role", () => {
   const hrefs = (groups: ReturnType<typeof filterNavigationGroups>) => groups.flatMap((group) => group.links.map((link) => link.href));
 
   it("shows every module while the context is still loading", () => {
-    expect(hrefs(filterNavigationGroups(navGroups, {}))).toEqual(navigationLinks.map((link) => link.href));
+    // Salvo los accesos de sustitución ("Artículos" sin inventario), que duplicarían otro enlace.
+    expect(hrefs(filterNavigationGroups(navGroups, {}))).toEqual(navigationLinks.filter((link) => !link.unlessModule).map((link) => link.href));
+  });
+
+  it("shows only the modules the company has enabled", () => {
+    const withoutOptional = hrefs(filterNavigationGroups(navGroups, { modules: [], role: "OWNER" }));
+    for (const href of ["/sales/quotes", "/sales/orders", "/purchases/orders", "/inventory", "/treasury", "/sales/delivery-notes"]) expect(withoutOptional).not.toContain(href);
+    expect(withoutOptional).toEqual(expect.arrayContaining(["/invoices", "/expenses", "/accounting", "/fiscal", "/settings"]));
+    // Sin inventario, el catálogo de artículos sigue a mano desde Ventas.
+    expect(withoutOptional).toContain("/inventory/items");
+    const withInventory = hrefs(filterNavigationGroups(navGroups, { modules: ["inventory", "banking"], role: "OWNER" }));
+    expect(withInventory).toContain("/inventory");
+    expect(withInventory).not.toContain("/inventory/items");
+    expect(withInventory).toContain("/treasury");
+  });
+
+  it("keeps bank accounts reachable in Tesorería without the banking module", () => {
+    const treasury = getContextGroup("/treasury/bank-accounts");
+    expect(treasury && filterContextLinks(treasury, { modules: [] }).map((link) => link.href)).toEqual(["/treasury/bank-accounts"]);
   });
 
   it("hides stock-only modules for pure service businesses", () => {

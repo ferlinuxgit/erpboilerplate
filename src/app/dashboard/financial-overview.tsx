@@ -16,7 +16,7 @@ function dateKey(date: Date) {
 }
 
 /** Financial KPIs and 12-month charts, computed with SQL aggregates ("Qué hacer hoy" lives in `today-panel.tsx`). */
-export function FinancialOverview({ finance, currencyCode }: { finance: DashboardFinance; currencyCode: string }) {
+export function FinancialOverview({ bankingEnabled = true, finance, currencyCode }: { bankingEnabled?: boolean; finance: DashboardFinance; currencyCode: string }) {
   const money = (value: number) => formatMoney(value, currencyCode);
   const period = financePeriodOptions.find((option) => option.value === finance.period) ?? financePeriodOptions[0];
   const salesHelper =
@@ -92,7 +92,7 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
         />
         <MetricCard
           helper="Saldo contable de las cuentas de bancos (grupo 57), con todos los movimientos registrados."
-          href="/treasury"
+          href={bankingEnabled ? "/treasury" : "/treasury/bank-accounts"}
           label="Saldo en bancos"
           tone={finance.bank.balance < 0 ? "danger" : "neutral"}
           value={money(finance.bank.balance)}
@@ -144,9 +144,11 @@ export function FinancialOverview({ finance, currencyCode }: { finance: Dashboar
           ) : (
             <p className="border border-dashed border-window-dark-shadow p-2.5 text-xs text-muted-foreground">
               La evolución del saldo en bancos aparecerá cuando registres cobros, pagos o movimientos bancarios.{" "}
-              <Link className="font-semibold text-link underline" href="/treasury">
-                Ir a tesorería
-              </Link>
+              {bankingEnabled ? (
+                <Link className="font-semibold text-link underline" href="/treasury">
+                  Ir a tesorería
+                </Link>
+              ) : null}
             </p>
           )}
         </PageSection>

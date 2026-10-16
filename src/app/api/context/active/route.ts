@@ -10,6 +10,7 @@ import { parseBusinessType } from "@/lib/company-readiness";
 import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
 import { listUserTenants } from "@/lib/tenant";
+import { getEnabledModules } from "@/server/modules/service";
 
 const payloadSchema = z
   .object({
@@ -27,7 +28,7 @@ const payloadSchema = z
 export async function GET() {
   try {
     const ctx = await requireContext();
-    const [allFiscalYears, availableTenants, [settings]] = await Promise.all([
+    const [allFiscalYears, availableTenants, [settings], modules] = await Promise.all([
       db
         .select({ id: fiscalYear.id, code: fiscalYear.code, companyId: fiscalYear.companyId })
         .from(fiscalYear)
@@ -35,6 +36,7 @@ export async function GET() {
         .orderBy(asc(fiscalYear.startsAt)),
       listUserTenants(ctx.user.id),
       db.select({ businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
+      getEnabledModules(ctx.company.id),
     ]);
     return NextResponse.json({
       active: {
@@ -45,6 +47,8 @@ export async function GET() {
       availableTenants,
       // Qué vende la empresa activa: la navegación oculta lo que no aplica (p. ej. stock en servicios).
       businessType: parseBusinessType(settings?.businessType),
+      // Módulos activos de la empresa: el menú, las pestañas y la paleta ocultan el resto.
+      modules,
       availableCompanies: ctx.availableCompanies,
       availableFiscalYears: ctx.availableFiscalYears,
       availableFiscalYearsByCompany: Object.fromEntries(ctx.availableCompanies.map((entry) => [entry.id, allFiscalYears.filter((year) => year.companyId === entry.id).map(({ id, code }) => ({ id, code }))])),

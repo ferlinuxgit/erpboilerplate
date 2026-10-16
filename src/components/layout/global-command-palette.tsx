@@ -4,11 +4,12 @@ import { ClockCounterClockwise, MagnifyingGlass, Plus, SquaresFour } from "@phos
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { buildNavigationCommands, quickActions, rankCommands, type Command, type CommandKind } from "@/components/layout/command-search";
+import { buildNavigationCommands, isCommandAvailable, quickActions, rankCommands, type Command, type CommandKind } from "@/components/layout/command-search";
 import { readKeyboardPreferences, useKeyboardPreferences } from "@/components/layout/keyboard-preferences";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useActiveContext } from "@/lib/active-context-client";
 import { cn } from "@/lib/utils";
 
 const navigationCommands = buildNavigationCommands();
@@ -67,6 +68,8 @@ export function GlobalCommandPalette() {
   const [recordResults, setRecordResults] = useState<Array<{ href: string; label: string; description: string; type: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
   const { keyboardMode } = useKeyboardPreferences();
+  const activeContext = useActiveContext();
+  const enabledModules = activeContext?.modules;
 
   const closePalette = () => {
     setOpen(false);
@@ -136,21 +139,25 @@ export function GlobalCommandPalette() {
   }, [open, query]);
 
   const sections = useMemo<Section[]>(() => {
+    // Sin los módulos que la empresa no tiene activados.
+    const available = (command: Command) => isCommandAvailable(command, enabledModules);
+    const actions = quickActions.filter(available);
+    const navigation = navigationCommands.filter(available);
     if (!query.trim()) {
       return [
-        { id: "recent", title: "Recientes", items: recent },
-        { id: "actions", title: "Acciones rápidas", items: quickActions.slice(0, 8) },
-        { id: "navigation", title: "Ir a", items: navigationCommands.filter((command) => command.code) },
+        { id: "recent", title: "Recientes", items: recent.filter(available) },
+        { id: "actions", title: "Acciones rápidas", items: actions.slice(0, 8) },
+        { id: "navigation", title: "Ir a", items: navigation.filter((command) => command.code) },
       ].filter((section) => section.items.length > 0);
     }
     // A igual puntuación, módulos antes que acciones: "inventario" abre Inventario.
-    const ranked = rankCommands([...quickActions, ...navigationCommands], query);
+    const ranked = rankCommands([...actions, ...navigation], query);
     const records: Command[] = recordResults.map((result) => ({ href: result.href, label: result.label, kind: "record", description: `${result.type} · ${result.description}` }));
     return [
       { id: "matches", title: "Coincidencias", items: ranked },
       { id: "records", title: "Registros", items: records },
     ].filter((section) => section.items.length > 0);
-  }, [query, recent, recordResults]);
+  }, [enabledModules, query, recent, recordResults]);
 
   const flatItems = sections.flatMap((section) => section.items);
   const safeActiveIndex = activeIndex >= flatItems.length ? flatItems.length - 1 : activeIndex;

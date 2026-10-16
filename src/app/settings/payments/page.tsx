@@ -9,6 +9,7 @@ import { SettingsPageHeader } from "@/components/settings/settings-page-header";
 import { PageSection, PageShell } from "@/components/ui/page";
 import { company, companySettings } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
+import { isModuleEnabled } from "@/server/modules/service";
 import { db } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { isEmailDeliveryConfigured } from "@/server/email/send";
@@ -19,6 +20,7 @@ export const metadata: Metadata = { title: "Cobros y pagos" };
 export default async function PaymentsSettingsPage() {
   const ctx = await requireContext("invoice.read");
   const canManage = can(ctx.membership.role, "settings.manage");
+  const bankingEnabled = await isModuleEnabled(ctx.company.id, "banking");
   const [emailSettings, [sepa], [terms]] = await Promise.all([
     getInvoiceEmailSettings(ctx.company.id),
     canManage
@@ -40,7 +42,7 @@ export default async function PaymentsSettingsPage() {
           <PaymentTermsForm initialValue={terms?.paymentTermsDays ?? 30} />
         </PageSection>
       ) : null}
-      {canManage && sepa ? (
+      {canManage && sepa && bankingEnabled ? (
         <PageSection className="scroll-mt-24" id="sepa" title="Recibos domiciliados (SEPA)" description="Necesario para generar remesas de adeudos directos desde Tesorería.">
           <SepaCreditorForm initialValue={sepa.sepaCreditorId} vatNumber={sepa.vatNumber} />
         </PageSection>

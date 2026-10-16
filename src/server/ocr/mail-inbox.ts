@@ -8,6 +8,7 @@ import { HttpError } from "@/lib/http";
 import { logger } from "@/lib/logger";
 import { openSecret, sealSecret } from "@/lib/secret-box";
 import { recordAudit } from "@/server/audit";
+import { isModuleEnabled } from "@/server/modules/service";
 import { createExpenseOcrJob, sanitizeFileName } from "@/server/ocr/expense-ocr";
 import { isAllowedSender, mailInboxErrorMessage, parseAllowedSenders, selectInvoiceAttachments } from "@/server/ocr/mail-inbox-model";
 
@@ -307,6 +308,8 @@ export async function checkAllMailInboxes() {
   const rows = await db.select().from(expenseMailInbox).where(eq(expenseMailInbox.enabled, true));
   let imported = 0;
   for (const row of rows) {
+    // Con el módulo de lectura desactivado el buzón no se revisa (se conserva su configuración).
+    if (!(await isModuleEnabled(row.companyId, "invoice-reading"))) continue;
     try {
       imported += (await checkMailInbox(row)).imported;
     } catch {

@@ -224,7 +224,7 @@ export function AppShell({ children }: AppShellProps) {
   const isPublicRoute = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/invitations/");
   const activeContext = useActiveContext(!isPublicRoute);
   const { keyboardMode } = useKeyboardPreferences();
-  const visibleGroups = filterNavigationGroups(navGroups, { businessType: activeContext?.businessType, role: activeContext?.user.role });
+  const visibleGroups = filterNavigationGroups(navGroups, { modules: activeContext?.modules, businessType: activeContext?.businessType, role: activeContext?.user.role });
   const activeCompanyName = activeContext?.availableCompanies.find((company) => company.id === activeContext.active.companyId)?.name ?? null;
   const activeFiscalYearCode = activeContext?.availableFiscalYears.find((year) => year.id === activeContext.active.fiscalYearId)?.code ?? null;
   const currentLink = navigationLinks.find((link) => isActiveRoute(pathname, link.href));
@@ -424,7 +424,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         ) : null}
 
-        <ContextNavigation businessType={activeContext?.businessType} keyboardMode={keyboardMode} role={activeContext?.user.role} />
+        <ContextNavigation businessType={activeContext?.businessType} keyboardMode={keyboardMode} modules={activeContext?.modules} role={activeContext?.user.role} />
         <div
           // Reserva el alto de la barra inferior móvil para que no tape el final de la página.
           className="min-w-0 flex-1 pb-(--mobile-taskbar-height) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"

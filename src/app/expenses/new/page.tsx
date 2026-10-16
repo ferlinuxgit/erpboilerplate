@@ -7,6 +7,7 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { listPostingAccounts } from "@/server/accounting/service";
+import { isModuleEnabled } from "@/server/modules/service";
 import { countExpenseInbox } from "@/server/ocr/expense-ocr";
 import { listSupplierInvoiceRelations, listSupplierPartners } from "@/server/supplier-invoices/service";
 
@@ -26,6 +27,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
     .filter((account) => account.type === "EXPENSE")
     .map((account) => ({ id: account.id, code: account.code, name: account.name }));
   const canWriteExpenses = can(ctx.membership.role, "expense.write");
+  const readingEnabled = await isModuleEnabled(ctx.company.id, "invoice-reading");
 
   return (
     <PageShell>
@@ -58,7 +60,8 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
             expenseAccounts={expenseAccounts}
             goodsReceipts={relations.receipts}
             initialSupplierId={initialSupplierId}
-            pendingInboxCount={pendingInboxCount}
+            pendingInboxCount={readingEnabled ? pendingInboxCount : 0}
+            readingEnabled={readingEnabled}
             purchaseOrders={relations.orders}
             suppliers={suppliers}
           />

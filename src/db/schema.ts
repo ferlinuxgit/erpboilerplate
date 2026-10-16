@@ -330,6 +330,24 @@ export const taxRetention = pgTable("tax_retention", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
+/**
+ * Módulos opcionales por empresa (ver `src/modules/registry.ts`). Solo se guarda lo que la empresa
+ * ha decidido: sin fila, manda el valor por defecto del módulo según lo que vende la empresa.
+ */
+export const companyModule = pgTable(
+  "company_module",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+    moduleId: text("moduleId").notNull(),
+    enabled: boolean("enabled").notNull(),
+    updatedByUserId: text("updatedByUserId").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [unique("company_module_company_module_unique").on(table.companyId, table.moduleId)],
+);
+
 export const companySettings = pgTable("company_settings", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),

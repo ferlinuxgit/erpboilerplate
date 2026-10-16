@@ -14,6 +14,7 @@ vi.mock("@/lib/current-context", () => ({ requireContext }));
 vi.mock("@/lib/current-user", () => ({ getUserSession }));
 vi.mock("@/lib/tenant", () => ({ listUserTenants }));
 vi.mock("@/server/team/service", () => ({ acceptInvitation }));
+vi.mock("@/server/modules/service", () => ({ getEnabledModules: async () => ["sales-documents", "banking"] }));
 vi.mock("@/lib/db", () => ({
   db: {
     select: vi.fn(() => {

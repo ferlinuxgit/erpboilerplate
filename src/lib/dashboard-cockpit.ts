@@ -1,4 +1,5 @@
 import type { BusinessType } from "@/lib/company-readiness";
+import { isModuleVisible, moduleForPath } from "@/modules/registry";
 
 type CustomerInput = {
   status: string;
@@ -129,6 +130,8 @@ export type DashboardCockpit = {
 export type DashboardCockpitOptions = {
   currencyCode?: string;
   businessType?: BusinessType;
+  /** Módulos activos: no se proponen accesos a módulos desactivados. Sin indicar, todos. */
+  enabledModules?: readonly string[];
   setup?: DashboardSetupInput;
 };
 
@@ -398,12 +401,13 @@ export function buildDashboardCockpitFromSummary(summary: DashboardCockpitSummar
   const setup = options.setup ?? { missingCompanyFields: [], hasInvoiceSeries: true, hasBankAccount: true };
   const setupChecklist = buildSetupChecklist({ ...setup, hasCustomer: activeCustomers > 0, hasInvoice: summary.invoiceCount > 0 });
 
+  const available = <T extends { href: string }>(entry: T) => isModuleVisible(moduleForPath(entry.href)?.id, options.enabledModules);
   return {
     stateLabel,
     metrics,
-    metricCards: buildMetricCards(metrics, currencyCode, businessType),
-    primaryActions: primaryActions.slice(0, 4),
-    alerts,
+    metricCards: buildMetricCards(metrics, currencyCode, businessType).filter(available),
+    primaryActions: primaryActions.filter(available).slice(0, 4),
+    alerts: alerts.filter(available),
     setupChecklist,
   };
 }

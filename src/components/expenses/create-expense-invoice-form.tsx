@@ -70,6 +70,8 @@ type CreateExpenseInvoiceFormProps = {
   suppliers: Supplier[];
   /** Documentos esperando en la bandeja (se ofrece continuar con ellos). */
   pendingInboxCount?: number;
+  /** Módulo de lectura con IA activo: si no, se escribe directamente a mano. */
+  readingEnabled?: boolean;
 };
 
 const MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024;
@@ -114,10 +116,10 @@ function lineTotals(line: ExpenseLineDraft) {
   return { subtotal, tax, retention, total: subtotal + tax - retention };
 }
 
-export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
   const initialSupplier = suppliers.find((supplier) => supplier.id === initialSupplierId);
-  const [creationMode, setCreationMode] = useState<"manual" | null>(initialSupplier ? "manual" : null);
+  const [creationMode, setCreationMode] = useState<"manual" | null>(initialSupplier || !readingEnabled ? "manual" : null);
   const [supplierPartnerId, setSupplierPartnerId] = useState(initialSupplier?.id ?? "");
   const [newSupplier, setNewSupplier] = useState<NewSupplierDraft | null>(null);
   const [newSupplierDialogOpen, setNewSupplierDialogOpen] = useState(false);

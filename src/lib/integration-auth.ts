@@ -7,8 +7,10 @@ import { bearerToken } from "@/lib/api-auth-header";
 import { parseStoredApiKeyScopes } from "@/lib/api-key-scopes";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { isHttpError } from "@/lib/http";
 import { ensureUserTenant } from "@/lib/tenant";
 import { can, type AppRole, type PermissionKey } from "@/lib/rbac";
+import { enforceModuleForRequest } from "@/server/modules/guard";
 
 type IntegrationContext = {
   tenant: {
@@ -123,6 +125,12 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
     if (!context) {
       return NextResponse.json({ message: "La API key no tiene una empresa activa asociada." }, { status: 403 });
     }
+    try {
+      await enforceModuleForRequest(context.company.id, new URL(request.url).pathname);
+    } catch (error) {
+      if (isHttpError(error)) return NextResponse.json({ message: error.message }, { status: error.status });
+      throw error;
+    }
 
     return {
       context,
@@ -137,8 +145,16 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   }
 
+  let context: Awaited<ReturnType<typeof ensureUserTenant>>;
+  try {
+    context = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+  } catch (error) {
+    // Módulo desactivado (o sin permisos): respuesta JSON en lugar de un 500.
+    if (isHttpError(error)) return NextResponse.json({ message: error.message }, { status: error.status });
+    throw error;
+  }
   return {
-    context: await ensureUserTenant({ id: session.user.id, name: session.user.name }),
+    context,
     actorUserId: session.user.id,
     kind: "session",
     scopes: null,

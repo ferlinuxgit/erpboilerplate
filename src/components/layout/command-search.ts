@@ -1,5 +1,6 @@
 import { contextGroups, navigationLinks } from "@/components/layout/navigation-config";
 import { settingsSections } from "@/components/settings/settings-catalog";
+import { isModuleVisible, moduleForPath } from "@/modules/registry";
 
 /**
  * Catálogo y búsqueda de la paleta de comandos (sin React, para poder probarlo).
@@ -96,6 +97,12 @@ export function buildNavigationCommands(): Command[] {
     }
   }
   return [...modules, ...subPages, ...settings];
+}
+
+/** Un comando que lleva a un módulo desactivado no se ofrece (sin saber aún los módulos, sí). */
+export function isCommandAvailable(command: Pick<Command, "href">, enabledModules: readonly string[] | null | undefined) {
+  const manifest = moduleForPath(command.href);
+  return isModuleVisible(manifest?.id, enabledModules);
 }
 
 export function normalizeSearchText(value: string) {

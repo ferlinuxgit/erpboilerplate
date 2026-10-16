@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -59,6 +60,10 @@ export function BusinessTypeForm({ initialValue }: { initialValue: BusinessType 
           </label>
         ))}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Decide qué módulos vienen activados (p. ej. el inventario si vendes productos). Puedes cambiarlos uno a uno en{" "}
+        <Link className="font-semibold text-link underline" href="/settings/modules">Configuración → Módulos</Link>.
+      </p>
     </fieldset>
   );
 }

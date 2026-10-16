@@ -274,6 +274,13 @@
       "when": 1792167539857,
       "tag": "0038_expense_mail_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792183485506,
+      "tag": "0039_company_modules",
+      "breakpoints": true
     }
   ]
 }

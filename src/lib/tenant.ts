@@ -5,6 +5,7 @@ import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getActiveContextCookies, getActiveTenantCookie } from "@/lib/active-context";
 import type { AppRole } from "@/lib/rbac";
+import { enforceModuleForRequest } from "@/server/modules/guard";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
 
 /** Nombre provisional de la empresa y del espacio hasta que el usuario lo indique en la puesta en marcha. */
@@ -107,17 +108,25 @@ async function ensureUserTenantUncached(user: { id: string; name: string }): Pro
   const pendingProvisioning = tenantProvisioningByUserId.get(provisioningKey);
 
   if (pendingProvisioning) {
-    return resolveActiveContext(await pendingProvisioning);
+    return withModuleGuard(await resolveActiveContext(await pendingProvisioning));
   }
 
   const provisioning = ensureUserTenantInternal(user, preferredTenantId);
   tenantProvisioningByUserId.set(provisioningKey, provisioning);
 
+  let context: UserTenantContext;
   try {
-    return resolveActiveContext(await provisioning);
+    context = await resolveActiveContext(await provisioning);
   } finally {
     tenantProvisioningByUserId.delete(provisioningKey);
   }
+  return withModuleGuard(context);
+}
+
+/** Módulos: una ruta de un módulo desactivado en la empresa activa no llega a ejecutarse. */
+async function withModuleGuard(context: UserTenantContext) {
+  await enforceModuleForRequest(context.company.id);
+  return context;
 }
 
 async function resolveActiveContext(fallback: UserTenantContext): Promise<UserTenantContext> {

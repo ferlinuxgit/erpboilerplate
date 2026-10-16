@@ -18,6 +18,7 @@ import { ensureUserTenant } from "@/lib/tenant";
 import { getCompanySetupState, type CompanySetupState } from "@/server/onboarding/service";
 import { loadCockpitSummary, loadDashboardFinance, type DashboardFinance } from "@/server/reporting/dashboard";
 import { parseFinancePeriod, type FinancePeriod } from "@/server/reporting/dashboard-model";
+import { getEnabledModules } from "@/server/modules/service";
 
 export const metadata: Metadata = {
   title: "Panel",
@@ -87,9 +88,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     fiscalYearId: tenantContext.fiscalYear.id,
     includeFinance: can(role, "reporting.read"),
   });
+  const enabledModules = await getEnabledModules(companyId);
+  const bankingEnabled = enabledModules.includes("banking");
   const cockpit = buildDashboardCockpitFromSummary(summary, {
     currencyCode,
     businessType: setup?.businessType,
+    enabledModules,
     setup: setup
       ? { missingCompanyFields: setup.readiness.missing, hasInvoiceSeries: Boolean(setup.invoiceSeries), hasBankAccount: setup.bankAccountCount > 0 }
       : undefined,
@@ -208,7 +212,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </section>
 
       {/* Plazos fiscales y tareas del día: para todos los roles y desde el primer día. */}
-      {finance ? <TodayPanel currencyCode={currencyCode} finance={finance} /> : null}
+      {finance ? <TodayPanel bankingEnabled={bankingEnabled} currencyCode={currencyCode} finance={finance} /> : null}
 
       {!showChecklist && can(role, "invoice.create") ? (
         <PageSection title="Acciones frecuentes" description="Atajos a lo que más se hace en el día a día." data-testid="dashboard-primary-actions">
@@ -221,7 +225,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       {/* La sección financiera aparece con la primera factura, gasto o movimiento bancario. */}
-      {finance?.hasData ? <FinancialOverview currencyCode={currencyCode} finance={finance} /> : null}
+      {finance?.hasData ? <FinancialOverview bankingEnabled={bankingEnabled} currencyCode={currencyCode} finance={finance} /> : null}
 
       <PageSection title="Tu sesión" description="Empresa, ejercicio y permisos con los que trabajas ahora." contentClassName="flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 sm:grid-cols-[auto_auto_auto_auto_auto_auto_auto_auto]">

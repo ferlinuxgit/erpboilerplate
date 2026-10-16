@@ -19,6 +19,7 @@ import { effectivePaymentTermsDays } from "@/server/invoices/due-dates";
 import { salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
 import { listCustomerMandates } from "@/server/sepa/mandates";
 import { requireContext } from "@/lib/current-context";
+import { isModuleEnabled } from "@/server/modules/service";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can, canManageCustomers } from "@/lib/rbac";
@@ -54,7 +55,8 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
     db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
     isCustomerDunningOptedOut(ctx.company.id, id),
   ]);
-  const sepaMandates = await listCustomerMandates(ctx.company.id, id);
+  const bankingEnabled = await isModuleEnabled(ctx.company.id, "banking");
+  const sepaMandates = bankingEnabled ? await listCustomerMandates(ctx.company.id, id) : [];
   const currencyCode = record.currencyCode ?? ctx.company.baseCurrencyCode;
   // Importes reales: sin borradores ni anuladas, restando rectificativas y cobros (mismas reglas que la lista de facturas).
   const totalInvoiced = balance.invoiced;
@@ -100,9 +102,11 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
           <PageSection title="Facturas recientes" description="Últimos documentos emitidos." contentClassName="space-y-2">
             {invoices.length === 0 ? <EmptyState title="Sin facturas" description="Todavía no hay facturas emitidas a este cliente." action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/invoices/new?customerId=${record.id}`}>Crear factura</Link>} /> :invoices.slice(0, 6).map((row) => <Link className="flex items-center justify-between gap-3 rounded-surface border p-3 text-sm transition-colors hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}><span><span className="font-medium">{row.number}</span><span className="block text-xs text-muted-foreground">{formatDate(row.issueDate)}</span></span><span className="text-right"><span className="block font-mono font-semibold">{formatMoney(row.totalAmount, currencyCode)}</span><StatusBadge tone={invoicePaymentStatusTone(row.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}</StatusBadge></span></Link>)}
           </PageSection>
-          <PageSection title="Domiciliación bancaria (SEPA)" description="Mandatos firmados para cobrar sus facturas con remesas de recibos.">
-            <SepaMandatesPanel canManage={canManage} customerId={record.id} defaultIban={record.iban} mandates={sepaMandates} />
-          </PageSection>
+          {bankingEnabled ? (
+            <PageSection title="Domiciliación bancaria (SEPA)" description="Mandatos firmados para cobrar sus facturas con remesas de recibos.">
+              <SepaMandatesPanel canManage={canManage} customerId={record.id} defaultIban={record.iban} mandates={sepaMandates} />
+            </PageSection>
+          ) : null}
         </div>
         <PageSection title="Actividad" description="Cronología comercial completa del cliente."><ActivityTimeline items={timeline} /></PageSection>
       </section>

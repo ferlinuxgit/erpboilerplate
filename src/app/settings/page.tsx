@@ -1,23 +1,17 @@
-import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 
 import { visibleSettingsSections } from "@/components/settings/settings-catalog";
 import { SettingsIndex } from "@/components/settings/settings-index";
 import { PageHeader, PageShell } from "@/components/ui/page";
-import { companySettings } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
-import { db } from "@/lib/db";
+import { getEnabledModules } from "@/server/modules/service";
 
 export const metadata: Metadata = { title: "Configuración" };
 
 export default async function SettingsHomePage() {
   const ctx = await requireContext();
-  const [settings] = await db
-    .select({ businessType: companySettings.businessType })
-    .from(companySettings)
-    .where(eq(companySettings.companyId, ctx.company.id))
-    .limit(1);
-  const sections = visibleSettingsSections({ role: ctx.membership.role, businessType: settings?.businessType });
+  const modules = await getEnabledModules(ctx.company.id);
+  const sections = visibleSettingsSections({ role: ctx.membership.role, modules });
 
   return (
     <PageShell>

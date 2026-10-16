@@ -1,5 +1,6 @@
 import type { BusinessType } from "@/lib/company-readiness";
 import { can, isAppRole, type PermissionKey } from "@/lib/rbac";
+import { isModuleVisible, resolveEnabledModules, type ModuleId } from "@/modules/registry";
 
 /**
  * Mapa único de la configuración: alimenta las pestañas de Configuración, el índice con
@@ -16,7 +17,8 @@ export type SettingsItem = {
   /** Sinónimos en lenguaje llano para el buscador y la paleta. */
   keywords?: string;
   permission?: PermissionKey;
-  productsOnly?: boolean;
+  /** Ajuste de un módulo opcional: solo aparece si la empresa lo tiene activado. */
+  module?: ModuleId;
   /** Vive en otro módulo: se marca como enlace externo a la configuración. */
   external?: boolean;
 };
@@ -29,7 +31,7 @@ export type SettingsSection = {
   href?: string;
   /** Permiso para abrir la página de la sección. */
   permission?: PermissionKey;
-  productsOnly?: boolean;
+  module?: ModuleId;
   items: SettingsItem[];
 };
 
@@ -44,7 +46,16 @@ export const settingsSections: SettingsSection[] = [
     permission: "settings.manage",
     items: [
       { label: "Datos fiscales y contacto", description: "Razón social, NIF, dirección, email, teléfono, web y zona horaria.", href: "/settings/company#perfil", keywords: "nif cif razon social nombre comercial direccion domicilio codigo postal ciudad provincia pais moneda email telefono web zona horaria emisor" },
-      { label: "Actividad", description: "Productos, servicios o ambos: adapta el menú (inventario, albaranes…).", href: "/settings/company#actividad", keywords: "productos servicios tipo de negocio inventario albaranes menu" },
+      { label: "Actividad", description: "Productos, servicios o ambos: decide qué módulos vienen activados (inventario, albaranes…).", href: "/settings/company#actividad", keywords: "productos servicios tipo de negocio inventario albaranes menu" },
+    ],
+  },
+  {
+    id: "modules",
+    label: "Módulos",
+    description: "Activa solo lo que usas: presupuestos, inventario, banca, CRM, TPV…",
+    href: "/settings/modules",
+    items: [
+      { label: "Módulos de la empresa", description: "Activa o desactiva funciones opcionales. Desactivar no borra datos.", href: "/settings/modules", keywords: "modulos activar desactivar funciones extra opcionales crm tpv punto de venta caja inventario presupuestos pedidos banca conciliacion ia ocr" },
     ],
   },
   {
@@ -80,7 +91,7 @@ export const settingsSections: SettingsSection[] = [
     items: [
       { label: "Formas de pago", description: "Transferencia, domiciliación, tarjeta… y la cuenta (IBAN) que aparece en la factura.", href: "/settings/payments#formas-de-pago", keywords: "forma de pago metodo transferencia iban cuenta domiciliacion tarjeta efectivo bizum", permission: "settings.manage" },
       { label: "Plazo de pago por defecto", description: "Días que tienen tus clientes para pagar si su ficha no indica otro plazo.", href: "/settings/payments#plazo", keywords: "plazo pago dias vencimiento 30 60 cobro condiciones", permission: "settings.manage" },
-      { label: "Recibos domiciliados (SEPA)", description: "Identificador de acreedor para cobrar remesas de adeudos directos.", href: "/settings/payments#sepa", keywords: "sepa acreedor identificador adeudo directo domiciliacion remesa recibos", permission: "settings.manage" },
+      { label: "Recibos domiciliados (SEPA)", description: "Identificador de acreedor para cobrar remesas de adeudos directos.", href: "/settings/payments#sepa", keywords: "sepa acreedor identificador adeudo directo domiciliacion remesa recibos", permission: "settings.manage", module: "banking" },
       { label: "Emails y recordatorios de cobro", description: "Textos al enviar facturas y recordatorios automáticos de cobros vencidos.", href: "/settings/payments#emails", keywords: "email correo plantilla mensaje asunto recordatorio reclamar cobro vencidas dunning automatico copia" },
     ],
   },
@@ -105,8 +116,8 @@ export const settingsSections: SettingsSection[] = [
     description: "Cuentas bancarias, conexión automática y reglas de conciliación (en Tesorería).",
     items: [
       { label: "Cuentas bancarias", description: "Bancos y pasarelas de pago, IBAN, BIC y su cuenta contable.", href: "/treasury/bank-accounts", keywords: "banco cuenta iban bic pasarela stripe paypal", permission: "treasury.read", external: true },
-      { label: "Conexión bancaria", description: "Descarga automática de movimientos de tu banco.", href: "/treasury/bank-connections", keywords: "conectar banco psd2 open banking sincronizar automatico", permission: "treasury.read", external: true },
-      { label: "Reglas de conciliación", description: "Categoriza movimientos repetidos automáticamente.", href: "/treasury/rules", keywords: "reglas conciliacion automatica categorizar movimientos", permission: "treasury.read", external: true },
+      { label: "Conexión bancaria", description: "Descarga automática de movimientos de tu banco.", href: "/treasury/bank-connections", keywords: "conectar banco psd2 open banking sincronizar automatico", permission: "treasury.read", module: "banking", external: true },
+      { label: "Reglas de conciliación", description: "Categoriza movimientos repetidos automáticamente.", href: "/treasury/rules", keywords: "reglas conciliacion automatica categorizar movimientos", permission: "treasury.read", module: "banking", external: true },
     ],
   },
   {
@@ -115,7 +126,7 @@ export const settingsSections: SettingsSection[] = [
     description: "Almacenes, categorías de artículos y unidades de medida.",
     href: "/settings/inventory",
     permission: "stock.write",
-    productsOnly: true,
+    module: "inventory",
     items: [
       { label: "Categorías de artículos", description: "Agrupa tu catálogo de productos y servicios.", href: "/settings/inventory#categorias", keywords: "categoria familia articulos productos catalogo" },
       { label: "Unidades de medida", description: "Unidades, horas, kilos, metros…", href: "/settings/inventory#unidades", keywords: "unidad medida ud kg horas metros" },
@@ -128,6 +139,7 @@ export const settingsSections: SettingsSection[] = [
     description: "Lectura automática de facturas recibidas, también por email.",
     href: "/settings/automation",
     permission: "settings.manage",
+    module: "invoice-reading",
     items: [
       { label: "Lectura de facturas con IA", description: "Permite usar OpenAI para leer facturas recibidas (servicio externo).", href: "/settings/automation#ocr", keywords: "ocr ia inteligencia artificial openai leer escanear facturas recibidas privacidad" },
       { label: "Recibir facturas por email", description: "Un buzón al que reenvías las facturas: llegan solas a la bandeja de gastos.", href: "/settings/automation#correo", keywords: "email correo buzon imap reenviar facturas recibidas gastos automatico adjuntos gmail outlook" },
@@ -197,18 +209,21 @@ export const settingsSections: SettingsSection[] = [
 
 export type SettingsAudience = {
   role?: string | null;
+  /** Módulos activos; si falta, los de por defecto según lo que vende la empresa. */
+  modules?: readonly string[] | null;
   businessType?: BusinessType | string | null;
 };
 
-function allowed(entry: { permission?: PermissionKey; productsOnly?: boolean }, audience: SettingsAudience) {
-  if (entry.productsOnly && audience.businessType === "services") return false;
+function allowed(entry: { permission?: PermissionKey; module?: ModuleId }, audience: SettingsAudience) {
+  const modules = audience.modules ?? (audience.businessType ? resolveEnabledModules([], audience.businessType) : null);
+  if (!isModuleVisible(entry.module, modules)) return false;
   if (!entry.permission) return true;
   // Mientras no se conoce el rol (carga) se muestra; el servidor vuelve a comprobarlo al abrir.
   return !isAppRole(audience.role) || can(audience.role, entry.permission);
 }
 
 /**
- * Secciones visibles para el rol y el tipo de negocio, con sus ajustes ya filtrados. Una
+ * Secciones visibles para el rol y los módulos activos, con sus ajustes ya filtrados. Una
  * sección sin página solo aparece si le queda algún enlace.
  */
 export function visibleSettingsSections(audience: SettingsAudience, sections = settingsSections): SettingsSection[] {

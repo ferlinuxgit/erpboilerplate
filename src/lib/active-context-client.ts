@@ -29,6 +29,8 @@ export type ActiveContextPayload = {
   availableTenants?: TenantOption[];
   /** Qué vende la empresa activa ("products" | "services" | "both"). */
   businessType?: string;
+  /** Módulos opcionales activos en la empresa (ver `src/modules/registry.ts`). */
+  modules?: string[];
   availableCompanies: CompanyOption[];
   availableFiscalYears: FiscalYearOption[];
   availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;

@@ -14,7 +14,7 @@ function dayCount(days: number) {
  * "Qué hacer hoy": cobros vencidos, pagos de la semana, movimientos sin conciliar y plazos
  * fiscales. Se muestra a todos los roles desde el primer día (también sin datos financieros).
  */
-export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinance; currencyCode: string }) {
+export function TodayPanel({ bankingEnabled = true, finance, currencyCode }: { bankingEnabled?: boolean; finance: DashboardFinance; currencyCode: string }) {
   const money = (value: number) => formatMoney(value, currencyCode);
   const hasTodayItems =
     finance.receivables.overdueInvoices.length > 0 ||
@@ -87,7 +87,7 @@ export function TodayPanel({ finance, currencyCode }: { finance: DashboardFinanc
         </div>
       ) : null}
 
-      {finance.unreconciledMovements > 0 ? (
+      {bankingEnabled && finance.unreconciledMovements > 0 ? (
         <Link className="flex items-start justify-between gap-2 border border-window-shadow p-2.5 hover:bg-window-highlight" href="/treasury/reconciliation">
           <span>
             <span className="flex items-center gap-1.5 font-mono text-xs font-bold">

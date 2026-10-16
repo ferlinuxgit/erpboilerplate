@@ -22,6 +22,7 @@ import {
 import { SETTINGS_HOME, settingsSections } from "@/components/settings/settings-catalog";
 import type { BusinessType } from "@/lib/company-readiness";
 import { can, isAppRole, type PermissionKey } from "@/lib/rbac";
+import { isModuleVisible, resolveEnabledModules, type ModuleId } from "@/modules/registry";
 
 export type NavigationLink = {
   href: string;
@@ -33,8 +34,10 @@ export type NavigationLink = {
   icon: Icon;
   /** Palabras con las que la gente busca este módulo (paleta de comandos). */
   keywords?: string;
-  /** Solo tiene sentido si la empresa vende productos (stock, albaranes, recepciones). */
-  productsOnly?: boolean;
+  /** Módulo opcional al que pertenece: solo se muestra si la empresa lo tiene activado. */
+  module?: ModuleId;
+  /** Solo se muestra si ese módulo está desactivado (p. ej. "Artículos" fuera del inventario). */
+  unlessModule?: ModuleId;
   /** Permiso necesario para verlo en el menú (sigue accesible por URL/búsqueda si se tiene). */
   permission?: PermissionKey;
 };
@@ -58,9 +61,10 @@ export const navGroups: NavigationGroup[] = [
     label: "Ventas",
     links: [
       { href: "/customers", label: "Clientes", code: "10", icon: UsersThree, keywords: "cliente contactos cartera", permission: "customer.read" },
-      { href: "/sales/quotes", label: "Presupuestos", code: "11", icon: FileText, keywords: "oferta cotización propuesta", permission: "invoice.read" },
-      { href: "/sales/orders", label: "Pedidos", code: "12", icon: ShoppingCart, keywords: "pedido de venta encargo", permission: "invoice.read" },
-      { href: "/sales/delivery-notes", label: "Albaranes", code: "13", icon: Truck, keywords: "entrega envío mercancía", productsOnly: true, permission: "invoice.read" },
+      { href: "/sales/quotes", label: "Presupuestos", code: "11", icon: FileText, keywords: "oferta cotización propuesta", module: "sales-documents", permission: "invoice.read" },
+      { href: "/sales/orders", label: "Pedidos", code: "12", icon: ShoppingCart, keywords: "pedido de venta encargo", module: "sales-documents", permission: "invoice.read" },
+      { href: "/sales/delivery-notes", label: "Albaranes", code: "13", icon: Truck, keywords: "entrega envío mercancía", module: "inventory", permission: "invoice.read" },
+      { href: "/inventory/items", label: "Artículos", code: "15", icon: Package, keywords: "productos servicios catálogo precios tarifas", unlessModule: "inventory", permission: "stock.read" },
       { href: "/invoices", label: "Facturas", code: "14", icon: Receipt, keywords: "facturar cobrar cobro emitidas ventas rectificativa abono", permission: "invoice.read" },
     ],
   },
@@ -69,8 +73,8 @@ export const navGroups: NavigationGroup[] = [
     label: "Compras y gastos",
     links: [
       { href: "/suppliers", label: "Proveedores", code: "20", icon: Factory, keywords: "acreedor proveedor", permission: "supplier.read" },
-      { href: "/purchases/orders", label: "Pedidos de compra", shortLabel: "Compras", code: "21", icon: ClipboardText, keywords: "comprar encargo proveedor", permission: "purchase.read" },
-      { href: "/purchases/receipts", label: "Recepciones", code: "22", icon: Tray, keywords: "entrada mercancía recibir", productsOnly: true, permission: "purchase.read" },
+      { href: "/purchases/orders", label: "Pedidos de compra", shortLabel: "Compras", code: "21", icon: ClipboardText, keywords: "comprar encargo proveedor", module: "purchase-orders", permission: "purchase.read" },
+      { href: "/purchases/receipts", label: "Recepciones", code: "22", icon: Tray, keywords: "entrada mercancía recibir", module: "inventory", permission: "purchase.read" },
       { href: "/expenses", label: "Gastos y facturas recibidas", shortLabel: "Gastos", code: "23", icon: FileArrowDown, keywords: "gasto ticket factura de proveedor recibida ocr escanear", permission: "expense.read" },
       { href: "/purchases/payments", label: "Pagos a proveedores", shortLabel: "Pagos", code: "24", icon: Coins, keywords: "pagar deuda proveedor", permission: "purchase.read" },
     ],
@@ -79,9 +83,9 @@ export const navGroups: NavigationGroup[] = [
     code: "30",
     label: "Finanzas",
     links: [
-      { href: "/inventory", label: "Inventario", code: "30", icon: Package, keywords: "stock almacén existencias artículos productos", productsOnly: true, permission: "stock.read" },
+      { href: "/inventory", label: "Inventario", code: "30", icon: Package, keywords: "stock almacén existencias artículos productos", module: "inventory", permission: "stock.read" },
       { href: "/accounting", label: "Contabilidad", code: "31", icon: BookOpenText, keywords: "asientos diario mayor balance pgc cuentas", permission: "accounting.read" },
-      { href: "/treasury", label: "Tesorería", code: "32", icon: Bank, keywords: "banco bancos caja cuentas conciliar movimientos", permission: "treasury.read" },
+      { href: "/treasury", label: "Tesorería", code: "32", icon: Bank, keywords: "banco bancos caja cuentas conciliar movimientos", module: "banking", permission: "treasury.read" },
       { href: "/fiscal", label: "Fiscalidad", code: "33", icon: Calculator, keywords: "iva impuestos hacienda aeat modelos 303 111 130 390 347 trimestre", permission: "fiscal.read" },
       { href: "/reporting", label: "Informes", code: "34", icon: ChartLineUp, keywords: "indicadores kpi estadísticas exportar excel", permission: "reporting.read" },
     ],
@@ -108,7 +112,8 @@ export type ContextLink = {
   /** Solo activa en la ruta exacta (p. ej. "Resumen" en `/treasury`). */
   exact?: boolean;
   keywords?: string;
-  productsOnly?: boolean;
+  module?: ModuleId;
+  unlessModule?: ModuleId;
   /** Nombre completo en la paleta de comandos cuando la pestaña es ambigua fuera de su grupo ("Recurrentes"). */
   commandLabel?: string;
   /** Permiso para ver la pestaña (sigue accesible por URL si se tiene). */
@@ -122,9 +127,9 @@ export const contextGroups: ContextGroup[] = [
     label: "Ventas",
     links: [
       { href: "/customers", label: "Clientes" },
-      { href: "/sales/quotes", label: "Presupuestos" },
-      { href: "/sales/orders", label: "Pedidos" },
-      { href: "/sales/delivery-notes", label: "Albaranes", productsOnly: true },
+      { href: "/sales/quotes", label: "Presupuestos", module: "sales-documents" },
+      { href: "/sales/orders", label: "Pedidos", module: "sales-documents" },
+      { href: "/sales/delivery-notes", label: "Albaranes", module: "inventory" },
       { href: "/invoices", label: "Facturas" },
       { href: "/invoices/collections", label: "Cobros pendientes", keywords: "recordatorio recordar reclamar cobro cobros vencidas morosos antigüedad deuda impagadas dunning" },
       { href: "/invoices/recurring", label: "Recurrentes", commandLabel: "Facturas recurrentes", keywords: "facturas recurrentes recurrente periódicas cuotas mensuales suscripción iguala" },
@@ -136,10 +141,10 @@ export const contextGroups: ContextGroup[] = [
     label: "Compras y gastos",
     links: [
       { href: "/suppliers", label: "Proveedores" },
-      { href: "/purchases/orders", label: "Pedidos" },
-      { href: "/purchases/receipts", label: "Recepciones", productsOnly: true },
+      { href: "/purchases/orders", label: "Pedidos", module: "purchase-orders" },
+      { href: "/purchases/receipts", label: "Recepciones", module: "inventory" },
       { href: "/expenses", label: "Facturas de proveedor", keywords: "gastos facturas recibidas tickets" },
-      { href: "/expenses/inbox", label: "Bandeja OCR", commandLabel: "Bandeja OCR de facturas recibidas", keywords: "bandeja ocr escanear subir pdf foto revisar facturas recibidas lote" },
+      { href: "/expenses/inbox", label: "Bandeja OCR", module: "invoice-reading", commandLabel: "Bandeja OCR de facturas recibidas", keywords: "bandeja ocr escanear subir pdf foto revisar facturas recibidas lote" },
       { href: "/expenses/recurring", label: "Recurrentes", commandLabel: "Gastos recurrentes", keywords: "gastos recurrentes recurrente alquiler cuota autónomos seguridad social suscripción periódico" },
       { href: "/purchases/payments", label: "Pagos" },
     ],
@@ -149,11 +154,11 @@ export const contextGroups: ContextGroup[] = [
     code: "30",
     label: "Inventario",
     links: [
-      { href: "/inventory", label: "Existencias", exact: true, keywords: "stock" },
+      { href: "/inventory", label: "Existencias", exact: true, keywords: "stock", module: "inventory" },
       { href: "/inventory/items", label: "Artículos", keywords: "productos servicios catálogo precios" },
-      { href: "/inventory/warehouses", label: "Almacenes" },
-      { href: "/inventory/movements", label: "Movimientos de stock", keywords: "entradas salidas ajustes traspasos" },
-      { href: "/inventory/count", label: "Recuento", commandLabel: "Recuento de inventario", keywords: "recuento inventario físico contar existencias diferencias ajuste" },
+      { href: "/inventory/warehouses", label: "Almacenes", module: "inventory" },
+      { href: "/inventory/movements", label: "Movimientos de stock", keywords: "entradas salidas ajustes traspasos", module: "inventory" },
+      { href: "/inventory/count", label: "Recuento", module: "inventory", commandLabel: "Recuento de inventario", keywords: "recuento inventario físico contar existencias diferencias ajuste" },
     ],
   },
   {
@@ -173,15 +178,15 @@ export const contextGroups: ContextGroup[] = [
     code: "32",
     label: "Tesorería",
     links: [
-      { href: "/treasury", label: "Resumen", exact: true },
+      { href: "/treasury", label: "Resumen", exact: true , module: "banking" },
       { href: "/treasury/bank-accounts", label: "Cuentas bancarias", keywords: "banco iban" },
-      { href: "/treasury/bank-transactions", label: "Movimientos bancarios", keywords: "extracto importar csv banco" },
-      { href: "/treasury/import", label: "Importar extracto", commandLabel: "Importar extracto bancario", keywords: "importar extracto norma 43 n43 cuaderno 43 csv excel banco movimientos" },
-      { href: "/treasury/reconciliation", label: "Conciliación", keywords: "conciliar casar punteo banco cobros pagos" },
-      { href: "/treasury/rules", label: "Reglas", commandLabel: "Reglas de conciliación", keywords: "reglas automáticas conciliación categorizar banco" },
-      { href: "/treasury/remittances", label: "Remesas", commandLabel: "Remesas SEPA", keywords: "remesa remesas sepa pagos cobros domiciliación recibos adeudos transferencias xml devolución devoluciones" },
-      { href: "/treasury/bank-connections", label: "Conexión bancaria", keywords: "conectar banco psd2 open banking sincronizar automática agregador" },
-      { href: "/treasury/forecast", label: "Previsión", keywords: "previsión de tesorería liquidez futuro dinero" },
+      { href: "/treasury/bank-transactions", label: "Movimientos bancarios", keywords: "extracto importar csv banco" , module: "banking" },
+      { href: "/treasury/import", label: "Importar extracto", commandLabel: "Importar extracto bancario", keywords: "importar extracto norma 43 n43 cuaderno 43 csv excel banco movimientos" , module: "banking" },
+      { href: "/treasury/reconciliation", label: "Conciliación", keywords: "conciliar casar punteo banco cobros pagos" , module: "banking" },
+      { href: "/treasury/rules", label: "Reglas", commandLabel: "Reglas de conciliación", keywords: "reglas automáticas conciliación categorizar banco" , module: "banking" },
+      { href: "/treasury/remittances", label: "Remesas", commandLabel: "Remesas SEPA", keywords: "remesa remesas sepa pagos cobros domiciliación recibos adeudos transferencias xml devolución devoluciones" , module: "banking" },
+      { href: "/treasury/bank-connections", label: "Conexión bancaria", keywords: "conectar banco psd2 open banking sincronizar automática agregador" , module: "banking" },
+      { href: "/treasury/forecast", label: "Previsión", keywords: "previsión de tesorería liquidez futuro dinero" , module: "banking" },
     ],
   },
   {
@@ -203,7 +208,7 @@ export const contextGroups: ContextGroup[] = [
     links: [
       { href: "/reporting", label: "Indicadores", exact: true, keywords: "kpi ventas gastos exportar" },
       { href: "/accounting/reports", label: "Estados financieros", keywords: "balance pérdidas y ganancias" },
-      { href: "/treasury/forecast", label: "Previsión de tesorería", keywords: "liquidez" },
+      { href: "/treasury/forecast", label: "Previsión de tesorería", keywords: "liquidez", module: "banking" },
       { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos impuestos" },
     ],
   },
@@ -214,7 +219,7 @@ export const contextGroups: ContextGroup[] = [
     links: [
       { href: SETTINGS_HOME, label: "Inicio", exact: true, commandLabel: "Configuración" },
       ...settingsSections.flatMap((section) => section.href
-        ? [{ href: section.href, label: section.label, commandLabel: `Configuración: ${section.label}`, keywords: section.items.map((item) => item.keywords ?? "").join(" "), permission: section.permission, productsOnly: section.productsOnly }]
+        ? [{ href: section.href, label: section.label, commandLabel: `Configuración: ${section.label}`, keywords: section.items.map((item) => item.keywords ?? "").join(" "), permission: section.permission, module: section.module }]
         : []),
     ],
   },
@@ -222,28 +227,35 @@ export const contextGroups: ContextGroup[] = [
 
 export const navigationLinks: NavigationLink[] = navGroups.flatMap((group) => group.links);
 
-/** Contexto que adapta el menú: qué vende la empresa y el rol del usuario (si ya se conocen). */
+/** Contexto que adapta el menú: módulos activos de la empresa y el rol del usuario (si ya se conocen). */
 export type NavigationAudience = {
+  /** Módulos activos. Si falta, se deducen los de por defecto según lo que vende la empresa. */
+  modules?: readonly string[] | null;
   businessType?: BusinessType | string | null;
   role?: string | null;
 };
 
-function hiddenForBusiness(entry: { productsOnly?: boolean }, businessType: NavigationAudience["businessType"]) {
-  return Boolean(entry.productsOnly) && businessType === "services";
+function audienceModules(audience: NavigationAudience): readonly string[] | null {
+  if (audience.modules) return audience.modules;
+  return audience.businessType ? resolveEnabledModules([], audience.businessType) : null;
+}
+
+function visibleFor(entry: { module?: ModuleId; unlessModule?: ModuleId; permission?: PermissionKey }, audience: NavigationAudience) {
+  const modules = audienceModules(audience);
+  if (!isModuleVisible(entry.module, modules)) return false;
+  // "Solo si el módulo está desactivado": mientras no se conocen los módulos, no se muestra (evita duplicados).
+  if (entry.unlessModule && (!modules || modules.includes(entry.unlessModule))) return false;
+  const role = isAppRole(audience.role) ? audience.role : null;
+  return !role || !entry.permission || can(role, entry.permission);
 }
 
 /**
- * Menú visible: oculta módulos de stock a empresas de servicios y los que el rol no
- * puede abrir. Mientras no se conoce el contexto se muestra completo. Los módulos
- * ocultos siguen accesibles con `G + código` y desde la búsqueda.
+ * Menú visible: oculta los módulos que la empresa no tiene activados y lo que el rol no
+ * puede abrir. Mientras no se conoce el contexto se muestra completo.
  */
 export function filterNavigationGroups(groups: NavigationGroup[], audience: NavigationAudience): NavigationGroup[] {
-  const role = isAppRole(audience.role) ? audience.role : null;
   return groups
-    .map((group) => ({
-      ...group,
-      links: group.links.filter((link) => !hiddenForBusiness(link, audience.businessType) && (!role || !link.permission || can(role, link.permission))),
-    }))
+    .map((group) => ({ ...group, links: group.links.filter((link) => visibleFor(link, audience)) }))
     .filter((group) => group.links.length > 0);
 }
 
@@ -267,8 +279,7 @@ export function getMobileTaskbarLinks(groups: NavigationGroup[], size = MOBILE_T
 }
 
 export function filterContextLinks(group: ContextGroup, audience: NavigationAudience): ContextGroup["links"] {
-  const role = isAppRole(audience.role) ? audience.role : null;
-  return group.links.filter((link) => !hiddenForBusiness(link, audience.businessType) && (!role || !link.permission || can(role, link.permission)));
+  return group.links.filter((link) => visibleFor(link, audience));
 }
 
 export function isActiveRoute(pathname: string, href: string) {
