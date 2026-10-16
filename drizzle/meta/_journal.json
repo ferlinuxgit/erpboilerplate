@@ -267,6 +267,13 @@
       "when": 1792062557519,
       "tag": "0037_supplier_invoice_fiscal_dates",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792167539857,
+      "tag": "0038_expense_mail_inbox",
+      "breakpoints": true
     }
   ]
 }

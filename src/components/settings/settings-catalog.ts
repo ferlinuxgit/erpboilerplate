@@ -125,11 +125,12 @@ export const settingsSections: SettingsSection[] = [
   {
     id: "automation",
     label: "Automatización",
-    description: "Lectura automática de facturas recibidas.",
+    description: "Lectura automática de facturas recibidas, también por email.",
     href: "/settings/automation",
     permission: "settings.manage",
     items: [
       { label: "Lectura de facturas con IA", description: "Permite usar OpenAI para leer facturas recibidas (servicio externo).", href: "/settings/automation#ocr", keywords: "ocr ia inteligencia artificial openai leer escanear facturas recibidas privacidad" },
+      { label: "Recibir facturas por email", description: "Un buzón al que reenvías las facturas: llegan solas a la bandeja de gastos.", href: "/settings/automation#correo", keywords: "email correo buzon imap reenviar facturas recibidas gastos automatico adjuntos gmail outlook" },
     ],
   },
   {

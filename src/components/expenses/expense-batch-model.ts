@@ -50,6 +50,9 @@ export type BatchStatus = "WAITING" | "UPLOADING" | "PENDING" | "PROCESSING" | "
 
 export type BatchItem = {
   localId: string;
+  /** Documento llegado por correo (remitente y asunto). */
+  emailFrom?: string | null;
+  emailSubject?: string | null;
   jobId?: string;
   batchId?: string;
   /** Archivo local (solo en la sesión en la que se subió). */
@@ -216,6 +219,9 @@ export type InboxJob = {
   extracted: OcrDraft | null;
   duplicateAssessment: DuplicateAssessment;
   supplierInvoiceId?: string | null;
+  /** Llegado por correo: remitente y asunto. */
+  emailFrom?: string | null;
+  emailSubject?: string | null;
 };
 
 export function itemFromInboxJob(job: InboxJob, context: { expenseAccounts: readonly AccountOption[]; suppliers: readonly BatchSupplier[] }): BatchItem {
@@ -227,6 +233,8 @@ export function itemFromInboxJob(job: InboxJob, context: { expenseAccounts: read
     batchId: job.batchId ?? undefined,
     fileUrl: job.fileUrl ?? `/api/expenses/ocr/${job.id}/file`,
     provider: job.extractionProvider,
+    emailFrom: job.emailFrom ?? null,
+    emailSubject: job.emailSubject ?? null,
   };
   if (job.supplierInvoiceId) return { ...base, status: "POSTED", createdExpenseId: job.supplierInvoiceId };
   if (job.status === "FAILED") return { ...base, status: "FAILED", error: job.errorMessage ?? "No se pudo analizar el archivo." };

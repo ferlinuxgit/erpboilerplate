@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
   const settings = await getExpenseOcrSettings(ctx.company.id, Boolean(process.env.OPENAI_API_KEY));
   if (!settings.externalAiEnabled) {
-    return NextResponse.json({ message: "El análisis con IA externa está desactivado para esta empresa. Usa el OCR local." }, { status: 403 });
+    return NextResponse.json({ message: "La lectura con IA está desactivada para esta empresa. Actívala en Configuración → Automatización o registra la factura a mano." }, { status: 403 });
   }
 
   const formData = await request.formData();

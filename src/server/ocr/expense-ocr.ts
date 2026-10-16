@@ -66,7 +66,7 @@ function persistedSourceText(value: string | undefined) {
 
 const importRuntimeModule = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>;
 
-function sanitizeFileName(fileName: string) {
+export function sanitizeFileName(fileName: string) {
   return fileName
     .normalize("NFKD")
     .replace(/[^\w.-]+/g, "-")
@@ -374,6 +374,8 @@ export async function createExpenseOcrJob(input: {
   batchId?: string;
   extractionProvider?: string;
   extractionModel?: string;
+  /** Documento llegado por correo: remitente, asunto e identificador del mensaje. */
+  source?: { type: "email"; from?: string | null; subject?: string | null; messageId?: string | null };
 }) {
   if (!supportedContentTypes.has(input.contentType)) throw new Error("Formato no soportado. Usa PDF, PNG, JPG o WEBP.");
   assertFileSignature(input.contentType, input.buffer);
@@ -410,6 +412,10 @@ export async function createExpenseOcrJob(input: {
       leaseExpiresAt: input.initialStatus === "PROCESSING" ? new Date(Date.now() + jobLeaseMs) : null,
       extractionProvider: input.extractionProvider ?? null,
       extractionModel: input.extractionModel ?? null,
+      source: input.source?.type ?? "upload",
+      sourceFrom: input.source?.from?.slice(0, 320) ?? null,
+      sourceSubject: input.source?.subject?.slice(0, 500) ?? null,
+      sourceMessageId: input.source?.messageId?.slice(0, 500) ?? null,
     })
     .returning({ id: expenseOcrJob.id });
   const dir = path.join(uploadRoot, input.companyId, "expense-ocr");
@@ -495,6 +501,47 @@ export async function failExpenseOcrJob(jobId: string, error: unknown) {
   return updated ?? null;
 }
 
+/**
+ * OCR local (Tesseract) solo si se activa expresamente: la lectura con OpenAI es mucho más fiable y
+ * es la única que se ofrece por defecto. OCR_LOCAL_ENABLED=true lo vuelve a habilitar.
+ */
+export function isLocalOcrEnabled() {
+  return process.env.OCR_LOCAL_ENABLED === "true";
+}
+
+/** Lee el documento con OpenAI (subidas en segundo plano, correo, reintentos). */
+async function analyzeJobWithOpenAI(job: typeof expenseOcrJob.$inferSelect) {
+  const [{ analyzeExpenseInvoiceWithOpenAI }, { getExpenseOcrSettings }] = await Promise.all([
+    import("@/server/ai/expense-invoice-analysis"),
+    import("@/server/ocr/settings"),
+  ]);
+  const settings = await getExpenseOcrSettings(job.companyId, Boolean(process.env.OPENAI_API_KEY));
+  if (!settings.externalAiConfigured) throw new Error("La lectura de facturas necesita OPENAI_API_KEY configurada en el servidor.");
+  if (!settings.externalAiEnabled) throw new Error("La lectura con IA está desactivada para esta empresa (Configuración → Automatización).");
+  const buffer = await readExpenseOcrFile(job);
+  const result = await analyzeExpenseInvoiceWithOpenAI({
+    fileName: job.fileName,
+    contentType: job.contentType,
+    buffer,
+    ownTaxIds: await companyOwnTaxIds(job.companyId),
+  });
+  const [updated] = await db
+    .update(expenseOcrJob)
+    .set({
+      status: "DONE",
+      extractedJson: JSON.stringify(result.draft),
+      sourceText: persistedSourceText(JSON.stringify(result.analysis)),
+      extractionProvider: "openai",
+      extractionModel: result.model,
+      errorMessage: null,
+      leaseExpiresAt: null,
+      finishedAt: new Date(),
+    })
+    .where(eq(expenseOcrJob.id, job.id))
+    .returning();
+  return updated;
+}
+
 export async function processExpenseOcrJob(jobId: string) {
   const now = new Date();
   const [job] = await db
@@ -521,6 +568,10 @@ export async function processExpenseOcrJob(jobId: string) {
   let processingPath = job.filePath;
   let temporaryDirectory: string | null = null;
   try {
+    // OpenAI salvo que el trabajo sea expresamente de OCR local y este siga habilitado.
+    if (job.extractionProvider !== "tesseract" || !isLocalOcrEnabled()) {
+      return await analyzeJobWithOpenAI(job);
+    }
     try {
       await readFile(/* turbopackIgnore: true */ processingPath);
     } catch {
@@ -695,6 +746,10 @@ export type ExpenseInboxJob = {
   errorMessage: string | null;
   createdAt: Date;
   extracted: ExpenseOcrDraft | null;
+  /** "upload" o "email" (con remitente y asunto). */
+  source: string;
+  sourceFrom: string | null;
+  sourceSubject: string | null;
 };
 
 /**
@@ -717,6 +772,9 @@ export async function listExpenseInbox(companyId: string, limit = 100): Promise<
       errorMessage: expenseOcrJob.errorMessage,
       createdAt: expenseOcrJob.createdAt,
       extractedJson: expenseOcrJob.extractedJson,
+      source: expenseOcrJob.source,
+      sourceFrom: expenseOcrJob.sourceFrom,
+      sourceSubject: expenseOcrJob.sourceSubject,
     })
     .from(expenseOcrJob)
     .where(and(

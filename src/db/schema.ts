@@ -923,14 +923,55 @@ export const expenseOcrJob = pgTable("expense_ocr_job", {
   sourceText: text("sourceText"),
   extractedJson: text("extractedJson"),
   errorMessage: text("errorMessage"),
+  // Origen del documento: "upload" (subido en la bandeja) o "email" (adjunto de un correo recibido).
+  source: text("source").notNull().default("upload"),
+  sourceFrom: text("sourceFrom"),
+  sourceSubject: text("sourceSubject"),
+  sourceMessageId: text("sourceMessageId"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   startedAt: timestamp("startedAt", { withTimezone: true, mode: "date" }),
   finishedAt: timestamp("finishedAt", { withTimezone: true, mode: "date" }),
 }, (table) => [
   index("expense_ocr_job_company_status_idx").on(table.companyId, table.status),
+  index("expense_ocr_job_source_message_idx").on(table.companyId, table.sourceMessageId),
   index("expense_ocr_job_actor_created_idx").on(table.actorUserId, table.createdAt),
   index("expense_ocr_job_batch_idx").on(table.batchId, table.createdAt),
   index("expense_ocr_job_lease_idx").on(table.status, table.leaseExpiresAt),
+]);
+
+/**
+ * Buzón de correo (IMAP) al que se reenvían facturas recibidas: el worker lo revisa y cada adjunto
+ * (PDF o imagen) de un remitente permitido entra en la bandeja y se lee con OpenAI.
+ */
+export const expenseMailInbox = pgTable("expense_mail_inbox", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+  // Usuario que lo configuró: figura como autor de los documentos importados.
+  configuredByUserId: text("configuredByUserId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  host: text("host").notNull(),
+  port: integer("port").notNull().default(993),
+  secure: boolean("secure").notNull().default(true),
+  username: text("username").notNull(),
+  // Contraseña cifrada (AES-256-GCM); nunca se devuelve al navegador.
+  passwordEncrypted: text("passwordEncrypted").notNull(),
+  mailbox: text("mailbox").notNull().default("INBOX"),
+  // Carpeta a la que se mueven los correos ya procesados (opcional; si no, solo se marcan como leídos).
+  processedMailbox: text("processedMailbox"),
+  // Remitentes permitidos: direcciones o dominios (@empresa.com), separados por comas o líneas.
+  allowedSenders: text("allowedSenders").notNull().default(""),
+  // Punto de lectura: solo se procesan correos con UID mayor (y de la misma UIDVALIDITY).
+  uidValidity: text("uidValidity"),
+  lastUid: integer("lastUid"),
+  lastCheckedAt: timestamp("lastCheckedAt", { withTimezone: true, mode: "date" }),
+  lastSuccessAt: timestamp("lastSuccessAt", { withTimezone: true, mode: "date" }),
+  lastError: text("lastError"),
+  lastImportedCount: integer("lastImportedCount").notNull().default(0),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("expense_mail_inbox_company_unique").on(table.companyId),
 ]);
 
 // Preferencias de lectura automática de facturas por empresa. Sin fila = valores por defecto

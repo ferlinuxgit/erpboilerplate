@@ -31,6 +31,8 @@ const nextConfig: NextConfig = {
     "@upstash/redis",
     "drizzle-orm",
     "exceljs",
+    "imapflow",
+    "mailparser",
     "openai",
     "pdfjs-dist",
     "nodemailer",

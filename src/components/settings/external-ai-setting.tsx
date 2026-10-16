@@ -23,7 +23,7 @@ export function ExternalAiSetting({ configured, initialEnabled }: { configured: 
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar la preferencia."));
       setEnabled(next);
-      toast.success(next ? "Lectura con OpenAI permitida para la empresa." : "Lectura con OpenAI desactivada: solo se usará el OCR local.");
+      toast.success(next ? "Lectura con OpenAI permitida para la empresa." : "Lectura con OpenAI desactivada: las facturas recibidas se registrarán a mano.");
     } catch (error) {
       toast.error(errorMessage(error, "No se pudo guardar la preferencia."));
     } finally {
@@ -35,12 +35,11 @@ export function ExternalAiSetting({ configured, initialEnabled }: { configured: 
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Por defecto las facturas recibidas se leen con OCR local, en tu servidor. Con OpenAI la lectura es más precisa, pero el
-          documento completo (datos del proveedor, importes y cualquier dato personal) se envía a un proveedor externo con servidores
-          fuera de la UE.
+          Las facturas recibidas (subidas o llegadas por email) se leen con OpenAI: el documento completo (datos del proveedor,
+          importes y cualquier dato personal) se envía a un proveedor externo. Si lo desactivas, habrá que registrarlas a mano.
         </p>
         <StatusBadge tone={configured && enabled ? "info" : "neutral"}>
-          {!configured ? "No disponible" : enabled ? "Permitida" : "Solo OCR local"}
+          {!configured ? "No disponible" : enabled ? "Permitida" : "Desactivada"}
         </StatusBadge>
       </div>
       {configured ? (

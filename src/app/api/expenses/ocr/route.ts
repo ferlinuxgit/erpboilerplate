@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { createExpenseOcrJob, listRecentExpenseOcrJobs, processExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { createExpenseOcrJob, isLocalOcrEnabled, listRecentExpenseOcrJobs, processExpenseOcrJob } from "@/server/ocr/expense-ocr";
 
 export async function GET() {
   const session = await getUserSession();
@@ -35,6 +35,8 @@ export async function POST(request: Request) {
       contentType: file.type || "application/octet-stream",
       buffer,
       batchId: typeof batchId === "string" && batchId.trim() ? batchId.trim() : undefined,
+      // Con el OCR local desactivado (por defecto) el documento se lee con OpenAI en segundo plano.
+      extractionProvider: isLocalOcrEnabled() ? "tesseract" : "openai",
     });
     void processExpenseOcrJob(job.id);
     return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });

@@ -8,8 +8,9 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { listPostingAccounts } from "@/server/accounting/service";
-import { listExpenseInbox } from "@/server/ocr/expense-ocr";
+import { isLocalOcrEnabled, listExpenseInbox } from "@/server/ocr/expense-ocr";
 import { withDuplicateAssessment } from "@/server/ocr/inbox";
+import { getMailInboxSettings } from "@/server/ocr/mail-inbox";
 import { getExpenseOcrSettings } from "@/server/ocr/settings";
 import { listSupplierInvoiceRelations, listSupplierPartners } from "@/server/supplier-invoices/service";
 
@@ -17,12 +18,13 @@ export const metadata: Metadata = { title: "Bandeja de facturas pendientes" };
 
 export default async function ExpenseInboxPage() {
   const ctx = await requireContext("expense.write");
-  const [accounts, suppliers, relations, inbox, aiSettings] = await Promise.all([
+  const [accounts, suppliers, relations, inbox, aiSettings, mailInbox] = await Promise.all([
     listPostingAccounts(ctx.company.id),
     listSupplierPartners(ctx.company.id),
     listSupplierInvoiceRelations(ctx.company.id),
     listExpenseInbox(ctx.company.id),
     getExpenseOcrSettings(ctx.company.id, Boolean(process.env.OPENAI_API_KEY)),
+    getMailInboxSettings(ctx.company.id),
   ]);
   const jobs = await withDuplicateAssessment(ctx.company.id, inbox);
   const expenseAccounts = accounts
@@ -40,13 +42,17 @@ export default async function ExpenseInboxPage() {
     errorMessage: job.errorMessage,
     extracted: job.extracted,
     duplicateAssessment: job.duplicateAssessment,
+    emailFrom: job.source === "email" ? job.sourceFrom : null,
+    emailSubject: job.source === "email" ? job.sourceSubject : null,
   }));
 
   return (
     <PageShell>
       <PageHeader
         title="Bandeja de facturas"
-        description="Facturas y tickets subidos que aún no has registrado. Se guardan aquí aunque cierres la página."
+        description={mailInbox.enabled
+          ? `Facturas y tickets subidos o reenviados a ${mailInbox.username} que aún no has registrado. Los correos se revisan cada pocos minutos.`
+          : "Facturas y tickets subidos que aún no has registrado. Se guardan aquí aunque cierres la página."}
         breadcrumbs={[
           { label: "Aprovisionamiento" },
           { label: "Facturas de proveedor", href: "/expenses" },
@@ -71,6 +77,7 @@ export default async function ExpenseInboxPage() {
             backHref="/expenses/new"
             baseCurrencyCode={ctx.company.baseCurrencyCode}
             canManageAiSettings={can(ctx.membership.role, "settings.manage")}
+            localOcrEnabled={isLocalOcrEnabled()}
             expenseAccounts={expenseAccounts}
             goodsReceipts={relations.receipts}
             initialJobs={initialJobs}

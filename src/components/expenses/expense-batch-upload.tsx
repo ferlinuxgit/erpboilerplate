@@ -42,6 +42,8 @@ type Props = {
   initialJobs?: InboxJob[];
   aiSettings: ExpenseAiSettings;
   canManageAiSettings?: boolean;
+  /** OCR local (Tesseract) habilitado en el servidor (OCR_LOCAL_ENABLED); si no, solo se lee con OpenAI. */
+  localOcrEnabled?: boolean;
   onBack?: () => void;
   backHref?: string;
 };
@@ -110,6 +112,7 @@ export function ExpenseBatchUpload({
   expenseAccounts,
   goodsReceipts,
   initialJobs = [],
+  localOcrEnabled = false,
   onBack,
   purchaseOrders,
   suppliers,
@@ -119,8 +122,10 @@ export function ExpenseBatchUpload({
   const [openItemId, setOpenItemId] = useState<string | null>(null);
   const aiSettings = initialAiSettings;
   const aiAvailable = aiSettings.externalAiEnabled && aiSettings.externalAiConfigured;
-  const [engine, setEngine] = useState<"local" | "openai">("local");
-  const effectiveEngine = aiAvailable ? engine : "local";
+  const [engine, setEngine] = useState<"local" | "openai">(localOcrEnabled ? "local" : "openai");
+  // Sin OCR local, siempre OpenAI; si OpenAI no está disponible, no se puede leer nada.
+  const effectiveEngine = !localOcrEnabled ? "openai" : aiAvailable ? engine : "local";
+  const readingUnavailable = !localOcrEnabled && !aiAvailable;
   const [isStarting, setIsStarting] = useState(false);
   const [pollState, setPollState] = useState<PollState>("idle");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -456,7 +461,7 @@ export function ExpenseBatchUpload({
         counts.failed > 0 ? `${counts.failed} con error` : null,
       ].filter(Boolean).join(" · ");
 
-  const busy = isStarting || bulkPosting;
+  const busy = isStarting || bulkPosting || readingUnavailable;
 
   return (
     <div className="space-y-4">
@@ -490,7 +495,19 @@ export function ExpenseBatchUpload({
 
       <section aria-label="Subir facturas" className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top lg:grid-cols-[260px_1fr] lg:items-start">
         <div className="space-y-2">
-          {aiAvailable ? (
+          {readingUnavailable ? (
+            <p className="border border-destructive bg-destructive/10 p-2 text-xs" data-testid="expense-reading-unavailable" role="alert">
+              <strong>La lectura de facturas no está disponible.</strong>{" "}
+              {aiSettings.externalAiConfigured
+                ? "Se hace con OpenAI y está desactivada para esta empresa: actívala en Configuración → Automatización."
+                : "Se hace con OpenAI y el servidor no tiene OPENAI_API_KEY configurada."}{" "}
+              Mientras tanto puedes registrar las facturas a mano.
+            </p>
+          ) : !localOcrEnabled ? (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-mono font-bold text-foreground">Lectura con IA (OpenAI).</span> Cada documento se lee automáticamente y lo revisas junto a la imagen antes de registrarlo.
+            </p>
+          ) : aiAvailable ? (
             <AccessibleField
               helperText={effectiveEngine === "local" ? "El OCR local lee el documento en tu servidor: no sale del ERP." : undefined}
               id="expense-batch-engine"
@@ -506,7 +523,7 @@ export function ExpenseBatchUpload({
               <span className="font-mono font-bold text-foreground">Lectura con OCR local.</span> Los documentos se leen en tu servidor y no salen del ERP.
             </p>
           )}
-          {effectiveEngine === "openai" ? (
+          {effectiveEngine === "openai" && !readingUnavailable ? (
             <p className="border border-warning bg-warning/10 p-2 text-xs text-warning-text" role="note">
               <strong>Aviso de privacidad:</strong> con OpenAI el documento completo (datos del proveedor, importes y cualquier dato personal que contenga) se envía a OpenAI, un proveedor externo con servidores fuera de la UE, para leerlo. Úsalo solo si tu empresa lo permite.
             </p>
@@ -638,6 +655,11 @@ export function ExpenseBatchUpload({
                         {readiness ? ` · ${formatMoney(readiness.total, item.currencyCode)}` : ""}
                         {supplierLabel ? ` · ${item.fileName}` : ` · ${formatAmount(item.sizeBytes / 1024 / 1024)} MB`}
                       </p>
+                      {item.emailFrom !== undefined && item.emailFrom !== null ? (
+                        <p className="truncate text-xs text-muted-foreground" data-testid={`batch-item-${item.localId}-email`} title={item.emailSubject ?? undefined}>
+                          Por email de {item.emailFrom}{item.emailSubject ? ` · «${item.emailSubject}»` : ""}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
