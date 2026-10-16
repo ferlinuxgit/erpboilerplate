@@ -95,12 +95,12 @@ Variables minimas de runtime:
 - `JWT_SECRET` con al menos 32 caracteres
 - `APP_URL` con la URL canónica HTTPS en producción
 
-El contenedor valida estas variables al arrancar, puede esperar a la base de datos y opcionalmente ejecutar migraciones si `RUN_MIGRATIONS_ON_START=true`.
+El contenedor valida estas variables al arrancar, espera a la base de datos y **aplica siempre las migraciones pendientes** antes de levantar la app (`node scripts/migrate.mjs`, sin drizzle-kit). Es seguro con varias réplicas: la primera aplica las migraciones dentro de una transacción con bloqueo y las demás esperan. Solo se desactiva con `RUN_MIGRATIONS_ON_START=false`.
 
 Pasos recomendados de deploy:
 
 1. Configura variables de build y runtime en Coolify.
-2. Ejecuta `npm run db:migrate` contra la base real o activa `RUN_MIGRATIONS_ON_START=true` solo en despliegues de una replica.
+2. Las migraciones se aplican solas al arrancar el contenedor. Para aplicarlas a mano (o con `RUN_MIGRATIONS_ON_START=false`): `npm run db:migrate` contra la base real.
 3. Comprueba `GET /api/health` y `GET /api/readyz`.
 4. Ejecuta el smoke post-deploy:
 

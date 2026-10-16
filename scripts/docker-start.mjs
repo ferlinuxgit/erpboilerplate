@@ -11,7 +11,10 @@ const requiredEnv = [
 ];
 
 const waitForDatabase = process.env.WAIT_FOR_DATABASE !== "false";
-const runMigrations = process.env.RUN_MIGRATIONS_ON_START === "true";
+// Migraciones al arrancar SIEMPRE, salvo que se desactiven expresamente con
+// RUN_MIGRATIONS_ON_START=false: una versión nueva nunca debe arrancar con la base sin actualizar.
+// Es seguro con varias réplicas (scripts/migrate.mjs usa un bloqueo en la base).
+const runMigrations = process.env.RUN_MIGRATIONS_ON_START !== "false";
 const databaseWaitTimeoutSeconds = Number.parseInt(process.env.DATABASE_WAIT_TIMEOUT_SECONDS ?? "60", 10);
 
 function validateRuntimeEnv() {
@@ -97,12 +100,13 @@ function runCommand(command, args, options = {}) {
 
 async function runStartupMigrations() {
   if (!runMigrations) {
-    console.log("Database migrations skipped because RUN_MIGRATIONS_ON_START is not true.");
+    console.log("Database migrations skipped because RUN_MIGRATIONS_ON_START=false.");
     return;
   }
 
   console.log("Running database migrations before starting the app.");
-  await runCommand("npm", ["run", "db:migrate"]);
+  // node scripts/migrate.mjs (no drizzle-kit: es dependencia de desarrollo y no está en la imagen).
+  await runCommand("node", ["scripts/migrate.mjs"]);
 }
 
 function startNext() {

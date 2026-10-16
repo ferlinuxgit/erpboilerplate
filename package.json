@@ -25,7 +25,7 @@
     "accounting:bank-subaccounts": "tsx scripts/accounting-bank-subaccounts.ts",
     "taxes:dedupe": "tsx scripts/taxes-dedupe.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:verify": "node scripts/verify-clean-db-migrations.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
