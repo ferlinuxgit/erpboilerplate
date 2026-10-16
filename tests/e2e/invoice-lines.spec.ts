@@ -87,6 +87,8 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   // Las líneas nuevas proponen el IVA por defecto (21 %): se cambia por el reducido.
   await page.getByTestId("invoice-line-2-taxes").getByRole("checkbox", { name: /IVA general/ }).uncheck();
   await page.getByTestId("invoice-line-2-taxes").getByRole("checkbox", { name: /IVA reducido/ }).check();
+  // Se cierra el desplegable de impuestos: abierto, el siguiente clic a veces solo lo cerraba.
+  await page.getByTestId("invoice-line-2-taxes").locator("summary").click();
 
   await page.getByRole("button", { name: "Duplicar línea 2" }).click();
   await expect(page.getByTestId("invoice-line-3-description")).toHaveValue("Soporte");
