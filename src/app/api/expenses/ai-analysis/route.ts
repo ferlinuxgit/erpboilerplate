@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { analyzeExpenseInvoiceWithOpenAI } from "@/server/ai/expense-invoice-analysis";
+import { analyzeExpenseInvoiceWithOpenAI, expenseAnalysisModel } from "@/server/ai/expense-invoice-analysis";
 import { companyOwnTaxIds, completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
 import { getExpenseOcrSettings } from "@/server/ocr/settings";
 
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       buffer,
       initialStatus: "PROCESSING",
       extractionProvider: "openai",
-      extractionModel: process.env.OPENAI_EXPENSE_ANALYSIS_MODEL || "gpt-5",
+      extractionModel: expenseAnalysisModel(),
       batchId: typeof batchId === "string" && batchId.trim() ? batchId.trim() : undefined,
     });
     const result = await analyzeExpenseInvoiceWithOpenAI({

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi as vitest } from "vitest";
 
-import { type ExpenseInvoiceAiAnalysis, toExpenseInvoiceAiDraft } from "@/server/ai/expense-invoice-analysis";
+import { type ExpenseInvoiceAiAnalysis, expenseAnalysisModel, expenseAnalysisReasoningEffort, toExpenseInvoiceAiDraft } from "@/server/ai/expense-invoice-analysis";
 
 function baseAnalysis(patch: Partial<ExpenseInvoiceAiAnalysis> = {}): ExpenseInvoiceAiAnalysis {
   return {
@@ -137,5 +137,27 @@ describe("expense invoice AI analysis mapping", () => {
       ],
     }));
     expect(draft.lines[0].taxRate).toBe(21);
+  });
+});
+
+describe("expense analysis model settings", () => {
+  afterEach(() => vitest.unstubAllEnvs());
+
+  it("defaults to GPT-6 Luna with low reasoning", () => {
+    vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_MODEL", "");
+    vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT", "");
+    expect(expenseAnalysisModel()).toBe("gpt-6-luna");
+    expect(expenseAnalysisReasoningEffort()).toBe("low");
+  });
+
+  it("honours the configured model and effort, and 'off' omits reasoning", () => {
+    vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_MODEL", "gpt-5.4-mini");
+    vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT", "medium");
+    expect(expenseAnalysisModel()).toBe("gpt-5.4-mini");
+    expect(expenseAnalysisReasoningEffort()).toBe("medium");
+    vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT", "off");
+    expect(expenseAnalysisReasoningEffort()).toBeNull();
+    vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT", "turbo");
+    expect(expenseAnalysisReasoningEffort()).toBe("low");
   });
 });

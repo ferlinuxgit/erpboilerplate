@@ -265,6 +265,31 @@ export function toExpenseInvoiceAiDraft(
   };
 }
 
+/**
+ * Modelo de lectura de facturas: GPT-6 Luna por defecto (pensado para extracción de alto volumen,
+ * 0,10 $ / 0,50 $ por millón de tokens, imagen y salida estructurada). Se cambia con
+ * OPENAI_EXPENSE_ANALYSIS_MODEL.
+ */
+export const DEFAULT_EXPENSE_ANALYSIS_MODEL = "gpt-6-luna";
+
+export function expenseAnalysisModel() {
+  return process.env.OPENAI_EXPENSE_ANALYSIS_MODEL?.trim() || DEFAULT_EXPENSE_ANALYSIS_MODEL;
+}
+
+const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+type ExpenseReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/**
+ * Razonamiento del modelo: `low` por defecto (extraer datos de una factura no necesita más; es más
+ * rápido y barato). OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT lo cambia; `off` no envía el parámetro
+ * (modelos sin razonamiento, que lo rechazarían).
+ */
+export function expenseAnalysisReasoningEffort(): ExpenseReasoningEffort | null {
+  const configured = process.env.OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT?.trim().toLowerCase();
+  if (configured === "off") return null;
+  return REASONING_EFFORTS.find((effort) => effort === configured) ?? "low";
+}
+
 export async function analyzeExpenseInvoiceWithOpenAI(input: {
   fileName: string;
   contentType: string;
@@ -274,7 +299,8 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY no está configurada.");
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_EXPENSE_ANALYSIS_MODEL || "gpt-5";
+  const model = expenseAnalysisModel();
+  const reasoningEffort = expenseAnalysisReasoningEffort();
   const fileData = `data:${input.contentType};base64,${input.buffer.toString("base64")}`;
   const filePart = input.contentType === "application/pdf"
     ? { type: "input_file" as const, filename: input.fileName, file_data: fileData }
@@ -282,6 +308,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
 
   const response = await client.responses.parse({
     model,
+    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     input: [
       {
         role: "system",
