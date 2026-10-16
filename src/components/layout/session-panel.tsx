@@ -1,6 +1,7 @@
 "use client";
 
 import { Keyboard, SignOut } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -54,14 +55,19 @@ export function SessionPanel({ className, onNavigate }: { className?: string; on
       >
         {user ? initials(user.name) : "··"}
       </span>
-      <div className="min-w-0 flex-1 leading-tight">
-        <p className="truncate font-mono text-xs font-bold text-window-text" title={user?.email}>
+      <Link
+        className="min-w-0 flex-1 leading-tight outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+        href="/settings/preferences"
+        onClick={() => onNavigate?.()}
+        title={user ? `${user.email} · Mis preferencias` : "Mis preferencias"}
+      >
+        <span className="block truncate font-mono text-xs font-bold text-window-text">
           {user?.name ?? "Sesión activa"}
-        </p>
-        <p className="truncate font-mono text-xs text-window-muted">
+        </span>
+        <span className="block truncate font-mono text-xs text-window-muted">
           {user ? statusLabel(roleLabels, user.role) : "Cargando…"}
-        </p>
-      </div>
+        </span>
+      </Link>
       <Button
         aria-keyshortcuts="F1"
         aria-label="Atajos de teclado (F1)"

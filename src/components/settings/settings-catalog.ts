@@ -79,6 +79,7 @@ export const settingsSections: SettingsSection[] = [
     permission: "invoice.read",
     items: [
       { label: "Formas de pago", description: "Transferencia, domiciliación, tarjeta… y la cuenta (IBAN) que aparece en la factura.", href: "/settings/payments#formas-de-pago", keywords: "forma de pago metodo transferencia iban cuenta domiciliacion tarjeta efectivo bizum", permission: "settings.manage" },
+      { label: "Plazo de pago por defecto", description: "Días que tienen tus clientes para pagar si su ficha no indica otro plazo.", href: "/settings/payments#plazo", keywords: "plazo pago dias vencimiento 30 60 cobro condiciones", permission: "settings.manage" },
       { label: "Recibos domiciliados (SEPA)", description: "Identificador de acreedor para cobrar remesas de adeudos directos.", href: "/settings/payments#sepa", keywords: "sepa acreedor identificador adeudo directo domiciliacion remesa recibos", permission: "settings.manage" },
       { label: "Emails y recordatorios de cobro", description: "Textos al enviar facturas y recordatorios automáticos de cobros vencidos.", href: "/settings/payments#emails", keywords: "email correo plantilla mensaje asunto recordatorio reclamar cobro vencidas dunning automatico copia" },
     ],
@@ -86,12 +87,14 @@ export const settingsSections: SettingsSection[] = [
   {
     id: "accounting",
     label: "Contabilidad",
-    description: "Plantilla contable, longitud de subcuentas y cuentas y diarios predefinidos.",
+    description: "Ejercicios fiscales, plantilla contable, subcuentas y las cuentas que usa la contabilidad automática.",
     href: "/settings/accounting",
     permission: "settings.manage",
     items: [
+      { label: "Ejercicios fiscales", description: "Qué ejercicio usas, abrir el siguiente y cerrar el año.", href: "/settings/accounting#ejercicios", keywords: "ejercicio fiscal año contable abrir cerrar cierre reabrir 2026 2027 cambiar" },
       { label: "Plantilla de la empresa", description: "Comprueba y repara lo necesario para contabilizar sin códigos a mano.", href: "/settings/accounting#plantilla", keywords: "plantilla reparar configuracion por defecto pgc cuentas diarios ejercicio" },
       { label: "Longitud de subcuentas", description: "Dígitos de las subcuentas de clientes, proveedores, IVA…", href: "/settings/accounting#subcuentas", keywords: "subcuenta digitos longitud 8 10 12 430 400" },
+      { label: "Cuentas por defecto", description: "Dónde se apuntan ventas, compras, clientes, proveedores y bancos.", href: "/settings/accounting#cuentas", keywords: "cuenta defecto ventas 700 705 compras 600 629 clientes 430 proveedores 400 410 bancos 572 contabilidad automatica" },
       { label: "Cuentas y diarios predefinidos", description: "Crea cuentas y diarios del catálogo que falten.", href: "/settings/accounting#catalogo", keywords: "cuentas diarios catalogo pgc predefinidas crear" },
       { label: "Plan contable", description: "Todas las cuentas de la empresa.", href: "/accounting/accounts", keywords: "plan contable cuentas pgc 572 430 400", permission: "accounting.read", external: true },
     ],
@@ -146,7 +149,6 @@ export const settingsSections: SettingsSection[] = [
     href: "/settings/security",
     items: [
       { label: "Política de seguridad", description: "Duración de sesión, doble factor, dominios e IPs permitidas, rotación de claves API.", href: "/settings/security", keywords: "sesion doble factor 2fa dominios ip permitidas rotacion claves seguridad" },
-      { label: "Cambiar mi contraseña", description: "Te enviamos un enlace para elegir una nueva.", href: "/auth/forgot-password", keywords: "contrasena clave password cambiar restablecer" },
     ],
   },
   {
@@ -177,6 +179,17 @@ export const settingsSections: SettingsSection[] = [
     permission: "billing.read",
     items: [
       { label: "Plan y facturación", description: "Contrata o cambia de plan y descarga las facturas de la suscripción.", href: "/billing", keywords: "plan suscripcion pago tarjeta stripe limites" },
+    ],
+  },
+  {
+    id: "preferences",
+    label: "Mis preferencias",
+    description: "Tu cuenta y cómo ves la aplicación en este navegador.",
+    href: "/settings/preferences",
+    items: [
+      { label: "Mi cuenta y contraseña", description: "Tus datos de acceso, tu rol y el cambio de contraseña.", href: "/settings/preferences#cuenta", keywords: "cuenta usuario perfil email contrasena clave password cambiar rol" },
+      { label: "Apariencia", description: "Paleta de colores clara u oscura.", href: "/settings/preferences#apariencia", keywords: "tema paleta colores oscuro claro modo noche apariencia" },
+      { label: "Teclado", description: "Modo teclado y atajos de una sola tecla.", href: "/settings/preferences#teclado", keywords: "teclado atajos codigos accesibilidad voz" },
     ],
   },
 ];

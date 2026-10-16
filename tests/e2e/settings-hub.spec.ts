@@ -43,4 +43,27 @@ test("Configuración: un solo punto de entrada, buscador de ajustes y enlaces an
   await expect(page.getByRole("heading", { level: 2, name: "Logo y pie de factura" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Series de numeración" })).toBeVisible();
   await testInfo.attach("settings-documents", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+
+  await page.goto("/settings/payments#plazo");
+  await page.getByLabel("Días hasta el vencimiento").fill("45");
+  const termsSaved = page.waitForResponse((response) => response.url().endsWith("/api/company/payment-terms") && response.request().method() === "PUT");
+  await page.locator("#plazo").getByRole("button", { name: "Guardar" }).click();
+  expect((await termsSaved).ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByLabel("Días hasta el vencimiento")).toHaveValue("45");
+
+  await page.goto("/settings/accounting");
+  await expect(page.getByRole("list", { name: "Ejercicios fiscales" })).toContainText("En uso");
+  await expect(page.getByRole("heading", { level: 2, name: "Cuentas por defecto" })).toBeVisible();
+  await expect(page.getByLabel("Ventas")).not.toHaveValue("");
+  await testInfo.attach("settings-accounting", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+
+  await page.goto("/settings/preferences");
+  await expect(page.getByRole("heading", { level: 2, name: "Mi cuenta" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Cambiar mi contraseña" })).toHaveAttribute("href", "/auth/forgot-password");
+  const keyboardMode = page.getByLabel("Modo teclado: mostrar códigos");
+  await keyboardMode.check();
+  await expect(page.getByTestId("desktop-sidebar").getByText("40", { exact: true })).toBeVisible();
+  await keyboardMode.uncheck();
+  await testInfo.attach("settings-preferences", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 });

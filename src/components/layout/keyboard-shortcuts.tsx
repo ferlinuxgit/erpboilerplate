@@ -99,7 +99,7 @@ export function KeyboardHelpButton({ className, compact = false, onOpen }: { cla
   );
 }
 
-function PreferenceToggle({ checked, description, id, label, onChange }: { checked: boolean; description: string; id: string; label: string; onChange: (value: boolean) => void }) {
+export function PreferenceToggle({ checked, description, id, label, onChange }: { checked: boolean; description: string; id: string; label: string; onChange: (value: boolean) => void }) {
   return (
     <div className="flex items-start gap-2">
       <input
