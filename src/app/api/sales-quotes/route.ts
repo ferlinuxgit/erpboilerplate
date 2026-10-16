@@ -10,9 +10,11 @@ import { can } from "@/lib/rbac";
 import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
+import { linkQuoteToOpportunity } from "@/server/crm/service";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { computeDocumentTotals } from "@/server/taxation/engine";
 import { rejectForeignItems } from "@/server/inventory/ownership";
+import { isModuleEnabled } from "@/server/modules/service";
 
 const lineSchema = z.object({
   quantity: z.number().positive(),
@@ -27,6 +29,8 @@ const payloadSchema = z.object({
   number: z.string().trim().optional().or(z.literal("")),
   issueDate: z.string().trim().min(1),
   validUntil: z.string().trim().optional().or(z.literal("")),
+  // Presupuesto creado desde una oportunidad del CRM: se vincula a ella.
+  crmOpportunityId: z.string().trim().optional().or(z.literal("")),
   lines: z.array(
     lineSchema.extend({
       description: z.string().trim().optional().or(z.literal("")),
@@ -67,6 +71,9 @@ export async function POST(request: Request) {
   const totals = computeDocumentTotals(parsed.data.lines);
   const issueDate = new Date(parsed.data.issueDate);
   if (Number.isNaN(issueDate.getTime())) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+  const linkOpportunity = parsed.data.crmOpportunityId && can(ctx.membership.role, "crm.write") && (await isModuleEnabled(ctx.company.id, "crm"))
+    ? parsed.data.crmOpportunityId
+    : null;
   const result = await settle(db.transaction(async (tx) => {
     const number =
       parsed.data.number?.trim() ||
@@ -122,6 +129,15 @@ export async function POST(request: Request) {
       },
       tx,
     );
+
+    if (linkOpportunity) {
+      await linkQuoteToOpportunity(tx, { tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: session.user.id }, {
+        opportunityId: linkOpportunity,
+        salesQuoteId: header.id,
+        quoteNumber: header.number,
+        customerId: header.customerId,
+      });
+    }
 
     return header;
   }));

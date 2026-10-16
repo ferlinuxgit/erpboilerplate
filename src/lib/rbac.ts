@@ -31,7 +31,14 @@ export type PermissionKey =
   | "reporting.read"
   | "apiKey.read"
   | "apiKey.write"
-  | "settings.manage";
+  | "settings.manage"
+  // Módulo CRM: ver y gestionar oportunidades y actividades.
+  | "crm.read"
+  | "crm.write"
+  // Módulo TPV: ver cierres de caja, vender (abrir/cerrar caja propia) y configurar cajas.
+  | "pos.read"
+  | "pos.sell"
+  | "pos.manage";
 
 const readEverything: PermissionKey[] = [
   "customer.read",
@@ -45,6 +52,8 @@ const readEverything: PermissionKey[] = [
   "accounting.read",
   "fiscal.read",
   "reporting.read",
+  "crm.read",
+  "pos.read",
 ];
 
 /** Trabajo diario: clientes, proveedores, ventas, compras, gastos, stock y bancos. */
@@ -58,6 +67,8 @@ const dailyOperations: PermissionKey[] = [
   "expense.write",
   "treasury.write",
   "stock.write",
+  "crm.write",
+  "pos.sell",
 ];
 
 const administration: PermissionKey[] = [
@@ -70,6 +81,7 @@ const administration: PermissionKey[] = [
   "apiKey.read",
   "apiKey.write",
   "settings.manage",
+  "pos.manage",
 ];
 
 const rolePermissions: Record<AppRole, Set<PermissionKey>> = {

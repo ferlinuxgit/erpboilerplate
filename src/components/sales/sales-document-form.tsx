@@ -82,6 +82,7 @@ type HeaderErrors = Partial<Record<"customerId" | "issueDate" | "validUntil", st
  * shared line editor (discount, IVA, IRPF) and live totals as invoices.
  */
 export function SalesDocumentForm({
+  crmOpportunityId,
   currencyCode = "EUR",
   customers,
   defaultTaxRate = 21,
@@ -90,6 +91,8 @@ export function SalesDocumentForm({
   initialValues,
   kind,
 }: {
+  /** Presupuesto creado desde una oportunidad del CRM (se vincula al guardarlo). */
+  crmOpportunityId?: string;
   currencyCode?: string;
   customers: SalesCustomerOption[];
   defaultTaxRate?: number;
@@ -181,6 +184,7 @@ export function SalesDocumentForm({
           number,
           issueDate,
           ...(kind === "quote" ? { validUntil } : {}),
+          ...(kind === "quote" && crmOpportunityId && !documentId ? { crmOpportunityId } : {}),
           lines: documentLinesPayload(lines, { retentionRate, withDiscount: true, withTax: true }),
         }),
       });

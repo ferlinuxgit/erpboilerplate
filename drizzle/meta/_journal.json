@@ -281,6 +281,13 @@
       "when": 1792183485506,
       "tag": "0039_company_modules",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792193316493,
+      "tag": "0040_crm",
+      "breakpoints": true
     }
   ]
 }

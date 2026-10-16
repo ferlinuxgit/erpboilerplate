@@ -8,6 +8,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DunningOptOutToggle } from "@/components/customers/dunning-opt-out-toggle";
+import { CustomerCrmPanel } from "@/components/crm/customer-crm-panel";
+import { serializeActivity, serializeOpportunity } from "@/components/crm/types";
 import { SepaMandatesPanel } from "@/components/customers/sepa-mandates-panel";
 import { ViesCheck } from "@/components/customers/vies-check";
 import { findPartnerSubaccount } from "@/server/accounting/subaccounts";
@@ -19,6 +21,7 @@ import { effectivePaymentTermsDays } from "@/server/invoices/due-dates";
 import { salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
 import { listCustomerMandates } from "@/server/sepa/mandates";
 import { requireContext } from "@/lib/current-context";
+import { getCustomerCrm } from "@/server/crm/service";
 import { isModuleEnabled } from "@/server/modules/service";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -55,7 +58,8 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
     db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
     isCustomerDunningOptedOut(ctx.company.id, id),
   ]);
-  const bankingEnabled = await isModuleEnabled(ctx.company.id, "banking");
+  const [bankingEnabled, crmEnabled] = await Promise.all([isModuleEnabled(ctx.company.id, "banking"), isModuleEnabled(ctx.company.id, "crm")]);
+  const crm = crmEnabled && can(ctx.membership.role, "crm.read") ? await getCustomerCrm(ctx.company.id, id) : null;
   const sepaMandates = bankingEnabled ? await listCustomerMandates(ctx.company.id, id) : [];
   const currencyCode = record.currencyCode ?? ctx.company.baseCurrencyCode;
   // Importes reales: sin borradores ni anuladas, restando rectificativas y cobros (mismas reglas que la lista de facturas).
@@ -102,6 +106,15 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
           <PageSection title="Facturas recientes" description="Últimos documentos emitidos." contentClassName="space-y-2">
             {invoices.length === 0 ? <EmptyState title="Sin facturas" description="Todavía no hay facturas emitidas a este cliente." action={<Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/invoices/new?customerId=${record.id}`}>Crear factura</Link>} /> :invoices.slice(0, 6).map((row) => <Link className="flex items-center justify-between gap-3 rounded-surface border p-3 text-sm transition-colors hover:bg-accent" href={`/invoices/${row.id}`} key={row.id}><span><span className="font-medium">{row.number}</span><span className="block text-xs text-muted-foreground">{formatDate(row.issueDate)}</span></span><span className="text-right"><span className="block font-mono font-semibold">{formatMoney(row.totalAmount, currencyCode)}</span><StatusBadge tone={invoicePaymentStatusTone(row.paymentStatus)}>{statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}</StatusBadge></span></Link>)}
           </PageSection>
+          {crm ? (
+            <CustomerCrmPanel
+              activities={crm.activities.map(serializeActivity)}
+              canWrite={can(ctx.membership.role, "crm.write")}
+              currencyCode={record.currencyCode ?? ctx.company.baseCurrencyCode}
+              customerId={record.id}
+              opportunities={crm.opportunities.map(serializeOpportunity)}
+            />
+          ) : null}
           {bankingEnabled ? (
             <PageSection title="Domiciliación bancaria (SEPA)" description="Mandatos firmados para cobrar sus facturas con remesas de recibos.">
               <SepaMandatesPanel canManage={canManage} customerId={record.id} defaultIban={record.iban} mandates={sepaMandates} />

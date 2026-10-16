@@ -54,6 +54,7 @@ export const quickActions: Command[] = [
   { href: "/inventory/warehouses/new", label: "Nuevo almacén", kind: "action", keywords: "ubicación nave tienda" },
   { href: "/accounting/entries/new", label: "Nuevo asiento contable", kind: "action", keywords: "contabilidad diario apunte" },
   { href: "/accounting/accounts/new", label: "Nueva cuenta contable", kind: "action", keywords: "plan contable subcuenta pgc" },
+  { href: "/crm/opportunities/new", label: "Nueva oportunidad", kind: "action", keywords: "crm oportunidad venta lead prospecto embudo" },
 ];
 
 /** Módulos del menú, sus subpáginas (Conciliación, Calendario fiscal, Plan contable…) y cada ajuste de Configuración. */

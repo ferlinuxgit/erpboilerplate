@@ -9,10 +9,11 @@ import { loadSalesFormData } from "@/server/sales/form-data";
 
 export const metadata: Metadata = { title: "Nuevo presupuesto" };
 
-export default async function NewSalesQuotePage({ searchParams }: { searchParams: Promise<{ customerId?: string | string[] }> }) {
+export default async function NewSalesQuotePage({ searchParams }: { searchParams: Promise<{ customerId?: string | string[]; crmOpportunityId?: string | string[] }> }) {
   const ctx = await requireContext("invoice.create");
   const params = await searchParams;
   const initialCustomerId = Array.isArray(params.customerId) ? params.customerId[0] : params.customerId;
+  const crmOpportunityId = Array.isArray(params.crmOpportunityId) ? params.crmOpportunityId[0] : params.crmOpportunityId;
   const { customers, defaultTaxRate } = await loadSalesFormData(ctx.company.id);
 
   return (
@@ -29,7 +30,7 @@ export default async function NewSalesQuotePage({ searchParams }: { searchParams
       <PageSection title="Datos del presupuesto" description="Selecciona el cliente, define la vigencia y añade los conceptos de la propuesta.">
         {customers.length === 0 ? (
           <EmptyState title="Falta un cliente" description="Crea al menos un cliente antes de preparar un presupuesto." action={<Link className={buttonVariants()} href="/customers/new">Crear cliente</Link>} />
-        ) : <CreateSalesQuoteForm customers={customers} defaultTaxRate={defaultTaxRate} initialCustomerId={initialCustomerId} />}
+        ) : <CreateSalesQuoteForm crmOpportunityId={crmOpportunityId} customers={customers} defaultTaxRate={defaultTaxRate} initialCustomerId={initialCustomerId} />}
       </PageSection>
     </PageShell>
   );

@@ -6,6 +6,7 @@ import {
   ClipboardText,
   Coins,
   Factory,
+  Funnel,
   FileArrowDown,
   FileText,
   GearSix,
@@ -64,6 +65,7 @@ export const navGroups: NavigationGroup[] = [
       { href: "/sales/quotes", label: "Presupuestos", code: "11", icon: FileText, keywords: "oferta cotización propuesta", module: "sales-documents", permission: "invoice.read" },
       { href: "/sales/orders", label: "Pedidos", code: "12", icon: ShoppingCart, keywords: "pedido de venta encargo", module: "sales-documents", permission: "invoice.read" },
       { href: "/sales/delivery-notes", label: "Albaranes", code: "13", icon: Truck, keywords: "entrega envío mercancía", module: "inventory", permission: "invoice.read" },
+      { href: "/crm", label: "CRM", code: "16", icon: Funnel, keywords: "crm oportunidades embudo pipeline ventas seguimiento llamadas tareas leads prospectos comercial", module: "crm", permission: "crm.read" },
       { href: "/inventory/items", label: "Artículos", code: "15", icon: Package, keywords: "productos servicios catálogo precios tarifas", unlessModule: "inventory", permission: "stock.read" },
       { href: "/invoices", label: "Facturas", code: "14", icon: Receipt, keywords: "facturar cobrar cobro emitidas ventas rectificativa abono", permission: "invoice.read" },
     ],
@@ -133,6 +135,17 @@ export const contextGroups: ContextGroup[] = [
       { href: "/invoices", label: "Facturas" },
       { href: "/invoices/collections", label: "Cobros pendientes", keywords: "recordatorio recordar reclamar cobro cobros vencidas morosos antigüedad deuda impagadas dunning" },
       { href: "/invoices/recurring", label: "Recurrentes", commandLabel: "Facturas recurrentes", keywords: "facturas recurrentes recurrente periódicas cuotas mensuales suscripción iguala" },
+    ],
+  },
+  {
+    roots: ["/crm"],
+    code: "16",
+    label: "CRM",
+    links: [
+      { href: "/crm", label: "Embudo", exact: true, commandLabel: "Embudo de ventas (CRM)", keywords: "pipeline kanban oportunidades", module: "crm" },
+      { href: "/crm/opportunities", label: "Oportunidades", keywords: "lista oportunidades ventas leads", module: "crm" },
+      { href: "/crm/activities", label: "Agenda", commandLabel: "Agenda del CRM", keywords: "tareas llamadas reuniones pendientes vencidas recordatorios", module: "crm" },
+      { href: "/crm/settings", label: "Etapas", commandLabel: "Etapas del embudo (CRM)", keywords: "etapas embudo probabilidad configurar", module: "crm" },
     ],
   },
   {

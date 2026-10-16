@@ -6,6 +6,7 @@ export type QuoteLine = SalesDocumentLineValues;
 export type SalesQuoteFormValues = SalesDocumentFormValues & { validUntil: string };
 
 export function CreateSalesQuoteForm({
+  crmOpportunityId,
   currencyCode,
   customers,
   defaultTaxRate = 21,
@@ -13,6 +14,7 @@ export function CreateSalesQuoteForm({
   initialValues,
   quoteId,
 }: {
+  crmOpportunityId?: string;
   currencyCode?: string;
   customers: SalesCustomerOption[];
   initialCustomerId?: string;
@@ -22,6 +24,7 @@ export function CreateSalesQuoteForm({
 }) {
   return (
     <SalesDocumentForm
+      crmOpportunityId={crmOpportunityId}
       currencyCode={currencyCode}
       customers={customers}
       defaultTaxRate={defaultTaxRate}

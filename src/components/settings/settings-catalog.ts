@@ -134,6 +134,15 @@ export const settingsSections: SettingsSection[] = [
     ],
   },
   {
+    id: "crm",
+    label: "CRM",
+    description: "Etapas del embudo de ventas y su probabilidad de cierre.",
+    module: "crm",
+    items: [
+      { label: "Etapas del embudo", description: "Nombre, orden y probabilidad de cada etapa.", href: "/crm/settings", keywords: "crm etapas embudo pipeline probabilidad ganada perdida", permission: "crm.read", module: "crm", external: true },
+    ],
+  },
+  {
     id: "automation",
     label: "Automatización",
     description: "Lectura automática de facturas recibidas, también por email.",

@@ -18,6 +18,7 @@ import { ensureUserTenant } from "@/lib/tenant";
 import { getCompanySetupState, type CompanySetupState } from "@/server/onboarding/service";
 import { loadCockpitSummary, loadDashboardFinance, type DashboardFinance } from "@/server/reporting/dashboard";
 import { parseFinancePeriod, type FinancePeriod } from "@/server/reporting/dashboard-model";
+import { countOverdueActivities } from "@/server/crm/service";
 import { getEnabledModules } from "@/server/modules/service";
 
 export const metadata: Metadata = {
@@ -90,6 +91,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   });
   const enabledModules = await getEnabledModules(companyId);
   const bankingEnabled = enabledModules.includes("banking");
+  const crmOverdue = enabledModules.includes("crm") && can(role, "crm.read") ? await countOverdueActivities(companyId, session.user.id) : 0;
   const cockpit = buildDashboardCockpitFromSummary(summary, {
     currencyCode,
     businessType: setup?.businessType,
@@ -124,6 +126,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {dashboardDataError ? (
         <InlineAlert title="Indicadores incompletos" tone="warning">
           No se pudieron cargar todos los indicadores del panel. Recarga la página en unos segundos; mientras tanto puedes seguir trabajando desde el menú.
+        </InlineAlert>
+      ) : null}
+
+      {crmOverdue > 0 ? (
+        <InlineAlert data-testid="dashboard-crm-overdue" title={`${crmOverdue} ${crmOverdue === 1 ? "tarea vencida" : "tareas vencidas"} en el CRM`} tone="warning">
+          <Link className="font-semibold underline" href="/crm/activities">Abrir la agenda</Link>
         </InlineAlert>
       ) : null}
 

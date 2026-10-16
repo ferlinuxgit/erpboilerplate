@@ -31,7 +31,9 @@ describe("settings catalog", () => {
 
   it("shows each role only what it can change and hides stock settings for service businesses", () => {
     const ids = (role: string, businessType = "both") => visibleSettingsSections({ role, businessType }).map((section) => section.id);
-    expect(ids("OWNER")).toEqual(settingsSections.map((section) => section.id));
+    // Los módulos de nicho (CRM, TPV) vienen desactivados: sus ajustes no aparecen hasta activarlos.
+    expect(ids("OWNER")).toEqual(settingsSections.filter((section) => section.module !== "crm" && section.module !== "pos").map((section) => section.id));
+    expect(visibleSettingsSections({ role: "OWNER", modules: ["crm"] }).map((section) => section.id)).toContain("crm");
     expect(ids("OWNER", "services")).not.toContain("inventory");
     expect(ids("ACCOUNTANT")).toEqual(expect.arrayContaining(["fiscal", "payments", "banks", "security"]));
     expect(ids("ACCOUNTANT")).not.toContain("company");

@@ -1808,3 +1808,80 @@ export const recurringRun = pgTable("recurring_run", {
   index("recurring_run_company_status_idx").on(table.companyId, table.status),
   check("recurring_run_status_valid", sql`${table.status} IN ('GENERATED', 'PENDING_REVIEW', 'DISCARDED')`),
 ]);
+
+// ---------------------------------------------------------------------------------------------
+// Módulo CRM: etapas del embudo, oportunidades y actividades.
+// ---------------------------------------------------------------------------------------------
+
+/** Etapa del embudo de ventas. OPEN = en curso; WON/LOST = cierre (ganada o perdida). */
+export const crmStage = pgTable("crm_stage", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  position: integer("position").notNull(),
+  // Probabilidad de cierre (0–100) para la previsión ponderada.
+  probability: integer("probability").notNull().default(0),
+  kind: text("kind").notNull().default("OPEN"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("crm_stage_company_name_unique").on(table.companyId, table.name),
+  index("crm_stage_company_position_idx").on(table.companyId, table.position),
+  check("crm_stage_kind_valid", sql`${table.kind} IN ('OPEN', 'WON', 'LOST')`),
+  check("crm_stage_probability_valid", sql`${table.probability} BETWEEN 0 AND 100`),
+]);
+
+/** Oportunidad de venta: un cliente (o un contacto aún sin ficha) y un importe esperado. */
+export const crmOpportunity = pgTable("crm_opportunity", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  customerId: text("customerId").references(() => customer.id, { onDelete: "set null" }),
+  // Contacto sin ficha de cliente (prospecto): se puede convertir en cliente después.
+  contactName: text("contactName"),
+  contactEmail: text("contactEmail"),
+  contactPhone: text("contactPhone"),
+  stageId: text("stageId").notNull().references(() => crmStage.id, { onDelete: "restrict" }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  expectedCloseDate: timestamp("expectedCloseDate", { withTimezone: true, mode: "date" }),
+  ownerUserId: text("ownerUserId").references(() => user.id, { onDelete: "set null" }),
+  source: text("source"),
+  notes: text("notes"),
+  // OPEN | WON | LOST (sigue a la etapa: se guarda para filtrar e informar sin unir con la etapa).
+  status: text("status").notNull().default("OPEN"),
+  lostReason: text("lostReason"),
+  closedAt: timestamp("closedAt", { withTimezone: true, mode: "date" }),
+  salesQuoteId: text("salesQuoteId").references(() => salesQuote.id, { onDelete: "set null" }),
+  // Orden dentro de la columna del embudo.
+  position: integer("position").notNull().default(0),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("crm_opportunity_company_stage_idx").on(table.companyId, table.stageId, table.position),
+  index("crm_opportunity_company_status_idx").on(table.companyId, table.status),
+  index("crm_opportunity_customer_idx").on(table.customerId),
+  check("crm_opportunity_status_valid", sql`${table.status} IN ('OPEN', 'WON', 'LOST')`),
+  check("crm_opportunity_amount_valid", sql`${table.amount} >= 0`),
+]);
+
+/** Llamada, email, reunión, tarea o nota sobre una oportunidad o un cliente. */
+export const crmActivity = pgTable("crm_activity", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  opportunityId: text("opportunityId").references(() => crmOpportunity.id, { onDelete: "cascade" }),
+  customerId: text("customerId").references(() => customer.id, { onDelete: "set null" }),
+  type: text("type").notNull(),
+  subject: text("subject").notNull(),
+  notes: text("notes"),
+  dueAt: timestamp("dueAt", { withTimezone: true, mode: "date" }),
+  completedAt: timestamp("completedAt", { withTimezone: true, mode: "date" }),
+  assignedUserId: text("assignedUserId").references(() => user.id, { onDelete: "set null" }),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("crm_activity_company_pending_idx").on(table.companyId, table.completedAt, table.dueAt),
+  index("crm_activity_opportunity_idx").on(table.opportunityId),
+  index("crm_activity_customer_idx").on(table.customerId),
+  check("crm_activity_type_valid", sql`${table.type} IN ('CALL', 'EMAIL', 'MEETING', 'TASK', 'NOTE')`),
+]);
