@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
+import { EU_COUNTRY_CODES, isSelfAssessedTreatment, REVERSE_CHARGE_DEFAULT_RATE, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes, roundHalfAwayFromZero } from "@/server/taxation/engine";
 
 const nullableString = z.string().nullable();
@@ -150,6 +151,8 @@ export type ExpenseInvoiceAiDraft = {
   }>;
   /** Bases por tipo de IVA del pie de la factura, solo si cuadran con el total. */
   taxSummary?: Array<{ taxRate: number; base: number; taxDeductiblePct: number }>;
+  /** Tratamiento de IVA propuesto (proveedor extranjero que no cobra IVA español). */
+  vatTreatment?: SupplierVatTreatment;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -183,10 +186,12 @@ function cappedConfidence(
   confidence: "high" | "medium" | "low",
   lines: ExpenseInvoiceAiDraft["lines"],
   analysis: ExpenseInvoiceAiAnalysis,
+  vatTreatment?: SupplierVatTreatment,
 ): "high" | "medium" | "low" {
   if (confidence !== "high") return confidence;
   const accountMissing = lines.some((line) => !line.suggestedExpenseAccountCode);
-  const taxAssumed = analysis.lines.length > 0
+  // Proveedor extranjero sin IVA: el tipo lo fija el tratamiento (autorepercusión o importación), no se supone.
+  const taxAssumed = vatTreatment ? false : analysis.lines.length > 0
     ? analysis.lines.some((line) => line.tax_rate === null) && analysis.taxes.every((tax) => tax.rate === null)
     : analysis.taxes.every((tax) => tax.rate === null);
   return accountMissing || taxAssumed ? "medium" : confidence;
@@ -239,9 +244,38 @@ function exactQuantityAndPrice(line: AnalysisLine, base: number, description: st
   return { quantity: 1, unitPrice: round2(base), description: `${description} (${detail})` };
 }
 
-function draftTotalCents(lines: readonly Pick<DraftLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[]) {
-  return computeEngineDocument(lines.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })), { allowNegative: true }).totalCents;
+/** Total a pagar de las líneas como lo calculará el registro (con autorepercusión el proveedor no cobra IVA). */
+function draftTotalCents(lines: readonly Pick<DraftLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[], vatTreatment?: SupplierVatTreatment) {
+  const document = computeEngineDocument(lines.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })), { allowNegative: true });
+  if (vatTreatment && (isSelfAssessedTreatment(vatTreatment) || vatTreatment === "NOT_SUBJECT")) return document.subtotalCents - document.retentionCents;
+  return document.totalCents;
 }
+
+/** Bienes (mercaderías o aprovisionamientos) frente a servicios, para proveedores de fuera de la UE. */
+function looksLikeGoods(analysis: ExpenseInvoiceAiAnalysis, lines: readonly DraftLine[]) {
+  const codes = [analysis.suggested_expense_account_code, ...lines.map((line) => line.suggestedExpenseAccountCode)].filter(Boolean);
+  return codes.length > 0 && codes.every((code) => code?.startsWith("60"));
+}
+
+/**
+ * Tratamiento de IVA de un proveedor extranjero que no cobra IVA español: UE → adquisición
+ * intracomunitaria; fuera de la UE → inversión del sujeto pasivo (servicios: software, IA, cursos…)
+ * o importación (mercancía, cuyo IVA se paga en aduana con el DUA). Ambos se autorepercuten al 21 %.
+ */
+function foreignVatTreatment(analysis: ExpenseInvoiceAiAnalysis, lines: readonly DraftLine[]): SupplierVatTreatment | undefined {
+  const country = analysis.supplier_country_code?.trim().toUpperCase();
+  if (!country || country === "ES") return undefined;
+  const chargedVat = (analysis.tax_amount ?? 0) > 0 || analysis.taxes.some((tax) => VAT_TAX_TYPES.has(tax.tax_type) && (tax.tax_amount ?? 0) > 0);
+  if (chargedVat) return undefined;
+  if (EU_COUNTRY_CODES.has(country)) return "INTRA_EU";
+  return looksLikeGoods(analysis, lines) ? "IMPORT" : "REVERSE_CHARGE";
+}
+
+const FOREIGN_VAT_WARNINGS: Partial<Record<SupplierVatTreatment, string>> = {
+  INTRA_EU: "Proveedor de otro país de la UE sin IVA: se registra como adquisición intracomunitaria (IVA autorepercutido al 21 %, no se paga al proveedor).",
+  REVERSE_CHARGE: "Proveedor de fuera de la UE sin IVA: se registra con inversión del sujeto pasivo (IVA autorepercutido al 21 %, no se paga al proveedor). Si es mercancía con DUA, cambia el tratamiento a «Importación».",
+  IMPORT: "Mercancía de fuera de la UE: el IVA de importación se registra con el DUA de aduanas, no en esta factura.",
+};
 
 const STANDARD_RETENTION_RATES = [1, 2, 7, 15, 19];
 
@@ -388,7 +422,7 @@ export function toExpenseInvoiceAiDraft(
   const issueDate = isoDateOrUndefined(analysis.invoice_issue_date);
   const defaults = { taxRate: numberOrFallback(vatTax?.rate ?? null, 21), deductiblePct: numberOrFallback(vatTax?.deductible_pct ?? null, 100) };
   const built = buildDraftLines(analysis, defaults);
-  const lines: DraftLine[] = built.lines.length > 0
+  let lines: DraftLine[] = built.lines.length > 0
     ? built.lines
     : [{
       description: analysis.description || analysis.invoice_number || "Gasto analizado por IA",
@@ -399,13 +433,18 @@ export function toExpenseInvoiceAiDraft(
       retentionRate: documentRetentionRate(analysis, fallbackUnitPrice),
       suggestedExpenseAccountCode: analysis.suggested_expense_account_code ?? undefined,
     }];
-  const linesTotalCents = draftTotalCents(lines);
+  const vatTreatment = foreignVatTreatment(analysis, lines);
+  if (vatTreatment === "IMPORT") lines = lines.map((line) => ({ ...line, taxRate: 0 }));
+  // Autorepercusión: el tipo de la línea es el del IVA que se autorepercute (el proveedor factura al 0 %).
+  if (vatTreatment && isSelfAssessedTreatment(vatTreatment)) lines = lines.map((line) => ({ ...line, taxRate: line.taxRate > 0 ? line.taxRate : REVERSE_CHARGE_DEFAULT_RATE }));
+  const linesTotalCents = draftTotalCents(lines, vatTreatment);
   const totalsMismatch = isAmount(analysis.total_amount) && Math.abs(linesTotalCents - amountToCents(analysis.total_amount)) > 2;
   const taxSummary = lines.length > 1 || totalsMismatch ? taxSummaryLines(analysis, lines[0]?.retentionRate ?? 0, defaults.deductiblePct) : undefined;
   const extraWarnings = [
     ...(taxIdIsOwn ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
     ...(issueDate ? [] : ["No se pudo leer la fecha de factura: indícala antes de registrar."]),
     ...built.warnings,
+    ...(vatTreatment && FOREIGN_VAT_WARNINGS[vatTreatment] ? [FOREIGN_VAT_WARNINGS[vatTreatment]] : []),
     ...(totalsMismatch
       ? [`Las líneas leídas suman ${formatNumber(centsToNumber(linesTotalCents))} y el total de la factura es ${formatNumber(Number(analysis.total_amount))}: comprueba que no falte ninguna línea${taxSummary ? " o usa el resumen por tipo de IVA" : ""}.`]
       : []),
@@ -431,7 +470,8 @@ export function toExpenseInvoiceAiDraft(
     totalAmount: analysis.total_amount ?? undefined,
     lines,
     ...(taxSummary ? { taxSummary } : {}),
-    confidence: extraWarnings.length > 0 ? "low" : cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis),
+    ...(vatTreatment ? { vatTreatment } : {}),
+    confidence: extraWarnings.some((warning) => !Object.values(FOREIGN_VAT_WARNINGS).includes(warning)) ? "low" : cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis, vatTreatment),
     warnings: [...analysis.warnings, ...extraWarnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
   };
 }

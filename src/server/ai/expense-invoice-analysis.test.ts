@@ -307,6 +307,37 @@ describe("invoices with several lines", () => {
   });
 });
 
+describe("foreign suppliers without Spanish VAT", () => {
+  const falInvoice = (patch: Partial<ExpenseInvoiceAiAnalysis> = {}) => baseAnalysis({
+    supplier_name: "fal - Features & Labels, Inc.", supplier_tax_id: null, supplier_country_code: "US", currency_code: "USD",
+    subtotal_amount: 50, discount_amount: null, tax_amount: null, total_amount: 50, taxes: [], suggested_expense_account_code: "629",
+    lines: [line({ description: "Credits - PURCHASE", quantity: 50, unit_price: 1, subtotal_amount: 50, tax_rate: null, suggested_expense_account_code: "629" })],
+    ...patch,
+  });
+
+  it("proposes reverse charge for a US service: the 50 $ total matches and VAT is self-assessed at 21 %", () => {
+    const draft = toExpenseInvoiceAiDraft(falInvoice());
+    expect(draft.vatTreatment).toBe("REVERSE_CHARGE");
+    expect(draft.lines[0]).toMatchObject({ quantity: 50, unitPrice: 1, taxRate: 21 });
+    expect(draft.warnings.join(" ")).not.toMatch(/suman/);
+    expect(draft.warnings.join(" ")).toMatch(/inversión del sujeto pasivo/);
+    expect(draft.confidence).toBe("high");
+  });
+
+  it("proposes intra-EU acquisition for an EU supplier and import (0 %) for goods from outside the EU", () => {
+    expect(toExpenseInvoiceAiDraft(falInvoice({ supplier_country_code: "IE", currency_code: "EUR" })).vatTreatment).toBe("INTRA_EU");
+    const goods = toExpenseInvoiceAiDraft(falInvoice({ suggested_expense_account_code: "600", lines: [line({ description: "Camisetas", quantity: 10, unit_price: 5, subtotal_amount: 50, tax_rate: null, suggested_expense_account_code: "600" })] }));
+    expect(goods.vatTreatment).toBe("IMPORT");
+    expect(goods.lines[0].taxRate).toBe(0);
+    expect(goods.warnings.join(" ")).not.toMatch(/suman/);
+  });
+
+  it("leaves the treatment alone when a foreign supplier does charge VAT", () => {
+    const draft = toExpenseInvoiceAiDraft(falInvoice({ tax_amount: 10.5, total_amount: 60.5, taxes: [vat21(50)] }));
+    expect(draft.vatTreatment).toBeUndefined();
+  });
+});
+
 describe("expense analysis model settings", () => {
   afterEach(() => vitest.unstubAllEnvs());
 

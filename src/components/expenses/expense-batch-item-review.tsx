@@ -17,6 +17,7 @@ import { dueDateInputFor, parseSupplierVatTreatment, SUPPLIER_VAT_TREATMENTS } f
 import { cn } from "@/lib/utils";
 
 import { DocumentPreview, type DocumentSource } from "./document-preview";
+import { ExpenseCurrencyConversion } from "./expense-currency-conversion";
 import { applySupplierToItem, applyTaxSummaryLines, emptyDuplicate, groupItemLines, type BatchItem, type BatchSupplier, type DraftLine } from "./expense-batch-model";
 import { isBlockingWarning, reviewDocumentTotal, reviewLineTotal, reviewReasonLabels, type ItemReadiness } from "./expense-review";
 
@@ -64,7 +65,7 @@ export function ExpenseBatchItemReview({
   const idBase = item.localId;
   const selectedSupplier = suppliers.find((supplier) => supplier.id === item.supplierPartnerId);
   const supplierDefaultAccount = selectedSupplier?.defaults?.defaultExpenseAccountId ?? null;
-  const total = readiness?.total ?? reviewDocumentTotal(item.lines);
+  const total = readiness?.total ?? reviewDocumentTotal(item.lines, item.vatTreatment);
   const totalsMismatch = readiness?.reasons.includes("totals") ?? false;
   const accountMissing = readiness?.reasons.includes("account") ?? false;
   const currencySymbol = item.currencyCode === "EUR" ? "€" : item.currencyCode;
@@ -206,7 +207,7 @@ export function ExpenseBatchItemReview({
           >
             <Input disabled={disabled} min={item.issueDate || undefined} onChange={(event) => onPatch({ dueDate: event.target.value, dueDateEdited: true })} type="date" value={item.dueDate} />
           </AccessibleField>
-          <AccessibleField helperText={item.currencyCode !== baseCurrencyCode ? `Solo se pueden registrar facturas en ${baseCurrencyCode}.` : undefined} id={`currency-${idBase}`} label="Moneda" required>
+          <AccessibleField helperText={item.currencyCode !== baseCurrencyCode ? `Se registra en ${baseCurrencyCode}: conviértela con el cambio de abajo.` : undefined} id={`currency-${idBase}`} label="Moneda" required>
             <Input disabled={disabled} maxLength={3} onChange={(event) => onPatch({ currencyCode: event.target.value.toUpperCase() })} value={item.currencyCode} />
           </AccessibleField>
           <AccessibleField helperText="Normalmente automático; cambia solo si la factura indica otra cosa (p. ej. «inversión del sujeto pasivo»)." id={`vat-${idBase}`} label="Tratamiento de IVA">
@@ -234,6 +235,8 @@ export function ExpenseBatchItemReview({
             </AccessibleField>
           </div>
         </details>
+
+        <ExpenseCurrencyConversion baseCurrencyCode={baseCurrencyCode} disabled={disabled} item={item} onPatch={onPatch} />
 
         <fieldset className="space-y-2 border border-window-shadow p-2.5">
           <legend className="px-1 font-mono text-xs font-bold">Líneas · {formatMoney(total, item.currencyCode)}</legend>

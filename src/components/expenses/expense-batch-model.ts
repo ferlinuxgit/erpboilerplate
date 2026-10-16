@@ -39,6 +39,8 @@ export type OcrDraft = {
   lines: Array<{ description: string; quantity: number; unitPrice: number; taxRate: number; taxDeductiblePct: number; retentionRate: number; suggestedExpenseAccountCode?: string }>;
   /** Bases por tipo de IVA del pie de la factura (solo si cuadran con el total). */
   taxSummary?: Array<{ taxRate: number; base: number; taxDeductiblePct: number }>;
+  /** Tratamiento de IVA propuesto por la lectura (proveedor extranjero sin IVA español). */
+  vatTreatment?: SupplierVatTreatment;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -84,12 +86,24 @@ export type BatchItem = {
   dueDateEdited: boolean;
   currencyCode: string;
   vatTreatment: SupplierVatTreatment | "";
+  /** Conversión a la moneda de la empresa de una factura en otra moneda. */
+  exchange?: ExchangeConversion;
   lines: DraftLine[];
   duplicate: DuplicateAssessment;
   acknowledgePossible: boolean;
   acknowledgeBlocking: boolean;
   reviewed: boolean;
   createdExpenseId?: string;
+};
+
+export type ExchangeConversion = {
+  fromCurrency: string;
+  /** 1 unidad de la moneda original = `rate` de la moneda de la empresa. */
+  rate: number;
+  rateDate: string;
+  source: "BCE" | "manual";
+  /** Líneas antes de convertir, para poder deshacerlo. */
+  originalLines: DraftLine[];
 };
 
 export const emptyDuplicate: DuplicateAssessment = { level: "none", matches: [] };
@@ -205,7 +219,9 @@ export function hydrateItem(
     }),
     duplicate,
   };
-  return applySupplierToItem(hydrated, matched);
+  const withSupplier = applySupplierToItem(hydrated, matched);
+  // El tratamiento habitual del proveedor manda; si no tiene, el propuesto por la lectura.
+  return withSupplier.vatTreatment ? withSupplier : { ...withSupplier, vatTreatment: draft.vatTreatment ?? "" };
 }
 
 /** Estado local de un documento guardado en el servidor (bandeja restaurada). */
@@ -331,4 +347,46 @@ export function applyTaxSummaryLines(item: BatchItem): BatchItem {
       };
     }),
   };
+}
+
+/**
+ * Convierte los importes de una factura en otra moneda a la de la empresa (art. 79.Once LIVA: tipo
+ * de cambio del día de la factura). Cada base se convierte entera para no arrastrar redondeos del
+ * precio unitario; la cantidad se mantiene si el precio convertido la reproduce.
+ */
+export function convertItemCurrency(item: BatchItem, baseCurrencyCode: string, conversion: Omit<ExchangeConversion, "fromCurrency" | "originalLines">): BatchItem {
+  if (!(conversion.rate > 0) || item.currencyCode === baseCurrencyCode) return item;
+  const lines = item.lines.map((line) => {
+    const quantity = parseDecimalInput(line.quantity);
+    const unitPrice = parseDecimalInput(line.unitPrice, { maximumFractionDigits: 2 });
+    if (quantity === null || unitPrice === null) return line;
+    const baseCents = Math.round(quantity * unitPrice * conversion.rate * 100);
+    const convertedUnitCents = Math.round(unitPrice * conversion.rate * 100);
+    if (Math.round(convertedUnitCents * quantity) === baseCents) return { ...line, unitPrice: centsDraft(convertedUnitCents) };
+    return { ...line, quantity: "1", unitPrice: centsDraft(baseCents), description: `${line.description} (${line.quantity} × ${line.unitPrice} ${item.currencyCode})` };
+  });
+  return { ...item, lines, currencyCode: baseCurrencyCode, exchange: { ...conversion, fromCurrency: item.currencyCode, originalLines: item.lines } };
+}
+
+export function undoCurrencyConversion(item: BatchItem): BatchItem {
+  if (!item.exchange) return item;
+  return { ...item, lines: item.exchange.originalLines, currencyCode: item.exchange.fromCurrency, exchange: undefined };
+}
+
+/** Total leído expresado en la moneda en la que se va a registrar. */
+export function extractedTotalFor(item: BatchItem) {
+  const total = item.draft?.totalAmount;
+  if (total === undefined || !item.exchange) return total;
+  return Math.round(total * item.exchange.rate * 100) / 100;
+}
+
+/** Nota que se guarda con la factura convertida: importe original y cambio aplicado. */
+export function exchangeNote(item: BatchItem) {
+  const exchange = item.exchange;
+  if (!exchange) return undefined;
+  const original = item.draft?.totalAmount;
+  const rate = exchange.rate.toLocaleString("es-ES", { maximumFractionDigits: 6 });
+  const date = exchange.rateDate.split("-").reverse().join("/");
+  const amount = original === undefined ? "" : `Importe original: ${original.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${exchange.fromCurrency}. `;
+  return `${amount}Tipo de cambio ${exchange.source === "BCE" ? `BCE del ${date}` : `indicado a mano (${date})`}: 1 ${exchange.fromCurrency} = ${rate} ${item.currencyCode}.`;
 }

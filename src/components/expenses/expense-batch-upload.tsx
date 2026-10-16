@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { ExpenseBatchItemReview, type GoodsReceiptRelation, type PurchaseOrderRelation } from "./expense-batch-item-review";
 import {
   emptyDuplicate,
+  exchangeNote,
+  extractedTotalFor,
   itemFromInboxJob,
   mergeJobProgress,
   newBatchItem,
@@ -93,7 +95,10 @@ function toReviewItem(item: BatchItem): ReviewItem {
     supplierDocumentNumber: item.supplierDocumentNumber,
     issueDate: item.issueDate,
     currencyCode: item.currencyCode,
-    extractedTotal: item.draft?.totalAmount,
+    extractedTotal: extractedTotalFor(item),
+    // Al convertir de moneda cada línea se redondea por separado.
+    totalTolerance: item.exchange ? Math.max(0.03, item.lines.length * 0.01) : undefined,
+    vatTreatment: item.vatTreatment,
     lines: item.lines,
   };
 }
@@ -364,6 +369,7 @@ export function ExpenseBatchUpload({
           dueDate: item.dueDate ? isoDate(item.dueDate) : undefined,
           currencyCode: item.currencyCode,
           vatTreatment: item.vatTreatment || undefined,
+          notes: exchangeNote(item),
           ocrJobId: item.jobId,
           idempotencyKey: `expense-ocr-job:${item.jobId}`,
           lines: item.lines.map((line) => ({

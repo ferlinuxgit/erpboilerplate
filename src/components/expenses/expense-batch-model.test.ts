@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { reviewDocumentTotal } from "./expense-review";
+import { assessReadiness, reviewDocumentTotal } from "./expense-review";
 
-import { applySupplierToItem, applyTaxSummaryLines, groupItemLines, hydrateItem, itemFromInboxJob, newBatchItem, type BatchSupplier, type OcrDraft } from "./expense-batch-model";
+import { applySupplierToItem, applyTaxSummaryLines, convertItemCurrency, exchangeNote, extractedTotalFor, undoCurrencyConversion, groupItemLines, hydrateItem, itemFromInboxJob, newBatchItem, type BatchSupplier, type OcrDraft } from "./expense-batch-model";
 
 const expenseAccounts = [
   { id: "acc-600", code: "600", name: "Compras de mercaderías" },
@@ -118,5 +118,48 @@ describe("invoices with many lines", () => {
   it("computes the document total with VAT per rate, like the server", () => {
     const lines = Array.from({ length: 30 }, () => ({ quantity: "1", unitPrice: "0,33", taxRate: "21", retentionRate: "0" }));
     expect(reviewDocumentTotal(lines)).toBe(11.98);
+  });
+});
+
+describe("foreign invoices (fal.ai, 50 USD, reverse charge)", () => {
+  const fal = draft({
+    supplierName: "fal - Features & Labels, Inc.",
+    supplierTaxId: undefined,
+    supplierCountryCode: "US",
+    currencyCode: "USD",
+    totalAmount: 50,
+    vatTreatment: "REVERSE_CHARGE",
+    lines: [{ description: "Credits - PURCHASE", quantity: 50, unitPrice: 1, taxRate: 21, taxDeductiblePct: 100, retentionRate: 0, suggestedExpenseAccountCode: "629" }],
+  });
+  const reviewOf = (item: ReturnType<typeof hydrateItem>) => ({
+    ...item,
+    confidence: item.draft?.confidence,
+    warnings: [],
+    duplicateLevel: "none" as const,
+    extractedTotal: extractedTotalFor(item),
+    totalTolerance: 0.03,
+  });
+
+  it("takes the proposed VAT treatment and totals without VAT paid to the supplier", () => {
+    const hydrated = hydrateItem(base(), fal, { level: "none", matches: [] }, context);
+    expect(hydrated.vatTreatment).toBe("REVERSE_CHARGE");
+    expect(reviewDocumentTotal(hydrated.lines, hydrated.vatTreatment)).toBe(50);
+    const readiness = assessReadiness(reviewOf(hydrated), "EUR");
+    expect(readiness.reasons).toContain("currency");
+    expect(readiness.reasons).not.toContain("totals");
+  });
+
+  it("converts to euros with the ECB rate, keeps a note and can be undone", () => {
+    const hydrated = hydrateItem(base(), fal, { level: "none", matches: [] }, context);
+    const converted = convertItemCurrency(hydrated, "EUR", { rate: 0.89087, rateDate: "2026-10-02", source: "BCE" });
+    expect(converted.currencyCode).toBe("EUR");
+    expect(converted.lines[0]).toMatchObject({ quantity: "1", unitPrice: "44,54", description: "Credits - PURCHASE (50 × 1 USD)" });
+    expect(extractedTotalFor(converted)).toBe(44.54);
+    expect(exchangeNote(converted)).toBe("Importe original: 50,00 USD. Tipo de cambio BCE del 02/10/2026: 1 USD = 0,89087 EUR.");
+    const readiness = assessReadiness(reviewOf(converted), "EUR");
+    expect(readiness.reasons).not.toContain("currency");
+    expect(readiness.reasons).not.toContain("totals");
+    expect(readiness.total).toBe(44.54);
+    expect(undoCurrencyConversion(converted)).toMatchObject({ currencyCode: "USD", lines: hydrated.lines, exchange: undefined });
   });
 });

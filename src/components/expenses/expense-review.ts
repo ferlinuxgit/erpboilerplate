@@ -4,6 +4,7 @@
  * Lógica pura para poder probarla sin navegador.
  */
 
+import { isSelfAssessedTreatment, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { parseDecimalInput } from "@/lib/format";
 import type { AccountSource } from "@/lib/supplier-defaults";
 import { centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
@@ -34,6 +35,9 @@ export type ReviewItem = {
   issueDate: string;
   currencyCode: string;
   extractedTotal?: number;
+  /** Diferencia admitida con el total leído (más amplia si los importes se han convertido de moneda). */
+  totalTolerance?: number;
+  vatTreatment?: SupplierVatTreatment | "";
   lines: readonly ReviewLine[];
 };
 
@@ -54,7 +58,7 @@ export const reviewReasonLabels: Record<ReviewReason, string> = {
   supplier: "Falta el proveedor",
   number: "Falta el número de factura",
   date: "Falta la fecha",
-  currency: "Moneda distinta de la de la empresa",
+  currency: "Factura en otra moneda: conviértela a euros",
   lines: "Revisar importes de las líneas",
   totals: "Las líneas no cuadran con el total",
   blocking: "Aviso bloqueante sin revisar",
@@ -87,14 +91,17 @@ export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" 
  * por tipo sobre la suma de bases (con muchas líneas, sumar cuotas redondeadas línea a línea
  * se desvía unos céntimos del total de la factura).
  */
-export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[]) {
+export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[], vatTreatment?: SupplierVatTreatment | "") {
   const parsed = lines.map((line) => ({
     quantity: parseQuantity(line.quantity),
     unitPrice: parseMoney(line.unitPrice),
     taxRate: parsePercent(line.taxRate),
     retentionRate: parsePercent(line.retentionRate),
   })).filter((line) => [line.quantity, line.unitPrice, line.taxRate, line.retentionRate].every(Number.isFinite));
-  return centsToNumber(computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) }))).totalCents);
+  const document = computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })));
+  // Autorepercusión (UE, inversión del sujeto pasivo) o no sujeta: el proveedor no cobra IVA.
+  if (vatTreatment && (isSelfAssessedTreatment(vatTreatment) || vatTreatment === "NOT_SUBJECT")) return centsToNumber(document.subtotalCents - document.retentionCents);
+  return centsToNumber(document.totalCents);
 }
 
 export function isBlockingWarning(warning: string) {
@@ -118,14 +125,14 @@ function lineAmountsValid(line: ReviewLine) {
 
 export function assessReadiness(item: ReviewItem, baseCurrencyCode: string): ItemReadiness {
   const reasons: ReviewReason[] = [];
-  const total = reviewDocumentTotal(item.lines);
+  const total = reviewDocumentTotal(item.lines, item.vatTreatment);
   if (item.lines.length === 0 || item.lines.some((line) => !lineAmountsValid(line))) reasons.push("lines");
   if (item.lines.length === 0 || item.lines.some((line) => !lineAccountIsTrusted(line))) reasons.push("account");
   if (!item.supplierPartnerId && !item.supplierName.trim() && !item.supplierTaxId.trim()) reasons.push("supplier");
   if (!item.supplierDocumentNumber.trim()) reasons.push("number");
   if (!item.issueDate) reasons.push("date");
   if (item.currencyCode !== baseCurrencyCode) reasons.push("currency");
-  if (item.extractedTotal !== undefined && Math.abs(total - item.extractedTotal) > 0.03) reasons.push("totals");
+  if (item.extractedTotal !== undefined && Math.abs(total - item.extractedTotal) > (item.totalTolerance ?? 0.03)) reasons.push("totals");
   if (item.warnings.some(isBlockingWarning) && !item.acknowledgeBlocking) reasons.push("blocking");
   if (item.duplicateLevel !== "none") reasons.push("duplicate");
   // Una lectura de confianza media o baja solo entra en el lote si alguien la ha revisado.
