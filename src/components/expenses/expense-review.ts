@@ -6,6 +6,7 @@
 
 import { parseDecimalInput } from "@/lib/format";
 import type { AccountSource } from "@/lib/supplier-defaults";
+import { centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
 
 export type ReviewLine = {
   description: string;
@@ -81,6 +82,21 @@ export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" 
   return Number.isFinite(total) ? Math.round((total + Number.EPSILON) * 100) / 100 : 0;
 }
 
+/**
+ * Total del documento como lo calcula el servidor al registrarlo: base por línea y IVA/retención
+ * por tipo sobre la suma de bases (con muchas líneas, sumar cuotas redondeadas línea a línea
+ * se desvía unos céntimos del total de la factura).
+ */
+export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[]) {
+  const parsed = lines.map((line) => ({
+    quantity: parseQuantity(line.quantity),
+    unitPrice: parseMoney(line.unitPrice),
+    taxRate: parsePercent(line.taxRate),
+    retentionRate: parsePercent(line.retentionRate),
+  })).filter((line) => [line.quantity, line.unitPrice, line.taxRate, line.retentionRate].every(Number.isFinite));
+  return centsToNumber(computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) }))).totalCents);
+}
+
 export function isBlockingWarning(warning: string) {
   return warning.toLocaleLowerCase("es-ES").startsWith("bloqueo:");
 }
@@ -102,7 +118,7 @@ function lineAmountsValid(line: ReviewLine) {
 
 export function assessReadiness(item: ReviewItem, baseCurrencyCode: string): ItemReadiness {
   const reasons: ReviewReason[] = [];
-  const total = Math.round(item.lines.reduce((sum, line) => sum + reviewLineTotal(line), 0) * 100) / 100;
+  const total = reviewDocumentTotal(item.lines);
   if (item.lines.length === 0 || item.lines.some((line) => !lineAmountsValid(line))) reasons.push("lines");
   if (item.lines.length === 0 || item.lines.some((line) => !lineAccountIsTrusted(line))) reasons.push("account");
   if (!item.supplierPartnerId && !item.supplierName.trim() && !item.supplierTaxId.trim()) reasons.push("supplier");

@@ -5,6 +5,7 @@
  */
 
 import { findAccountForCode, type AccountOption } from "@/lib/account-aliases";
+import { parseDecimalInput } from "@/lib/format";
 import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import type { SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { applySupplierDefaultsToLine, dueDateInputFor, type AccountSource, type SupplierDefaults } from "@/lib/supplier-defaults";
@@ -36,6 +37,8 @@ export type OcrDraft = {
   retentionAmount?: number;
   totalAmount?: number;
   lines: Array<{ description: string; quantity: number; unitPrice: number; taxRate: number; taxDeductiblePct: number; retentionRate: number; suggestedExpenseAccountCode?: string }>;
+  /** Bases por tipo de IVA del pie de la factura (solo si cuadran con el total). */
+  taxSummary?: Array<{ taxRate: number; base: number; taxDeductiblePct: number }>;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -255,4 +258,77 @@ export function mergeJobProgress(
     return hydrateItem({ ...item, provider: item.provider ?? job.extractionProvider }, job.extracted, job.duplicateAssessment, context);
   }
   return { ...item, status: job.status === "PROCESSING" ? "PROCESSING" : "PENDING" };
+}
+
+const lineBaseCents = (line: Pick<DraftLine, "quantity" | "unitPrice">) => {
+  const quantity = parseDecimalInput(line.quantity);
+  const unitPrice = parseDecimalInput(line.unitPrice, { maximumFractionDigits: 2 });
+  return quantity === null || unitPrice === null ? null : Math.round(quantity * unitPrice * 100);
+};
+
+const centsDraft = (cents: number) => decimalDraft((cents / 100).toFixed(2));
+const percentKey = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? raw.trim();
+
+function conceptSummary(descriptions: readonly string[], fallback: string) {
+  const first = descriptions.find((description) => description.trim())?.trim();
+  if (!first) return fallback;
+  return descriptions.length > 1 ? `${first} y ${descriptions.length - 1} concepto${descriptions.length > 2 ? "s" : ""} más` : first;
+}
+
+/**
+ * Agrupa las líneas con la misma cuenta, IVA, % deducible y retención en una sola (base = suma de
+ * bases). Para el registro contable da igual el detalle de cada artículo y el total no cambia.
+ */
+export function groupItemLines(item: BatchItem): BatchItem {
+  const groups = new Map<string, DraftLine[]>();
+  const order: string[] = [];
+  item.lines.forEach((line, index) => {
+    const key = lineBaseCents(line) === null
+      ? `invalid-${index}`
+      : [line.expenseAccountId, percentKey(line.taxRate), percentKey(line.taxDeductiblePct), percentKey(line.retentionRate)].join("|");
+    if (!groups.has(key)) order.push(key);
+    groups.set(key, [...(groups.get(key) ?? []), line]);
+  });
+  const lines = order.map((key) => {
+    const members = groups.get(key) ?? [];
+    if (members.length === 1) return members[0];
+    const baseCents = members.reduce((sum, line) => sum + (lineBaseCents(line) ?? 0), 0);
+    return {
+      ...members[0],
+      description: conceptSummary(members.map((line) => line.description), "Compras según factura"),
+      quantity: "1",
+      unitPrice: centsDraft(baseCents),
+      deductibleEdited: members.some((line) => line.deductibleEdited),
+    };
+  });
+  return { ...item, lines };
+}
+
+/**
+ * Sustituye las líneas por una por tipo de IVA con las bases del pie de la factura (que cuadran con
+ * el total). Mantiene la cuenta y la retención de las líneas leídas.
+ */
+export function applyTaxSummaryLines(item: BatchItem): BatchItem {
+  const summary = item.draft?.taxSummary;
+  if (!summary?.length) return item;
+  const template = item.lines[0];
+  return {
+    ...item,
+    lines: summary.map((entry) => {
+      const sameRate = item.lines.filter((line) => parseDecimalInput(line.taxRate, { maximumFractionDigits: 2 }) === entry.taxRate);
+      const source = sameRate[0] ?? template;
+      return {
+        id: crypto.randomUUID(),
+        description: conceptSummary(sameRate.map((line) => line.description), `Base al ${decimalDraft(entry.taxRate)} %`),
+        expenseAccountId: source?.expenseAccountId ?? "",
+        accountSource: source?.accountSource ?? "none",
+        quantity: "1",
+        unitPrice: centsDraft(Math.round(entry.base * 100)),
+        taxRate: decimalDraft(entry.taxRate),
+        taxDeductiblePct: source?.deductibleEdited ? source.taxDeductiblePct : decimalDraft(entry.taxDeductiblePct),
+        retentionRate: source?.retentionRate ?? "0",
+        deductibleEdited: source?.deductibleEdited ?? false,
+      };
+    }),
+  };
 }

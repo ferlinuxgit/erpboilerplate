@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { applySupplierToItem, hydrateItem, itemFromInboxJob, newBatchItem, type BatchSupplier, type OcrDraft } from "./expense-batch-model";
+import { reviewDocumentTotal } from "./expense-review";
+
+import { applySupplierToItem, applyTaxSummaryLines, groupItemLines, hydrateItem, itemFromInboxJob, newBatchItem, type BatchSupplier, type OcrDraft } from "./expense-batch-model";
 
 const expenseAccounts = [
   { id: "acc-600", code: "600", name: "Compras de mercaderías" },
@@ -83,5 +85,38 @@ describe("itemFromInboxJob", () => {
       duplicateAssessment: { level: "none", matches: [] },
     }, context);
     expect(item).toMatchObject({ localId: "job-1", jobId: "job-1", batchId: "batch-1", status: "PROCESSING", fileUrl: "/api/expenses/ocr/job-1/file" });
+  });
+});
+
+describe("invoices with many lines", () => {
+  const manyLines = draft({
+    totalAmount: 352,
+    lines: [
+      { description: "Pienso", quantity: 2, unitPrice: 50, taxRate: 21, taxDeductiblePct: 100, retentionRate: 0, suggestedExpenseAccountCode: "600" },
+      { description: "Correa", quantity: 1, unitPrice: 100, taxRate: 21, taxDeductiblePct: 100, retentionRate: 0, suggestedExpenseAccountCode: "600" },
+      { description: "Fruta", quantity: 4, unitPrice: 25, taxRate: 10, taxDeductiblePct: 100, retentionRate: 0, suggestedExpenseAccountCode: "600" },
+    ],
+    taxSummary: [{ taxRate: 21, base: 200, taxDeductiblePct: 100 }, { taxRate: 10, base: 100, taxDeductiblePct: 100 }],
+  });
+
+  it("groups lines with the same account and rates without changing the total", () => {
+    const hydrated = hydrateItem(base(), manyLines, { level: "none", matches: [] }, context);
+    const grouped = groupItemLines(hydrated);
+    expect(grouped.lines).toHaveLength(2);
+    expect(grouped.lines[0]).toMatchObject({ description: "Pienso y 1 concepto más", quantity: "1", unitPrice: "200,00", expenseAccountId: "acc-600" });
+    expect(reviewDocumentTotal(grouped.lines)).toBe(reviewDocumentTotal(hydrated.lines));
+    expect(reviewDocumentTotal(grouped.lines)).toBe(352);
+  });
+
+  it("replaces the lines with one per VAT rate from the invoice summary, keeping the account", () => {
+    const hydrated = hydrateItem(base(), { ...manyLines, lines: manyLines.lines.slice(0, 1) }, { level: "none", matches: [] }, context);
+    const summarised = applyTaxSummaryLines(hydrated);
+    expect(summarised.lines.map((line) => [line.unitPrice, line.taxRate, line.expenseAccountId])).toEqual([["200,00", "21", "acc-600"], ["100,00", "10", "acc-600"]]);
+    expect(reviewDocumentTotal(summarised.lines)).toBe(352);
+  });
+
+  it("computes the document total with VAT per rate, like the server", () => {
+    const lines = Array.from({ length: 30 }, () => ({ quantity: "1", unitPrice: "0,33", taxRate: "21", retentionRate: "0" }));
+    expect(reviewDocumentTotal(lines)).toBe(11.98);
   });
 });

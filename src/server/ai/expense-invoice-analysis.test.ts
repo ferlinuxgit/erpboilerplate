@@ -140,6 +140,141 @@ describe("expense invoice AI analysis mapping", () => {
   });
 });
 
+type AnalysisLine = ExpenseInvoiceAiAnalysis["lines"][number];
+
+function line(patch: Partial<AnalysisLine>): AnalysisLine {
+  return {
+    line_number: 1,
+    description: "Concepto",
+    item_code: null,
+    quantity: null,
+    unit_of_measure: null,
+    unit_price: null,
+    discount_pct: null,
+    discount_amount: null,
+    subtotal_amount: null,
+    tax_rate: 21,
+    tax_amount: null,
+    tax_deductible_pct: null,
+    retention_rate: null,
+    retention_amount: null,
+    total_amount: null,
+    suggested_expense_account_code: "600",
+    cost_center: null,
+    project: null,
+    department: null,
+    ...patch,
+  };
+}
+
+const vat21 = (base: number) => ({ tax_type: "VAT" as const, tax_name: "IVA 21%", rate: 21, base_amount: base, tax_amount: Math.round(base * 21) / 100, deductible_pct: 100 });
+
+describe("invoices with several lines", () => {
+  it("joins descriptions split over several rows and never gives a priceless line the invoice subtotal", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 150, discount_amount: 0, tax_amount: 31.5, total_amount: 181.5, taxes: [vat21(150)],
+      lines: [
+        line({ description: "Tornillos inox M6", quantity: 10, unit_price: 5, subtotal_amount: 50 }),
+        line({ description: "cabeza hexagonal (caja 100 uds)", tax_rate: null, suggested_expense_account_code: null }),
+        line({ description: "Arandelas", quantity: 1, unit_price: 100, subtotal_amount: 100 }),
+      ],
+    }));
+    expect(draft.lines).toHaveLength(2);
+    expect(draft.lines[0]).toMatchObject({ description: "Tornillos inox M6 cabeza hexagonal (caja 100 uds)", quantity: 10, unitPrice: 5 });
+    expect(draft.lines[1]).toMatchObject({ description: "Arandelas", unitPrice: 100 });
+    expect(draft.warnings.join(" ")).not.toMatch(/suman/);
+  });
+
+  it("drops subtotal, VAT and carry-forward rows read as lines", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 80, discount_amount: 0, tax_amount: 16.8, total_amount: 96.8, taxes: [vat21(80)],
+      lines: [
+        line({ description: "Papel A4", quantity: 2, unit_price: 20, subtotal_amount: 40 }),
+        line({ description: "Suma y sigue", subtotal_amount: 40 }),
+        line({ description: "Tóner", quantity: 1, unit_price: 40, subtotal_amount: 40 }),
+        line({ description: "Base imponible", subtotal_amount: 80 }),
+        line({ description: "IVA 21%", subtotal_amount: 16.8 }),
+        line({ description: "TOTAL", total_amount: 96.8 }),
+      ],
+    }));
+    expect(draft.lines.map((entry) => entry.description)).toEqual(["Papel A4", "Tóner"]);
+  });
+
+  it("keeps the exact base when quantity × 2-decimal price cannot reproduce it", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 3.52, discount_amount: 0, total_amount: 4.26, taxes: [vat21(3.52)],
+      lines: [line({ description: "Cable", quantity: 1.5, unit_price: 2.345, subtotal_amount: 3.52 })],
+    }));
+    expect(draft.lines[0]).toMatchObject({ quantity: 1, unitPrice: 3.52, description: "Cable (1,5 × 2,345)" });
+  });
+
+  it("subtracts a negative discount row from the line with the same VAT", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 190, discount_amount: 0, total_amount: 229.9, taxes: [vat21(190)],
+      lines: [
+        line({ description: "Portátil", quantity: 1, unit_price: 150, subtotal_amount: 150 }),
+        line({ description: "Ratón", quantity: 2, unit_price: 25, subtotal_amount: 50 }),
+        line({ description: "Descuento promoción", quantity: 1, unit_price: -10, subtotal_amount: -10 }),
+      ],
+    }));
+    expect(draft.lines).toHaveLength(2);
+    expect(draft.lines[0]).toMatchObject({ quantity: 1, unitPrice: 140 });
+    expect(draft.lines[0].description).toMatch(/descuento promoción -10/);
+    expect(draft.lines.every((entry) => entry.unitPrice >= 0)).toBe(true);
+  });
+
+  it("adds shipping and spreads a footer discount when that is what makes the base match", () => {
+    const withShipping = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 108, discount_amount: 0, shipping_amount: 8, total_amount: 130.68, taxes: [vat21(108)],
+      lines: [line({ description: "Pintura", quantity: 2, unit_price: 50, subtotal_amount: 100 })],
+    }));
+    expect(withShipping.lines.at(-1)).toMatchObject({ description: "Portes", unitPrice: 8 });
+
+    const withDiscount = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 270, discount_amount: 30, total_amount: 326.7, taxes: [vat21(270)],
+      lines: [
+        line({ description: "Silla", quantity: 1, unit_price: 200, subtotal_amount: 200 }),
+        line({ description: "Lámpara", quantity: 1, unit_price: 100, subtotal_amount: 100 }),
+      ],
+    }));
+    expect(withDiscount.lines.reduce((sum, entry) => sum + entry.unitPrice * entry.quantity, 0)).toBeCloseTo(270, 2);
+    expect(withDiscount.warnings.join(" ")).not.toMatch(/suman/);
+  });
+
+  it("applies a retention printed only at the foot of the invoice", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 1000, discount_amount: 0, retention_amount: 150, tax_amount: 210, total_amount: 1060, taxes: [vat21(1000)],
+      lines: [
+        line({ description: "Asesoría fiscal", quantity: 1, unit_price: 600, subtotal_amount: 600 }),
+        line({ description: "Asesoría laboral", quantity: 1, unit_price: 400, subtotal_amount: 400 }),
+      ],
+    }));
+    expect(draft.lines.every((entry) => entry.retentionRate === 15)).toBe(true);
+    expect(draft.warnings.join(" ")).not.toMatch(/suman/);
+  });
+
+  it("warns when lines are missing and offers the per-VAT summary that matches the total", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({
+      subtotal_amount: 300, discount_amount: 0, tax_amount: 52, total_amount: 352,
+      taxes: [vat21(200), { tax_type: "VAT", tax_name: "IVA 10%", rate: 10, base_amount: 100, tax_amount: 10, deductible_pct: 100 }],
+      lines: [line({ description: "Página 1", quantity: 1, unit_price: 200, subtotal_amount: 200 })],
+    }));
+    expect(draft.warnings.join(" ")).toMatch(/Las líneas leídas suman 242 y el total de la factura es 352/);
+    expect(draft.confidence).toBe("low");
+    expect(draft.taxSummary).toEqual([
+      { taxRate: 21, base: 200, taxDeductiblePct: 100 },
+      { taxRate: 10, base: 100, taxDeductiblePct: 100 },
+    ]);
+  });
+
+  it("matches the total with per-rate VAT on many lines (no per-line rounding drift)", () => {
+    const lines = Array.from({ length: 30 }, (_, index) => line({ line_number: index + 1, description: `Artículo ${index + 1}`, quantity: 1, unit_price: 0.33, subtotal_amount: 0.33 }));
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ subtotal_amount: 9.9, discount_amount: 0, tax_amount: 2.08, total_amount: 11.98, taxes: [vat21(9.9)], lines }));
+    expect(draft.lines).toHaveLength(30);
+    expect(draft.warnings.join(" ")).not.toMatch(/suman/);
+  });
+});
+
 describe("expense analysis model settings", () => {
   afterEach(() => vitest.unstubAllEnvs());
 

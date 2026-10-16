@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Plus, Trash, WarningCircle } from "@phosphor-icons/react";
+import { Eye, Plus, Stack, Table, Trash, WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,8 @@ import { dueDateInputFor, parseSupplierVatTreatment, SUPPLIER_VAT_TREATMENTS } f
 import { cn } from "@/lib/utils";
 
 import { DocumentPreview, type DocumentSource } from "./document-preview";
-import { applySupplierToItem, emptyDuplicate, type BatchItem, type BatchSupplier, type DraftLine } from "./expense-batch-model";
-import { isBlockingWarning, reviewLineTotal, reviewReasonLabels, type ItemReadiness } from "./expense-review";
+import { applySupplierToItem, applyTaxSummaryLines, emptyDuplicate, groupItemLines, type BatchItem, type BatchSupplier, type DraftLine } from "./expense-batch-model";
+import { isBlockingWarning, reviewDocumentTotal, reviewLineTotal, reviewReasonLabels, type ItemReadiness } from "./expense-review";
 
 export type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
 export type GoodsReceiptRelation = { id: string; number: string; purchaseOrderId: string; supplierPartnerId: string };
@@ -64,7 +64,7 @@ export function ExpenseBatchItemReview({
   const idBase = item.localId;
   const selectedSupplier = suppliers.find((supplier) => supplier.id === item.supplierPartnerId);
   const supplierDefaultAccount = selectedSupplier?.defaults?.defaultExpenseAccountId ?? null;
-  const total = readiness?.total ?? item.lines.reduce((sum, line) => sum + reviewLineTotal(line), 0);
+  const total = readiness?.total ?? reviewDocumentTotal(item.lines);
   const totalsMismatch = readiness?.reasons.includes("totals") ?? false;
   const accountMissing = readiness?.reasons.includes("account") ?? false;
   const currencySymbol = item.currencyCode === "EUR" ? "€" : item.currencyCode;
@@ -128,6 +128,10 @@ export function ExpenseBatchItemReview({
       }],
     }));
   }
+
+  const canGroupLines = item.lines.length > 1 && groupItemLines(item).lines.length < item.lines.length;
+  const taxSummary = item.draft?.taxSummary ?? [];
+  const canUseTaxSummary = taxSummary.length > 0 && (totalsMismatch || item.lines.length > taxSummary.length);
 
   const warnings = item.draft?.warnings ?? [];
   const hasBlocking = warnings.some(isBlockingWarning);
@@ -287,9 +291,21 @@ export function ExpenseBatchItemReview({
               </div>
             );
           })}
-          <Button disabled={disabled} onClick={addLine} size="sm" type="button" variant="outline">
-            <Plus aria-hidden="true" /> Añadir línea
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={disabled} onClick={addLine} size="sm" type="button" variant="outline">
+              <Plus aria-hidden="true" /> Añadir línea
+            </Button>
+            {canGroupLines ? (
+              <Button data-testid={`batch-item-${idBase}-group-lines`} disabled={disabled} onClick={() => onPatch(groupItemLines)} size="sm" title="Une las líneas con la misma cuenta, IVA, deducible y retención. El total no cambia." type="button" variant="outline">
+                <Stack aria-hidden="true" /> Agrupar líneas iguales
+              </Button>
+            ) : null}
+            {canUseTaxSummary ? (
+              <Button data-testid={`batch-item-${idBase}-tax-summary`} disabled={disabled} onClick={() => onPatch(applyTaxSummaryLines)} size="sm" title="Sustituye las líneas por las bases del cuadro de IVA de la factura, que cuadran con el total." type="button" variant={totalsMismatch ? "default" : "outline"}>
+                <Table aria-hidden="true" /> Usar una línea por tipo de IVA
+              </Button>
+            ) : null}
+          </div>
         </fieldset>
 
         {warnings.length > 0 ? (
@@ -309,7 +325,7 @@ export function ExpenseBatchItemReview({
         ) : null}
         {totalsMismatch ? (
           <p className="font-mono text-xs text-destructive">
-            Las líneas suman {formatMoney(total, item.currencyCode)} y el documento indica {formatMoney(item.draft?.totalAmount ?? 0, item.currencyCode)}. Corrige base, IVA o retención.
+            Las líneas suman {formatMoney(total, item.currencyCode)} y el documento indica {formatMoney(item.draft?.totalAmount ?? 0, item.currencyCode)}. {canUseTaxSummary ? "Usa una línea por tipo de IVA o corrige" : "Revisa si falta alguna línea o corrige"} base, IVA o retención.
           </p>
         ) : null}
         {item.duplicate.level !== "none" ? (

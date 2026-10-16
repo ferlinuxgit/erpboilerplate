@@ -2,6 +2,8 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
+import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes, roundHalfAwayFromZero } from "@/server/taxation/engine";
+
 const nullableString = z.string().nullable();
 const nullableNumber = z.number().nullable();
 
@@ -145,6 +147,8 @@ export type ExpenseInvoiceAiDraft = {
     retentionRate: number;
     suggestedExpenseAccountCode?: string;
   }>;
+  /** Bases por tipo de IVA del pie de la factura, solo si cuadran con el total. */
+  taxSummary?: Array<{ taxRate: number; base: number; taxDeductiblePct: number }>;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -191,19 +195,161 @@ function numberOrFallback(value: number | null, fallback: number) {
   return Number.isFinite(value) ? Number(value) : fallback;
 }
 
-function netLineSubtotal(line: ExpenseInvoiceAiAnalysis["lines"][number], fallback: number) {
-  if (Number.isFinite(line.subtotal_amount)) return Number(line.subtotal_amount);
-  const quantity = numberOrFallback(line.quantity, 1);
-  const gross = numberOrFallback(line.unit_price, fallback) * quantity;
-  if (Number.isFinite(line.discount_amount) && line.discount_amount !== null) return Math.max(gross - line.discount_amount, 0);
-  if (Number.isFinite(line.discount_pct) && line.discount_pct !== null) return Math.max(gross * (1 - line.discount_pct / 100), 0);
-  return gross;
+type AnalysisLine = ExpenseInvoiceAiAnalysis["lines"][number];
+type DraftLine = ExpenseInvoiceAiDraft["lines"][number];
+
+const round2 = (value: number) => centsToNumber(roundHalfAwayFromZero(value * 100));
+const formatNumber = (value: number) => value.toLocaleString("es-ES", { maximumFractionDigits: 4 });
+
+/** Filas de resumen que no son conceptos (subtotales, cuotas, "suma y sigue" entre páginas). */
+const SUMMARY_ROW = /^(sub\s*total(es)?|total(es)?|bases? imponibles?|suma y sigue|suma anterior|importe total|cuotas?( de)? (iva|igic)|iva|igic|i\.v\.a\.?|irpf|retenci[oó]n|recargo de equivalencia)(\s|:|$|\d)/i;
+
+const isAmount = (value: number | null): value is number => value !== null && Number.isFinite(value);
+
+function lineHasAmount(line: AnalysisLine) {
+  return isAmount(line.subtotal_amount) || isAmount(line.unit_price) || isAmount(line.total_amount);
 }
 
-function netUnitPrice(line: ExpenseInvoiceAiAnalysis["lines"][number], fallback: number) {
+/** Base neta de la línea (después de descuentos). */
+function netLineBase(line: AnalysisLine, taxRate: number) {
+  if (isAmount(line.subtotal_amount)) return line.subtotal_amount;
+  if (isAmount(line.unit_price)) {
+    const gross = line.unit_price * numberOrFallback(line.quantity, 1);
+    if (isAmount(line.discount_amount)) return gross - line.discount_amount;
+    if (isAmount(line.discount_pct)) return gross * (1 - line.discount_pct / 100);
+    return gross;
+  }
+  // Solo hay importe con IVA: se quita el impuesto de la línea.
+  return Number(line.total_amount) / (1 + taxRate / 100);
+}
+
+/**
+ * Cantidad y precio que reproducen exactamente la base de la línea. El precio se guarda con 2
+ * decimales: si cantidad × precio no da la base (3 × 0,333; 1,5 kg × 2,345 €), la línea pasa a
+ * cantidad 1 con la base completa y la cantidad original queda en el concepto.
+ */
+function exactQuantityAndPrice(line: AnalysisLine, base: number, description: string) {
   const quantity = numberOrFallback(line.quantity, 1);
-  const safeQuantity = quantity > 0 ? quantity : 1;
-  return Math.round((netLineSubtotal(line, fallback) / safeQuantity + Number.EPSILON) * 100) / 100;
+  if (quantity > 0) {
+    const unitPrice = round2(base / quantity);
+    if (amountToCents(unitPrice * quantity) === amountToCents(base)) return { quantity, unitPrice, description };
+  }
+  const detail = isAmount(line.unit_price) ? `${formatNumber(quantity)} × ${formatNumber(line.unit_price)}` : `cantidad ${formatNumber(quantity)}`;
+  return { quantity: 1, unitPrice: round2(base), description: `${description} (${detail})` };
+}
+
+function draftTotalCents(lines: readonly Pick<DraftLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[]) {
+  return computeEngineDocument(lines.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })), { allowNegative: true }).totalCents;
+}
+
+const STANDARD_RETENTION_RATES = [1, 2, 7, 15, 19];
+
+/** % de retención cuando la factura solo trae el importe total retenido (no por línea). */
+function documentRetentionRate(analysis: ExpenseInvoiceAiAnalysis, baseTotal: number) {
+  const withholding = analysis.taxes.find((tax) => tax.tax_type === "withholding" && isAmount(tax.rate));
+  if (withholding?.rate) return withholding.rate;
+  if (!isAmount(analysis.retention_amount) || analysis.retention_amount <= 0 || baseTotal <= 0) return 0;
+  const rate = (analysis.retention_amount / baseTotal) * 100;
+  return STANDARD_RETENTION_RATES.find((candidate) => Math.abs(candidate - rate) < 0.05) ?? 0;
+}
+
+/**
+ * Líneas de una factura con varios conceptos:
+ * - las filas sin importe son la continuación del concepto anterior (descripciones en varias líneas);
+ * - se descartan las filas de resumen (subtotal, IVA, total, "suma y sigue");
+ * - los descuentos o abonos en línea negativa se restan de la línea del mismo IVA;
+ * - portes o descuento global que solo aparecen al pie se reparten si así cuadra la base.
+ */
+function buildDraftLines(analysis: ExpenseInvoiceAiAnalysis, defaults: { taxRate: number; deductiblePct: number }) {
+  const warnings: string[] = [];
+  const rows: Array<{ line: AnalysisLine; description: string }> = [];
+  let pendingDescription = "";
+  for (const line of analysis.lines) {
+    const description = line.description.trim();
+    if (!lineHasAmount(line)) {
+      if (!description) continue;
+      const previous = rows.at(-1);
+      if (previous) previous.description = `${previous.description} ${description}`.trim();
+      else pendingDescription = `${pendingDescription} ${description}`.trim();
+      continue;
+    }
+    if (SUMMARY_ROW.test(description)) continue;
+    rows.push({ line, description: `${pendingDescription} ${description}`.trim() });
+    pendingDescription = "";
+  }
+
+  let lines: DraftLine[] = rows.map(({ line, description }) => {
+    const taxRate = numberOrFallback(line.tax_rate, defaults.taxRate);
+    const base = netLineBase(line, taxRate);
+    const exact = exactQuantityAndPrice(line, base, description || analysis.description || "Gasto analizado por IA");
+    return {
+      ...exact,
+      taxRate,
+      taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, defaults.deductiblePct),
+      retentionRate: numberOrFallback(line.retention_rate, 0),
+      suggestedExpenseAccountCode: line.suggested_expense_account_code ?? analysis.suggested_expense_account_code ?? undefined,
+    };
+  });
+
+  // Descuentos/abonos como línea negativa: se restan de la mayor línea con el mismo IVA y retención.
+  const negatives = lines.filter((line) => line.unitPrice * line.quantity < 0);
+  for (const negative of negatives) {
+    const amount = round2(negative.unitPrice * negative.quantity);
+    const target = lines
+      .filter((line) => line !== negative && line.taxRate === negative.taxRate && line.retentionRate === negative.retentionRate && line.unitPrice * line.quantity + amount >= 0)
+      .sort((a, b) => b.unitPrice * b.quantity - a.unitPrice * a.quantity)[0];
+    if (!target) {
+      warnings.push(`«${negative.description}» es un descuento o abono que no se pudo restar de otra línea: ajústalo a mano.`);
+      continue;
+    }
+    const base = round2(target.unitPrice * target.quantity + amount);
+    const detail = target.quantity === 1 ? "" : `${formatNumber(target.quantity)} × ${formatNumber(target.unitPrice)}, `;
+    Object.assign(target, { quantity: 1, unitPrice: base, description: `${target.description} (${detail}${negative.description.toLocaleLowerCase("es-ES")} ${formatNumber(amount)})` });
+    lines = lines.filter((line) => line !== negative);
+  }
+
+  // Portes o descuento global que solo aparecen al pie de la factura.
+  const baseSum = () => centsToNumber(lines.reduce((sum, line) => sum + amountToCents(line.unitPrice * line.quantity), 0));
+  const subtotal = analysis.subtotal_amount;
+  if (lines.length > 0 && isAmount(subtotal) && amountToCents(baseSum()) !== amountToCents(subtotal)) {
+    const shipping = analysis.shipping_amount ?? 0;
+    const discount = analysis.discount_amount ?? 0;
+    if (shipping > 0 && amountToCents(baseSum() + shipping) === amountToCents(subtotal)) {
+      lines.push({ ...lines[0], description: "Portes", quantity: 1, unitPrice: round2(shipping) });
+    } else if (discount > 0 && amountToCents(baseSum() - discount) === amountToCents(subtotal)) {
+      const gross = baseSum();
+      let remainingCents = amountToCents(discount);
+      const largest = lines.reduce((best, line) => (line.unitPrice * line.quantity > best.unitPrice * best.quantity ? line : best), lines[0]);
+      for (const line of lines) {
+        if (line === largest) continue;
+        const shareCents = roundHalfAwayFromZero((amountToCents(line.unitPrice * line.quantity) * amountToCents(discount)) / amountToCents(gross));
+        remainingCents -= shareCents;
+        Object.assign(line, { quantity: 1, unitPrice: round2(line.unitPrice * line.quantity - centsToNumber(shareCents)) });
+      }
+      Object.assign(largest, { quantity: 1, unitPrice: round2(largest.unitPrice * largest.quantity - centsToNumber(remainingCents)) });
+      warnings.push(`El descuento de ${formatNumber(discount)} del pie de la factura se ha repartido entre las líneas.`);
+    }
+  }
+
+  // Retención indicada solo al pie: se aplica a las líneas si corresponde a un tipo habitual.
+  if (lines.length > 0 && lines.every((line) => line.retentionRate === 0)) {
+    const rate = documentRetentionRate(analysis, baseSum());
+    if (rate > 0) lines = lines.map((line) => ({ ...line, retentionRate: rate }));
+  }
+
+  return { lines, warnings };
+}
+
+/**
+ * Resumen por tipo de IVA (bases del pie de la factura) cuando cuadra con el total: alternativa
+ * fiable si alguna línea no se ha leído bien (facturas largas o de varias páginas).
+ */
+function taxSummaryLines(analysis: ExpenseInvoiceAiAnalysis, retentionRate: number, deductiblePct: number) {
+  const vatTaxes = analysis.taxes.filter((tax) => (tax.tax_type === "VAT" || tax.tax_type === "IGIC" || tax.tax_type === "IPSI") && isAmount(tax.base_amount) && isAmount(tax.rate));
+  if (vatTaxes.length === 0 || !isAmount(analysis.total_amount)) return undefined;
+  const summary = vatTaxes.map((tax) => ({ taxRate: Number(tax.rate), base: round2(Number(tax.base_amount)), taxDeductiblePct: numberOrFallback(tax.deductible_pct, deductiblePct) }));
+  const total = draftTotalCents(summary.map((entry) => ({ quantity: 1, unitPrice: entry.base, taxRate: entry.taxRate, retentionRate })));
+  return Math.abs(total - amountToCents(analysis.total_amount)) <= 2 ? summary : undefined;
 }
 
 export function toExpenseInvoiceAiDraft(
@@ -217,29 +363,30 @@ export function toExpenseInvoiceAiDraft(
   const readTaxId = analysis.supplier_tax_id ?? undefined;
   const taxIdIsOwn = Boolean(readTaxId && ownTaxIds.has(normalizedTaxId(readTaxId)));
   const issueDate = isoDateOrUndefined(analysis.invoice_issue_date);
-  const extraWarnings = [
-    ...(taxIdIsOwn ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
-    ...(issueDate ? [] : ["No se pudo leer la fecha de factura: indícala antes de registrar."]),
-  ];
-  const lines = analysis.lines.length > 0
-    ? analysis.lines.map((line) => ({
-      description: line.description || analysis.description || "Gasto analizado por IA",
-      quantity: numberOrFallback(line.quantity, 1),
-      unitPrice: netUnitPrice(line, fallbackUnitPrice),
-      taxRate: numberOrFallback(line.tax_rate, vatTax?.rate ?? 21),
-      taxDeductiblePct: numberOrFallback(line.tax_deductible_pct, vatTax?.deductible_pct ?? 100),
-      retentionRate: numberOrFallback(line.retention_rate, 0),
-      suggestedExpenseAccountCode: line.suggested_expense_account_code ?? analysis.suggested_expense_account_code ?? undefined,
-    }))
+  const defaults = { taxRate: numberOrFallback(vatTax?.rate ?? null, 21), deductiblePct: numberOrFallback(vatTax?.deductible_pct ?? null, 100) };
+  const built = buildDraftLines(analysis, defaults);
+  const lines: DraftLine[] = built.lines.length > 0
+    ? built.lines
     : [{
       description: analysis.description || analysis.invoice_number || "Gasto analizado por IA",
       quantity: 1,
       unitPrice: fallbackUnitPrice,
-      taxRate: numberOrFallback(vatTax?.rate ?? null, 21),
-      taxDeductiblePct: numberOrFallback(vatTax?.deductible_pct ?? null, 100),
-      retentionRate: 0,
+      taxRate: defaults.taxRate,
+      taxDeductiblePct: defaults.deductiblePct,
+      retentionRate: documentRetentionRate(analysis, fallbackUnitPrice),
       suggestedExpenseAccountCode: analysis.suggested_expense_account_code ?? undefined,
     }];
+  const linesTotalCents = draftTotalCents(lines);
+  const totalsMismatch = isAmount(analysis.total_amount) && Math.abs(linesTotalCents - amountToCents(analysis.total_amount)) > 2;
+  const taxSummary = lines.length > 1 || totalsMismatch ? taxSummaryLines(analysis, lines[0]?.retentionRate ?? 0, defaults.deductiblePct) : undefined;
+  const extraWarnings = [
+    ...(taxIdIsOwn ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
+    ...(issueDate ? [] : ["No se pudo leer la fecha de factura: indícala antes de registrar."]),
+    ...built.warnings,
+    ...(totalsMismatch
+      ? [`Las líneas leídas suman ${formatNumber(centsToNumber(linesTotalCents))} y el total de la factura es ${formatNumber(Number(analysis.total_amount))}: comprueba que no falte ninguna línea${taxSummary ? " o usa el resumen por tipo de IVA" : ""}.`]
+      : []),
+  ];
 
   return {
     supplierName: analysis.supplier_name ?? undefined,
@@ -260,6 +407,7 @@ export function toExpenseInvoiceAiDraft(
     retentionAmount: analysis.retention_amount ?? undefined,
     totalAmount: analysis.total_amount ?? undefined,
     lines,
+    ...(taxSummary ? { taxSummary } : {}),
     confidence: extraWarnings.length > 0 ? "low" : cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis),
     warnings: [...analysis.warnings, ...extraWarnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
   };
@@ -320,7 +468,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
           filePart,
           {
             type: "input_text",
-            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
+            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los portes o descuentos que solo aparecen al pie van en shipping_amount o discount_amount. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
           },
         ],
       },
