@@ -92,6 +92,7 @@ export const expenseInvoiceAiAnalysisSchema = z.object({
   subtotal_amount: nullableNumber,
   discount_amount: nullableNumber,
   shipping_amount: nullableNumber,
+  additional_charges: z.array(z.object({ description: z.string(), amount: z.number(), tax_rate: nullableNumber })),
   tax_amount: nullableNumber,
   retention_amount: nullableNumber,
   surcharge_amount: nullableNumber,
@@ -253,12 +254,28 @@ function documentRetentionRate(analysis: ExpenseInvoiceAiAnalysis, baseTotal: nu
   return STANDARD_RETENTION_RATES.find((candidate) => Math.abs(candidate - rate) < 0.05) ?? 0;
 }
 
+const VAT_TAX_TYPES = new Set(["VAT", "IGIC", "IPSI"]);
+const SHIPPING_CHARGE = /porte|env[ií]o|freight|transporte|shipping/i;
+
+/** Cargos del pie con importe: los leídos uno a uno y, si no están entre ellos, los portes. */
+function footerCharges(analysis: ExpenseInvoiceAiAnalysis) {
+  const charges = analysis.additional_charges
+    .filter((charge) => isAmount(charge.amount) && charge.amount !== 0)
+    .map((charge) => ({ description: charge.description.trim() || "Otros cargos", amount: charge.amount, taxRate: charge.tax_rate }));
+  const shipping = analysis.shipping_amount ?? 0;
+  if (shipping > 0 && !charges.some((charge) => SHIPPING_CHARGE.test(charge.description))) {
+    charges.unshift({ description: "Portes", amount: shipping, taxRate: null });
+  }
+  return charges;
+}
+
 /**
  * Líneas de una factura con varios conceptos:
  * - las filas sin importe son la continuación del concepto anterior (descripciones en varias líneas);
  * - se descartan las filas de resumen (subtotal, IVA, total, "suma y sigue");
  * - los descuentos o abonos en línea negativa se restan de la línea del mismo IVA;
- * - portes o descuento global que solo aparecen al pie se reparten si así cuadra la base.
+ * - portes y otros cargos del pie (manipulación, canon…) se añaden como líneas, y un descuento global
+ *   se reparte, si así cuadra la base imponible.
  */
 function buildDraftLines(analysis: ExpenseInvoiceAiAnalysis, defaults: { taxRate: number; deductiblePct: number }) {
   const warnings: string[] = [];
@@ -308,15 +325,21 @@ function buildDraftLines(analysis: ExpenseInvoiceAiAnalysis, defaults: { taxRate
     lines = lines.filter((line) => line !== negative);
   }
 
-  // Portes o descuento global que solo aparecen al pie de la factura.
+  // Cargos (portes, manipulación, canon…) o descuento global que solo aparecen al pie de la factura.
+  // Se comparan con la base imponible del cuadro de IVA, que es la que lleva al total (el subtotal
+  // leído puede ser el importe bruto de las líneas, antes de esos cargos).
   const baseSum = () => centsToNumber(lines.reduce((sum, line) => sum + amountToCents(line.unitPrice * line.quantity), 0));
-  const subtotal = analysis.subtotal_amount;
-  if (lines.length > 0 && isAmount(subtotal) && amountToCents(baseSum()) !== amountToCents(subtotal)) {
-    const shipping = analysis.shipping_amount ?? 0;
+  const vatBases = analysis.taxes.filter((tax) => VAT_TAX_TYPES.has(tax.tax_type) && isAmount(tax.base_amount));
+  const target = vatBases.length > 0 ? centsToNumber(vatBases.reduce((sum, tax) => sum + amountToCents(Number(tax.base_amount)), 0)) : analysis.subtotal_amount;
+  if (lines.length > 0 && isAmount(target) && amountToCents(baseSum()) !== amountToCents(target)) {
+    const charges = footerCharges(analysis);
+    const chargesCents = charges.reduce((sum, charge) => sum + amountToCents(charge.amount), 0);
     const discount = analysis.discount_amount ?? 0;
-    if (shipping > 0 && amountToCents(baseSum() + shipping) === amountToCents(subtotal)) {
-      lines.push({ ...lines[0], description: "Portes", quantity: 1, unitPrice: round2(shipping) });
-    } else if (discount > 0 && amountToCents(baseSum() - discount) === amountToCents(subtotal)) {
+    if (charges.length > 0 && amountToCents(baseSum()) + chargesCents === amountToCents(target)) {
+      for (const charge of charges) {
+        lines.push({ ...lines[0], description: charge.description, quantity: 1, unitPrice: round2(charge.amount), taxRate: charge.taxRate ?? lines[0].taxRate });
+      }
+    } else if (discount > 0 && amountToCents(baseSum() - discount) === amountToCents(target)) {
       const gross = baseSum();
       let remainingCents = amountToCents(discount);
       const largest = lines.reduce((best, line) => (line.unitPrice * line.quantity > best.unitPrice * best.quantity ? line : best), lines[0]);
@@ -345,7 +368,7 @@ function buildDraftLines(analysis: ExpenseInvoiceAiAnalysis, defaults: { taxRate
  * fiable si alguna línea no se ha leído bien (facturas largas o de varias páginas).
  */
 function taxSummaryLines(analysis: ExpenseInvoiceAiAnalysis, retentionRate: number, deductiblePct: number) {
-  const vatTaxes = analysis.taxes.filter((tax) => (tax.tax_type === "VAT" || tax.tax_type === "IGIC" || tax.tax_type === "IPSI") && isAmount(tax.base_amount) && isAmount(tax.rate));
+  const vatTaxes = analysis.taxes.filter((tax) => VAT_TAX_TYPES.has(tax.tax_type) && isAmount(tax.base_amount) && isAmount(tax.rate));
   if (vatTaxes.length === 0 || !isAmount(analysis.total_amount)) return undefined;
   const summary = vatTaxes.map((tax) => ({ taxRate: Number(tax.rate), base: round2(Number(tax.base_amount)), taxDeductiblePct: numberOrFallback(tax.deductible_pct, deductiblePct) }));
   const total = draftTotalCents(summary.map((entry) => ({ quantity: 1, unitPrice: entry.base, taxRate: entry.taxRate, retentionRate })));
@@ -468,7 +491,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
           filePart,
           {
             type: "input_text",
-            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los portes o descuentos que solo aparecen al pie van en shipping_amount o discount_amount. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
+            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los cargos que solo aparecen al pie (portes, gastos de manipulación, canon, gastos de gestión, recargos) van uno a uno en additional_charges con su importe (los portes también en shipping_amount) y un descuento global del pie en discount_amount. subtotal_amount es la base imponible total (la del cuadro de IVA, incluidos esos cargos y descuentos), no el importe bruto de las líneas. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. En warnings incluye solo problemas que obliguen a revisar la lectura (datos ilegibles, importes que no cuadran, dudas sobre el proveedor), no textos legales ni avisos genéricos del documento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
           },
         ],
       },

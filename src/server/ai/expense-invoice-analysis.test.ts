@@ -44,6 +44,7 @@ function baseAnalysis(patch: Partial<ExpenseInvoiceAiAnalysis> = {}): ExpenseInv
     subtotal_amount: 90,
     discount_amount: 10,
     shipping_amount: 0,
+    additional_charges: [],
     tax_amount: 18.9,
     retention_amount: 0,
     surcharge_amount: 0,
@@ -239,6 +240,37 @@ describe("invoices with several lines", () => {
     }));
     expect(withDiscount.lines.reduce((sum, entry) => sum + entry.unitPrice * entry.quantity, 0)).toBeCloseTo(270, 2);
     expect(withDiscount.warnings.join(" ")).not.toMatch(/suman/);
+  });
+
+  it("adds every footer charge (freight + handling) when the lines are the gross amount (Gor Factory invoice)", () => {
+    const rows: Array<[string, number, number, number]> = [
+      ["CA65540231 CAMISETA BEAGLE T/M NARANJA", 20, 1.7325, 34.65],
+      ["CA666003243 CAMISETA FOX T/L NEGRO VIGORE", 1, 2.7, 2.7],
+      ["CA666003246 CAMISETA FOX T/L TURQUESA VIGORE", 1, 2.7, 2.7],
+      ["CA666003255 CAMISETA FOX T/L DENIM VIGORE", 1, 2.7, 2.7],
+      ["CA666003256 CAMISETA FOX T/L GRANATE VIGORE", 1, 2.7, 2.7],
+      ["CA66600339 CAMISETA FOX T/L MOSTAZA VIGORE", 1, 2.7, 2.7],
+      ["PO66380255 POLO STAR T/M MARINO", 2, 4.8, 9.6],
+      ["PO66380355 POLO STAR T/L MARINO", 16, 4.2, 67.2],
+      ["SL2004S102 SILLA PLEGABLE TROTY NEGRO", 1, 3.99, 3.99],
+      ["SR1961S102 SOMBRERO MUNDAK NEGRO", 1, 0.95, 0.95],
+      ["BO7160S102 BOLSA NIZA NEGRO", 5, 0.31, 1.55],
+      ["BO7601M1529 BOLSA DE ALGODON HILL 37X41 CRUDO", 5, 0.345, 1.73],
+    ];
+    const lines = rows.map(([description, quantity, unitPrice, subtotal]) => line({ description, quantity, unit_price: unitPrice, subtotal_amount: subtotal }));
+    const footer = { discount_amount: 0, tax_amount: 28.97, total_amount: 166.94, taxes: [vat21(137.97)], lines };
+    const charges = [{ description: "Portes", amount: 4.5, tax_rate: null }, { description: "Gastos de manipulación", amount: 0.3, tax_rate: null }];
+
+    // Con los cargos leídos uno a uno, aunque el subtotal leído sea el importe bruto (133,17).
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ ...footer, subtotal_amount: 133.17, shipping_amount: 4.5, additional_charges: charges }));
+    expect(draft.lines.slice(-2).map((entry) => [entry.description, entry.unitPrice])).toEqual([["Portes", 4.5], ["Gastos de manipulación", 0.3]]);
+    expect(draft.lines[0]).toMatchObject({ quantity: 1, unitPrice: 34.65 });
+    expect(draft.warnings.join(" ")).not.toMatch(/suman/);
+
+    // Si solo leyó los portes, no cuadra: avisa y ofrece el resumen por IVA (137,97 al 21 %).
+    const onlyShipping = toExpenseInvoiceAiDraft(baseAnalysis({ ...footer, subtotal_amount: 137.97, shipping_amount: 4.5 }));
+    expect(onlyShipping.warnings.join(" ")).toMatch(/suman/);
+    expect(onlyShipping.taxSummary).toEqual([{ taxRate: 21, base: 137.97, taxDeductiblePct: 100 }]);
   });
 
   it("applies a retention printed only at the foot of the invoice", () => {
