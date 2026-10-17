@@ -172,6 +172,31 @@ function normalizedTaxId(value: string | null | undefined) {
   return normalized.startsWith("ES") && normalized.length > 9 ? normalized.slice(2) : normalized;
 }
 
+/** Identificador tal como se registra: sin separadores ni la etiqueta que a veces se cuela ("VAT IE…"). */
+function cleanTaxId(value: string | null | undefined) {
+  const compact = (value ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+  const unlabeled = compact.replace(/^(?:[A-Z]{2})?(?:VAT(?:NO|NUMBER|ID|REGNO)?|NIFIVA|NIF|CIF|TVA|USTIDNR|USTID|TAXID)(?=[0-9A-Z]{8,}$)/, "");
+  return unlabeled || undefined;
+}
+
+/**
+ * CIF/NIF del proveedor. El modelo a veces deja el NIF-IVA de un proveedor extranjero solo en
+ * supplier_vat_number: se usa como alternativa. Nunca el de la propia empresa ni el del cliente.
+ */
+function supplierTaxIdentity(analysis: ExpenseInvoiceAiAnalysis, ownTaxIds: ReadonlySet<string>) {
+  const read = [analysis.supplier_tax_id, analysis.supplier_vat_number].map(cleanTaxId).filter((value): value is string => Boolean(value));
+  const customer = normalizedTaxId(cleanTaxId(analysis.customer_tax_id));
+  const taxId = read.find((value) => !ownTaxIds.has(normalizedTaxId(value)) && normalizedTaxId(value) !== customer);
+  const prefix = taxId && /^[A-Z]{2}\d/.test(taxId) ? taxId.slice(0, 2) : undefined;
+  const prefixCountry = prefix === "EL" ? "GR" : prefix;
+  return {
+    taxId,
+    readOwnTaxId: !taxId && read.some((value) => ownTaxIds.has(normalizedTaxId(value))),
+    // Sin país leído, el prefijo de un NIF-IVA de la UE lo indica (de él depende el tratamiento de IVA).
+    countryCode: analysis.supplier_country_code?.trim().toUpperCase() || (prefixCountry && EU_COUNTRY_CODES.has(prefixCountry) ? prefixCountry : undefined),
+  };
+}
+
 function confidenceLabel(score: number): "high" | "medium" | "low" {
   if (score >= 0.85) return "high";
   if (score >= 0.6) return "medium";
@@ -262,8 +287,8 @@ function looksLikeGoods(analysis: ExpenseInvoiceAiAnalysis, lines: readonly Draf
  * intracomunitaria; fuera de la UE → inversión del sujeto pasivo (servicios: software, IA, cursos…)
  * o importación (mercancía, cuyo IVA se paga en aduana con el DUA). Ambos se autorepercuten al 21 %.
  */
-function foreignVatTreatment(analysis: ExpenseInvoiceAiAnalysis, lines: readonly DraftLine[]): SupplierVatTreatment | undefined {
-  const country = analysis.supplier_country_code?.trim().toUpperCase();
+function foreignVatTreatment(analysis: ExpenseInvoiceAiAnalysis, lines: readonly DraftLine[], countryCode: string | undefined): SupplierVatTreatment | undefined {
+  const country = countryCode;
   if (!country || country === "ES") return undefined;
   const chargedVat = (analysis.tax_amount ?? 0) > 0 || analysis.taxes.some((tax) => VAT_TAX_TYPES.has(tax.tax_type) && (tax.tax_amount ?? 0) > 0);
   if (chargedVat) return undefined;
@@ -417,8 +442,7 @@ export function toExpenseInvoiceAiDraft(
   // El primer impuesto puede ser la retención: el tipo por defecto de las líneas sale del IVA (o IGIC/IPSI).
   const vatTax = analysis.taxes.find((tax) => tax.tax_type === "VAT" || tax.tax_type === "IGIC" || tax.tax_type === "IPSI");
   const ownTaxIds = new Set((options.ownTaxIds ?? []).map(normalizedTaxId).filter(Boolean));
-  const readTaxId = analysis.supplier_tax_id ?? undefined;
-  const taxIdIsOwn = Boolean(readTaxId && ownTaxIds.has(normalizedTaxId(readTaxId)));
+  const supplier = supplierTaxIdentity(analysis, ownTaxIds);
   const issueDate = isoDateOrUndefined(analysis.invoice_issue_date);
   const defaults = { taxRate: numberOrFallback(vatTax?.rate ?? null, 21), deductiblePct: numberOrFallback(vatTax?.deductible_pct ?? null, 100) };
   const built = buildDraftLines(analysis, defaults);
@@ -433,7 +457,7 @@ export function toExpenseInvoiceAiDraft(
       retentionRate: documentRetentionRate(analysis, fallbackUnitPrice),
       suggestedExpenseAccountCode: analysis.suggested_expense_account_code ?? undefined,
     }];
-  const vatTreatment = foreignVatTreatment(analysis, lines);
+  const vatTreatment = foreignVatTreatment(analysis, lines, supplier.countryCode);
   if (vatTreatment === "IMPORT") lines = lines.map((line) => ({ ...line, taxRate: 0 }));
   // Autorepercusión: el tipo de la línea es el del IVA que se autorepercute (el proveedor factura al 0 %).
   if (vatTreatment && isSelfAssessedTreatment(vatTreatment)) lines = lines.map((line) => ({ ...line, taxRate: line.taxRate > 0 ? line.taxRate : REVERSE_CHARGE_DEFAULT_RATE }));
@@ -441,7 +465,7 @@ export function toExpenseInvoiceAiDraft(
   const totalsMismatch = isAmount(analysis.total_amount) && Math.abs(linesTotalCents - amountToCents(analysis.total_amount)) > 2;
   const taxSummary = lines.length > 1 || totalsMismatch ? taxSummaryLines(analysis, lines[0]?.retentionRate ?? 0, defaults.deductiblePct) : undefined;
   const extraWarnings = [
-    ...(taxIdIsOwn ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
+    ...(supplier.readOwnTaxId ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
     ...(issueDate ? [] : ["No se pudo leer la fecha de factura: indícala antes de registrar."]),
     ...built.warnings,
     ...(vatTreatment && FOREIGN_VAT_WARNINGS[vatTreatment] ? [FOREIGN_VAT_WARNINGS[vatTreatment]] : []),
@@ -452,14 +476,14 @@ export function toExpenseInvoiceAiDraft(
 
   return {
     supplierName: analysis.supplier_name ?? undefined,
-    supplierTaxId: taxIdIsOwn ? undefined : readTaxId,
+    supplierTaxId: supplier.taxId,
     supplierEmail: analysis.supplier_email ?? undefined,
     supplierPhone: analysis.supplier_phone ?? undefined,
     supplierAddress: analysis.supplier_address ?? undefined,
     supplierPostalCode: analysis.supplier_postal_code ?? undefined,
     supplierCity: analysis.supplier_city ?? undefined,
     supplierProvince: analysis.supplier_province ?? undefined,
-    supplierCountryCode: analysis.supplier_country_code ?? undefined,
+    supplierCountryCode: supplier.countryCode,
     supplierDocumentNumber: analysis.invoice_number ?? undefined,
     currencyCode: analysis.currency_code ?? undefined,
     issueDate,
@@ -523,7 +547,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
     input: [
       {
         role: "system",
-        content: "Eres un extractor experto de facturas recibidas españolas para un ERP. Devuelve solo datos presentes o inferencias conservadoras. Usa null cuando un campo no sea fiable. El CIF/NIF del proveedor es más importante que el nombre.",
+        content: "Eres un extractor experto de facturas recibidas por una empresa española (de proveedores españoles o extranjeros) para un ERP. Devuelve solo datos presentes o inferencias conservadoras. Usa null cuando un campo no sea fiable. El CIF/NIF del proveedor es más importante que el nombre.",
       },
       {
         role: "user",
@@ -531,7 +555,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
           filePart,
           {
             type: "input_text",
-            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los cargos que solo aparecen al pie (portes, gastos de manipulación, canon, gastos de gestión, recargos) van uno a uno en additional_charges con su importe (los portes también en shipping_amount) y un descuento global del pie en discount_amount. subtotal_amount es la base imponible total (la del cuadro de IVA, incluidos esos cargos y descuentos), no el importe bruto de las líneas. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. En warnings incluye solo problemas que obliguen a revisar la lectura (datos ilegibles, importes que no cuadran, dudas sobre el proveedor), no textos legales ni avisos genéricos del documento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
+            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Proveedor y cliente: el proveedor (supplier_*) es quien emite la factura y cobra (cabecera, logo, «From», «Seller», «Sold by», «Emisor»); el cliente (customer_*) es el destinatario («Bill to», «Billed to», «Customer», «Cliente», «Facturar a», «Destinatario»). Nunca pongas en supplier_* los datos del bloque del cliente. supplier_tax_id es el identificador fiscal del emisor sea cual sea su etiqueta: CIF, NIF, NIF-IVA, VAT, VAT ID, VAT No., VAT Reg. No., Tax ID, USt-IdNr., TVA, P.IVA/Partita IVA, BTW, NIPC, EIN, ABN, GST… Suele estar en el bloque del emisor o en el pie de página. Si es un NIF-IVA de la UE, mantén el prefijo de país e ignora la etiqueta: «IE VAT IE4276970QH» → IE4276970QH, «USt-IdNr.: DE 123 456 789» → DE123456789, «VAT: FR 12 345678901» → FR12345678901. Pon el NIF-IVA intracomunitario del emisor también en supplier_vat_number; si el emisor solo tiene ese identificador, va en los dos campos. No dejes supplier_tax_id vacío si el documento muestra un identificador del emisor. supplier_country_code es el código ISO 3166-1 alfa-2 del país del emisor (por su dirección o por el prefijo de su NIF-IVA; Grecia es GR aunque su NIF-IVA empiece por EL), nunca el del cliente. customer_tax_id es el NIF del destinatario. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los cargos que solo aparecen al pie (portes, gastos de manipulación, canon, gastos de gestión, recargos) van uno a uno en additional_charges con su importe (los portes también en shipping_amount) y un descuento global del pie en discount_amount. subtotal_amount es la base imponible total (la del cuadro de IVA, incluidos esos cargos y descuentos), no el importe bruto de las líneas. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. En warnings incluye solo problemas que obliguen a revisar la lectura (datos ilegibles, importes que no cuadran, dudas sobre el proveedor), no textos legales ni avisos genéricos del documento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
           },
         ],
       },

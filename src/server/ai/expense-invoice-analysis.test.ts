@@ -332,6 +332,28 @@ describe("foreign suppliers without Spanish VAT", () => {
     expect(goods.warnings.join(" ")).not.toMatch(/suman/);
   });
 
+  it("takes the EU VAT number when the model only filled supplier_vat_number (Anthropic Ireland invoice)", () => {
+    const anthropic = (patch: Partial<ExpenseInvoiceAiAnalysis>) => falInvoice({
+      supplier_name: "Anthropic Ireland, Limited", supplier_tax_id: null, supplier_vat_number: "IE4276970QH", supplier_country_code: "IE",
+      customer_tax_id: "23052472D", currency_code: "EUR", ...patch,
+    });
+    expect(toExpenseInvoiceAiDraft(anthropic({}), { ownTaxIds: ["23052472D"] })).toMatchObject({ supplierTaxId: "IE4276970QH", supplierCountryCode: "IE", vatTreatment: "INTRA_EU" });
+    // Con la etiqueta pegada y sin país leído: se limpia y el prefijo da el país (y el tratamiento).
+    expect(toExpenseInvoiceAiDraft(anthropic({ supplier_vat_number: "IE VAT IE 4276970QH", supplier_country_code: null }), { ownTaxIds: ["23052472D"] }))
+      .toMatchObject({ supplierTaxId: "IE4276970QH", supplierCountryCode: "IE", vatTreatment: "INTRA_EU" });
+    // Grecia: prefijo EL, país GR.
+    expect(toExpenseInvoiceAiDraft(anthropic({ supplier_vat_number: "EL123456789", supplier_country_code: null })).supplierCountryCode).toBe("GR");
+  });
+
+  it("never takes the customer's or the company's own NIF as the supplier's, but falls back to the VAT number", () => {
+    const draft = toExpenseInvoiceAiDraft(falInvoice({ supplier_tax_id: "ES NIF 23052472-D", supplier_vat_number: "IE4276970QH", supplier_country_code: "IE", customer_tax_id: "23052472D" }), { ownTaxIds: ["23052472D"] });
+    expect(draft.supplierTaxId).toBe("IE4276970QH");
+    expect(draft.warnings.join(" ")).not.toMatch(/es el de tu empresa/);
+    const onlyOwn = toExpenseInvoiceAiDraft(falInvoice({ supplier_tax_id: "23052472D", supplier_country_code: "IE" }), { ownTaxIds: ["23052472D"] });
+    expect(onlyOwn.supplierTaxId).toBeUndefined();
+    expect(onlyOwn.warnings.join(" ")).toMatch(/es el de tu empresa/);
+  });
+
   it("leaves the treatment alone when a foreign supplier does charge VAT", () => {
     const draft = toExpenseInvoiceAiDraft(falInvoice({ tax_amount: 10.5, total_amount: 60.5, taxes: [vat21(50)] }));
     expect(draft.vatTreatment).toBeUndefined();
