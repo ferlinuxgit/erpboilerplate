@@ -1885,3 +1885,96 @@ export const crmActivity = pgTable("crm_activity", {
   index("crm_activity_customer_idx").on(table.customerId),
   check("crm_activity_type_valid", sql`${table.type} IN ('CALL', 'EMAIL', 'MEETING', 'TASK', 'NOTE')`),
 ]);
+
+// ---------------------------------------------------------------------------------------------
+// Módulo TPV: cajas, sesiones de caja (apertura → cierre), tickets y movimientos de efectivo.
+// ---------------------------------------------------------------------------------------------
+
+/** Caja (punto de venta): serie de tickets, almacén del que sale el stock y formas de cobro. */
+export const posRegister = pgTable("pos_register", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Serie de facturas de venta para sus tickets (código y prefijo; se crea en cada ejercicio).
+  seriesCode: text("seriesCode").notNull().default("T"),
+  seriesPrefix: text("seriesPrefix").notNull().default("T"),
+  warehouseId: text("warehouseId").references(() => warehouse.id, { onDelete: "set null" }),
+  // Cliente genérico ("Clientes varios") de los tickets sin datos de cliente: factura simplificada (F2).
+  customerId: text("customerId").notNull().references(() => customer.id, { onDelete: "restrict" }),
+  cashPaymentMethodId: text("cashPaymentMethodId").notNull().references(() => paymentMethod.id, { onDelete: "restrict" }),
+  cardPaymentMethodId: text("cardPaymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
+  // Límite de la factura simplificada (400 € en general, 3.000 € en comercio minorista; art. 4 RD 1619/2012).
+  simplifiedLimit: numeric("simplifiedLimit", { precision: 12, scale: 2 }).notNull().default("400"),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("pos_register_company_name_unique").on(table.companyId, table.name)]);
+
+/** Turno de caja: fondo inicial, ventas, entradas/salidas de efectivo y arqueo al cerrar. */
+export const posSession = pgTable("pos_session", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  registerId: text("registerId").notNull().references(() => posRegister.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("OPEN"),
+  openedByUserId: text("openedByUserId").references(() => user.id, { onDelete: "set null" }),
+  openedAt: timestamp("openedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  openingCash: numeric("openingCash", { precision: 12, scale: 2 }).notNull().default("0"),
+  closedByUserId: text("closedByUserId").references(() => user.id, { onDelete: "set null" }),
+  closedAt: timestamp("closedAt", { withTimezone: true, mode: "date" }),
+  // Arqueo: efectivo esperado (fondo + cobros − devoluciones ± movimientos), contado y diferencia.
+  expectedCash: numeric("expectedCash", { precision: 12, scale: 2 }),
+  countedCash: numeric("countedCash", { precision: 12, scale: 2 }),
+  difference: numeric("difference", { precision: 12, scale: 2 }),
+  closingNotes: text("closingNotes"),
+  // Informe de cierre (Z) congelado al cerrar.
+  closingReport: jsonb("closingReport").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // Una sola sesión abierta por caja.
+  uniqueIndex("pos_session_register_open_unique").on(table.registerId).where(sql`${table.status} = 'OPEN'`),
+  index("pos_session_company_opened_idx").on(table.companyId, table.openedAt),
+  check("pos_session_status_valid", sql`${table.status} IN ('OPEN', 'CLOSED')`),
+]);
+
+/** Ticket (venta) o devolución hecho en una sesión: enlaza la factura y cómo se cobró. */
+export const posTicket = pgTable("pos_ticket", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  sessionId: text("sessionId").notNull().references(() => posSession.id, { onDelete: "restrict" }),
+  // SALE (venta) o REFUND (devolución: rectificativa de un ticket).
+  kind: text("kind").notNull().default("SALE"),
+  invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "restrict" }),
+  // Devolución: ticket original.
+  refundOfTicketId: text("refundOfTicketId").references((): AnyPgColumn => posTicket.id, { onDelete: "restrict" }),
+  totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull(),
+  cashAmount: numeric("cashAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  cardAmount: numeric("cardAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  cashReceived: numeric("cashReceived", { precision: 12, scale: 2 }),
+  changeGiven: numeric("changeGiven", { precision: 12, scale: 2 }),
+  // Identificador de la petición del TPV: un doble clic o un reintento de red no cobra dos veces.
+  clientRequestId: text("clientRequestId"),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("pos_ticket_invoice_unique").on(table.invoiceId),
+  unique("pos_ticket_client_request_unique").on(table.companyId, table.clientRequestId),
+  index("pos_ticket_session_idx").on(table.sessionId),
+  uniqueIndex("pos_ticket_refund_once_unique").on(table.refundOfTicketId).where(sql`${table.refundOfTicketId} IS NOT NULL`),
+  check("pos_ticket_kind_valid", sql`${table.kind} IN ('SALE', 'REFUND')`),
+]);
+
+/** Entrada o salida de efectivo del cajón (cambio, retirada al banco…): cuenta en el arqueo. */
+export const posCashMovement = pgTable("pos_cash_movement", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  sessionId: text("sessionId").notNull().references(() => posSession.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  reason: text("reason").notNull(),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("pos_cash_movement_session_idx").on(table.sessionId),
+  check("pos_cash_movement_type_valid", sql`${table.type} IN ('IN', 'OUT')`),
+  check("pos_cash_movement_amount_positive", sql`${table.amount} > 0`),
+]);

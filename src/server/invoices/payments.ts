@@ -16,7 +16,7 @@ import { reconcileBankTransaction } from "@/server/treasury/reconciliation";
 export type PaymentActor = { tenantId: string; companyId: string; actorUserId: string; activeFiscalYearId: string };
 
 /** De dónde nace el cobro (solo para la auditoría y la referencia contable). */
-export type PaymentOrigin = "manual" | "treasury" | "sepa";
+export type PaymentOrigin = "manual" | "treasury" | "sepa" | "pos";
 
 export type RegisterInvoicePaymentInput = {
   invoiceId: string;

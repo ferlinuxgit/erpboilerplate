@@ -134,6 +134,15 @@ export const settingsSections: SettingsSection[] = [
     ],
   },
   {
+    id: "pos",
+    label: "TPV",
+    description: "Cajas del punto de venta: serie de tickets, almacén, tarjeta y límite de la factura simplificada.",
+    module: "pos",
+    items: [
+      { label: "Cajas del TPV", description: "Serie de tickets, almacén, banco de la tarjeta y límite de factura simplificada.", href: "/pos/settings", keywords: "tpv caja punto de venta tickets serie datafono tarjeta factura simplificada", permission: "pos.read", module: "pos", external: true },
+    ],
+  },
+  {
     id: "crm",
     label: "CRM",
     description: "Etapas del embudo de ventas y su probabilidad de cierre.",

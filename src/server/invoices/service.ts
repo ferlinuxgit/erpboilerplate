@@ -136,7 +136,7 @@ export async function ensureCompanyDefaults(actor: InvoiceActor) {
 }
 
 /** Resuelve los impuestos configurados de cada línea (siempre de la empresa). */
-async function resolveLineTaxes(
+export async function resolveLineTaxes(
   client: DbClient,
   companyId: string,
   lines: Array<{ taxIds?: string[] } & Omit<CalculatedLine, "taxes">>,

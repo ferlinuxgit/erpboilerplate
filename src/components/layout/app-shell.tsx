@@ -268,6 +268,8 @@ export function AppShell({ children }: AppShellProps) {
   }, [mobileNavOpen]);
 
   if (isPublicRoute) return <div className="flex-1">{children}</div>;
+  // Ticket del TPV para imprimir (80 mm): sin menú ni cabeceras.
+  if (pathname.startsWith("/pos/tickets/")) return <div className="flex-1 bg-white">{children}</div>;
 
   return (
     <div

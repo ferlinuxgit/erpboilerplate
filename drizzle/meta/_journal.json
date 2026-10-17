@@ -288,6 +288,13 @@
       "when": 1792193316493,
       "tag": "0040_crm",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792195065969,
+      "tag": "0041_pos",
+      "breakpoints": true
     }
   ]
 }
