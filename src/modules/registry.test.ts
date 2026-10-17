@@ -30,6 +30,8 @@ describe("module registry", () => {
     expect(moduleForPath("/carta/bar-pepe")).toBeNull();
     expect(moduleForPath("/pos/menu/qr")?.id).toBe("hospitality");
     expect(moduleForPath("/pos/recipes")?.id).toBe("hospitality");
+    expect(moduleForPath("/jornada")?.id).toBe("timesheets");
+    expect(moduleForPath("/api/timesheets/clock")?.id).toBe("timesheets");
     expect(moduleForPath("/api/pos/menu/items/abc/sold-out")?.id).toBe("hospitality");
     for (const core of ["/invoices", "/expenses", "/expenses/new", "/api/expenses", "/accounting", "/fiscal", "/settings", "/settings/modules", "/modules/crm", "/dashboard", "/customers", "/purchases/payments"]) {
       expect(moduleForPath(core), core).toBeNull();

@@ -14,7 +14,7 @@
 
 import type { BusinessType } from "@/lib/company-readiness";
 
-export const MODULE_IDS = ["sales-documents", "purchase-orders", "inventory", "banking", "invoice-reading", "crm", "pos", "hospitality"] as const;
+export const MODULE_IDS = ["sales-documents", "purchase-orders", "inventory", "banking", "invoice-reading", "crm", "pos", "hospitality", "timesheets"] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 
 export type ModuleCategory = "Ventas" | "Compras y gastos" | "Operaciones" | "Finanzas";
@@ -128,6 +128,17 @@ export const MODULES: readonly ModuleManifest[] = [
     href: "/pos",
     routes: ["/pos/kitchen", "/pos/bookings", "/pos/menu", "/pos/recipes", "/api/pos/hospitality", "/api/pos/bookings", "/api/pos/menu", "/api/pos/recipes"],
     dependsOn: ["pos"],
+    defaultEnabled: () => false,
+    isNew: true,
+  },
+  {
+    id: "timesheets",
+    name: "Registro de jornada",
+    description: "El fichaje obligatorio: cada trabajador registra su entrada, pausas y salida desde el móvil o la tablet del local.",
+    features: ["Fichar desde la app o en una tablet con PIN", "Registros inalterables: correcciones con motivo", "Resumen mensual por trabajador y exportación para el gestor o la Inspección"],
+    category: "Operaciones",
+    href: "/jornada",
+    routes: ["/jornada", "/fichar", "/api/timesheets"],
     defaultEnabled: () => false,
     isNew: true,
   },

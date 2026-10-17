@@ -2122,6 +2122,31 @@ export const posCategoryStation = pgTable("pos_category_station", {
   check("pos_category_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
 ]);
 
+/**
+ * Registro de jornada (art. 34.9 ET): cada fichaje es una marca inalterable. Las correcciones añaden
+ * una marca nueva y anulan la errónea con motivo (la anulada se conserva). Se guarda 4 años.
+ */
+export const timeEntry = pgTable("time_entry", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  userId: text("userId").notNull().references(() => user.id, { onDelete: "restrict" }),
+  // IN | BREAK_START | BREAK_END | OUT
+  kind: text("kind").notNull(),
+  at: timestamp("at", { withTimezone: true, mode: "date" }).notNull(),
+  // APP (desde su sesión) | KIOSK (tablet con PIN) | CORRECTION (añadida por un responsable)
+  source: text("source").notNull().default("APP"),
+  note: text("note"),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  voidedAt: timestamp("voidedAt", { withTimezone: true, mode: "date" }),
+  voidedByUserId: text("voidedByUserId").references(() => user.id, { onDelete: "set null" }),
+  voidReason: text("voidReason"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("time_entry_company_user_at_idx").on(table.companyId, table.userId, table.at),
+  check("time_entry_kind_valid", sql`${table.kind} IN ('IN', 'BREAK_START', 'BREAK_END', 'OUT')`),
+  check("time_entry_source_valid", sql`${table.source} IN ('APP', 'KIOSK', 'CORRECTION')`),
+]);
+
 /** Lista de espera: clientes online de un día completo o grupos esperando en la puerta. */
 export const posWaitlist = pgTable("pos_waitlist", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

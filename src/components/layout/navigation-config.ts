@@ -5,6 +5,7 @@ import {
   CashRegister,
   ChartLineUp,
   ClipboardText,
+  Clock,
   Coins,
   Factory,
   Funnel,
@@ -98,6 +99,7 @@ export const navGroups: NavigationGroup[] = [
     code: "40",
     label: "Administración",
     links: [
+      { href: "/jornada", label: "Registro de jornada", shortLabel: "Jornada", code: "41", icon: Clock, keywords: "fichar fichaje jornada horario entrada salida horas registro trabajadores inspeccion", module: "timesheets" },
       { href: SETTINGS_HOME, label: "Configuración", shortLabel: "Ajustes", code: "40", icon: GearSix, keywords: "ajustes configurar preferencias empresa equipo usuarios seguridad suscripción series impuestos formas de pago maestros api auditoría" },
     ],
   },

@@ -38,7 +38,11 @@ export type PermissionKey =
   // Módulo TPV: ver cierres de caja, vender (abrir/cerrar caja propia) y configurar cajas.
   | "pos.read"
   | "pos.sell"
-  | "pos.manage";
+  | "pos.manage"
+  // Registro de jornada: fichar la propia, ver la del equipo (gestor) y corregirla (responsable).
+  | "timesheet.own"
+  | "timesheet.read"
+  | "timesheet.manage";
 
 const readEverything: PermissionKey[] = [
   "customer.read",
@@ -69,6 +73,7 @@ const dailyOperations: PermissionKey[] = [
   "stock.write",
   "crm.write",
   "pos.sell",
+  "timesheet.own",
 ];
 
 const administration: PermissionKey[] = [
@@ -82,6 +87,8 @@ const administration: PermissionKey[] = [
   "apiKey.write",
   "settings.manage",
   "pos.manage",
+  "timesheet.read",
+  "timesheet.manage",
 ];
 
 const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
@@ -90,8 +97,8 @@ const rolePermissions: Record<AppRole, Set<PermissionKey>> = {
   // Personal administrativo: opera el día a día; contabilidad, impuestos y configuración en lectura.
   MEMBER: new Set<PermissionKey>([...readEverything, ...dailyOperations]),
   // Gestor/asesor: lo ve todo y lleva contabilidad e impuestos; sin equipo, ajustes ni suscripción.
-  ACCOUNTANT: new Set<PermissionKey>([...readEverything, "accounting.write", "fiscal.write"]),
-  VIEWER: new Set<PermissionKey>(readEverything),
+  ACCOUNTANT: new Set<PermissionKey>([...readEverything, "accounting.write", "fiscal.write", "timesheet.read"]),
+  VIEWER: new Set<PermissionKey>([...readEverything, "timesheet.own"]),
 };
 
 export const APP_ROLES = ["OWNER", "ADMIN", "MEMBER", "ACCOUNTANT", "VIEWER"] as const satisfies readonly AppRole[];
