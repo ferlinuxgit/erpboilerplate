@@ -55,6 +55,9 @@ COPY --from=builder --chown=node:node /app/next.config.ts ./next.config.ts
 COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=node:node /app/scripts ./scripts
 RUN chown node:node /app
+# Documentos subidos (sin S3) y caché del OCR. Montar aquí un volumen persistente: si no, cada
+# despliegue los borra. Se crea con el usuario node para que el volumen nazca con permisos de escritura.
+RUN mkdir -p /app/.data && chown node:node /app/.data
 USER node
 RUN npm prune --omit=dev && npm cache clean --force
 
