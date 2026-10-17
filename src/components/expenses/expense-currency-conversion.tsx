@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { AccessibleField, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { formatMoney, parseDecimalInput } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
-import { convertItemCurrency, exchangeNote, undoCurrencyConversion, type BatchItem } from "./expense-batch-model";
+import { convertItemCurrency, exchangeIsStale, exchangeNote, undoCurrencyConversion, type BatchItem } from "./expense-batch-model";
 
 type EcbRate = { rate: number; rateDate: string };
 
@@ -59,12 +60,24 @@ export function ExpenseCurrencyConversion({
   const setRateInput = (value: string) => setTyped({ key: requestKey ?? "", value });
 
   if (!foreign && item.exchange) {
+    const stale = exchangeIsStale(item);
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2 border border-window-shadow bg-muted/40 px-3 py-2 text-xs" data-testid={`batch-item-${item.localId}-exchange`}>
-        <p>{exchangeNote(item)}</p>
-        <Button disabled={disabled} onClick={() => onPatch(undoCurrencyConversion)} size="sm" type="button" variant="ghost">
-          <ArrowsClockwise aria-hidden="true" /> Deshacer conversión
-        </Button>
+      <div className={cn("flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-xs", stale ? "border-warning bg-warning/10" : "border-window-shadow bg-muted/40")} data-testid={`batch-item-${item.localId}-exchange`}>
+        <div className="space-y-1">
+          <p>{item.exchange.automatic ? "Convertida automáticamente. " : ""}{exchangeNote(item)}</p>
+          {stale ? <p className="font-bold">Has cambiado la fecha de la factura: el cambio aplicado es de otro día.</p> : null}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {stale ? (
+            // Deshace y deja que se vuelva a convertir sola con el cambio del BCE de la nueva fecha.
+            <Button disabled={disabled} onClick={() => onPatch((current) => ({ ...undoCurrencyConversion(current), exchangeDeclined: false }))} size="sm" type="button">
+              <CurrencyEur aria-hidden="true" /> Convertir con la nueva fecha
+            </Button>
+          ) : null}
+          <Button disabled={disabled} onClick={() => onPatch(undoCurrencyConversion)} size="sm" type="button" variant="ghost">
+            <ArrowsClockwise aria-hidden="true" /> Deshacer conversión
+          </Button>
+        </div>
       </div>
     );
   }

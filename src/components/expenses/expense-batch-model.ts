@@ -88,6 +88,8 @@ export type BatchItem = {
   vatTreatment: SupplierVatTreatment | "";
   /** Conversión a la moneda de la empresa de una factura en otra moneda. */
   exchange?: ExchangeConversion;
+  /** El usuario deshizo la conversión: no se vuelve a convertir sola. */
+  exchangeDeclined?: boolean;
   lines: DraftLine[];
   duplicate: DuplicateAssessment;
   acknowledgePossible: boolean;
@@ -102,6 +104,10 @@ export type ExchangeConversion = {
   rate: number;
   rateDate: string;
   source: "BCE" | "manual";
+  /** Convertida sola al leerla (cambio del BCE), sin que nadie pulsara "Convertir". */
+  automatic?: boolean;
+  /** Fecha de factura con la que se buscó el cambio: si se corrige, el cambio ya no vale. */
+  issueDate?: string;
   /** Líneas antes de convertir, para poder deshacerlo. */
   originalLines: DraftLine[];
 };
@@ -365,12 +371,28 @@ export function convertItemCurrency(item: BatchItem, baseCurrencyCode: string, c
     if (Math.round(convertedUnitCents * quantity) === baseCents) return { ...line, unitPrice: centsDraft(convertedUnitCents) };
     return { ...line, quantity: "1", unitPrice: centsDraft(baseCents), description: `${line.description} (${line.quantity} × ${line.unitPrice} ${item.currencyCode})` };
   });
-  return { ...item, lines, currencyCode: baseCurrencyCode, exchange: { ...conversion, fromCurrency: item.currencyCode, originalLines: item.lines } };
+  return { ...item, lines, currencyCode: baseCurrencyCode, exchange: { ...conversion, fromCurrency: item.currencyCode, issueDate: item.issueDate, originalLines: item.lines } };
 }
 
 export function undoCurrencyConversion(item: BatchItem): BatchItem {
   if (!item.exchange) return item;
-  return { ...item, lines: item.exchange.originalLines, currencyCode: item.exchange.fromCurrency, exchange: undefined };
+  return { ...item, lines: item.exchange.originalLines, currencyCode: item.exchange.fromCurrency, exchange: undefined, exchangeDeclined: true };
+}
+
+/**
+ * Consulta de cambio del BCE ("USD:EUR:2026-09-24") para convertir sola una factura leída en otra
+ * moneda; null si no toca (ya convertida, deshecha a mano, sin fecha o moneda ilegible).
+ */
+export function autoExchangeKey(item: BatchItem, baseCurrencyCode: string) {
+  if (item.status !== "DONE" || item.exchange || item.exchangeDeclined) return null;
+  if (item.currencyCode === baseCurrencyCode || !/^[A-Z]{3}$/.test(item.currencyCode)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(item.issueDate)) return null;
+  return `${item.currencyCode}:${baseCurrencyCode}:${item.issueDate}`;
+}
+
+/** Se corrigió la fecha de factura después de convertir: el cambio aplicado es de otro día. */
+export function exchangeIsStale(item: BatchItem) {
+  return Boolean(item.exchange?.issueDate) && item.exchange?.issueDate !== item.issueDate;
 }
 
 /** Total leído expresado en la moneda en la que se va a registrar. */

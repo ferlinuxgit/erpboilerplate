@@ -37,6 +37,8 @@ export type ReviewItem = {
   extractedTotal?: number;
   /** Diferencia admitida con el total leído (más amplia si los importes se han convertido de moneda). */
   totalTolerance?: number;
+  /** Convertida de moneda con el cambio de otra fecha (se corrigió la fecha después). */
+  exchangeStale?: boolean;
   vatTreatment?: SupplierVatTreatment | "";
   lines: readonly ReviewLine[];
 };
@@ -47,6 +49,7 @@ export type ReviewReason =
   | "number"
   | "date"
   | "currency"
+  | "exchange"
   | "lines"
   | "totals"
   | "blocking"
@@ -59,6 +62,7 @@ export const reviewReasonLabels: Record<ReviewReason, string> = {
   number: "Falta el número de factura",
   date: "Falta la fecha",
   currency: "Factura en otra moneda: conviértela a euros",
+  exchange: "Cambio de divisa de otra fecha: vuelve a convertir",
   lines: "Revisar importes de las líneas",
   totals: "Las líneas no cuadran con el total",
   blocking: "Aviso bloqueante sin revisar",
@@ -139,6 +143,7 @@ export function assessReadiness(item: ReviewItem, baseCurrencyCode: string): Ite
   if (!item.supplierDocumentNumber.trim()) reasons.push("number");
   if (!item.issueDate) reasons.push("date");
   if (item.currencyCode !== baseCurrencyCode) reasons.push("currency");
+  if (item.exchangeStale) reasons.push("exchange");
   if (item.extractedTotal !== undefined && Math.abs(total - item.extractedTotal) > (item.totalTolerance ?? 0.03)) reasons.push("totals");
   if (item.warnings.some(isBlockingWarning) && !item.acknowledgeBlocking) reasons.push("blocking");
   if (item.duplicateLevel !== "none") reasons.push("duplicate");

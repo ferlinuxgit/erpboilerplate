@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { assessReadiness, reviewDocumentTotal } from "./expense-review";
 
-import { applySupplierToItem, applyTaxSummaryLines, convertItemCurrency, exchangeNote, extractedTotalFor, undoCurrencyConversion, groupItemLines, hydrateItem, itemFromInboxJob, newBatchItem, type BatchSupplier, type OcrDraft } from "./expense-batch-model";
+import { applySupplierToItem, autoExchangeKey, exchangeIsStale, applyTaxSummaryLines, convertItemCurrency, exchangeNote, extractedTotalFor, undoCurrencyConversion, groupItemLines, hydrateItem, itemFromInboxJob, newBatchItem, type BatchSupplier, type OcrDraft } from "./expense-batch-model";
 
 const expenseAccounts = [
   { id: "acc-600", code: "600", name: "Compras de mercaderías" },
@@ -161,5 +161,28 @@ describe("foreign invoices (fal.ai, 50 USD, reverse charge)", () => {
     expect(readiness.reasons).not.toContain("totals");
     expect(readiness.total).toBe(44.54);
     expect(undoCurrencyConversion(converted)).toMatchObject({ currencyCode: "USD", lines: hydrated.lines, exchange: undefined });
+  });
+
+  it("asks for the ECB rate of the invoice date only while it still needs converting", () => {
+    const hydrated = hydrateItem(base(), { ...fal, issueDate: "2026-10-02T12:00:00.000Z" }, { level: "none", matches: [] }, context);
+    expect(autoExchangeKey(hydrated, "EUR")).toBe("USD:EUR:2026-10-02");
+    expect(autoExchangeKey({ ...hydrated, issueDate: "" }, "EUR")).toBeNull();
+    expect(autoExchangeKey({ ...hydrated, status: "PROCESSING" }, "EUR")).toBeNull();
+    expect(autoExchangeKey({ ...hydrated, currencyCode: "EUR" }, "EUR")).toBeNull();
+
+    const converted = convertItemCurrency(hydrated, "EUR", { rate: 0.89087, rateDate: "2026-10-02", source: "BCE", automatic: true });
+    expect(converted.exchange).toMatchObject({ automatic: true, issueDate: "2026-10-02" });
+    expect(autoExchangeKey(converted, "EUR")).toBeNull();
+    // Deshecha a mano: no se vuelve a convertir sola.
+    expect(autoExchangeKey(undoCurrencyConversion(converted), "EUR")).toBeNull();
+  });
+
+  it("flags a conversion made with the rate of another date after the date is corrected", () => {
+    const hydrated = hydrateItem(base(), { ...fal, issueDate: "2026-10-02T12:00:00.000Z" }, { level: "none", matches: [] }, context);
+    const converted = convertItemCurrency(hydrated, "EUR", { rate: 0.89087, rateDate: "2026-10-02", source: "BCE", automatic: true });
+    expect(exchangeIsStale(converted)).toBe(false);
+    const redated = { ...converted, issueDate: "2026-10-05" };
+    expect(exchangeIsStale(redated)).toBe(true);
+    expect(assessReadiness({ ...reviewOf(redated), exchangeStale: true }, "EUR").reasons).toContain("exchange");
   });
 });

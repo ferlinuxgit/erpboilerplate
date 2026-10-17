@@ -17,7 +17,10 @@ import { cn } from "@/lib/utils";
 
 import { ExpenseBatchItemReview, type GoodsReceiptRelation, type PurchaseOrderRelation } from "./expense-batch-item-review";
 import {
+  autoExchangeKey,
+  convertItemCurrency,
   emptyDuplicate,
+  exchangeIsStale,
   exchangeNote,
   extractedTotalFor,
   itemFromInboxJob,
@@ -98,6 +101,7 @@ function toReviewItem(item: BatchItem): ReviewItem {
     extractedTotal: extractedTotalFor(item),
     // Al convertir de moneda cada línea se redondea por separado.
     totalTolerance: item.exchange ? Math.max(0.03, item.lines.length * 0.01) : undefined,
+    exchangeStale: exchangeIsStale(item),
     vatTreatment: item.vatTreatment,
     lines: item.lines,
   };
@@ -168,6 +172,35 @@ export function ExpenseBatchUpload({
     counts.uploading === 0 && counts.posting === 0 && !bulkPosting && counts.processing > 0,
     "Hay documentos analizándose. Seguirán en el servidor y podrás revisarlos luego en «Bandeja pendiente». ¿Salir?",
   );
+
+  // Facturas leídas en otra moneda: se convierten solas con el cambio del BCE del día de la factura
+  // (art. 79.Once LIVA). Una consulta por moneda y fecha; si falla, queda la conversión manual.
+  const exchangeLookups = useRef(new Map<string, Promise<{ rate: number; rateDate: string } | null>>());
+  useEffect(() => {
+    const keys = new Set(items.flatMap((item) => autoExchangeKey(item, baseCurrencyCode) ?? []));
+    for (const key of keys) {
+      let lookup = exchangeLookups.current.get(key);
+      if (!lookup) {
+        const [from, to, date] = key.split(":");
+        lookup = fetch(`/api/exchange-rates?from=${from}&to=${to}&date=${date}`)
+          .then(async (response) => (response.ok ? (await response.json()) as { rate: number; rateDate: string } : null))
+          .catch(() => null);
+        exchangeLookups.current.set(key, lookup);
+      }
+      void lookup.then((ecb) => {
+        if (!ecb || !(ecb.rate > 0)) return;
+        setItems((current) => {
+          let changed = false;
+          const next = current.map((item) => {
+            if (autoExchangeKey(item, baseCurrencyCode) !== key) return item;
+            changed = true;
+            return convertItemCurrency(item, baseCurrencyCode, { rate: ecb.rate, rateDate: ecb.rateDate, source: "BCE", automatic: true });
+          });
+          return changed ? next : current;
+        });
+      });
+    }
+  }, [baseCurrencyCode, items]);
 
   function patchItem(localId: string, patch: Partial<BatchItem> | ((item: BatchItem) => BatchItem)) {
     setItems((current) => current.map((item) => (item.localId !== localId ? item : typeof patch === "function" ? patch(item) : { ...item, ...patch })));
@@ -669,6 +702,11 @@ export function ExpenseBatchUpload({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
+                    {item.exchange ? (
+                      <span data-testid={`batch-item-${item.localId}-converted`} title={exchangeNote(item)}>
+                        <StatusBadge tone={exchangeIsStale(item) ? "warning" : "info"}>{item.exchange.fromCurrency} → {item.currencyCode}</StatusBadge>
+                      </span>
+                    ) : null}
                     {readiness?.ready ? <StatusBadge tone="success">Listo</StatusBadge> : null}
                     {readiness && !readiness.ready ? readiness.reasons.slice(0, 3).map((reason) => (
                       <StatusBadge key={reason} tone={reason === "account" || reason === "duplicate" || reason === "totals" ? "warning" : "neutral"}>{reviewReasonLabels[reason]}</StatusBadge>
