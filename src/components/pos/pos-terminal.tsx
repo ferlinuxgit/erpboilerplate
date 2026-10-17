@@ -31,7 +31,8 @@ const priceText = (value: number) => value.toFixed(2).replace(".", ",");
  * Pantalla de venta: catálogo con buscador (también lector de códigos: escribe la referencia y pulsa
  * Intro), carrito con precios IVA incluido y cobro. F2 busca, F9 cobra.
  */
-export function PosTerminal({ canManage, catalog, currencyCode, register, session, tickets }: {
+export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, register, session, tickets }: {
+  bankAccounts: Array<{ id: string; name: string }>;
   canManage: boolean;
   catalog: PosCatalogItem[];
   currencyCode: string;
@@ -361,7 +362,7 @@ export function PosTerminal({ canManage, catalog, currencyCode, register, sessio
         total={totals.total}
       />
       <TicketsDialog currencyCode={currencyCode} onClose={() => setTicketsOpen(false)} open={ticketsOpen} registerId={register.id} tickets={tickets} />
-      <CashMovementDialog onClose={() => setCashOpen(false)} open={cashOpen} sessionId={session.id} />
+      <CashMovementDialog bankAccounts={bankAccounts} onClose={() => setCashOpen(false)} open={cashOpen} sessionId={session.id} />
     </div>
   );
 }

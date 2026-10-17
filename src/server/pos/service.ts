@@ -26,9 +26,12 @@ import { db, type DbClient } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { HttpError } from "@/lib/http";
 import { cartTotals, exceedsSimplifiedLimit, expectedCash, remainingQuantities, splitRefund, validatePayment, type RefundMethod } from "@/modules/pos/model";
+import { createAutomaticEntry, resolveBankLedgerAccountId } from "@/server/accounting/auto-post";
+import { CASH_ACCOUNT_CODE, ensureSubaccount } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
 import { defaultSeriesFormat } from "@/lib/document-series-format";
 import { findFiscalYearForDate } from "@/server/documents/series";
+import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
 import { refreshStockLocation } from "@/server/inventory/stock-location";
 import { resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods";
@@ -265,14 +268,65 @@ async function loadOpenSessionById(client: DbClient, companyId: string, sessionI
   return row;
 }
 
-export async function addCashMovement(actor: PosActor, sessionId: string, input: { type: "IN" | "OUT"; amount: number; reason: string }) {
+/** Asiento de caja (570) contra otra cuenta: traspasos con el banco y diferencias del arqueo. */
+async function postCashEntry(
+  client: DbClient,
+  actor: PosActor,
+  input: { amount: number; cashSide: "debit" | "credit"; counterpartAccountId: string; reference: string; sourceType: string; sourceId: string; action: string },
+) {
+  const cashAccount = await ensureSubaccount(actor.companyId, CASH_ACCOUNT_CODE, client);
+  const amount = money(input.amount);
+  await createAutomaticEntry({
+    tenantId: actor.tenantId,
+    companyId: actor.companyId,
+    actorUserId: actor.actorUserId,
+    postedAt: new Date(),
+    reference: input.reference.slice(0, 200),
+    dbClient: client,
+    action: input.action,
+    entityName: input.sourceType,
+    entityId: input.sourceId,
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    lines: input.cashSide === "debit"
+      ? [{ accountId: cashAccount.id, debit: amount, credit: 0 }, { accountId: input.counterpartAccountId, debit: 0, credit: amount }]
+      : [{ accountId: input.counterpartAccountId, debit: amount, credit: 0 }, { accountId: cashAccount.id, debit: 0, credit: amount }],
+  });
+}
+
+/**
+ * Entrada o salida de efectivo del cajón. Con banco es un traspaso y se contabiliza: ingreso del
+ * efectivo en el banco (572 a 570) o cambio retirado del banco (570 a 572). Sin banco solo cuenta en el
+ * arqueo (los gastos pagados en efectivo se registran en Gastos).
+ */
+export async function addCashMovement(actor: PosActor, sessionId: string, input: { type: "IN" | "OUT"; amount: number; reason: string; bankAccountId?: string | null }) {
   if (!(input.amount > 0)) throw new HttpError(400, "El importe debe ser mayor que 0.");
   return db.transaction(async (tx) => {
     await loadOpenSessionById(tx, actor.companyId, sessionId);
+    let bankLedgerId: string | null = null;
+    if (input.bankAccountId) {
+      const [bank] = await tx.select({ id: bankAccount.id }).from(bankAccount).where(and(eq(bankAccount.id, input.bankAccountId), eq(bankAccount.companyId, actor.companyId))).limit(1);
+      if (!bank) throw new HttpError(404, "Cuenta bancaria no encontrada.");
+      bankLedgerId = await resolveBankLedgerAccountId(tx, actor.companyId, { bankAccountId: bank.id });
+      if (!bankLedgerId) throw new HttpError(422, "La cuenta bancaria no tiene cuenta contable (572…): asígnasela en Tesorería → Cuentas bancarias.");
+      await assertFiscalPeriodOpen(actor.companyId, new Date(), tx);
+    }
     const [created] = await tx
       .insert(posCashMovement)
-      .values({ companyId: actor.companyId, sessionId, type: input.type, amount: money(input.amount), reason: input.reason.trim(), createdByUserId: actor.actorUserId })
+      .values({ companyId: actor.companyId, sessionId, type: input.type, amount: money(input.amount), reason: input.reason.trim(), bankAccountId: input.bankAccountId || null, createdByUserId: actor.actorUserId })
       .returning({ id: posCashMovement.id });
+    if (bankLedgerId) {
+      await postCashEntry(tx, actor, {
+        amount: input.amount,
+        // Salida al banco: el efectivo sale de caja (haber 570). Entrada del banco: entra en caja (debe 570).
+        cashSide: input.type === "IN" ? "debit" : "credit",
+        counterpartAccountId: bankLedgerId,
+        reference: `TPV: ${input.type === "IN" ? "cambio retirado del banco" : "ingreso de caja en el banco"} · ${input.reason.trim()}`,
+        sourceType: "pos_cash_movement",
+        sourceId: created.id,
+        action: "accounting.autopost.posCashMovement",
+      });
+    }
     await recordAudit({
       tenantId: actor.tenantId,
       companyId: actor.companyId,
@@ -280,7 +334,7 @@ export async function addCashMovement(actor: PosActor, sessionId: string, input:
       action: input.type === "IN" ? "pos_cash.in" : "pos_cash.out",
       entityName: "pos_cash_movement",
       entityId: created.id,
-      payload: { sessionId, amount: input.amount, reason: input.reason },
+      payload: { sessionId, amount: input.amount, reason: input.reason, bankAccountId: input.bankAccountId ?? null },
     }, tx);
     return created;
   });
@@ -368,12 +422,27 @@ export async function computeSessionSummary(companyId: string, sessionId: string
 }
 
 /** Cierra la caja con el efectivo contado: arqueo (diferencia) e informe Z congelado. */
-export async function closeSession(actor: PosActor, sessionId: string, input: { countedCash: number; notes?: string | null }) {
+export async function closeSession(actor: PosActor, sessionId: string, input: { countedCash: number; notes?: string | null; postDifference?: boolean }) {
   return db.transaction(async (tx) => {
     const session = await loadOpenSessionById(tx, actor.companyId, sessionId);
     const summary = await computeSessionSummary(actor.companyId, sessionId, tx);
     const difference = centsToNumber(amountToCents(input.countedCash) - amountToCents(summary.expectedCash));
     const closedAt = new Date();
+    // Descuadre contabilizado: falta efectivo → 678 (gastos excepcionales); sobra → 778 (ingresos excepcionales).
+    const postDifference = input.postDifference !== false && amountToCents(difference) !== 0;
+    if (postDifference) {
+      await assertFiscalPeriodOpen(actor.companyId, closedAt, tx);
+      const counterpart = await ensureSubaccount(actor.companyId, difference < 0 ? "678" : "778", tx);
+      await postCashEntry(tx, actor, {
+        amount: Math.abs(difference),
+        cashSide: difference > 0 ? "debit" : "credit",
+        counterpartAccountId: counterpart.id,
+        reference: `TPV: diferencia de caja (${difference < 0 ? "faltante" : "sobrante"}) al cerrar`,
+        sourceType: "pos_session",
+        sourceId: sessionId,
+        action: "accounting.autopost.posCashDifference",
+      });
+    }
     await tx
       .update(posSession)
       .set({
@@ -384,7 +453,7 @@ export async function closeSession(actor: PosActor, sessionId: string, input: { 
         countedCash: money(input.countedCash),
         difference: money(difference),
         closingNotes: input.notes?.trim() || null,
-        closingReport: { ...summary, countedCash: input.countedCash, difference, closedAt: closedAt.toISOString() },
+        closingReport: { ...summary, countedCash: input.countedCash, difference, differencePosted: postDifference, closedAt: closedAt.toISOString() },
       })
       .where(eq(posSession.id, sessionId));
     await recordAudit({
@@ -394,7 +463,7 @@ export async function closeSession(actor: PosActor, sessionId: string, input: { 
       action: "pos_session.close",
       entityName: "pos_session",
       entityId: sessionId,
-      payload: { registerId: session.registerId, expectedCash: summary.expectedCash, countedCash: input.countedCash, difference, netTotal: summary.netTotal },
+      payload: { registerId: session.registerId, expectedCash: summary.expectedCash, countedCash: input.countedCash, difference, differencePosted: postDifference, netTotal: summary.netTotal },
     }, tx);
     return { id: sessionId, summary, countedCash: input.countedCash, difference };
   });

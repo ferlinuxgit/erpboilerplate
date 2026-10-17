@@ -32,11 +32,12 @@ export default async function PosSessionPage({ params }: { params: Promise<{ id:
       <PageSection title="Resumen">
         <SessionReport countedCash={session.countedCash === null ? null : Number(session.countedCash)} currencyCode={currency} difference={session.difference === null ? null : Number(session.difference)} summary={summary} />
         {session.closingNotes ? <p className="mt-2 text-sm"><strong>Notas:</strong> {session.closingNotes}</p> : null}
+        {(session.closingReport as { differencePosted?: boolean } | null)?.differencePosted ? <p className="mt-1 text-xs text-muted-foreground">La diferencia se contabilizó (678/778 contra caja 570).</p> : null}
       </PageSection>
       {movements.length > 0 ? (
         <PageSection title="Entradas y salidas de efectivo">
           <ul className="divide-y divide-window-shadow border border-window-shadow text-sm">
-            {movements.map((movement) => <li className="flex justify-between p-2" key={movement.id}><span>{movement.type === "IN" ? "Entrada" : "Salida"} · {movement.reason}</span><span className="font-mono">{movement.type === "OUT" ? "−" : ""}{formatMoney(movement.amount, currency)}</span></li>)}
+            {movements.map((movement) => <li className="flex justify-between p-2" key={movement.id}><span>{movement.type === "IN" ? "Entrada" : "Salida"} · {movement.reason}{movement.bankAccountId ? <span className="text-xs text-muted-foreground"> · traspaso con banco (contabilizado)</span> : null}</span><span className="font-mono">{movement.type === "OUT" ? "−" : ""}{formatMoney(movement.amount, currency)}</span></li>)}
           </ul>
         </PageSection>
       ) : null}

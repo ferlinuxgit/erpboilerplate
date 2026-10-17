@@ -1,0 +1,2 @@
+ALTER TABLE "pos_cash_movement" ADD COLUMN "bankAccountId" text;--> statement-breakpoint
+ALTER TABLE "pos_cash_movement" ADD CONSTRAINT "pos_cash_movement_bankAccountId_bank_account_id_fk" FOREIGN KEY ("bankAccountId") REFERENCES "public"."bank_account"("id") ON DELETE set null ON UPDATE no action;

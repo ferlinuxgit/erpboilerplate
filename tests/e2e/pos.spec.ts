@@ -117,18 +117,36 @@ test("TPV: venta con cambio, ticket simplificado, devoluciones parciales, tarjet
   await expect(invoicePrint.getByTestId("pos-ticket-print")).not.toContainText("SIMPLIFICADA");
   await invoicePrint.close();
 
-  // Cierre: fondo 50 + 4,50 − 2,00 − 2,50 = 50 € en efectivo (las tarjetas no cuentan); se cuentan 50 → cuadra.
+  // Ingreso de 20 € del cajón en el banco: traspaso contabilizado (572 a 570).
+  await page.getByRole("button", { name: "Entrada/salida de efectivo" }).click();
+  const movement = page.getByRole("dialog", { name: "Entrada o salida de efectivo" });
+  await movement.getByLabel("¿Va al banco?").selectOption({ label: "Banco datáfono" });
+  await movement.getByLabel("Importe").fill("20");
+  await movement.getByLabel("Motivo").fill("Ingreso diario");
+  await movement.getByRole("button", { name: "Guardar" }).click();
+  await expect(page.getByText("Salida de efectivo anotada y contabilizada.")).toBeVisible();
+
+  // Cierre: fondo 50 + 4,50 − 2,00 − 2,50 − 20 = 30 € en efectivo (las tarjetas no cuentan).
+  // Se cuentan 29 €: falta 1 €, que se contabiliza (678 a 570).
   await page.getByTestId("pos-close-link").click();
-  await expect(page.getByTestId("pos-expected-cash")).toContainText("50,00");
+  await expect(page.getByTestId("pos-expected-cash")).toContainText("30,00");
   await page.waitForLoadState("networkidle");
-  await page.getByLabel("Efectivo contado").fill("50");
-  await expect(page.getByTestId("pos-close-difference")).toContainText("Cuadra");
+  await page.getByLabel("Efectivo contado").fill("29");
+  await expect(page.getByTestId("pos-close-difference")).toContainText("Faltan 1,00");
+  await expect(page.getByLabel(/Contabilizar la diferencia de caja/)).toBeChecked();
+  page.once("dialog", (confirmDialog) => void confirmDialog.accept());
   await page.getByTestId("pos-close-submit").click();
   await expect(page).toHaveURL(/\/pos\/sessions\/[^/]+$/);
   await expect(page.getByRole("heading", { name: /Informe Z/ })).toBeVisible();
   // Ventas netas: 4,50 − 4,50 + 2,00 (tarjeta) + 605,00 (factura) = 607,00.
   await expect(page.getByTestId("pos-net-total")).toContainText("607,00");
-  await expect(page.getByTestId("pos-difference")).toContainText("0,00");
+  await expect(page.getByTestId("pos-difference")).toContainText("-1,00");
+  await expect(page.getByText("La diferencia se contabilizó")).toBeVisible();
+
+  // Los dos asientos de caja están en el diario.
+  await page.goto("/accounting/entries?q=TPV");
+  await expect(page.getByText(/ingreso de caja en el banco/).first()).toBeVisible();
+  await expect(page.getByText(/diferencia de caja \(faltante\)/).first()).toBeVisible();
 
   // Las dos facturas (ticket y rectificativa) están en Facturas.
   await page.goto("/invoices");

@@ -302,6 +302,13 @@
       "when": 1792215631558,
       "tag": "0042_pos_partial_refunds",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792217364334,
+      "tag": "0043_pos_cash_accounting",
+      "breakpoints": true
     }
   ]
 }

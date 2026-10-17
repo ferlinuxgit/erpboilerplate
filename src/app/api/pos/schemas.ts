@@ -38,9 +38,15 @@ export const refundSchema = z.object({
   lines: z.array(z.object({ lineId: z.string().trim().min(1), quantity: z.number().positive() })).max(300).optional(),
 });
 
-export const movementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.number().positive().max(999_999_999), reason: z.string().trim().min(2, "Indica el motivo.").max(200) });
+export const movementSchema = z.object({
+  type: z.enum(["IN", "OUT"]),
+  amount: z.number().positive().max(999_999_999),
+  reason: z.string().trim().min(2, "Indica el motivo.").max(200),
+  // Traspaso con este banco (se contabiliza); sin él, solo cuenta en el arqueo.
+  bankAccountId: z.string().trim().nullable().optional(),
+});
 
-export const closeSchema = z.object({ countedCash: amount, notes: z.string().trim().max(1000).nullable().optional() });
+export const closeSchema = z.object({ countedCash: amount, notes: z.string().trim().max(1000).nullable().optional(), postDifference: z.boolean().optional() });
 
 export function firstIssue(error: z.ZodError) {
   return error.issues[0]?.message ?? "Datos inválidos.";

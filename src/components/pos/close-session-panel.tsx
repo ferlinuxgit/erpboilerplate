@@ -18,6 +18,7 @@ export function CloseSessionPanel({ currencyCode, expectedCash, sessionId }: { c
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [manual, setManual] = useState("");
   const [notes, setNotes] = useState("");
+  const [postDifference, setPostDifference] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const fromCounts = useMemo(() => countDenominations(Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, Number.parseInt(value, 10) || 0]))), [counts]);
@@ -37,7 +38,7 @@ export function CloseSessionPanel({ currencyCode, expectedCash, sessionId }: { c
       const response = await fetch(`/api/pos/sessions/${sessionId}/close`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ countedCash: counted, notes: notes || null }),
+        body: JSON.stringify({ countedCash: counted, notes: notes || null, postDifference }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo cerrar la caja."));
       toast.success("Caja cerrada.");
@@ -74,6 +75,12 @@ export function CloseSessionPanel({ currencyCode, expectedCash, sessionId }: { c
           {difference === null ? "—" : difference === 0 ? "Cuadra" : `${difference > 0 ? "Sobran" : "Faltan"} ${formatMoney(Math.abs(difference), currencyCode)}`}
         </span>
       </div>
+      {difference !== null && difference !== 0 ? (
+        <label className="flex items-start gap-2 text-sm" htmlFor="pos-post-difference">
+          <input checked={postDifference} className="mt-0.5" id="pos-post-difference" onChange={(event) => setPostDifference(event.target.checked)} type="checkbox" />
+          <span>Contabilizar la diferencia de caja <span className="text-xs text-muted-foreground">({difference < 0 ? "faltante: 678 a 570" : "sobrante: 570 a 778"}). Desmárcalo si vas a buscar el error.</span></span>
+        </label>
+      ) : null}
       <AccessibleField id="pos-close-notes" label="Notas del cierre (opcional)"><Textarea onChange={(event) => setNotes(event.target.value)} rows={2} value={notes} /></AccessibleField>
       {error ? <FormErrorMessage>{error}</FormErrorMessage> : null}
       <Button className="w-full" data-testid="pos-close-submit" disabled={pending} size="lg" type="button" onClick={() => void close()}>{pending ? "Cerrando…" : "Cerrar caja"}</Button>

@@ -7,7 +7,7 @@ import { PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { isModuleEnabled } from "@/server/modules/service";
-import { getOpenSession, listPosCatalog, listRegisters, listSessionTickets } from "@/server/pos/service";
+import { getOpenSession, listBankAccountOptions, listPosCatalog, listRegisters, listSessionTickets } from "@/server/pos/service";
 
 export const metadata: Metadata = { title: "TPV · Vender" };
 
@@ -21,13 +21,15 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
     return <PageShell><OpenRegisterPanel registerId={register.id} registerName={register.name} /></PageShell>;
   }
   const inventoryEnabled = await isModuleEnabled(ctx.company.id, "inventory");
-  const [catalog, tickets] = await Promise.all([
+  const [catalog, tickets, bankAccounts] = await Promise.all([
     listPosCatalog(ctx.company.id, register.warehouseId, inventoryEnabled),
     listSessionTickets(ctx.company.id, session.id),
+    listBankAccountOptions(ctx.company.id),
   ]);
   return (
     <PageShell className="max-w-none">
       <PosTerminal
+        bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name }))}
         canManage={can(ctx.membership.role, "pos.manage")}
         catalog={catalog}
         currencyCode={ctx.company.baseCurrencyCode}

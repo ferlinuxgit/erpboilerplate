@@ -1973,6 +1973,9 @@ export const posCashMovement = pgTable("pos_cash_movement", {
   type: text("type").notNull(),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   reason: text("reason").notNull(),
+  // Traspaso con un banco (ingreso del efectivo o cambio retirado): se contabiliza 570 ↔ 572.
+  // null = solo cuenta en el arqueo (sin asiento).
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
   createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
