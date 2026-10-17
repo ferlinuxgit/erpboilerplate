@@ -34,6 +34,21 @@ describe("hospitality bill", () => {
     expect(billPartLines(after, { mode: "lines", lines: [{ lineId: "cana", quantity: 2 }] }, null, "Mesa 4")).toMatchObject({ error: expect.stringMatching(/solo quedan 1/) });
   });
 
+  it("charges a set menu together with its dishes (at 0 €) so the bill can close", () => {
+    const sopa = line({ id: "sopa", description: "Sopa", quantity: 2, unitPrice: 0, parentLineId: "menu", station: "KITCHEN" });
+    const pollo = line({ id: "pollo", description: "Pollo", quantity: 2, unitPrice: 0, parentLineId: "menu", station: "KITCHEN" });
+    const all = [menu, sopa, pollo];
+    const half = billPartLines(all, { mode: "lines", lines: [{ lineId: "menu", quantity: 1 }] }, null, "Mesa 4");
+    if ("error" in half) throw new Error(half.error);
+    expect(half.cart.map((entry) => [entry.description, entry.quantity])).toEqual([["Menú del día", 1], ["Sopa", 1], ["Pollo", 1]]);
+    expect(half.closes).toBe(false);
+    const after = all.map((entry) => ({ ...entry, paidQuantity: half.paidQuantities.get(entry.id) ?? entry.paidQuantity }));
+    const rest = billPartLines(after, { mode: "lines", lines: [{ lineId: "menu", quantity: 1 }] }, null, "Mesa 4");
+    if ("error" in rest) throw new Error(rest.error);
+    expect(rest.closes).toBe(true);
+    expect(cartTotals(rest.cart).total).toBe(14.3);
+  });
+
   it("splits into equal parts per VAT rate; the last part takes the leftover cents and closes the bill", () => {
     let split = null as ReturnType<typeof billPartLines> extends infer R ? R extends { equalSplit: infer E } ? E : never : never;
     const totals: number[] = [];

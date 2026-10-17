@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 
 import { BookingSettings } from "@/components/bookings/booking-settings";
 import { AreasTablesManager, StaffPins, StationsEditor } from "@/components/hospitality/hospitality-settings";
+import { ModifierGroupsEditor, SetMenusEditor } from "@/components/hospitality/ordering-settings";
 import { RegisterForm, RegisterList } from "@/components/pos/register-settings";
 import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
@@ -13,7 +14,9 @@ import { appBaseUrl } from "@/server/email/templates";
 import { isModuleEnabled } from "@/server/modules/service";
 import { getBookingSettings } from "@/server/pos/bookings";
 import { listAreasWithTables, listCategoryStations, listStaff } from "@/server/pos/hospitality";
-import { listBankAccountOptions, listRegisters, listWarehouseOptions } from "@/server/pos/service";
+import { listModifierGroups, listSetMenus } from "@/server/pos/ordering";
+import { listBankAccountOptions, listPosCatalog, listRegisters, listWarehouseOptions } from "@/server/pos/service";
+import { grossPrice } from "@/modules/pos/model";
 
 export const metadata: Metadata = { title: "TPV · Cajas" };
 
@@ -27,9 +30,10 @@ export default async function PosSettingsPage() {
     isModuleEnabled(ctx.company.id, "inventory"),
     isModuleEnabled(ctx.company.id, "hospitality"),
   ]);
-  const [areas, stations, staff, bookings] = hospitalityEnabled
-    ? await Promise.all([listAreasWithTables(ctx.company.id), listCategoryStations(ctx.company.id), listStaff(ctx.company.id, ctx.tenant.id), getBookingSettings(ctx.company.id)])
-    : [[], [], [], null];
+  const [areas, stations, staff, bookings, modifierGroups, setMenus, catalog] = hospitalityEnabled
+    ? await Promise.all([listAreasWithTables(ctx.company.id), listCategoryStations(ctx.company.id), listStaff(ctx.company.id, ctx.tenant.id), getBookingSettings(ctx.company.id), listModifierGroups(ctx.company.id), listSetMenus(ctx.company.id), listPosCatalog(ctx.company.id, null, false)])
+    : [[], [], [], null, [], [], []];
+  const catalogEntries = catalog.map((entry) => ({ id: entry.id, name: entry.name, price: grossPrice(entry.unitPrice, entry.taxRate), categoryName: entry.categoryName }));
   const baseUrl = appBaseUrl();
   const qrDataUrl = bookings ? await QRCode.toDataURL(`${baseUrl}/reservar/${bookings.slug}`, { margin: 1, width: 288 }).catch(() => null) : null;
   return (
@@ -54,6 +58,12 @@ export default async function PosSettingsPage() {
           ) : null}
           <PageSection className="scroll-mt-24" description="Al enviar una cuenta, cada producto va a la pantalla (o impresora) de su estación según su categoría." id="cocina" title="Cocina y barra">
             <StationsEditor canManage={canManage} initial={stations} />
+          </PageSection>
+          <PageSection className="scroll-mt-24" description="Lo que el camarero elige al tocar el producto: punto de la carne, guarnición, extras con suplemento… Sale en la comanda y en el ticket." id="modificadores" title="Modificadores">
+            <ModifierGroupsEditor canManage={canManage} catalog={catalogEntries} groups={modifierGroups} />
+          </PageSection>
+          <PageSection className="scroll-mt-24" description="Menús de precio cerrado: al añadirlos se elige un plato de cada tiempo y cada plato va a su estación; los suplementos se suman al precio." id="menus" title="Menús del día">
+            <SetMenusEditor canManage={canManage} catalog={catalogEntries} menus={setMenus} />
           </PageSection>
           <PageSection className="scroll-mt-24" description="En una tablet compartida cada camarero toca su nombre y pone su PIN: los pedidos y cobros quedan a su nombre." id="camareros" title="Camareros">
             <StaffPins canManage={canManage} staff={staff} />

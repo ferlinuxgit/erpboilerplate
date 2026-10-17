@@ -41,6 +41,10 @@ export type OrderLineView = {
   sentAt: string | null;
   createdAt: string;
   addedByName: string | null;
+  course: number;
+  firedAt: string | null;
+  parentLineId: string | null;
+  modifiers: Array<{ group: string; name: string; price: number }>;
 };
 
 export type OrderData = {
@@ -54,6 +58,7 @@ export type OrderData = {
   status: OrderStatus;
   guests: number;
   equalSplit: EqualSplit | null;
+  firedCourse: number;
   waiterUserId: string | null;
   waiterName: string | null;
   openedAt: string;

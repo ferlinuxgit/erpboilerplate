@@ -32,9 +32,11 @@ export default async function PreBillPage({ params, searchParams }: { params: Pr
       <hr className="my-1 border-dashed border-black" />
       <table className="w-full">
         <tbody>
-          {lines.map((line) => (
-            <tr key={line.id}><td className="pr-1 align-top">{line.unpaid.toLocaleString("es-ES")} × {line.description}</td><td className="whitespace-nowrap text-right align-top">{money(Math.round(grossPrice(line.unitPrice, line.taxRate) * line.unpaid * 100) / 100)}</td></tr>
-          ))}
+          {lines.filter((line) => !line.parentLineId).flatMap((line) => [
+            <tr key={line.id}><td className="pr-1 align-top">{line.unpaid.toLocaleString("es-ES")} × {line.description}</td><td className="whitespace-nowrap text-right align-top">{money(Math.round(grossPrice(line.unitPrice, line.taxRate) * line.unpaid * 100) / 100)}</td></tr>,
+            // Platos del menú, debajo y sin precio.
+            ...lines.filter((child) => child.parentLineId === line.id).map((child) => <tr key={child.id}><td className="pl-4 pr-1 align-top" colSpan={2}>· {child.description}</td></tr>),
+          ])}
         </tbody>
       </table>
       <hr className="my-1 border-dashed border-black" />

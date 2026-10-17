@@ -2045,6 +2045,8 @@ export const posOrder = pgTable("pos_order", {
   guests: integer("guests").notNull().default(1),
   // División a partes iguales en curso: { parts, paid } (cada parte es un ticket).
   equalSplit: jsonb("equalSplit").$type<{ parts: number; paid: number } | null>(),
+  // Último tiempo «marchado» en cocina (los posteriores esperan a que el camarero los pida).
+  firedCourse: integer("firedCourse").notNull().default(1),
   waiterUserId: text("waiterUserId").references(() => user.id, { onDelete: "set null" }),
   openedByUserId: text("openedByUserId").references(() => user.id, { onDelete: "set null" }),
   openedAt: timestamp("openedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -2079,6 +2081,14 @@ export const posOrderLine = pgTable("pos_order_line", {
   kitchenBatchId: text("kitchenBatchId"),
   // Unidades ya cobradas (cobro por productos).
   paidQuantity: numeric("paidQuantity", { precision: 12, scale: 3 }).notNull().default("0"),
+  // Tiempo del servicio: 0 = sin tiempo (bebidas, pan), 1 = primeros, 2 = segundos, 3 = terceros, 4 = postres.
+  course: integer("course").notNull().default(0),
+  // Cuándo se «marchó» en cocina (null con estado SENT = enviado pero en espera de su tiempo).
+  firedAt: timestamp("firedAt", { withTimezone: true, mode: "date" }),
+  // Plato de un menú (precio 0): cuelga de la línea del menú, que es la que lleva el precio.
+  parentLineId: text("parentLineId").references((): AnyPgColumn => posOrderLine.id, { onDelete: "cascade" }),
+  // Modificadores elegidos (punto, extras…), con su precio con IVA: [{ group, name, price }].
+  modifiers: jsonb("modifiers").$type<Array<{ group: string; name: string; price: number }>>().notNull().default([]),
   cancelReason: text("cancelReason"),
   addedByUserId: text("addedByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -2111,6 +2121,61 @@ export const posCategoryStation = pgTable("pos_category_station", {
   unique("pos_category_station_unique").on(table.companyId, table.categoryId),
   check("pos_category_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
 ]);
+
+/** Grupo de modificadores (Punto de la carne, Guarnición, Extras…) con cuántas opciones se eligen. */
+export const posModifierGroup = pgTable("pos_modifier_group", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // minSelect ≥ 1 = obligatorio; maxSelect = cuántas como mucho.
+  minSelect: integer("minSelect").notNull().default(0),
+  maxSelect: integer("maxSelect").notNull().default(1),
+  position: integer("position").notNull().default(0),
+}, (table) => [
+  index("pos_modifier_group_company_idx").on(table.companyId),
+  check("pos_modifier_group_select_valid", sql`${table.minSelect} >= 0 AND ${table.maxSelect} >= 1 AND ${table.minSelect} <= ${table.maxSelect}`),
+]);
+
+/** Opción de un grupo, con su suplemento (PVP con IVA; 0 si no cambia el precio). */
+export const posModifierOption = pgTable("pos_modifier_option", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  groupId: text("groupId").notNull().references(() => posModifierGroup.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  price: numeric("price", { precision: 12, scale: 2 }).notNull().default("0"),
+  position: integer("position").notNull().default(0),
+}, (table) => [index("pos_modifier_option_group_idx").on(table.groupId)]);
+
+/** Qué grupos de modificadores pide cada artículo. */
+export const posItemModifierGroup = pgTable("pos_item_modifier_group", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
+  groupId: text("groupId").notNull().references(() => posModifierGroup.id, { onDelete: "cascade" }),
+  position: integer("position").notNull().default(0),
+}, (table) => [unique("pos_item_modifier_group_unique").on(table.itemId, table.groupId)]);
+
+/** Tiempos de un menú de precio cerrado (Primero, Segundo, Postre, Bebida…). */
+export const posSetMenuCourse = pgTable("pos_set_menu_course", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // El artículo «Menú del día» que se cobra.
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Tiempo en cocina (0 = sin tiempo, 1–4).
+  course: integer("course").notNull().default(1),
+  position: integer("position").notNull().default(0),
+}, (table) => [index("pos_set_menu_course_item_idx").on(table.itemId)]);
+
+/** Platos que se pueden elegir en un tiempo del menú, con suplemento opcional (PVP con IVA). */
+export const posSetMenuChoice = pgTable("pos_set_menu_choice", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  courseId: text("courseId").notNull().references(() => posSetMenuCourse.id, { onDelete: "cascade" }),
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
+  supplement: numeric("supplement", { precision: 12, scale: 2 }).notNull().default("0"),
+  position: integer("position").notNull().default(0),
+}, (table) => [unique("pos_set_menu_choice_unique").on(table.courseId, table.itemId)]);
 
 /** PIN rápido de camarero para identificarse en una tablet compartida (solo atribución). */
 export const posStaffPin = pgTable("pos_staff_pin", {

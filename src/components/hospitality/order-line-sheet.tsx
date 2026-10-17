@@ -9,23 +9,29 @@ import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { lineStatusLabels } from "@/modules/hospitality/model";
+import { courseLabels } from "@/modules/hospitality/ordering";
 import { grossPrice } from "@/modules/pos/model";
 
 import type { OrderLineView } from "./types";
 
-const QUICK_NOTES = ["Sin hielo", "Con hielo", "Poco hecho", "Al punto", "Muy hecho", "Sin gluten", "Sin sal", "Para compartir", "De primero", "De segundo", "Para llevar"];
+const QUICK_NOTES = ["Sin hielo", "Con hielo", "Poco hecho", "Al punto", "Muy hecho", "Sin gluten", "Sin sal", "Para compartir", "Para llevar"];
 
 /**
  * Editar una línea de la cuenta. Sin enviar: unidades y nota libremente. Ya en cocina: nota y anular
  * unidades con su motivo (queda registrado y cocina lo ve).
  */
-export function OrderLineSheet({ currencyCode, line, onClose, onSave }: {
+export function OrderLineSheet({ currencyCode, isMenu = false, line, onClose, onSave }: {
   currencyCode: string;
+  isMenu?: boolean;
   line: OrderLineView;
   onClose: () => void;
-  onSave: (patch: { quantity?: number; note?: string | null; cancelReason?: string | null }) => void;
+  onSave: (patch: { quantity?: number; note?: string | null; cancelReason?: string | null; course?: number }) => void;
 }) {
   const sent = line.status !== "PENDING";
+  const child = Boolean(line.parentLineId);
+  // Se puede cambiar de tiempo mientras no se haya marchado.
+  const courseEditable = line.station === "KITCHEN" && (line.status === "PENDING" || (line.status === "SENT" && !line.firedAt));
+  const [course, setCourse] = useState(line.course || 1);
   const minimum = line.paidQuantity;
   const [quantity, setQuantity] = useState(line.quantity);
   const [note, setNote] = useState(line.note ?? "");
@@ -37,17 +43,30 @@ export function OrderLineSheet({ currencyCode, line, onClose, onSave }: {
       ...(quantity !== line.quantity ? { quantity } : {}),
       ...(note.trim() !== (line.note ?? "") ? { note: note.trim() || null } : {}),
       ...(reducing ? { cancelReason: reason.trim() } : {}),
+      ...(courseEditable && course !== line.course ? { course } : {}),
     });
   }
 
   return (
     <Dialog description={`${formatMoney(grossPrice(line.unitPrice, line.taxRate), currencyCode)} · ${lineStatusLabels[line.status]}`} onClose={onClose} open title={line.description}>
       <div className="space-y-4" data-testid="pos-order-line-sheet">
+        {child ? <p className="text-sm text-muted-foreground">Plato de un menú: para cambiarlo, quita el menú y vuelve a añadirlo.</p> : (
         <div className="flex items-center justify-between gap-2">
           <Button aria-label="Una unidad menos" className="size-16" disabled={quantity <= Math.max(minimum, sent ? 0 : 1)} onClick={() => setQuantity((current) => Math.max(minimum, current - 1))} type="button" variant="outline"><Minus aria-hidden="true" className="size-7" /></Button>
           <span className="font-mono text-5xl font-black tabular-nums" data-testid="pos-order-line-quantity">{quantity.toLocaleString("es-ES")}</span>
-          <Button aria-label="Una unidad más" className="size-16" disabled={sent} onClick={() => setQuantity((current) => current + 1)} type="button" variant="outline"><Plus aria-hidden="true" className="size-7" /></Button>
+          <Button aria-label="Una unidad más" className="size-16" disabled={sent || isMenu} onClick={() => setQuantity((current) => current + 1)} type="button" variant="outline"><Plus aria-hidden="true" className="size-7" /></Button>
         </div>
+        )}
+        {courseEditable ? (
+          <div aria-label="Tiempo" className="space-y-1.5" role="radiogroup">
+            <p className="font-mono text-xs font-bold uppercase text-muted-foreground">Tiempo</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[1, 2, 3, 4].map((value) => (
+                <button aria-checked={course === value} className={cn("h-12 border-2 font-mono text-base font-black", course === value ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid={`pos-line-course-${value}`} key={value} onClick={() => setCourse(value)} role="radio" type="button">{courseLabels[value]}</button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {sent ? <p className="text-center text-xs text-muted-foreground">Ya está en cocina: para más unidades añádelas como un pedido nuevo.</p> : null}
         <div className="space-y-1.5">
           <label className="block font-mono text-xs font-bold uppercase text-muted-foreground" htmlFor="pos-line-note">Nota para cocina / barra</label>
@@ -65,7 +84,7 @@ export function OrderLineSheet({ currencyCode, line, onClose, onSave }: {
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-2">
-          {!sent ? <Button className="h-14" data-testid="pos-order-line-remove" onClick={() => onSave({ quantity: 0 })} type="button" variant="outline"><Trash aria-hidden="true" /> Quitar</Button> : <span />}
+          {!sent && !child ? <Button className="h-14" data-testid="pos-order-line-remove" onClick={() => onSave({ quantity: 0 })} type="button" variant="outline"><Trash aria-hidden="true" /> Quitar</Button> : <span />}
           <Button className="h-14 text-lg" data-testid="pos-order-line-save" disabled={reducing && !reason.trim()} onClick={save} type="button">Aplicar</Button>
         </div>
       </div>

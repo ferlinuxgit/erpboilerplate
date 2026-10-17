@@ -27,6 +27,9 @@ export const addLinesSchema = z.object({
     taxRate: z.number().min(0).max(100),
     taxId: z.string().trim().nullable().optional(),
     note: z.string().trim().max(200).nullable().optional(),
+    course: z.number().int().min(0).max(4).nullable().optional(),
+    modifierOptionIds: z.array(id).max(50).optional(),
+    setMenuPicks: z.array(z.object({ courseId: id, itemId: id })).max(10).optional(),
   })).min(1).max(100),
 });
 
@@ -34,6 +37,23 @@ export const updateLineSchema = z.object({
   quantity: z.number().min(0).max(10_000).optional(),
   note: z.string().trim().max(200).nullable().optional(),
   cancelReason: z.string().trim().max(200).nullable().optional(),
+  course: z.number().int().min(1).max(4).optional(),
+});
+
+export const modifierGroupSchema = z.object({
+  name: z.string().trim().min(1, "Pon nombre al grupo.").max(60),
+  minSelect: z.number().int().min(0).max(20),
+  maxSelect: z.number().int().min(1).max(20),
+  options: z.array(z.object({ name: z.string().trim().min(1, "Las opciones necesitan nombre.").max(60), price: z.number().min(0).max(10_000) })).min(1, "Añade al menos una opción.").max(40),
+  itemIds: z.array(id).max(1000),
+});
+
+export const setMenuSchema = z.object({
+  courses: z.array(z.object({
+    name: z.string().trim().min(1, "Pon nombre al tiempo (Primero, Segundo…).").max(40),
+    course: z.number().int().min(0).max(4),
+    choices: z.array(z.object({ itemId: id, supplement: z.number().min(0).max(10_000) })).min(1).max(60),
+  })).min(1).max(8),
 });
 
 export const moveSchema = z.object({ tableId: id });

@@ -337,6 +337,13 @@
       "when": 1792235705895,
       "tag": "0047_menu_allergen_traces",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1792243936186,
+      "tag": "0048_modifiers_set_menus_courses",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,8 @@ export type OrderLine = {
   station: Station;
   status: LineStatus;
   paidQuantity: number;
+  /** Plato de un menú: cuelga de la línea del menú (que lleva el precio). */
+  parentLineId?: string | null;
 };
 
 export type EqualSplit = { parts: number; paid: number; paidByRate: Record<string, number> };
@@ -104,6 +106,13 @@ export function billPartLines(
       if (entry.quantity > line.unpaid + 0.0005) return { error: `De «${line.description}» solo quedan ${line.unpaid.toLocaleString("es-ES")} por cobrar.` };
       cart.push(toCart(line, entry.quantity));
       paidQuantities.set(line.id, round3(line.paidQuantity + entry.quantity));
+      // Los platos del menú (a 0 €) se cobran con él, en la misma proporción.
+      for (const child of unpaid.filter((candidate) => candidate.parentLineId === line.id && !paidQuantities.has(candidate.id))) {
+        const quantity = Math.min(child.unpaid, round3((entry.quantity / line.quantity) * child.quantity));
+        if (quantity <= 0) continue;
+        cart.push(toCart(child, quantity));
+        paidQuantities.set(child.id, round3(child.paidQuantity + quantity));
+      }
     }
     if (cart.length === 0) return { error: "Elige qué se cobra." };
     const closes = unpaid.every((line) => Math.abs((paidQuantities.get(line.id) ?? line.paidQuantity) - line.quantity) < 0.0005);

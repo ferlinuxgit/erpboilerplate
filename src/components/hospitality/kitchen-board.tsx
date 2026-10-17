@@ -1,12 +1,13 @@
 "use client";
 
-import { BellRinging, CheckCircle, Clock, Coffee, CookingPot, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
+import { BellRinging, CheckCircle, Clock, Coffee, CookingPot, Fire, HourglassMedium, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatElapsed, minutesSince, type LineStatus } from "@/modules/hospitality/model";
+import { courseLabels, courseLongLabels } from "@/modules/hospitality/ordering";
 
 import { KioskAction, KioskBar } from "../pos/kiosk-bar";
 import { useWakeLock } from "../pos/use-touch-pos";
@@ -19,8 +20,12 @@ export type KitchenBatch = {
   name: string;
   waiterName: string | null;
   sentAt: string | null;
-  lines: Array<{ id: string; description: string; quantity: number; note: string | null; status: LineStatus }>;
+  firedAt: string | null;
+  lines: Array<{ id: string; description: string; quantity: number; note: string | null; status: LineStatus; course: number; held: boolean; firedAt: string | null; inMenu: boolean }>;
 };
+
+// Un tiempo marchado se resalta unos minutos para que cocina lo vea al momento.
+const JUST_FIRED_MS = 3 * 60_000;
 
 const SOUND_KEY = "erp:pos:kitchen-sound";
 
@@ -49,6 +54,7 @@ export function KitchenBoard({ initial, initialStation }: { initial: KitchenBatc
   const [sound, setSound] = useState(true);
   const [now, setNow] = useState(() => new Date());
   const known = useRef(new Set(initial.map((batch) => batch.batchId)));
+  const fired = useRef(new Set(initial.flatMap((batch) => batch.lines.filter((line) => !line.held).map((line) => line.id))));
   useWakeLock(true);
 
   useEffect(() => {
@@ -62,8 +68,11 @@ export function KitchenBoard({ initial, initialStation }: { initial: KitchenBatc
 
   useEffect(() => {
     const fresh = batches.filter((batch) => !known.current.has(batch.batchId));
-    if (fresh.length > 0 && sound) beep();
+    // También suena cuando el camarero marcha un tiempo que estaba en espera.
+    const marched = batches.flatMap((batch) => batch.lines).filter((line) => !line.held && !fired.current.has(line.id) && known.current.has(batches.find((batch) => batch.lines.includes(line))!.batchId));
+    if ((fresh.length > 0 || marched.length > 0) && sound) beep();
     known.current = new Set(batches.map((batch) => batch.batchId));
+    fired.current = new Set(batches.flatMap((batch) => batch.lines.filter((line) => !line.held).map((line) => line.id)));
   }, [batches, sound]);
 
   async function setStatus(lineIds: string[], status: "SENT" | "READY" | "SERVED") {
@@ -82,7 +91,9 @@ export function KitchenBoard({ initial, initialStation }: { initial: KitchenBatc
     window.history.replaceState(null, "", url);
   }
 
-  const pendingLines = batches.reduce((sum, batch) => sum + batch.lines.filter((line) => line.status === "SENT").length, 0);
+  const pendingLines = batches.reduce((sum, batch) => sum + batch.lines.filter((line) => line.status === "SENT" && !line.held).length, 0);
+  // Las comandas solo con platos en espera van al final.
+  const ordered = [...batches].sort((a, b) => Number(a.lines.every((line) => line.held)) - Number(b.lines.every((line) => line.held)));
 
   return (
     <div className="flex h-dvh flex-col bg-background [touch-action:manipulation]" data-testid="pos-kitchen">
@@ -96,34 +107,55 @@ export function KitchenBoard({ initial, initialStation }: { initial: KitchenBatc
           <p className="flex h-full flex-col items-center justify-center gap-2 text-lg text-muted-foreground"><CheckCircle aria-hidden="true" className="size-12" />Todo al día.</p>
         ) : (
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2">
-            {batches.map((batch) => {
-              const minutes = batch.sentAt ? minutesSince(batch.sentAt, now) : 0;
-              const allReady = batch.lines.every((line) => line.status === "READY");
+            {ordered.map((batch) => {
+              const active = batch.lines.filter((line) => !line.held);
+              const held = batch.lines.filter((line) => line.held);
+              const onlyHeld = active.length === 0;
+              const since = batch.firedAt ?? batch.sentAt;
+              const minutes = since && !onlyHeld ? minutesSince(since, now) : 0;
+              const allReady = !onlyHeld && active.every((line) => line.status === "READY");
               return (
-                <li className={cn("flex flex-col border-2 bg-card", allReady ? "border-success" : minutes >= 20 ? "border-destructive" : minutes >= 10 ? "border-warning" : "border-window-dark-shadow")} data-testid={`pos-kitchen-batch-${batch.name}`} key={batch.batchId}>
-                  <header className={cn("flex items-center justify-between gap-2 px-3 py-2", allReady ? "bg-success text-white" : minutes >= 20 ? "bg-destructive text-white" : minutes >= 10 ? "bg-warning/40" : "bg-window-panel")}>
+                <li className={cn("flex flex-col border-2 bg-card", onlyHeld ? "border-dashed border-window-shadow opacity-70" : allReady ? "border-success" : minutes >= 20 ? "border-destructive" : minutes >= 10 ? "border-warning" : "border-window-dark-shadow")} data-testid={`pos-kitchen-batch-${batch.name}`} key={batch.batchId}>
+                  <header className={cn("flex items-center justify-between gap-2 px-3 py-2", onlyHeld ? "bg-window-panel" : allReady ? "bg-success text-white" : minutes >= 20 ? "bg-destructive text-white" : minutes >= 10 ? "bg-warning/40" : "bg-window-panel")}>
                     <span className="font-mono text-xl font-black">{batch.name}</span>
-                    <span className="flex items-center gap-1 font-mono text-sm font-bold"><Clock aria-hidden="true" className="size-4" />{formatElapsed(minutes)}</span>
+                    {onlyHeld ? <span className="flex items-center gap-1 font-mono text-sm font-bold"><HourglassMedium aria-hidden="true" className="size-4" />En espera</span> : <span className="flex items-center gap-1 font-mono text-sm font-bold"><Clock aria-hidden="true" className="size-4" />{formatElapsed(minutes)}</span>}
                   </header>
                   {batch.waiterName ? <p className="px-3 pt-1 text-xs text-muted-foreground">{batch.waiterName}</p> : null}
                   <ul className="flex-1 divide-y divide-window-shadow">
-                    {batch.lines.map((line) => (
-                      <li key={line.id}>
-                        <button className={cn("flex min-h-14 w-full items-start gap-2 px-3 py-2 text-left", line.status === "READY" && "bg-success/15")} data-testid="pos-kitchen-line" onClick={() => void setStatus([line.id], line.status === "READY" ? "SENT" : "READY")} type="button">
-                          <span className="font-mono text-2xl font-black">{line.quantity.toLocaleString("es-ES")}</span>
-                          <span className="min-w-0 flex-1">
-                            <span className={cn("block text-base font-bold", line.status === "READY" && "line-through opacity-70")}>{line.description}</span>
-                            {line.note ? <span className="block text-sm font-bold text-destructive">{line.note}</span> : null}
-                          </span>
-                          {line.status === "READY" ? <BellRinging aria-label="Listo" className="size-6 text-success" /> : null}
-                        </button>
+                    {active.map((line) => {
+                      const justFired = line.course > 1 && line.firedAt && now.getTime() - new Date(line.firedAt).getTime() < JUST_FIRED_MS && line.status === "SENT";
+                      return (
+                        <li key={line.id}>
+                          <button className={cn("flex min-h-14 w-full items-start gap-2 px-3 py-2 text-left", line.status === "READY" && "bg-success/15", justFired && "bg-warning/25")} data-testid="pos-kitchen-line" onClick={() => void setStatus([line.id], line.status === "READY" ? "SENT" : "READY")} type="button">
+                            <span className="font-mono text-2xl font-black">{line.quantity.toLocaleString("es-ES")}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className={cn("block text-base font-bold", line.status === "READY" && "line-through opacity-70")}>{line.description}{line.inMenu ? <span className="ml-1 text-xs font-normal text-muted-foreground">(menú)</span> : null}</span>
+                              {line.note ? <span className="block text-sm font-bold text-destructive">{line.note}</span> : null}
+                              <span className="mt-0.5 flex gap-1">
+                                {line.course > 0 ? <span className="border border-window-dark-shadow px-1 font-mono text-xs font-bold">{courseLabels[line.course]}</span> : null}
+                                {justFired ? <span className="flex items-center gap-0.5 bg-warning px-1 font-mono text-xs font-black text-warning-foreground" data-testid="pos-kitchen-fired"><Fire aria-hidden="true" className="size-3.5" weight="fill" />¡Marcha!</span> : null}
+                              </span>
+                            </span>
+                            {line.status === "READY" ? <BellRinging aria-label="Listo" className="size-6 text-success" /> : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {held.length > 0 ? (
+                      <li className="bg-window-panel/60 px-3 py-2" data-testid="pos-kitchen-held">
+                        <p className="flex items-center gap-1 font-mono text-xs font-bold uppercase text-muted-foreground"><HourglassMedium aria-hidden="true" className="size-4" />En espera · {[...new Set(held.map((line) => courseLongLabels[line.course].toLowerCase()))].join(", ")}</p>
+                        <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                          {held.map((line) => <li key={line.id}><span className="font-mono font-bold">{line.quantity.toLocaleString("es-ES")}</span> {line.description} <span className="font-mono text-xs">({courseLabels[line.course]})</span>{line.note ? <span className="italic"> · {line.note}</span> : null}</li>)}
+                        </ul>
                       </li>
-                    ))}
+                    ) : null}
                   </ul>
-                  <div className="grid grid-cols-2 gap-1.5 border-t border-window-shadow p-2">
-                    <Button className="h-12" data-testid="pos-kitchen-all-ready" disabled={allReady} onClick={() => void setStatus(batch.lines.map((line) => line.id), "READY")} type="button" variant="outline">Todo listo</Button>
-                    <Button className="h-12" data-testid="pos-kitchen-served" onClick={() => void setStatus(batch.lines.map((line) => line.id), "SERVED")} type="button">Servido</Button>
-                  </div>
+                  {onlyHeld ? null : (
+                    <div className="grid grid-cols-2 gap-1.5 border-t border-window-shadow p-2">
+                      <Button className="h-12" data-testid="pos-kitchen-all-ready" disabled={allReady} onClick={() => void setStatus(active.map((line) => line.id), "READY")} type="button" variant="outline">Todo listo</Button>
+                      <Button className="h-12" data-testid="pos-kitchen-served" onClick={() => void setStatus(active.map((line) => line.id), "SERVED")} type="button">Servido</Button>
+                    </div>
+                  )}
                 </li>
               );
             })}
