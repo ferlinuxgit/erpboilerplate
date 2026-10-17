@@ -330,6 +330,13 @@
       "when": 1792234043133,
       "tag": "0046_digital_menu",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792235705895,
+      "tag": "0047_menu_allergen_traces",
+      "breakpoints": true
     }
   ]
 }

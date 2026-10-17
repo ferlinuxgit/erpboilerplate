@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Camera, Copy, NotePencil, Plus, Prohibit, Trash } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, Camera, Copy, NotePencil, Plus, Prohibit, Trash, Warning } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -13,12 +13,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { slugify, WEEKDAY_LABELS } from "@/modules/hospitality/bookings";
-import { ALLERGENS, MENU_TAGS, scheduleLabel } from "@/modules/hospitality/menu";
+import { ALLERGENS, dietConflicts, MENU_TAGS, scheduleLabel } from "@/modules/hospitality/menu";
 import type { MenuAdmin as MenuAdminData } from "@/server/pos/menu";
+
+import { AllergenIcon, TagBadge } from "./allergen-icons";
 
 type Section = MenuAdminData["sections"][number];
 type Dish = MenuAdminData["items"][number];
-type Filter = "ALL" | "IN" | "OUT" | "SOLD_OUT";
+type Filter = "ALL" | "IN" | "OUT" | "SOLD_OUT" | "UNREVIEWED";
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 function useRun() {
@@ -86,7 +88,7 @@ export function MenuPublishing({ baseUrl, canManage, qrDataUrl, settings }: { ba
         <figure className="justify-self-start text-center">
           {/* eslint-disable-next-line @next/next/no-img-element -- QR generado en el servidor */}
           <img alt={`Código QR de la carta: ${url}`} className="size-36 border border-window-dark-shadow bg-white p-1" src={qrDataUrl} />
-          <figcaption className="mt-1 space-x-2 text-xs"><a className="text-link underline" download="carta-qr.png" href={qrDataUrl}>Descargar</a><a className="text-link underline" href="/pos/menu/qr" target="_blank">QR por mesa</a></figcaption>
+          <figcaption className="mt-1 space-x-2 text-xs"><a className="text-link underline" download="carta-qr.png" href={qrDataUrl}>Descargar</a><a className="text-link underline" href="/pos/menu/qr" target="_blank">QR por mesa</a><a className="text-link underline" href="/pos/menu/alergenos" target="_blank">Tabla de alérgenos</a></figcaption>
         </figure>
       ) : null}
     </div>
@@ -197,6 +199,7 @@ export function MenuDishes({ canManage, items, sections }: { canManage: boolean;
     if (filter === "IN" && !dish.visible) return false;
     if (filter === "OUT" && dish.visible) return false;
     if (filter === "SOLD_OUT" && !dish.soldOut) return false;
+    if (filter === "UNREVIEWED" && (!dish.visible || dish.reviewed)) return false;
     return !normalized || `${dish.name} ${dish.displayName ?? ""} ${dish.sku}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().includes(normalized);
   });
   const groups = [
@@ -204,18 +207,26 @@ export function MenuDishes({ canManage, items, sections }: { canManage: boolean;
     { id: "none", title: "En la carta, sin sección", dishes: visible.filter((dish) => dish.visible && (!dish.sectionId || !sections.some((section) => section.id === dish.sectionId))) },
     { id: "out", title: "No salen en la carta", dishes: visible.filter((dish) => !dish.visible) },
   ].filter((group) => group.dishes.length > 0);
-  const counts = { ALL: items.length, IN: items.filter((dish) => dish.visible).length, OUT: items.filter((dish) => !dish.visible).length, SOLD_OUT: items.filter((dish) => dish.soldOut).length };
+  const counts = { ALL: items.length, IN: items.filter((dish) => dish.visible).length, OUT: items.filter((dish) => !dish.visible).length, SOLD_OUT: items.filter((dish) => dish.soldOut).length, UNREVIEWED: items.filter((dish) => dish.visible && !dish.reviewed).length };
+  const conflicted = items.filter((dish) => dish.visible && dish.conflicts.length > 0).length;
 
   return (
     <div className="space-y-3" data-testid="menu-dishes">
       <div className="flex flex-wrap items-center gap-2">
         <div aria-label="Filtro" className="flex flex-wrap gap-1" role="radiogroup">
-          {([["ALL", "Todos"], ["IN", "En la carta"], ["OUT", "Fuera"], ["SOLD_OUT", "Agotados hoy"]] as const).map(([value, label]) => (
+          {([["ALL", "Todos"], ["IN", "En la carta"], ["OUT", "Fuera"], ["SOLD_OUT", "Agotados hoy"], ["UNREVIEWED", "Sin revisar alérgenos"]] as const).map(([value, label]) => (
             <button aria-checked={filter === value} className={cn("h-10 border-2 px-3 font-mono text-xs font-bold", filter === value ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} key={value} onClick={() => setFilter(value)} role="radio" type="button">{label} ({counts[value]})</button>
           ))}
         </div>
         <Input aria-label="Buscar artículo" className="h-10 w-full sm:w-56" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar…" type="search" value={query} />
       </div>
+      {counts.UNREVIEWED > 0 || conflicted > 0 ? (
+        <p className="flex flex-wrap items-center gap-2 border-2 border-warning bg-warning/10 p-2 text-sm" data-testid="menu-allergen-alert" role="status">
+          <Warning aria-hidden="true" className="size-5 shrink-0 text-warning-text" weight="fill" />
+          {counts.UNREVIEWED > 0 ? <span><strong>{counts.UNREVIEWED}</strong> {counts.UNREVIEWED === 1 ? "plato de la carta sin revisar alérgenos" : "platos de la carta sin revisar alérgenos"}: el cliente verá «Pregunta por sus alérgenos». Abre su ficha y guárdala.</span> : null}
+          {conflicted > 0 ? <span><strong>{conflicted}</strong> con la dieta incoherente (p. ej. vegano con huevo).</span> : null}
+        </p>
+      ) : null}
       {items.length === 0 ? <p className="text-sm text-muted-foreground">Crea artículos (Inventario → Artículos) con su precio para poder ponerlos en la carta.</p> : null}
       {groups.map((group) => (
         <section className="space-y-1" key={group.id}>
@@ -229,10 +240,13 @@ export function MenuDishes({ canManage, items, sections }: { canManage: boolean;
                 ) : <span aria-hidden="true" className="grid size-12 place-items-center border border-dashed border-window-shadow text-muted-foreground"><Camera className="size-5" /></span>}
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{dish.displayName ?? dish.name} <span className="font-mono text-sm font-normal tabular-nums">{formatMoney(dish.price)}</span></p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {dish.allergens.length > 0 ? dish.allergens.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.icon).join(" ") : "Sin alérgenos indicados"}
-                    {dish.tags.length > 0 ? ` · ${dish.tags.map((id) => MENU_TAGS.find((tag) => tag.id === id)?.icon).join(" ")}` : ""}
-                    {dish.nameEn ? " · EN" : ""}
+                  <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                    {dish.tags.map((id) => <TagBadge compact id={id} key={id} />)}
+                    {dish.allergens.map((id) => <AllergenIcon id={id} key={id} size="sm" />)}
+                    {dish.traces.map((id) => <AllergenIcon id={id} key={`t-${id}`} size="sm" variant="traces" />)}
+                    {dish.visible && !dish.reviewed ? <span className="rounded-full border border-warning px-1.5 font-semibold text-warning-text" data-testid="menu-dish-unreviewed">Sin revisar</span> : dish.reviewed && dish.allergens.length === 0 && dish.traces.length === 0 ? <span>Sin alérgenos</span> : null}
+                    {dish.conflicts.length > 0 ? <span className="rounded-full bg-destructive px-1.5 font-semibold text-destructive-foreground" title={dish.conflicts.join(" ")}>Dieta incoherente</span> : null}
+                    {dish.nameEn ? <span className="font-mono">EN</span> : null}
                   </p>
                 </div>
                 <span className="flex flex-wrap items-center gap-1">
@@ -275,9 +289,17 @@ function DishDialog({ dish, onClose, sections }: { dish: Dish; onClose: () => vo
     description: dish.description ?? "",
     descriptionEn: dish.descriptionEn ?? "",
     allergens: dish.allergens,
+    traces: dish.traces,
     tags: dish.tags,
   });
-  const toggle = (key: "allergens" | "tags", id: string) => setForm((current) => ({ ...current, [key]: current[key].includes(id) ? current[key].filter((value) => value !== id) : [...current[key], id] }));
+  const toggleTag = (id: string) => setForm((current) => ({ ...current, tags: current.tags.includes(id) ? current.tags.filter((value) => value !== id) : [...current.tags, id] }));
+  // Cada toque: no lo lleva → lo lleva → puede contener trazas → no lo lleva.
+  const cycleAllergen = (id: string) => setForm((current) => {
+    if (current.allergens.includes(id)) return { ...current, allergens: current.allergens.filter((value) => value !== id), traces: [...current.traces, id] };
+    if (current.traces.includes(id)) return { ...current, traces: current.traces.filter((value) => value !== id) };
+    return { ...current, allergens: [...current.allergens, id] };
+  });
+  const conflicts = dietConflicts(form.allergens, form.tags, form.traces);
 
   async function upload(file: File | undefined) {
     if (!file) return;
@@ -300,24 +322,40 @@ function DishDialog({ dish, onClose, sections }: { dish: Dish; onClose: () => vo
             {sections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
           </select>
         </label>
-        <fieldset className="space-y-1">
+        <fieldset className="space-y-1.5">
           <legend className="text-sm font-medium">Alérgenos</legend>
-          <div className="flex flex-wrap gap-1">
+          <p className="text-xs text-muted-foreground">Toca una vez si lo lleva, otra si solo puede contener trazas y otra para quitarlo.</p>
+          <div className="grid grid-cols-4 gap-1 sm:grid-cols-7">
             {ALLERGENS.map((allergen) => {
-              const active = form.allergens.includes(allergen.id);
-              return <button aria-pressed={active} className={cn("h-10 border-2 px-2 text-sm", active ? "border-warning bg-warning/30 font-semibold" : "border-window-dark-shadow bg-window-panel")} data-testid={`menu-allergen-${allergen.id}`} key={allergen.id} onClick={() => toggle("allergens", allergen.id)} type="button"><span aria-hidden="true">{allergen.icon}</span> {allergen.es}</button>;
+              const state = form.allergens.includes(allergen.id) ? "contains" : form.traces.includes(allergen.id) ? "traces" : "off";
+              return (
+                <button aria-label={`${allergen.es}: ${state === "contains" ? "lo lleva" : state === "traces" ? "trazas" : "no lo lleva"}`} aria-pressed={state !== "off"} className={cn("flex flex-col items-center gap-0.5 rounded-md border-2 px-0.5 py-1 text-[11px] font-semibold leading-tight", state === "contains" ? "bg-window-highlight" : state === "traces" ? "border-dashed" : "border-transparent text-muted-foreground")} data-state={state} data-testid={`menu-allergen-${allergen.id}`} key={allergen.id} onClick={() => cycleAllergen(allergen.id)} style={state !== "off" ? { borderColor: allergen.color } : undefined} type="button">
+                  <AllergenIcon decorative id={allergen.id} size="md" variant={state} />
+                  {allergen.es}
+                  <span className="font-normal">{state === "contains" ? "Lo lleva" : state === "traces" ? "Trazas" : "—"}</span>
+                </button>
+              );
             })}
           </div>
         </fieldset>
-        <fieldset className="space-y-1">
-          <legend className="text-sm font-medium">Etiquetas</legend>
-          <div className="flex flex-wrap gap-1">
+        <fieldset className="space-y-1.5">
+          <legend className="text-sm font-medium">Dieta y destacados</legend>
+          <div className="flex flex-wrap gap-1.5">
             {MENU_TAGS.map((tag) => {
               const active = form.tags.includes(tag.id);
-              return <button aria-pressed={active} className={cn("h-10 border-2 px-2 text-sm", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid={`menu-tag-${tag.id}`} key={tag.id} onClick={() => toggle("tags", tag.id)} type="button"><span aria-hidden="true">{tag.icon}</span> {tag.es}</button>;
+              return (
+                <button aria-pressed={active} className={cn("flex h-10 items-center gap-1.5 rounded-full border-2 py-1 pl-1 pr-3 text-sm font-semibold", active ? "text-white" : "border-window-dark-shadow bg-window-panel")} data-testid={`menu-tag-${tag.id}`} key={tag.id} onClick={() => toggleTag(tag.id)} style={active ? { backgroundColor: tag.color, borderColor: tag.color } : undefined} type="button">
+                  <TagBadge compact id={tag.id} />{tag.es}
+                </button>
+              );
             })}
           </div>
         </fieldset>
+        {conflicts.length > 0 ? (
+          <ul className="space-y-1 border-2 border-destructive bg-destructive/10 p-2 text-sm font-semibold text-destructive" data-testid="menu-dish-conflicts" role="alert">
+            {conflicts.map((conflict) => <li className="flex items-start gap-1" key={conflict}><Warning aria-hidden="true" className="mt-0.5 size-4 shrink-0" weight="fill" />{conflict}</li>)}
+          </ul>
+        ) : null}
         <fieldset className="space-y-1">
           <legend className="text-sm font-medium">Foto</legend>
           <div className="flex flex-wrap items-center gap-2">

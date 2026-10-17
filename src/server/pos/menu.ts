@@ -4,7 +4,7 @@ import { company, item, itemCategory, posArea, posBookingSettings, posMenuItem, 
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import { slugify, zonedParts } from "@/modules/hospitality/bookings";
-import { ALLERGEN_IDS, isSectionAvailable, localized, MENU_TAG_IDS, scheduleLabel, type MenuLang } from "@/modules/hospitality/menu";
+import { ALLERGEN_IDS, dietConflicts, isSectionAvailable, localized, MENU_TAG_IDS, scheduleLabel, type MenuLang } from "@/modules/hospitality/menu";
 import { grossPrice } from "@/modules/pos/model";
 import { recordAudit } from "@/server/audit";
 import { isModuleEnabled } from "@/server/modules/service";
@@ -118,7 +118,7 @@ async function assertSection(companyId: string, sectionId: string | null) {
   if (!row) throw new HttpError(404, "Sección no encontrada.");
 }
 
-export type MenuItemInput = { sectionId: string | null; visible: boolean; displayName: string | null; nameEn: string | null; description: string | null; descriptionEn: string | null; allergens: string[]; tags: string[] };
+export type MenuItemInput = { sectionId: string | null; visible: boolean; displayName: string | null; nameEn: string | null; description: string | null; descriptionEn: string | null; allergens: string[]; traces: string[]; tags: string[] };
 
 export async function saveMenuItem(actor: PosActor, itemId: string, input: MenuItemInput) {
   await assertItem(actor.companyId, itemId);
@@ -131,7 +131,11 @@ export async function saveMenuItem(actor: PosActor, itemId: string, input: MenuI
     description: input.description?.trim() || null,
     descriptionEn: input.descriptionEn?.trim() || null,
     allergens: ALLERGEN_IDS.filter((id) => input.allergens.includes(id)),
+    // Si lo lleva, no son trazas.
+    traces: ALLERGEN_IDS.filter((id) => input.traces.includes(id) && !input.allergens.includes(id)),
     tags: MENU_TAG_IDS.filter((id) => input.tags.includes(id)),
+    // Guardar la ficha es revisar sus alérgenos (aunque no tenga ninguno).
+    allergensReviewedAt: new Date(),
     updatedAt: new Date(),
   };
   await db.insert(posMenuItem).values({ companyId: actor.companyId, itemId, ...values }).onConflictDoUpdate({ target: posMenuItem.itemId, set: values });
@@ -220,6 +224,8 @@ export async function getMenuAdmin(companyId: string) {
         description: posMenuItem.description,
         descriptionEn: posMenuItem.descriptionEn,
         allergens: posMenuItem.allergens,
+        traces: posMenuItem.traces,
+        reviewedAt: posMenuItem.allergensReviewedAt,
         tags: posMenuItem.tags,
         hasImage: sql<boolean>`${posMenuItem.image} is not null`,
         imageVersion: posMenuItem.imageVersion,
@@ -250,6 +256,9 @@ export async function getMenuAdmin(companyId: string) {
         description: row?.description ?? null,
         descriptionEn: row?.descriptionEn ?? null,
         allergens: row?.allergens ?? [],
+        traces: row?.traces ?? [],
+        reviewed: Boolean(row?.reviewedAt),
+        conflicts: dietConflicts(row?.allergens ?? [], row?.tags ?? [], row?.traces ?? []),
         tags: row?.tags ?? [],
         imageUrl: row?.hasImage ? `/api/public/menu/image/${row.id}?v=${row.imageVersion}` : null,
         soldOut: row?.soldOutDate === today.date,
@@ -276,7 +285,7 @@ export async function getPublicMenu(slug: string, lang: MenuLang, tableId: strin
     db.select({ name: company.name, address: company.fiscalAddress, city: company.city, phone: company.phone, logo: company.logoDataUrl, currency: company.baseCurrencyCode }).from(company).where(eq(company.id, companyId)).limit(1),
     db.select().from(posMenuSection).where(and(eq(posMenuSection.companyId, companyId), eq(posMenuSection.isActive, true))).orderBy(asc(posMenuSection.position), asc(posMenuSection.name)),
     db
-      .select({ id: posMenuItem.id, itemId: posMenuItem.itemId, sectionId: posMenuItem.sectionId, position: posMenuItem.position, displayName: posMenuItem.displayName, nameEn: posMenuItem.nameEn, description: posMenuItem.description, descriptionEn: posMenuItem.descriptionEn, allergens: posMenuItem.allergens, tags: posMenuItem.tags, hasImage: sql<boolean>`${posMenuItem.image} is not null`, imageVersion: posMenuItem.imageVersion, soldOutDate: posMenuItem.soldOutDate })
+      .select({ id: posMenuItem.id, itemId: posMenuItem.itemId, sectionId: posMenuItem.sectionId, position: posMenuItem.position, displayName: posMenuItem.displayName, nameEn: posMenuItem.nameEn, description: posMenuItem.description, descriptionEn: posMenuItem.descriptionEn, allergens: posMenuItem.allergens, traces: posMenuItem.traces, reviewedAt: posMenuItem.allergensReviewedAt, tags: posMenuItem.tags, hasImage: sql<boolean>`${posMenuItem.image} is not null`, imageVersion: posMenuItem.imageVersion, soldOutDate: posMenuItem.soldOutDate })
       .from(posMenuItem)
       .where(and(eq(posMenuItem.companyId, companyId), eq(posMenuItem.visible, true))),
     listPosCatalog(companyId, null, false),
@@ -297,6 +306,8 @@ export async function getPublicMenu(slug: string, lang: MenuLang, tableId: strin
         description: localized(row.description, row.descriptionEn, lang),
         price: grossPrice(entry.unitPrice, entry.taxRate),
         allergens: row.allergens,
+        traces: row.traces,
+        reviewed: Boolean(row.reviewedAt),
         tags: row.tags,
         imageUrl: row.hasImage ? `/api/public/menu/image/${row.id}?v=${row.imageVersion}` : null,
         soldOut: row.soldOutDate === today.date,

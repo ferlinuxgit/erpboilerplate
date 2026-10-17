@@ -270,7 +270,7 @@ export function AppShell({ children }: AppShellProps) {
 
   if (isPublicRoute) return <div className="flex-1">{children}</div>;
   // Ticket del TPV para imprimir (80 mm): sin menú ni cabeceras.
-  if (pathname.startsWith("/pos/tickets/") || pathname === "/pos/menu/qr") return <div className="flex-1 bg-white">{children}</div>;
+  if (pathname.startsWith("/pos/tickets/") || pathname === "/pos/menu/qr" || pathname === "/pos/menu/alergenos") return <div className="flex-1 bg-white">{children}</div>;
   // Caja del TPV (vender, abrir, cerrar): pantalla de mostrador propia, sin el menú del ERP.
   if (isPosKioskRoute(pathname)) return <div className="flex-1">{children}</div>;
 

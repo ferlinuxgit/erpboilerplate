@@ -2262,6 +2262,10 @@ export const posMenuItem = pgTable("pos_menu_item", {
   descriptionEn: text("descriptionEn"),
   // Los 14 alérgenos del Reglamento (UE) 1169/2011 y etiquetas (vegano, picante…).
   allergens: jsonb("allergens").$type<string[]>().notNull().default([]),
+  // «Puede contener trazas de…» (contaminación cruzada).
+  traces: jsonb("traces").$type<string[]>().notNull().default([]),
+  // Cuándo se revisaron los alérgenos (null = sin revisar: la carta pide consultar al personal).
+  allergensReviewedAt: timestamp("allergensReviewedAt", { withTimezone: true, mode: "date" }),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
   // Foto comprimida (JPEG/WebP en data URL); se sirve por /api/public/menu/image/<id>.
   image: text("image"),

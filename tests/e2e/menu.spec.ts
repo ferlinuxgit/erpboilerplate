@@ -49,12 +49,24 @@ test("Carta digital: secciones desde categorías, ficha con alérgenos y foto, a
   await dialog.getByLabel("En inglés", { exact: true }).fill("Ham croquettes");
   await dialog.getByTestId("menu-allergen-GLUTEN").click();
   await dialog.getByTestId("menu-allergen-MILK").click();
+  // Sésamo: dos toques = puede contener trazas.
+  await dialog.getByTestId("menu-allergen-SESAME").click();
+  await dialog.getByTestId("menu-allergen-SESAME").click();
+  await expect(dialog.getByTestId("menu-allergen-SESAME")).toHaveAttribute("data-state", "traces");
+  // Marcarla vegana con lácteos avisa de la incoherencia.
+  await dialog.getByTestId("menu-tag-VEGAN").click();
+  await expect(dialog.getByTestId("menu-dish-conflicts")).toContainText("vegano pero lleva lácteos");
+  await dialog.getByTestId("menu-tag-VEGAN").click();
+  await expect(dialog.getByTestId("menu-dish-conflicts")).toHaveCount(0);
   await dialog.getByTestId("menu-tag-RECOMMENDED").click();
   await dialog.locator('input[type="file"]').setInputFiles({ name: "croquetas.png", mimeType: "image/png", buffer: PNG });
   await expect(page.getByText("Foto guardada.")).toBeVisible();
   await dialog.getByTestId("menu-dish-save").click();
   await expect(page.getByText("Ficha guardada.")).toBeVisible();
   await expect(page.getByTestId("menu-dish-Croquetas").locator("img")).toBeVisible();
+  // La caña sigue sin revisar: se avisa en la gestión.
+  await expect(page.getByTestId("menu-allergen-alert")).toContainText("1 plato de la carta sin revisar alérgenos");
+  await expect(page.getByTestId("menu-dish-Caña").getByTestId("menu-dish-unreviewed")).toBeVisible();
 
   // Menú del día con precio cerrado (sin platos todavía: se muestra igual con su precio).
   await page.getByTestId("menu-section-new").click();
@@ -83,16 +95,27 @@ test("Carta digital: secciones desde categorías, ficha con alérgenos y foto, a
   await expect(menu.getByTestId("public-menu-table")).toHaveText("Mesa 1");
   await expect(menu.getByTestId("public-menu-dish-Croquetas")).toContainText(/7,70/);
   await expect(menu.getByTestId("public-menu-dish-Croquetas")).toContainText("Gluten");
+  await expect(menu.getByTestId("public-menu-dish-Croquetas")).toContainText("Sésamo · trazas");
+  await expect(menu.getByTestId("public-menu-dish-Caña")).toContainText("Pregunta por sus alérgenos");
   await expect(menu.getByTestId("public-menu-dish-Caña").getByTestId("public-menu-sold-out")).toHaveText("Agotado");
   await expect(menu).toContainText(/14,50/);
   const photoLoaded = await menu.getByTestId("public-menu-dish-Croquetas").locator("img").evaluate((image: HTMLImageElement) => image.decode().then(() => image.naturalWidth > 0));
   expect(photoLoaded).toBe(true);
 
-  // Filtro sin gluten y búsqueda.
+  // Alergia al sésamo: las croquetas siguen, avisando de las trazas.
   await customer.getByTestId("public-menu-filters").click();
+  await customer.getByTestId("public-menu-without-SESAME").click();
+  await expect(menu.getByTestId("public-menu-dish-Croquetas")).toContainText("Puede contener trazas de: Sésamo");
+  // Celiaco: se ocultan; sin ocultar, se ven marcadas en rojo.
   await customer.getByTestId("public-menu-without-GLUTEN").click();
   await expect(menu.getByTestId("public-menu-dish-Croquetas")).toHaveCount(0);
   await expect(menu.getByTestId("public-menu-dish-Caña")).toBeVisible();
+  await customer.getByTestId("public-menu-hide").click();
+  await expect(menu.getByTestId("public-menu-dish-Croquetas").getByTestId("public-menu-warning")).toHaveText("Contiene: Gluten");
+  // Se recuerda en el móvil.
+  await customer.reload();
+  await expect(customer.getByTestId("public-menu-filters")).toContainText("(2)");
+  await customer.getByTestId("public-menu-filters").click();
   await customer.getByRole("button", { name: "Quitar filtros" }).click();
   await customer.getByTestId("public-menu-search").fill("jamon");
   await expect(menu.getByTestId("public-menu-dish-Croquetas")).toBeVisible();
@@ -104,6 +127,11 @@ test("Carta digital: secciones desde categorías, ficha con alérgenos y foto, a
   await expect(customer.getByTestId("public-menu-dish-Ham croquettes")).toBeVisible();
   await expect(customer.getByTestId("public-menu")).toContainText("Sold out");
   await guest.close();
+
+  // Tabla de alérgenos imprimible.
+  await page.goto("/pos/menu/alergenos");
+  await expect(page.getByTestId("allergen-matrix").getByRole("rowheader", { name: /Croquetas/ })).toBeVisible();
+  await expect(page.getByTestId("allergen-matrix").getByRole("img", { name: "Sésamo (trazas)" })).toBeVisible();
 
   // Hoja de QR: general + una por mesa.
   await page.goto("/pos/menu/qr");

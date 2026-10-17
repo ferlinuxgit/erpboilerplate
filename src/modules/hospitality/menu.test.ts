@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ALLERGENS, isSectionAvailable, localized, matchesFilters, pickLang, scheduleLabel } from "./menu";
+import { ALLERGENS, dietConflicts, dishWarnings, isSectionAvailable, localized, matchesFilters, pickLang, scheduleLabel } from "./menu";
 
 describe("carta digital", () => {
   it("tiene los 14 alérgenos oficiales sin repetir", () => {
@@ -35,6 +35,20 @@ describe("carta digital", () => {
     expect(scheduleLabel({ weekdays: [1, 2, 3, 4, 5], fromTime: "13:00", toTime: "16:00" }, "es")).toBe("lun–vie · 13:00–16:00");
     expect(scheduleLabel({ weekdays: [6, 0], fromTime: null, toTime: null }, "en")).toBe("Sat, Sun");
     expect(scheduleLabel({ weekdays: [], fromTime: null, toTime: null }, "es")).toBeNull();
+  });
+
+  it("detecta dietas incoherentes con los alérgenos", () => {
+    expect(dietConflicts(["EGGS", "GLUTEN"], ["VEGAN"])).toEqual(["Marcado vegano pero lleva huevos."]);
+    expect(dietConflicts(["MILK"], ["VEGETARIAN"])).toEqual([]);
+    expect(dietConflicts(["FISH"], ["VEGETARIAN"])[0]).toMatch(/vegetariano pero lleva pescado/);
+    expect(dietConflicts([], ["GLUTEN_FREE"], ["GLUTEN"])[0]).toMatch(/trazas de gluten/);
+    expect(dietConflicts(["MILK"], ["LACTOSE_FREE"])).toHaveLength(1);
+    expect(dietConflicts([], ["VEGAN", "GLUTEN_FREE"])).toEqual([]);
+  });
+
+  it("separa lo que contiene de las trazas según lo que evita el cliente", () => {
+    expect(dishWarnings({ allergens: ["GLUTEN"], traces: ["SESAME", "GLUTEN"] }, ["GLUTEN", "SESAME", "FISH"])).toEqual({ contains: ["GLUTEN"], traces: ["SESAME"] });
+    expect(dishWarnings({ allergens: [] }, ["FISH"])).toEqual({ contains: [], traces: [] });
   });
 
   it("filtra por alérgenos, dieta y texto", () => {

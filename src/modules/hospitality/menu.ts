@@ -4,34 +4,60 @@
  */
 
 /** Los 14 alérgenos de declaración obligatoria (Reglamento UE 1169/2011, anexo II). */
+// Cada alérgeno con su color (icono blanco sobre círculo de color, contraste ≥ 3:1) para
+// reconocerlo de un vistazo, como en las tablas de alérgenos de las cocinas.
 export const ALLERGENS = [
-  { id: "GLUTEN", es: "Gluten", en: "Gluten", icon: "🌾" },
-  { id: "CRUSTACEANS", es: "Crustáceos", en: "Crustaceans", icon: "🦐" },
-  { id: "EGGS", es: "Huevos", en: "Eggs", icon: "🥚" },
-  { id: "FISH", es: "Pescado", en: "Fish", icon: "🐟" },
-  { id: "PEANUTS", es: "Cacahuetes", en: "Peanuts", icon: "🥜" },
-  { id: "SOY", es: "Soja", en: "Soy", icon: "🫘" },
-  { id: "MILK", es: "Lácteos", en: "Milk", icon: "🥛" },
-  { id: "NUTS", es: "Frutos de cáscara", en: "Tree nuts", icon: "🌰" },
-  { id: "CELERY", es: "Apio", en: "Celery", icon: "🥬" },
-  { id: "MUSTARD", es: "Mostaza", en: "Mustard", icon: "🟡" },
-  { id: "SESAME", es: "Sésamo", en: "Sesame", icon: "⚪" },
-  { id: "SULPHITES", es: "Sulfitos", en: "Sulphites", icon: "🍷" },
-  { id: "LUPIN", es: "Altramuces", en: "Lupin", icon: "🌼" },
-  { id: "MOLLUSCS", es: "Moluscos", en: "Molluscs", icon: "🐚" },
+  { id: "GLUTEN", es: "Gluten", en: "Gluten", icon: "🌾", color: "#b45309" },
+  { id: "CRUSTACEANS", es: "Crustáceos", en: "Crustaceans", icon: "🦐", color: "#0e7490" },
+  { id: "EGGS", es: "Huevos", en: "Eggs", icon: "🥚", color: "#c2410c" },
+  { id: "FISH", es: "Pescado", en: "Fish", icon: "🐟", color: "#1d4ed8" },
+  { id: "PEANUTS", es: "Cacahuetes", en: "Peanuts", icon: "🥜", color: "#92400e" },
+  { id: "SOY", es: "Soja", en: "Soy", icon: "🫘", color: "#4d7c0f" },
+  { id: "MILK", es: "Lácteos", en: "Milk", icon: "🥛", color: "#0369a1" },
+  { id: "NUTS", es: "Frutos de cáscara", en: "Tree nuts", icon: "🌰", color: "#7c2d12" },
+  { id: "CELERY", es: "Apio", en: "Celery", icon: "🥬", color: "#15803d" },
+  { id: "MUSTARD", es: "Mostaza", en: "Mustard", icon: "🟡", color: "#a16207" },
+  { id: "SESAME", es: "Sésamo", en: "Sesame", icon: "⚪", color: "#57534e" },
+  { id: "SULPHITES", es: "Sulfitos", en: "Sulphites", icon: "🍷", color: "#7e22ce" },
+  { id: "LUPIN", es: "Altramuces", en: "Lupin", icon: "🌼", color: "#be185d" },
+  { id: "MOLLUSCS", es: "Moluscos", en: "Molluscs", icon: "🐚", color: "#0f766e" },
 ] as const;
 export type AllergenId = (typeof ALLERGENS)[number]["id"];
 export const ALLERGEN_IDS = ALLERGENS.map((allergen) => allergen.id) as AllergenId[];
 
+// Dietas primero (son lo que más se busca), luego destacados.
 export const MENU_TAGS = [
-  { id: "RECOMMENDED", es: "Recomendado", en: "Chef's pick", icon: "⭐" },
-  { id: "VEGETARIAN", es: "Vegetariano", en: "Vegetarian", icon: "🥕" },
-  { id: "VEGAN", es: "Vegano", en: "Vegan", icon: "🌱" },
-  { id: "SPICY", es: "Picante", en: "Spicy", icon: "🌶️" },
-  { id: "NEW", es: "Novedad", en: "New", icon: "✨" },
+  { id: "VEGAN", es: "Vegano", en: "Vegan", icon: "🌱", color: "#15803d", diet: true },
+  { id: "VEGETARIAN", es: "Vegetariano", en: "Vegetarian", icon: "🥕", color: "#4d7c0f", diet: true },
+  { id: "GLUTEN_FREE", es: "Apto celíacos", en: "Gluten free", icon: "🚫🌾", color: "#b45309", diet: true },
+  { id: "LACTOSE_FREE", es: "Sin lactosa", en: "Lactose free", icon: "🚫🥛", color: "#0369a1", diet: true },
+  { id: "SPICY", es: "Picante", en: "Spicy", icon: "🌶️", color: "#b91c1c", diet: false },
+  { id: "RECOMMENDED", es: "Recomendado", en: "Chef's pick", icon: "⭐", color: "#a16207", diet: false },
+  { id: "NEW", es: "Novedad", en: "New", icon: "✨", color: "#7e22ce", diet: false },
 ] as const;
 export type MenuTagId = (typeof MENU_TAGS)[number]["id"];
 export const MENU_TAG_IDS = MENU_TAGS.map((tag) => tag.id) as MenuTagId[];
+
+const ANIMAL: readonly string[] = ["FISH", "CRUSTACEANS", "MOLLUSCS"];
+
+/** Incoherencias entre alérgenos y dietas (p. ej. «vegano» con huevo), para avisar al rellenar la ficha. */
+export function dietConflicts(allergens: readonly string[], tags: readonly string[], traces: readonly string[] = []) {
+  const names = (ids: readonly string[]) => ids.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.es.toLowerCase() ?? id).join(", ");
+  const conflicts: string[] = [];
+  const animal = allergens.filter((id) => ANIMAL.includes(id));
+  const nonVegan = allergens.filter((id) => [...ANIMAL, "EGGS", "MILK"].includes(id));
+  if (tags.includes("VEGAN") && nonVegan.length > 0) conflicts.push(`Marcado vegano pero lleva ${names(nonVegan)}.`);
+  if (tags.includes("VEGETARIAN") && animal.length > 0) conflicts.push(`Marcado vegetariano pero lleva ${names(animal)}.`);
+  if (tags.includes("GLUTEN_FREE") && allergens.includes("GLUTEN")) conflicts.push("Marcado apto celíacos pero lleva gluten.");
+  if (tags.includes("GLUTEN_FREE") && traces.includes("GLUTEN")) conflicts.push("Marcado apto celíacos pero puede contener trazas de gluten.");
+  if (tags.includes("LACTOSE_FREE") && allergens.includes("MILK")) conflicts.push("Marcado sin lactosa pero lleva lácteos: revisa si es leche sin lactosa (sigue siendo alérgeno de la leche).");
+  return conflicts;
+}
+
+/** Qué hay en un plato de lo que el cliente no puede tomar. */
+export function dishWarnings(dish: { allergens: readonly string[]; traces?: readonly string[] }, avoid: readonly string[]) {
+  return { contains: avoid.filter((id) => dish.allergens.includes(id)), traces: avoid.filter((id) => !dish.allergens.includes(id) && (dish.traces ?? []).includes(id)) };
+}
 
 export type MenuLang = "es" | "en";
 
@@ -123,6 +149,18 @@ export const MENU_TEXT = {
     sections: "Secciones",
     unavailableTitle: "Carta no disponible",
     unavailableBody: "Este local no tiene la carta online activada ahora mismo.",
+    allergyQuestion: "¿Alergias o dieta?",
+    allergyHelp: "Toca lo que no puedes tomar. Lo recordamos en este móvil.",
+    hideConflicts: "Ocultar los platos que no puedo tomar",
+    contains: "Contiene",
+    mayContain: "Puede contener trazas de",
+    traces: "Trazas",
+    tracesHelp: "Icono con borde discontinuo: puede contener trazas.",
+    askAllergens: "Pregunta por sus alérgenos",
+    noAllergens: "Sin alérgenos declarados",
+    allergenTable: "Tabla de alérgenos",
+    dish: "Plato",
+    avoiding: "Evitas",
   },
   en: {
     menu: "Menu",
@@ -147,5 +185,17 @@ export const MENU_TEXT = {
     sections: "Sections",
     unavailableTitle: "Menu not available",
     unavailableBody: "This venue does not have its online menu enabled right now.",
+    allergyQuestion: "Allergies or diet?",
+    allergyHelp: "Tap what you can't eat. We'll remember it on this phone.",
+    hideConflicts: "Hide dishes I can't eat",
+    contains: "Contains",
+    mayContain: "May contain traces of",
+    traces: "Traces",
+    tracesHelp: "Dashed icon: may contain traces.",
+    askAllergens: "Ask staff about allergens",
+    noAllergens: "No declared allergens",
+    allergenTable: "Allergen chart",
+    dish: "Dish",
+    avoiding: "Avoiding",
   },
 } as const satisfies Record<MenuLang, Record<string, string>>;

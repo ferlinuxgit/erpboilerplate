@@ -34,6 +34,7 @@ export const menuItemSchema = z.object({
   description: text(400),
   descriptionEn: text(400),
   allergens: z.array(z.string()).max(14),
+  traces: z.array(z.string()).max(14).default([]),
   tags: z.array(z.string()).max(10),
 });
 
