@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { strToU8, zipSync } from "fflate";
 
+import { isSelfAssessedTreatment, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import type { TrialBalanceRow } from "@/server/accounting/statements-model";
 import type { VatRegisterRow } from "@/server/fiscal/spain";
 
@@ -203,18 +204,26 @@ export async function buildVatRegisterWorkbook(data: GestorPackageData, kind: "i
     { header: "NIF", key: "taxId", width: 14 },
     { header: "Tipo de operación", key: "treatment", width: 24 },
     { header: "Base imponible", key: "base", width: 16, style: { numFmt: MONEY_FORMAT } },
-    ...(kind === "received" ? [{ header: "Cuota soportada", key: "charged", width: 16, style: { numFmt: MONEY_FORMAT } }] : []),
+    ...(kind === "received" ? [
+      { header: "Cuota soportada", key: "charged", width: 16, style: { numFmt: MONEY_FORMAT } },
+      { header: "IVA autorrepercutido", key: "selfAssessed", width: 16, style: { numFmt: MONEY_FORMAT } },
+    ] : []),
     { header: kind === "issued" ? "IVA repercutido" : "IVA deducible", key: "tax", width: 16, style: { numFmt: MONEY_FORMAT } },
     { header: "Retención IRPF", key: "withholding", width: 16, style: { numFmt: MONEY_FORMAT } },
     { header: "Total factura", key: "total", width: 16, style: { numFmt: MONEY_FORMAT } },
   ]);
   const rows = kind === "issued" ? data.vatIssued : data.vatReceived;
-  const totals = { base: 0, charged: 0, tax: 0, withholding: 0, total: 0 };
+  const totals = { base: 0, charged: 0, selfAssessed: 0, tax: 0, withholding: 0, total: 0 };
   for (const row of rows) {
+    // Intracomunitaria / ISP: el proveedor no cobra IVA; la cuota la declara la empresa (devengado).
+    const quota = row.chargedTaxAmount ?? row.taxAmount;
+    const selfAssessed = kind === "received" && Boolean(row.vatTreatment) && isSelfAssessedTreatment(row.vatTreatment as SupplierVatTreatment);
+    const charged = selfAssessed ? 0 : quota;
     sheet.addRow({
       date: new Date(row.issueDate),
       registrationDate: new Date(row.registrationDate ?? row.issueDate),
-      charged: row.chargedTaxAmount ?? row.taxAmount,
+      charged,
+      selfAssessed: selfAssessed ? quota : null,
       number: row.number,
       supplierNumber: row.supplierNumber ?? "",
       name: row.counterpartyName,
@@ -226,12 +235,13 @@ export async function buildVatRegisterWorkbook(data: GestorPackageData, kind: "i
       total: row.totalAmount,
     });
     totals.base += row.taxBase;
-    totals.charged += row.chargedTaxAmount ?? row.taxAmount;
+    totals.charged += charged;
+    if (selfAssessed) totals.selfAssessed += quota;
     totals.tax += row.taxAmount;
     totals.withholding += row.withholdingAmount;
     totals.total += row.totalAmount;
   }
-  const total = sheet.addRow({ name: "Total", base: round2(totals.base), charged: round2(totals.charged), tax: round2(totals.tax), withholding: round2(totals.withholding), total: round2(totals.total) });
+  const total = sheet.addRow({ name: "Total", base: round2(totals.base), charged: round2(totals.charged), selfAssessed: round2(totals.selfAssessed), tax: round2(totals.tax), withholding: round2(totals.withholding), total: round2(totals.total) });
   total.font = { bold: true };
   return toBytes(workbook);
 }

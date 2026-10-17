@@ -92,6 +92,23 @@ describe("paquete para el gestor", () => {
     expect(rows[1].slice(1, 7)).toEqual(["F-2026/0001", "Cliente S.A.", "A87654321", "Nacional", 100, 21]);
   });
 
+  it("el libro de recibidas separa la cuota cobrada del IVA autorrepercutido (intracomunitarias e ISP)", async () => {
+    const received = (patch: Partial<GestorPackageData["vatReceived"][number]>) => ({
+      id: "r1", issueDate: "2026-02-12T00:00:00.000Z", registrationDate: "2026-02-12T00:00:00.000Z", number: "FP-2026/0001", supplierNumber: "A-1",
+      counterpartyName: "Suministros S.L.", counterpartyTaxId: "B12345674", vatTreatment: "DOMESTIC", taxBase: 100, taxAmount: 21, chargedTaxAmount: 21, withholdingAmount: 0, totalAmount: 121, ...patch,
+    });
+    const files = unzipSync((await buildGestorPackageZip(fixture({ vatReceived: [
+      received({}),
+      received({ id: "r2", number: "FP-2026/0002", counterpartyName: "Anthropic Ireland, Limited", counterpartyTaxId: "IE4276970QH", vatTreatment: "INTRA_EU", taxBase: 93.33, taxAmount: 19.6, chargedTaxAmount: 19.6, totalAmount: 93.33 }),
+    ] }))).bytes);
+    const rows = await readSheet(files[GESTOR_PACKAGE_FILES.vatReceived]);
+    const header = rows[0] as string[];
+    const value = (row: number, name: string) => rows[row][header.indexOf(name)] ?? null;
+    expect([value(1, "Cuota soportada"), value(1, "IVA autorrepercutido"), value(1, "IVA deducible")]).toEqual([21, null, 21]);
+    expect([value(2, "Base imponible"), value(2, "Cuota soportada"), value(2, "IVA autorrepercutido"), value(2, "IVA deducible"), value(2, "Total factura")]).toEqual([93.33, 0, 19.6, 19.6, 93.33]);
+    expect([value(3, "Cuota soportada"), value(3, "IVA autorrepercutido"), value(3, "IVA deducible")]).toEqual([21, 19.6, 40.6]);
+  });
+
   it("genera un nombre de fichero seguro", () => {
     expect(gestorPackageFileName("Ferretería Núñez S.L.", "1.º trimestre 2026")).toBe("paquete-gestor-ferreteria-nunez-s-l-1-trimestre-2026.zip");
   });
