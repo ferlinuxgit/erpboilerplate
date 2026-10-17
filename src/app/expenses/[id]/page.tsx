@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ExpenseDocumentAttach } from "@/components/expenses/expense-document-attach";
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import {
   invoicePaymentStatusTone,
   statusLabel,
 } from "@/lib/status-labels";
+import { missingDocumentJobIds } from "@/server/ocr/document-recovery";
 import { getExpenseInvoice } from "@/server/supplier-invoices/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -79,6 +81,9 @@ export default async function ExpenseDetailPage({
   if (!expense) notFound();
   const canManage = can(ctx.membership.role, "purchase.write") || can(ctx.membership.role, "expense.write");
   const currency = expense.currencyCode ?? ctx.company.baseCurrencyCode;
+  // Documentos cuyo archivo ya no está en el servidor (se perdieron en un despliegue sin volumen).
+  const missingDocuments = await missingDocumentJobIds(ctx.company.id, expense.id);
+  const isMissing = (fileUrl: string) => missingDocuments.has(/^\/api\/expenses\/ocr\/([^/]+)\/file$/.exec(fileUrl)?.[1] ?? "");
 
   return (
     <PageShell>
@@ -259,8 +264,11 @@ export default async function ExpenseDetailPage({
       </PageSection>
 
       <PageSection
+        actions={canManage ? <ExpenseDocumentAttach expenseId={expense.id} replacesMissing={missingDocuments.size > 0} /> : undefined}
         title="Adjuntos"
-        description="Documentos vinculados a la factura de proveedor."
+        description={missingDocuments.size > 0
+          ? "El documento de esta factura ya no está en el servidor. Vuelve a subirlo con «Reponer documento»: los enlaces y la exportación lo recuperan."
+          : "Documentos vinculados a la factura de proveedor."}
       >
         {expense.attachments.length === 0 ? (
           <EmptyState
@@ -280,7 +288,9 @@ export default async function ExpenseDetailPage({
                     {attachment.contentType ?? "Documento"}
                   </p>
                 </div>
-                {isSafeAttachmentUrl(attachment.fileUrl) ? (
+                {isMissing(attachment.fileUrl) ? (
+                  <StatusBadge tone="warning">Documento no disponible</StatusBadge>
+                ) : isSafeAttachmentUrl(attachment.fileUrl) ? (
                   <Link
                     className={buttonVariants({ variant: "outline", size: "sm" })}
                     href={attachment.fileUrl}

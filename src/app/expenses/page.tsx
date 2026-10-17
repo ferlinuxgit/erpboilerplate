@@ -4,13 +4,14 @@ import Link from "next/link";
 import { ExpenseExportDialog } from "@/components/expenses/expense-export-dialog";
 import { ExpenseInvoicesList } from "@/components/expenses/expense-invoices-list";
 import { buttonVariants } from "@/components/ui/button";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
 import { parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { toServerListState } from "@/server/lists/paginate";
+import { listMissingInvoiceDocuments } from "@/server/ocr/document-recovery";
 import { countExpenseInbox } from "@/server/ocr/expense-ocr";
 import { expenseInvoiceListConfig, listExpenseInvoicesPage, summarizeExpenseInvoices } from "@/server/supplier-invoices/list";
 
@@ -19,12 +20,13 @@ export const metadata: Metadata = { title: "Facturas de proveedor" };
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const ctx = await requireContext("expense.read");
   const params = parseListParams(await searchParams, expenseInvoiceListConfig);
-  const [result, summary, pendingInboxCount] = await Promise.all([
+  const canWriteExpenses = can(ctx.membership.role, "expense.write");
+  const [result, summary, pendingInboxCount, missingDocuments] = await Promise.all([
     listExpenseInvoicesPage(ctx.company.id, params),
     summarizeExpenseInvoices(ctx.company.id),
     countExpenseInbox(ctx.company.id),
+    canWriteExpenses ? listMissingInvoiceDocuments(ctx.company.id) : Promise.resolve([]),
   ]);
-  const canWriteExpenses = can(ctx.membership.role, "expense.write");
 
   return (
     <PageShell>
@@ -51,6 +53,13 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           </>
         }
       />
+
+      {missingDocuments.length > 0 ? (
+        <InlineAlert data-testid="missing-documents-alert" title={`${missingDocuments.length} ${missingDocuments.length === 1 ? "factura no tiene" : "facturas no tienen"} su documento en el servidor`} tone="warning">
+          Los datos están intactos, pero el PDF se perdió y no saldrá en la exportación para el asesor.{" "}
+          <Link className="font-bold text-link underline" href="/expenses/documents">Recuperar documentos</Link>
+        </InlineAlert>
+      ) : null}
 
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 max-md:[&>*:last-child]:col-span-2">
         <MetricCard label="Facturas activas" value={summary.activeCount} helper={summary.voidCount > 0 ? `${summary.voidCount} anuladas excluidas` : "Documentos recibidos"} />

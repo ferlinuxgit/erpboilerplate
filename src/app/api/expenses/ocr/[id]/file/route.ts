@@ -14,7 +14,10 @@ async function handleGET(_request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const job = await getExpenseOcrJob(ctx.company.id, id);
   if (!job) return NextResponse.json({ message: "Documento no encontrado." }, { status: 404 });
-  const data = await readExpenseOcrFile(job);
+  const data = await readExpenseOcrFile(job).catch(() => null);
+  if (!data) {
+    return NextResponse.json({ message: "El documento ya no está disponible en el servidor. Vuelve a adjuntarlo desde la ficha de la factura o en «Recuperar documentos»." }, { status: 404 });
+  }
   return new Response(data, {
     headers: {
       "Content-Type": job.contentType,
