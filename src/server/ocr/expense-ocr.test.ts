@@ -127,6 +127,75 @@ describe("expense OCR parser", () => {
     expect(draft.warnings.join(" ")).toMatch(/fecha de factura/);
   });
 
+  it("reads an EU supplier invoice with reverse charge: no Spanish VAT charged, payable is the base", () => {
+    // Texto tal como lo extrae pdf.js de una factura de Anthropic Ireland.
+    const draft = parseExpenseOcrText(`Page 1 of 1
+ Invoice
+ Invoice number   9BF0758D   6747155
+ Date of issue   September 24, 2026
+Date due   September 24, 2026
+ Anthropic Ireland, Limited
+ 6th Floor, South Bank House
+Dublin 4
+Ireland
+IE VAT IE4276970QH
+ Bill to
+ Fernando Nuñez Cavas
+30310 Cartagena Murcia
+ES NIF 23052472D
+ Reverse charge applies - Customer to account for tax under Article 196 of Directive 2006/112/EC.
+ Description   Qty   Unit price   Tax   Amount
+ Max plan - 20x
+1   €180.00   0%   €180.00
+ Unused time on Max plan - 5x after 24 Sep 2026
+1   0%     €86.67
+ Subtotal   €93.33
+Total   €93.33
+ Amount due   €93.33`, { ownTaxIds: ["23052472D"] });
+
+    expect(draft).toMatchObject({
+      supplierName: "Anthropic Ireland, Limited",
+      supplierTaxId: "IE4276970QH",
+      supplierCountryCode: "IE",
+      vatTreatment: "INTRA_EU",
+      issueDate: "2026-09-24T12:00:00.000Z",
+      dueDate: "2026-09-24T12:00:00.000Z",
+      subtotalAmount: 93.33,
+      totalAmount: 93.33,
+    });
+    expect(draft.lines[0]).toMatchObject({ unitPrice: 93.33, taxRate: 21 });
+    expect(draft.warnings.join(" ")).toMatch(/inversión del sujeto pasivo/);
+    expect(draft.confidence).not.toBe("high");
+  });
+
+  it("marks reverse charge from the wording even without a foreign VAT number", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Construcciones Ejemplo SL
+      CIF: B12345674
+      Factura: F-77
+      Fecha factura: 03/06/2026
+      Operación con inversión del sujeto pasivo (art. 84.Uno.2º LIVA)
+      Base imponible: 1000,00
+      Total factura: 1000,00
+    `);
+    expect(draft.supplierCountryCode).toBe("ES");
+    expect(draft.vatTreatment).toBe("REVERSE_CHARGE");
+  });
+
+  it("does not propose a VAT treatment for ordinary Spanish invoices", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Electricidad Ejemplo SL
+      CIF: B12345674
+      Factura: F-2026-001
+      Fecha factura: 03/06/2026
+      Base imponible: 100,00
+      IVA 21%: 21,00
+      Total factura: 121,00
+    `);
+    expect(draft.vatTreatment).toBeUndefined();
+    expect(draft.lines[0].taxRate).toBe(21);
+  });
+
   it("never reports high confidence when the VAT rate was assumed", () => {
     const draft = parseExpenseOcrText(`
       Proveedor: Gasolinera Repsol Norte SL

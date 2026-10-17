@@ -12,6 +12,7 @@ import { company, expenseIngestionBatch, expenseOcrJob } from "@/db/schema";
 import { suggestAccountCodeFromText } from "@/lib/account-aliases";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { EU_COUNTRY_CODES, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { deletePrivateObject, isObjectStorageConfigured, putPrivateObject, readPrivateObject } from "@/server/storage/s3";
 
@@ -45,6 +46,8 @@ export type ExpenseOcrDraft = {
   taxAmount?: number;
   retentionAmount?: number;
   totalAmount?: number;
+  /** Tratamiento de IVA propuesto (proveedor UE o factura con inversión del sujeto pasivo). */
+  vatTreatment?: SupplierVatTreatment;
   lines: ExpenseOcrDraftLine[];
   confidence: "high" | "medium" | "low";
   warnings: string[];
@@ -85,13 +88,28 @@ function normalizeMoney(value: string | null | undefined) {
   return Number.isFinite(parsed) ? Math.round((parsed + Number.EPSILON) * 100) / 100 : undefined;
 }
 
+const MONTHS: Record<string, number> = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+};
+
+/** Día, mes y año de "24/09/2026", "September 24, 2026" o "24 de septiembre de 2026". */
+function dateParts(value: string) {
+  const numeric = /(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/.exec(value);
+  if (numeric) return { day: Number(numeric[1]), month: Number(numeric[2]), year: numeric[3] };
+  const monthFirst = /([a-z]+)[ \t]+(\d{1,2}),?[ \t]+(\d{4})/i.exec(value);
+  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return { day: Number(monthFirst[2]), month: MONTHS[monthFirst[1].toLowerCase()], year: monthFirst[3] };
+  const dayFirst = /(\d{1,2})[ \t]+(?:de[ \t]+)?([a-z]+)[ \t]+(?:de[ \t]+)?(\d{4})/i.exec(value);
+  if (dayFirst && MONTHS[dayFirst[2].toLowerCase()]) return { day: Number(dayFirst[1]), month: MONTHS[dayFirst[2].toLowerCase()], year: dayFirst[3] };
+  return undefined;
+}
+
 function normalizeDate(value: string | null | undefined) {
   if (!value) return undefined;
-  const match = /(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/.exec(value);
-  if (!match) return undefined;
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]);
+  const parts = dateParts(value);
+  if (!parts) return undefined;
+  const { day, month } = parts;
+  const year = Number(parts.year.length === 2 ? `20${parts.year}` : parts.year);
   if (!day || !month || !year) return undefined;
   const date = new Date(Date.UTC(year, month - 1, day, 12));
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
@@ -142,14 +160,14 @@ function lastMatch(text: string, pattern: RegExp) {
 
 // Importe: no puede ir seguido de "%" (sería el tipo, no la cuota).
 const AMOUNT = String.raw`([-+]?\d[\d.,]*)(?![\d.,]*\s*%)`;
-const DATE = String.raw`(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})`;
+const DATE = String.raw`(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|[a-z]+[ \t]+\d{1,2},?[ \t]+\d{4}|\d{1,2}[ \t]+(?:de[ \t]+)?[a-z]+[ \t]+(?:de[ \t]+)?\d{4})`;
 // Número de documento en la misma línea que su etiqueta y con al menos un dígito
 // (evita capturar "Fecha" tras un título "FACTURA" o "simplificada" en "Factura simplificada").
 const DOCUMENT_NUMBER = String.raw`[ \t]*:?[ \t]*((?=[A-Z0-9./_-]*\d)[A-Z0-9][A-Z0-9./_-]{2,})`;
 const RATE = String.raw`(?:[ \t]*\(?[ \t]*\d{1,2}(?:[,.]\d+)?[ \t]*%[ \t]*\)?)?`;
 
 function inferSupplierName(lines: string[]) {
-  const ignored = /factura|invoice|ticket|recibo|fecha|nif|cif|total|base|iva/i;
+  const ignored = /factura|invoice|ticket|recibo|fecha|\bdate\b|nif|cif|total|base|iva|^(?:page|p[aá]gina)\b/i;
   return lines.find((line) => line.length >= 3 && line.length <= 80 && !ignored.test(line));
 }
 
@@ -170,6 +188,21 @@ function findTaxId(text: string, ownTaxIds: ReadonlySet<string>) {
   const matches = text.match(/[A-Z]\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*[0-9A-Z]|\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*\d\s*[-.]?\s*[A-Z]/gi) ?? [];
   return matches.map(normalizeSpanishTaxId).find(isSupplierCandidate);
 }
+
+/** NIF-IVA de otro país de la UE junto a su etiqueta ("IE VAT IE4276970QH", "VAT: DE123456789"). */
+function findForeignEuVatId(text: string) {
+  for (const match of text.matchAll(/\b(?:vat|iva|nif-iva|tva|ust-?id(?:nr)?)\b[ \t.:#-]*(?:n(?:o|º|°|umber)\.?[ \t:]*)?([A-Z]{2})[ \t]?([0-9A-Z]{8,12})\b/gi)) {
+    const prefix = match[1].toUpperCase();
+    const countryCode = prefix === "EL" ? "GR" : prefix;
+    if (countryCode !== "ES" && EU_COUNTRY_CODES.has(countryCode) && /\d/.test(match[2])) {
+      return { taxId: `${prefix}${match[2].toUpperCase()}`, countryCode };
+    }
+  }
+  return undefined;
+}
+
+// Factura sin IVA en la que el destinatario declara el impuesto (ISP / adquisición intracomunitaria).
+const REVERSE_CHARGE_TEXT = /reverse[ \t-]+charge|autoliquidaci[oó]n|inversi[oó]n[ \t]+del[ \t]+sujeto[ \t]+pasivo|art(?:icle|[ií]culo|\.)?[ \t]*196\b|steuerschuldnerschaft|autoliquidation/i;
 
 function findEmail(text: string) {
   return text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
@@ -195,7 +228,14 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
     /(?:raz[oó]n social)\s*:?\s*([^\n]+)/i,
   ]) ?? inferSupplierName(lines);
   const ownTaxIds = new Set((options.ownTaxIds ?? []).map(comparableTaxId).filter(Boolean));
-  const supplierTaxId = findTaxId(cleanText, ownTaxIds);
+  const spanishTaxId = findTaxId(cleanText, ownTaxIds);
+  const foreignVat = spanishTaxId ? undefined : findForeignEuVatId(cleanText);
+  const supplierTaxId = spanishTaxId ?? foreignVat?.taxId;
+  const supplierCountryCode = spanishTaxId ? "ES" : foreignVat?.countryCode;
+  // Proveedor de otro país de la UE o mención expresa de ISP: el proveedor no cobra IVA y la
+  // empresa lo autorepercute (devengado y soportado). Lo pagadero es la base.
+  const reverseChargeMentioned = REVERSE_CHARGE_TEXT.test(cleanText);
+  const vatTreatment: SupplierVatTreatment | undefined = foreignVat ? "INTRA_EU" : reverseChargeMentioned ? "REVERSE_CHARGE" : undefined;
   const supplierEmail = findEmail(cleanText);
   const supplierPhone = findPhone(cleanText);
   const supplierAddress = firstMatch(cleanText, [/(?:direcci[oó]n|domicilio|address)\s*:?\s*([^\n]+)/i]);
@@ -209,14 +249,14 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
   ]);
   // "Fecha:" a secas es la etiqueta más habitual; "Fecha vencimiento" / "Due date" no son la de emisión.
   const issueDate = normalizeDate(firstMatch(cleanText, [
-    new RegExp(String.raw`\b(?:fecha(?:[ \t]+de)?[ \t]+(?:factura|emisi[oó]n|expedici[oó]n)|issue date|invoice date)\s*:?\s*${DATE}`, "i"),
+    new RegExp(String.raw`\b(?:fecha(?:[ \t]+de)?[ \t]+(?:factura|emisi[oó]n|expedici[oó]n)|issue date|invoice date|date of issue)\s*:?\s*${DATE}`, "i"),
     new RegExp(String.raw`\b(?:fecha|(?<!due[ \t])date)\s*:?\s*${DATE}`, "i"),
   ]));
   const dueDate = normalizeDate(firstMatch(cleanText, [
-    new RegExp(String.raw`\b(?:fecha(?:[ \t]+de)?[ \t]+vencimiento|vencimiento|due date)\s*:?\s*${DATE}`, "i"),
+    new RegExp(String.raw`\b(?:fecha(?:[ \t]+de)?[ \t]+vencimiento|vencimiento|due date|date due)\s*:?\s*${DATE}`, "i"),
   ]));
   const subtotalAmount = normalizeMoney(firstMatch(cleanText, [
-    new RegExp(String.raw`\b(?:base imponible|subtotal|base)\b${RATE}\s*:?\s*${AMOUNT}`, "i"),
+    new RegExp(String.raw`\b(?:base imponible|subtotal|base)\b${RATE}\s*:?\s*(?:\(?(?:eur|€)\)?)?\s*${AMOUNT}`, "i"),
   ]));
   const taxAmount = normalizeMoney(firstMatch(cleanText, [
     new RegExp(String.raw`\b(?:iva|vat)\b${RATE}\s*:?\s*${AMOUNT}`, "i"),
@@ -229,7 +269,8 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
     firstMatch(cleanText, [new RegExp(String.raw`\b(?:total factura|importe total|total a pagar)\b\s*(?:\(?(?:eur|€)\)?)?\s*:?\s*${AMOUNT}`, "i")])
     ?? lastMatch(cleanText, new RegExp(String.raw`\btotal\b(?![ \t]*(?:iva|vat|impuestos|base|bruto|retenci))\s*(?:\(?(?:eur|€)\)?)?\s*:?\s*${AMOUNT}`, "i")),
   );
-  const detectedTaxRate = firstMatch(cleanText, [/\b(?:iva|vat)\b[ \t]*\(?[ \t]*(\d{1,2}(?:[,.]\d+)?)[ \t]*%/i]);
+  // En autorepercusión la factura trae 0 %: el tipo de la línea es el español que se autorepercute.
+  const detectedTaxRate = vatTreatment ? undefined : firstMatch(cleanText, [/\b(?:iva|vat)\b[ \t]*\(?[ \t]*(\d{1,2}(?:[,.]\d+)?)[ \t]*%/i]);
   const taxRate = Number(detectedTaxRate?.replace(",", ".") ?? 21);
   const retentionRate = Number(firstMatch(cleanText, [/\b(?:retenci[oó]n|irpf)\b[ \t]*\(?[ \t]*(\d{1,2}(?:[,.]\d+)?)[ \t]*%/i])?.replace(",", ".") ?? 0);
   const computedSubtotal = subtotalAmount ?? (totalAmount !== undefined && taxAmount !== undefined ? totalAmount - taxAmount + retentionAmount : undefined);
@@ -249,7 +290,8 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
   // de poder registrarse en bloque.
   const suggestedExpenseAccountCode = suggestAccountCodeFromText(cleanText);
   const taxRateAssumed = !detectedTaxRate || !Number.isFinite(taxRate);
-  if (taxRateAssumed) warnings.push("No se ha leído el tipo de IVA: se ha supuesto el 21 %. Compruébalo.");
+  if (vatTreatment) warnings.push("Factura sin IVA (inversión del sujeto pasivo): se autorepercute al 21 % y se paga solo la base. Comprueba el tipo.");
+  else if (taxRateAssumed) warnings.push("No se ha leído el tipo de IVA: se ha supuesto el 21 %. Compruébalo.");
   if (!suggestedExpenseAccountCode) warnings.push("No se ha podido deducir la cuenta de gasto: elígela antes de registrar.");
   const confidence = readingConfidence === "high" && (taxRateAssumed || !suggestedExpenseAccountCode) ? "medium" : readingConfidence;
   return {
@@ -261,7 +303,7 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
     supplierPostalCode,
     supplierCity,
     supplierProvince,
-    supplierCountryCode: supplierTaxId ? "ES" : undefined,
+    supplierCountryCode,
     supplierDocumentNumber,
     currencyCode: "EUR",
     issueDate,
@@ -270,6 +312,7 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
     taxAmount,
     retentionAmount,
     totalAmount,
+    vatTreatment,
     lines: [
       {
         description: supplierDocumentNumber ? `Factura ${supplierDocumentNumber}` : "Gasto OCR",
