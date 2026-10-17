@@ -1,5 +1,5 @@
 import type { Icon } from "@phosphor-icons/react";
-import { Bank, CashRegister, ClipboardText, FileText, Package, Scan, UsersFour } from "@phosphor-icons/react/dist/ssr";
+import { Bank, CashRegister, ClipboardText, FileText, ForkKnife, Package, Scan, UsersFour } from "@phosphor-icons/react/dist/ssr";
 
 import type { ModuleId } from "@/modules/registry";
 
@@ -11,6 +11,7 @@ const icons: Record<ModuleId, Icon> = {
   "invoice-reading": Scan,
   crm: UsersFour,
   pos: CashRegister,
+  hospitality: ForkKnife,
 };
 
 export function ModuleIcon({ id, className }: { id: ModuleId; className?: string }) {

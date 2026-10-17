@@ -111,6 +111,8 @@ export type RegisterInput = {
   cardBankAccountId?: string | null;
   simplifiedLimit: number;
   isActive?: boolean;
+  /** COUNTER (mostrador) o TABLES (hostelería: mesas con cuenta abierta). */
+  mode?: "COUNTER" | "TABLES";
 };
 
 function normalizeSeriesCode(value: string) {
@@ -141,6 +143,7 @@ export async function createRegister(actor: PosActor, input: RegisterInput) {
         cashPaymentMethodId: cash.id,
         cardPaymentMethodId,
         simplifiedLimit: money(input.simplifiedLimit),
+        mode: input.mode ?? "COUNTER",
       })
       .onConflictDoNothing()
       .returning({ id: posRegister.id });
@@ -174,6 +177,7 @@ export async function updateRegister(actor: PosActor, registerId: string, input:
         cardPaymentMethodId,
         simplifiedLimit: money(input.simplifiedLimit),
         isActive: input.isActive ?? current.isActive,
+        mode: input.mode ?? (current.mode as "COUNTER" | "TABLES"),
         updatedAt: new Date(),
       })
       .where(eq(posRegister.id, registerId));
@@ -203,6 +207,7 @@ export async function listRegisters(companyId: string) {
       cardBankAccountId: paymentMethod.bankAccountId,
       simplifiedLimit: posRegister.simplifiedLimit,
       isActive: posRegister.isActive,
+      mode: posRegister.mode,
     })
     .from(posRegister)
     .leftJoin(warehouse, eq(warehouse.id, posRegister.warehouseId))
@@ -216,7 +221,7 @@ export async function listRegisters(companyId: string) {
         .leftJoin(user, eq(user.id, posSession.openedByUserId))
         .where(and(eq(posSession.companyId, companyId), eq(posSession.status, "OPEN")))
     : [];
-  return rows.map((row) => ({ ...row, simplifiedLimit: num(row.simplifiedLimit), openSession: open.find((session) => session.registerId === row.id) ?? null }));
+  return rows.map((row) => ({ ...row, mode: row.mode as "COUNTER" | "TABLES", simplifiedLimit: num(row.simplifiedLimit), openSession: open.find((session) => session.registerId === row.id) ?? null }));
 }
 
 async function loadRegister(client: DbClient, companyId: string, registerId: string) {
@@ -345,6 +350,8 @@ export type SessionSummary = {
   refunds: { count: number; total: number; cash: number; card: number };
   cashIn: number;
   cashOut: number;
+  /** Propinas cobradas con tarjeta (no son venta: se deben al personal). */
+  tips: number;
   openingCash: number;
   expectedCash: number;
   /** Ventas netas (ventas − devoluciones) por tipo de IVA. */
@@ -357,7 +364,7 @@ export async function computeSessionSummary(companyId: string, sessionId: string
   const [session] = await client.select().from(posSession).where(and(eq(posSession.id, sessionId), eq(posSession.companyId, companyId))).limit(1);
   if (!session) throw new HttpError(404, "Sesión de caja no encontrada.");
   const [tickets, movements] = await Promise.all([
-    client.select({ kind: posTicket.kind, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount }).from(posTicket).where(eq(posTicket.sessionId, sessionId)),
+    client.select({ kind: posTicket.kind, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, tipAmount: posTicket.tipAmount }).from(posTicket).where(eq(posTicket.sessionId, sessionId)),
     client.select({ type: posCashMovement.type, amount: posCashMovement.amount }).from(posCashMovement).where(eq(posCashMovement.sessionId, sessionId)),
   ]);
   const sum = (rows: typeof tickets, key: "totalAmount" | "cashAmount" | "cardAmount") => centsToNumber(rows.reduce((total, row) => total + amountToCents(num(row[key])), 0));
@@ -414,6 +421,7 @@ export async function computeSessionSummary(companyId: string, sessionId: string
     refunds: refundSummary,
     cashIn,
     cashOut,
+    tips: centsToNumber(tickets.reduce((total, ticket) => total + amountToCents(num(ticket.tipAmount)), 0)),
     openingCash,
     expectedCash: expectedCash({ openingCash, cashSales: salesSummary.cash, cashRefunds: refundSummary.cash, cashIn, cashOut }),
     taxBreakdown: [...breakdown.entries()].map(([rate, value]) => ({ rate, base: centsToNumber(value.baseCents), tax: centsToNumber(value.taxCents) })).sort((a, b) => b.rate - a.rate),
@@ -508,6 +516,18 @@ export type SaleInput = {
   clientRequestId: string;
 };
 
+/** Opciones de la venta cuando la cobra una cuenta de mesa (hostelería). */
+export type SaleOptions = {
+  orderId?: string;
+  /** El stock de una cuenta de mesa sale al cerrarla, no en cada parte. */
+  skipStock?: boolean;
+  /** Propina con tarjeta: no es venta; se apunta banco a 465 (se debe al personal). */
+  tipAmount?: number;
+  waiterUserId?: string | null;
+  /** Se ejecuta dentro de la transacción de la venta (p. ej. marcar lo cobrado de la cuenta). */
+  onIssued?: (tx: DbClient, sale: { ticketId: string; invoiceId: string; number: string; total: number }) => Promise<void>;
+};
+
 export type SaleResult = { ticketId: string; invoiceId: string; number: string; total: number; change: number; warnings: string[] };
 
 /**
@@ -515,7 +535,7 @@ export type SaleResult = { ticketId: string; invoiceId: string; number: string; 
  * con su serie de tickets, asiento y registro VeriFactu; cobros en efectivo/tarjeta (caja 570 y banco);
  * salida de stock del almacén de la caja (si hay inventario) y el ticket en la sesión abierta.
  */
-export async function createSale(actor: PosActor, input: SaleInput): Promise<SaleResult> {
+export async function createSale(actor: PosActor, input: SaleInput, options: SaleOptions = {}): Promise<SaleResult> {
   const [previous] = await db
     .select({ id: posTicket.id, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, changeGiven: posTicket.changeGiven, number: invoice.number })
     .from(posTicket)
@@ -600,8 +620,30 @@ export async function createSale(actor: PosActor, input: SaleInput): Promise<Sal
       await registerInvoicePayment(paymentActor, { invoiceId: issued.id, amountApplied: input.payment.card, postedAt: now, paymentMethodId: register.cardPaymentMethodId, reference: `Ticket ${issued.number} (tarjeta)`, origin: "pos" }, tx);
     }
 
-    if (inventoryEnabled && register.warehouseId) {
+    if (inventoryEnabled && register.warehouseId && !options.skipStock) {
       await moveStock(tx, actor.companyId, register.warehouseId, resolved, "OUT", `pos-ticket:${issued.id}`, `Venta TPV ${issued.number}`, warnings);
+    }
+
+    const tip = Math.round((options.tipAmount ?? 0) * 100) / 100;
+    if (tip > 0) {
+      if (!(input.payment.card > 0) || !register.cardPaymentMethodId) throw new HttpError(400, "La propina solo se registra cuando se cobra con tarjeta.");
+      const bankLedgerId = await resolveBankLedgerAccountId(tx, actor.companyId, { paymentMethodId: register.cardPaymentMethodId });
+      if (!bankLedgerId) throw new HttpError(422, "El banco de la tarjeta no tiene cuenta contable: asígnasela en Tesorería → Cuentas bancarias.");
+      const staffAccount = await ensureSubaccount(actor.companyId, "465", tx);
+      await createAutomaticEntry({
+        tenantId: actor.tenantId,
+        companyId: actor.companyId,
+        actorUserId: actor.actorUserId,
+        postedAt: now,
+        reference: `Propina ticket ${issued.number}`,
+        dbClient: tx,
+        action: "accounting.autopost.posTip",
+        entityName: "pos_tip",
+        entityId: issued.id,
+        sourceType: "pos_tip",
+        sourceId: issued.id,
+        lines: [{ accountId: bankLedgerId, debit: money(tip), credit: 0 }, { accountId: staffAccount.id, debit: 0, credit: money(tip) }],
+      });
     }
 
     const [ticket] = await tx
@@ -617,9 +659,13 @@ export async function createSale(actor: PosActor, input: SaleInput): Promise<Sal
         cashReceived: input.payment.cash > 0 ? money(input.payment.cashReceived ?? input.payment.cash) : null,
         changeGiven: input.payment.cash > 0 ? money(paymentCheck.change) : null,
         clientRequestId: input.clientRequestId,
+        orderId: options.orderId ?? null,
+        tipAmount: money(tip),
+        waiterUserId: options.waiterUserId ?? null,
         createdByUserId: actor.actorUserId,
       })
       .returning({ id: posTicket.id });
+    if (options.onIssued) await options.onIssued(tx, { ticketId: ticket.id, invoiceId: issued.id, number: issued.number, total });
     await recordAudit({
       tenantId: actor.tenantId,
       companyId: actor.companyId,
@@ -635,7 +681,7 @@ export async function createSale(actor: PosActor, input: SaleInput): Promise<Sal
 }
 
 /** Salida (venta) o entrada (devolución) de stock de los artículos con control de stock. */
-async function moveStock(
+export async function moveStock(
   client: DbClient,
   companyId: string,
   warehouseId: string,
@@ -1031,7 +1077,7 @@ export async function getTicketPrint(companyId: string, invoiceId: string) {
   if (!row || !row.issuedAt) return null;
   const [lines, [ticket], [original]] = await Promise.all([
     loadStoredLines(db, invoiceId),
-    db.select({ kind: posTicket.kind, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, cashReceived: posTicket.cashReceived, changeGiven: posTicket.changeGiven, registerName: posRegister.name })
+    db.select({ kind: posTicket.kind, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, cashReceived: posTicket.cashReceived, changeGiven: posTicket.changeGiven, tipAmount: posTicket.tipAmount, registerName: posRegister.name })
       .from(posTicket)
       .innerJoin(posSession, eq(posSession.id, posTicket.sessionId))
       .innerJoin(posRegister, eq(posRegister.id, posSession.registerId))
@@ -1050,7 +1096,7 @@ export async function getTicketPrint(companyId: string, invoiceId: string) {
       total: totals.totalAmount,
       breakdown: totals.taxBuckets.filter((bucket) => bucket.operation === "ADD").map((bucket) => ({ rate: bucket.rate, base: bucket.baseAmount, tax: bucket.amount })),
     },
-    payment: ticket ? { kind: ticket.kind, cash: num(ticket.cashAmount), card: num(ticket.cardAmount), cashReceived: ticket.cashReceived === null ? null : num(ticket.cashReceived), change: ticket.changeGiven === null ? null : num(ticket.changeGiven), registerName: ticket.registerName } : null,
+    payment: ticket ? { kind: ticket.kind, cash: num(ticket.cashAmount), card: num(ticket.cardAmount), cashReceived: ticket.cashReceived === null ? null : num(ticket.cashReceived), change: ticket.changeGiven === null ? null : num(ticket.changeGiven), tip: num(ticket.tipAmount), registerName: ticket.registerName } : null,
     originalNumber: original?.number ?? null,
     verifactu: verifactuInfo ? { svg: await getInvoiceVerifactuQrSvg(verifactuInfo), legends: verifactuInfo.legends } : null,
   };

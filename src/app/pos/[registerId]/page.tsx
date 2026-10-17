@@ -1,19 +1,21 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { FloorScreen } from "@/components/hospitality/floor-screen";
 import { KioskBar } from "@/components/pos/kiosk-bar";
 import { OpenRegisterPanel } from "@/components/pos/open-register-panel";
 import { PosTerminal } from "@/components/pos/pos-terminal";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { isModuleEnabled } from "@/server/modules/service";
+import { getFloor } from "@/server/pos/hospitality";
 import { getOpenSession, listBankAccountOptions, listPosCatalog, listRegisters, listSessionTickets } from "@/server/pos/service";
 
 export const metadata: Metadata = { title: "TPV · Vender" };
 
-export default async function PosRegisterPage({ params }: { params: Promise<{ registerId: string }> }) {
+export default async function PosRegisterPage({ params, searchParams }: { params: Promise<{ registerId: string }>; searchParams: Promise<{ counter?: string }> }) {
   const ctx = await requireContext("pos.sell");
-  const { registerId } = await params;
+  const [{ registerId }, query] = await Promise.all([params, searchParams]);
   const register = (await listRegisters(ctx.company.id)).find((entry) => entry.id === registerId);
   if (!register) notFound();
   const session = await getOpenSession(ctx.company.id, register.id);
@@ -25,6 +27,11 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
       </div>
     );
   }
+  // Bar o restaurante: el plano de mesas es la pantalla principal (con «Mostrador» para venta directa).
+  const tablesMode = register.mode === "TABLES" && (await isModuleEnabled(ctx.company.id, "hospitality"));
+  if (tablesMode && query.counter !== "1") {
+    return <FloorScreen canManage={can(ctx.membership.role, "pos.manage")} currencyCode={ctx.company.baseCurrencyCode} initial={JSON.parse(JSON.stringify(await getFloor(ctx.company.id, register.id)))} registerId={register.id} registerName={register.name} />;
+  }
   const inventoryEnabled = await isModuleEnabled(ctx.company.id, "inventory");
   const [catalog, tickets, bankAccounts] = await Promise.all([
     listPosCatalog(ctx.company.id, register.warehouseId, inventoryEnabled),
@@ -33,6 +40,7 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
   ]);
   return (
     <PosTerminal
+      backHref={tablesMode ? `/pos/${register.id}` : undefined}
         bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name }))}
         canManage={can(ctx.membership.role, "pos.manage")}
         catalog={catalog}

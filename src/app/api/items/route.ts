@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { requirePermission } from "@/lib/rbac-server";
 import { recordAudit } from "@/server/audit";
+import { assertItemRefs } from "@/server/inventory/item-options";
 
 const itemPayloadSchema = z.object({
   name: z.string().trim().min(1, "El nombre es obligatorio."),
@@ -15,6 +16,8 @@ const itemPayloadSchema = z.object({
   salePrice: z.coerce.number().nonnegative().default(0),
   costPrice: z.coerce.number().nonnegative().default(0),
   minimumStock: z.coerce.number().nonnegative().default(0),
+  categoryId: z.string().trim().nullable().optional(),
+  defaultTaxId: z.string().trim().nullable().optional(),
 });
 
 export async function GET() {
@@ -46,7 +49,8 @@ async function createItem(request: Request) {
   const parsed = itemPayloadSchema.safeParse(payload);
   if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
   const created = await db.transaction(async (tx) => {
-    const [row] = await tx.insert(item).values({ companyId: ctx.company.id, name: parsed.data.name, sku: parsed.data.sku, isService: parsed.data.isService, salePrice: parsed.data.salePrice.toFixed(2), costPrice: parsed.data.costPrice.toFixed(2), averageCost: parsed.data.costPrice.toFixed(2), minimumStock: parsed.data.minimumStock.toFixed(3) }).returning();
+    await assertItemRefs(tx, ctx.company.id, parsed.data);
+    const [row] = await tx.insert(item).values({ companyId: ctx.company.id, name: parsed.data.name, sku: parsed.data.sku, isService: parsed.data.isService, salePrice: parsed.data.salePrice.toFixed(2), costPrice: parsed.data.costPrice.toFixed(2), averageCost: parsed.data.costPrice.toFixed(2), minimumStock: parsed.data.minimumStock.toFixed(3), categoryId: parsed.data.categoryId || null, defaultTaxId: parsed.data.defaultTaxId || null }).returning();
     await recordAudit({ tenantId: ctx.tenant.id, companyId: ctx.company.id, actorUserId: user.id, action: "item.create", entityName: "item", entityId: row.id, payload: parsed.data }, tx);
     return row;
   });

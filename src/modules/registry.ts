@@ -14,7 +14,7 @@
 
 import type { BusinessType } from "@/lib/company-readiness";
 
-export const MODULE_IDS = ["sales-documents", "purchase-orders", "inventory", "banking", "invoice-reading", "crm", "pos"] as const;
+export const MODULE_IDS = ["sales-documents", "purchase-orders", "inventory", "banking", "invoice-reading", "crm", "pos", "hospitality"] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 
 export type ModuleCategory = "Ventas" | "Compras y gastos" | "Operaciones" | "Finanzas";
@@ -116,6 +116,18 @@ export const MODULES: readonly ModuleManifest[] = [
     category: "Ventas",
     href: "/pos",
     routes: ["/pos", "/api/pos"],
+    defaultEnabled: () => false,
+    isNew: true,
+  },
+  {
+    id: "hospitality",
+    name: "Hostelería (mesas)",
+    description: "Para bares y restaurantes: mesas con cuenta abierta, comandas a cocina y barra y cuenta dividida.",
+    features: ["Plano de salas y mesas", "Cuentas abiertas en varios dispositivos", "Comandas a cocina y barra (pantalla e impresión)", "Dividir la cuenta, propinas y camareros con PIN"],
+    category: "Ventas",
+    href: "/pos",
+    routes: ["/pos/kitchen", "/api/pos/hospitality"],
+    dependsOn: ["pos"],
     defaultEnabled: () => false,
     isNew: true,
   },

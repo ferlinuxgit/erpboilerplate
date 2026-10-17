@@ -7,7 +7,8 @@ describe("module registry", () => {
     expect(MODULES.map((manifest) => manifest.id)).toEqual([...MODULE_IDS]);
     for (const manifest of MODULES) {
       expect(manifest.routes.length).toBeGreaterThan(0);
-      expect(moduleForPath(manifest.href)?.id, manifest.id).toBe(manifest.id);
+      // La página principal es del módulo o de uno del que depende (Hostelería se usa desde el TPV).
+      expect([manifest.id, ...(manifest.dependsOn ?? [])], manifest.id).toContain(moduleForPath(manifest.href)?.id);
     }
   });
 
@@ -20,6 +21,8 @@ describe("module registry", () => {
     expect(moduleForPath("/expenses/inbox")?.id).toBe("invoice-reading");
     expect(moduleForPath("/crm/opportunities")?.id).toBe("crm");
     expect(moduleForPath("/api/pos/sessions")?.id).toBe("pos");
+    expect(moduleForPath("/pos/kitchen")?.id).toBe("hospitality");
+    expect(moduleForPath("/api/pos/hospitality/orders")?.id).toBe("hospitality");
     for (const core of ["/invoices", "/expenses", "/expenses/new", "/api/expenses", "/accounting", "/fiscal", "/settings", "/settings/modules", "/modules/crm", "/dashboard", "/customers", "/purchases/payments"]) {
       expect(moduleForPath(core), core).toBeNull();
     }
@@ -46,6 +49,11 @@ describe("module registry", () => {
   it("checks dependencies both ways", () => {
     expect(missingDependencies("crm", [])).toEqual([]);
     expect(activeDependents("inventory", ["inventory", "pos"])).toEqual([]);
+    // Hostelería necesita el TPV: no se activa sin él ni deja desactivarlo mientras se usa.
+    expect(missingDependencies("hospitality", []).map((entry) => entry.id)).toEqual(["pos"]);
+    expect(activeDependents("pos", ["pos", "hospitality"]).map((entry) => entry.id)).toEqual(["hospitality"]);
+    expect(resolveEnabledModules([{ moduleId: "hospitality", enabled: true }], "both")).not.toContain("hospitality");
+    expect(resolveEnabledModules([{ moduleId: "hospitality", enabled: true }, { moduleId: "pos", enabled: true }], "both")).toContain("hospitality");
   });
 
   it("shows tagged entries only when the module is enabled (or still unknown)", () => {

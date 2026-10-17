@@ -3,11 +3,13 @@ import type { Metadata } from "next";
 import { ItemForm } from "@/components/inventory/item-form";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
+import { listItemFormOptions } from "@/server/inventory/item-options";
 
 export const metadata: Metadata = { title: "Nuevo artículo" };
 
 export default async function NewItemPage() {
-  await requireContext("stock.write");
+  const ctx = await requireContext("stock.write");
+  const options = await listItemFormOptions(ctx.company.id);
 
   return (
     <PageShell>
@@ -21,7 +23,7 @@ export default async function NewItemPage() {
         ]}
       />
       <PageSection title="Datos del artículo" description="El SKU identifica el artículo en documentos, movimientos e informes.">
-        <ItemForm />
+        <ItemForm options={options} />
       </PageSection>
     </PageShell>
   );

@@ -111,6 +111,8 @@ test.describe("keyboard-only mobile drawer operation", () => {
   test("opens, traverses and closes mobile navigation from the keyboard", async ({ page }) => {
     await registerAndSignIn(page, `Keyboard Mobile E2E ${Date.now()}`);
     await page.goto("/customers");
+    // Los atajos se registran al hidratar: con la batería completa en marcha puede tardar.
+    await page.waitForLoadState("networkidle");
 
     await page.keyboard.press("Alt+Shift+Digit1");
     const drawer = page.getByRole("dialog", { name: "Navegación principal" });

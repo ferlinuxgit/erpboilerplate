@@ -7,10 +7,13 @@ import { toast } from "sonner";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { MoneyInput, QuantityInput } from "@/components/ui/number-input";
+import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { parseDecimalInput } from "@/lib/format";
+import { formatMoney, parseDecimalInput } from "@/lib/format";
 
-export type ItemFormValues = { name: string; sku: string; isService: boolean; salePrice: string; costPrice: string; minimumStock: string };
+export type ItemFormValues = { name: string; sku: string; isService: boolean; salePrice: string; costPrice: string; minimumStock: string; categoryId?: string; defaultTaxId?: string };
+
+export type ItemFormOptions = { categories: Array<{ id: string; name: string }>; taxes: Array<{ id: string; name: string; rate: number }> };
 type ItemFieldErrors = Partial<Record<"name" | "sku" | "salePrice" | "costPrice" | "minimumStock", string>>;
 
 const defaults: ItemFormValues = { name: "", sku: "", isService: false, salePrice: "0", costPrice: "0", minimumStock: "0" };
@@ -19,7 +22,7 @@ function parseMoney(raw: string) {
   return parseDecimalInput(raw, { maximumFractionDigits: 2 });
 }
 
-export function ItemForm({ id, initialValues = defaults }: { id?: string; initialValues?: ItemFormValues }) {
+export function ItemForm({ id, initialValues = defaults, options = { categories: [], taxes: [] } }: { id?: string; initialValues?: ItemFormValues; options?: ItemFormOptions }) {
   const router = useRouter();
   const [values, setValues] = useState(initialValues);
   const [loading, setLoading] = useState(false);
@@ -58,6 +61,8 @@ export function ItemForm({ id, initialValues = defaults }: { id?: string; initia
           salePrice: parseMoney(values.salePrice) ?? 0,
           costPrice: parseMoney(values.costPrice) ?? 0,
           minimumStock: parseDecimalInput(values.minimumStock) ?? 0,
+          categoryId: values.categoryId || null,
+          defaultTaxId: values.defaultTaxId || null,
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar el artículo."));
@@ -84,7 +89,11 @@ export function ItemForm({ id, initialValues = defaults }: { id?: string; initia
         <AccessibleField error={fieldErrors.sku} helperText="Código interno único; se muestra en documentos y movimientos." id="item-sku" label="SKU" required>
           <Input id="item-sku" className="font-mono" onChange={(event) => set("sku", event.target.value.toUpperCase())} required value={values.sku} />
         </AccessibleField>
-        <AccessibleField error={fieldErrors.salePrice} helperText="Precio sin impuestos." id="item-sale-price" label="Precio de venta" required>
+        <AccessibleField error={fieldErrors.salePrice} helperText={(() => {
+          const net = parseMoney(values.salePrice);
+          const rate = options.taxes.find((entry) => entry.id === values.defaultTaxId)?.rate;
+          return net !== null && rate !== undefined ? `Precio sin impuestos. Con IVA: ${formatMoney(Math.round(net * (1 + rate / 100) * 100) / 100)}.` : "Precio sin impuestos.";
+        })()} id="item-sale-price" label="Precio de venta" required>
           <MoneyInput id="item-sale-price" onChange={(event) => set("salePrice", event.target.value)} required value={values.salePrice} />
         </AccessibleField>
         <AccessibleField error={fieldErrors.costPrice} helperText="Coste unitario orientativo para márgenes." id="item-cost-price" label="Coste de referencia" required>
@@ -98,6 +107,18 @@ export function ItemForm({ id, initialValues = defaults }: { id?: string; initia
           required={!values.isService}
         >
           <QuantityInput id="item-minimum-stock" disabled={values.isService} onChange={(event) => set("minimumStock", event.target.value)} required={!values.isService} value={values.minimumStock} />
+        </AccessibleField>
+        <AccessibleField helperText="Agrupa el catálogo (también en el TPV) y decide si va a cocina o barra en hostelería." id="item-category" label="Categoría">
+          <Select id="item-category" onChange={(event) => set("categoryId", event.target.value)} value={values.categoryId ?? ""}>
+            <option value="">Sin categoría</option>
+            {options.categories.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </Select>
+        </AccessibleField>
+        <AccessibleField helperText="Tipo de IVA al venderlo (p. ej. 10 % en hostelería y alimentación). Sin indicar: el de la empresa." id="item-tax" label="IVA">
+          <Select id="item-tax" onChange={(event) => set("defaultTaxId", event.target.value)} value={values.defaultTaxId ?? ""}>
+            <option value="">El de la empresa</option>
+            {options.taxes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} ({entry.rate.toLocaleString("es-ES")} %)</option>)}
+          </Select>
         </AccessibleField>
         <label className="flex cursor-pointer items-center gap-2 self-end border border-window-dark-shadow bg-window-panel p-2.5 font-mono text-xs font-bold shadow-bevel-top" htmlFor="item-is-service">
           <input checked={values.isService} id="item-is-service" onChange={(event) => set("isService", event.target.checked)} type="checkbox" />

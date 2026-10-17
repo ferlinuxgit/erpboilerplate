@@ -10,6 +10,7 @@ export const registerSchema = z.object({
   cardBankAccountId: z.string().trim().nullable().optional(),
   simplifiedLimit: z.number().min(0).max(3000, "El límite de la factura simplificada no puede superar 3.000 €.").default(400),
   isActive: z.boolean().optional(),
+  mode: z.enum(["COUNTER", "TABLES"]).optional(),
 });
 
 export const openSchema = z.object({ openingCash: amount });

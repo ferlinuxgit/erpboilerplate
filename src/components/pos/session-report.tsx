@@ -5,6 +5,7 @@ export type SessionSummaryView = {
   refunds: { count: number; total: number; cash: number; card: number };
   cashIn: number;
   cashOut: number;
+  tips?: number;
   openingCash: number;
   expectedCash: number;
   taxBreakdown: Array<{ rate: number; base: number; tax: number }>;
@@ -24,6 +25,7 @@ export function SessionReport({ compact = false, countedCash, currencyCode, diff
         <dt className="pl-2 text-muted-foreground">Con tarjeta</dt><dd className="text-right font-mono">{money(summary.sales.card)}</dd>
         <dt>Devoluciones ({summary.refunds.count})</dt><dd className="text-right font-mono">−{money(summary.refunds.total)}</dd>
         <dt className="font-bold">Ventas netas</dt><dd className="text-right font-mono font-bold" data-testid="pos-net-total">{money(summary.netTotal)}</dd>
+        {summary.tips ? <><dt className="text-muted-foreground">Propinas con tarjeta (aparte)</dt><dd className="text-right font-mono" data-testid="pos-tips">{money(summary.tips)}</dd></> : null}
       </dl>
       <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 border border-window-shadow p-2 text-sm">
         <dt className="col-span-2 font-mono text-xs font-bold uppercase">Efectivo en caja</dt>

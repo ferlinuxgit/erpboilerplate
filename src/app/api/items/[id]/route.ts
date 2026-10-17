@@ -7,8 +7,19 @@ import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
 import { requirePermission } from "@/lib/rbac-server";
 import { recordAudit } from "@/server/audit";
+import { assertItemRefs } from "@/server/inventory/item-options";
 
-const payloadSchema = z.object({ name: z.string().trim().min(1), sku: z.string().trim().min(1), isService: z.boolean(), salePrice: z.coerce.number().nonnegative(), costPrice: z.coerce.number().nonnegative(), minimumStock: z.coerce.number().nonnegative() });
+const payloadSchema = z.object({
+  name: z.string().trim().min(1),
+  sku: z.string().trim().min(1),
+  isService: z.boolean(),
+  salePrice: z.coerce.number().nonnegative(),
+  costPrice: z.coerce.number().nonnegative(),
+  minimumStock: z.coerce.number().nonnegative(),
+  // Sin indicar: no se cambian. null: se quitan.
+  categoryId: z.string().trim().nullable().optional(),
+  defaultTaxId: z.string().trim().nullable().optional(),
+});
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -38,9 +49,20 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     if (!parsed.success) return jsonError(400, parsed.error.issues[0]?.message ?? "Datos inválidos.");
     const { id } = await params;
     const updated = await db.transaction(async (tx) => {
+      await assertItemRefs(tx, ctx.company.id, parsed.data);
       const [row] = await tx
         .update(item)
-        .set({ name: parsed.data.name, sku: parsed.data.sku, isService: parsed.data.isService, salePrice: parsed.data.salePrice.toFixed(2), costPrice: parsed.data.costPrice.toFixed(2), minimumStock: parsed.data.minimumStock.toFixed(3), isActive: true })
+        .set({
+          name: parsed.data.name,
+          sku: parsed.data.sku,
+          isService: parsed.data.isService,
+          salePrice: parsed.data.salePrice.toFixed(2),
+          costPrice: parsed.data.costPrice.toFixed(2),
+          minimumStock: parsed.data.minimumStock.toFixed(3),
+          isActive: true,
+          ...(parsed.data.categoryId !== undefined ? { categoryId: parsed.data.categoryId || null } : {}),
+          ...(parsed.data.defaultTaxId !== undefined ? { defaultTaxId: parsed.data.defaultTaxId || null } : {}),
+        })
         .where(and(eq(item.id, id), eq(item.companyId, ctx.company.id)))
         .returning();
       if (!row) return null;

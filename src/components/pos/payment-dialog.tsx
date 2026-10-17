@@ -14,7 +14,7 @@ import { AmountPad } from "./amount-pad";
 
 type Method = "cash" | "card" | "mixed";
 
-export type PaymentChoice = { cash: number; card: number; cashReceived: number | null };
+export type PaymentChoice = { cash: number; card: number; cashReceived: number | null; tipAmount?: number };
 
 const QUICK_NOTES = [5, 10, 20, 50, 100];
 
@@ -25,7 +25,10 @@ const asText = (value: number) => value.toFixed(2).replace(".", ",");
  * Cobro táctil: forma de pago con botones grandes, teclado numérico para lo entregado (o la parte con
  * tarjeta) y el cambio bien visible.
  */
-export function PaymentDialog({ cardEnabled, currencyCode, onClose, onConfirm, open, pending, total }: {
+export function PaymentDialog({ allowTip = false, cardEnabled, currencyCode, onClose, onConfirm, open, pending, title = "Cobrar", total }: {
+  /** Hostelería: propina con tarjeta (se cobra aparte del ticket y se debe al personal). */
+  allowTip?: boolean;
+  title?: string;
   cardEnabled: boolean;
   currencyCode: string;
   onClose: () => void;
@@ -38,6 +41,7 @@ export function PaymentDialog({ cardEnabled, currencyCode, onClose, onConfirm, o
   const [received, setReceived] = useState("");
   const [cardPart, setCardPart] = useState("");
   const [editing, setEditing] = useState<"received" | "card">("received");
+  const [tip, setTip] = useState(0);
 
   const choice = useMemo<PaymentChoice | { error: string }>(() => {
     if (method === "card") return { cash: 0, card: total, cashReceived: null };
@@ -52,9 +56,10 @@ export function PaymentDialog({ cardEnabled, currencyCode, onClose, onConfirm, o
   const change = check && check.ok ? check.change : 0;
   const cashDue = "error" in choice ? 0 : choice.cash;
 
+  const tipAllowed = allowTip && method !== "cash" && cardEnabled;
   function confirm() {
     if ("error" in choice || !check?.ok || pending) return;
-    onConfirm(choice);
+    onConfirm({ ...choice, tipAmount: tipAllowed ? tip : 0 });
   }
 
   const methods: Array<{ id: Method; label: string; icon: typeof Money; disabled?: boolean }> = [
@@ -64,7 +69,7 @@ export function PaymentDialog({ cardEnabled, currencyCode, onClose, onConfirm, o
   ];
 
   return (
-    <Dialog className="sm:max-w-3xl" description={`Total: ${formatMoney(total, currencyCode)}`} onClose={onClose} open={open} title="Cobrar">
+    <Dialog className="sm:max-w-3xl" description={`Total: ${formatMoney(total, currencyCode)}`} onClose={onClose} open={open} title={title}>
       <div className="grid gap-3 md:grid-cols-2" data-testid="pos-payment-dialog">
         <div className="space-y-3">
           <p className="text-center font-mono text-4xl font-black tabular-nums" data-testid="pos-pay-total">{formatMoney(total, currencyCode)}</p>
@@ -94,12 +99,24 @@ export function PaymentDialog({ cardEnabled, currencyCode, onClose, onConfirm, o
               <span className="font-mono text-4xl font-black tabular-nums" data-testid="pos-change">{formatMoney(change, currencyCode)}</span>
             </div>
           ) : (
-            <p className="border-2 border-window-shadow bg-window-panel p-3 text-center text-sm">Cobra {formatMoney(total, currencyCode)} en el datáfono y confirma.</p>
+            <p className="border-2 border-window-shadow bg-window-panel p-3 text-center text-sm">Cobra {formatMoney(total + (tipAllowed ? tip : 0), currencyCode)} en el datáfono y confirma.</p>
           )}
           {method === "mixed" ? (
             <div className="grid grid-cols-2 gap-1.5">
               <Button onClick={() => setEditing("card")} type="button" variant={editing === "card" ? "default" : "outline"}>Con tarjeta: {cardPart || "0"}</Button>
               <Button onClick={() => setEditing("received")} type="button" variant={editing === "received" ? "default" : "outline"}>Efectivo: {formatMoney(cashDue, currencyCode)}</Button>
+            </div>
+          ) : null}
+          {tipAllowed ? (
+            <div className="space-y-1" data-testid="pos-tip">
+              <p className="font-mono text-xs font-bold uppercase text-muted-foreground">Propina con tarjeta {tip > 0 ? `· ${formatMoney(tip, currencyCode)}` : ""}</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[0, 5, 10].map((pct) => {
+                  const value = Math.round(total * pct) / 100;
+                  return <Button className="h-11" key={pct} onClick={() => setTip(value)} type="button" variant={tip === value ? "default" : "outline"}>{pct === 0 ? "Sin" : `${pct} %`}</Button>;
+                })}
+                <Button className="h-11" onClick={() => setTip(Math.round((Math.ceil(total) - total) * 100) / 100 || 1)} type="button" variant="outline">Redondear</Button>
+              </div>
             </div>
           ) : null}
           {error ? <FormErrorMessage>{error}</FormErrorMessage> : null}
@@ -120,7 +137,7 @@ export function PaymentDialog({ cardEnabled, currencyCode, onClose, onConfirm, o
         </div>
       </div>
       <div className="sticky bottom-0 -mx-3 -mb-3 mt-3 border-t border-window-shadow bg-window-surface p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:static md:pb-3">
-        <Button className="h-16 w-full text-xl" data-testid="pos-pay-confirm" disabled={pending || Boolean(error)} onClick={confirm} type="button">{pending ? "Cobrando…" : `Cobrar ${formatMoney(total, currencyCode)}`}</Button>
+        <Button className="h-16 w-full text-xl" data-testid="pos-pay-confirm" disabled={pending || Boolean(error)} onClick={confirm} type="button">{pending ? "Cobrando…" : `Cobrar ${formatMoney(total + (tipAllowed ? tip : 0), currencyCode)}`}</Button>
       </div>
     </Dialog>
   );

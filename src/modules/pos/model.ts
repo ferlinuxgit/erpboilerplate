@@ -101,14 +101,13 @@ export function grossPrice(netUnitPrice: number, taxRate: number) {
 export function netFromGross(gross: number, taxRate: number): { net: number; gross: number; exact: boolean } {
   const factor = 1 + taxRate / 100;
   const base = Math.round((gross / factor) * 100);
-  let best = { net: base / 100, gross: grossPrice(base / 100, taxRate) };
-  for (const candidate of [base - 1, base, base + 1]) {
-    const net = candidate / 100;
-    const result = grossPrice(net, taxRate);
-    if (Math.abs(result - gross) < Math.abs(best.gross - gross) - 1e-9) best = { net, gross: result };
-    if (amountToCents(result) === amountToCents(gross)) return { net, gross: result, exact: true };
-  }
-  return { ...best, exact: false };
+  const target = amountToCents(gross);
+  const options = [base - 2, base - 1, base, base + 1, base + 2].filter((cents) => cents >= 0).map((cents) => ({ net: cents / 100, gross: grossPrice(cents / 100, taxRate) }));
+  const exact = options.find((option) => amountToCents(option.gross) === target);
+  if (exact) return { ...exact, exact: true };
+  // Sin base exacta: la más cercana que no supere el PVP (nunca se cobra de más).
+  const below = options.filter((option) => amountToCents(option.gross) < target).sort((a, b) => b.gross - a.gross)[0];
+  return { ...(below ?? options[0]), exact: false };
 }
 
 export type PaymentSplit = { cash: number; card: number; cashReceived?: number | null };

@@ -1905,6 +1905,8 @@ export const posRegister = pgTable("pos_register", {
   cardPaymentMethodId: text("cardPaymentMethodId").references(() => paymentMethod.id, { onDelete: "set null" }),
   // Límite de la factura simplificada (400 € en general, 3.000 € en comercio minorista; art. 4 RD 1619/2012).
   simplifiedLimit: numeric("simplifiedLimit", { precision: 12, scale: 2 }).notNull().default("400"),
+  // COUNTER (mostrador: se cobra cada ticket) o TABLES (hostelería: mesas con cuenta abierta).
+  mode: text("mode").notNull().default("COUNTER"),
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -1955,6 +1957,12 @@ export const posTicket = pgTable("pos_ticket", {
   clientRequestId: text("clientRequestId"),
   // Devolución: líneas de la factura original y unidades devueltas (permite devolver por partes).
   returnedLines: jsonb("returnedLines").$type<Array<{ lineId: string; quantity: number }>>(),
+  // Hostelería: cuenta (mesa) que se cobra con este ticket (una cuenta dividida tiene varios).
+  orderId: text("orderId"),
+  // Propina cobrada con tarjeta (no es venta ni lleva IVA: se debe al personal, 465).
+  tipAmount: numeric("tipAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Camarero que atendió (atribución con PIN en dispositivos compartidos).
+  waiterUserId: text("waiterUserId").references(() => user.id, { onDelete: "set null" }),
   createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
@@ -1983,3 +1991,122 @@ export const posCashMovement = pgTable("pos_cash_movement", {
   check("pos_cash_movement_type_valid", sql`${table.type} IN ('IN', 'OUT')`),
   check("pos_cash_movement_amount_positive", sql`${table.amount} > 0`),
 ]);
+
+// ---------------------------------------------------------------------------------------------
+// Módulo Hostelería (sobre el TPV): salas, mesas, cuentas abiertas, comandas y camareros.
+// ---------------------------------------------------------------------------------------------
+
+/** Sala o zona del local (Salón, Terraza, Barra…). */
+export const posArea = pgTable("pos_area", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("pos_area_company_name_unique").on(table.companyId, table.name)]);
+
+export const posTable = pgTable("pos_table", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  areaId: text("areaId").notNull().references(() => posArea.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  seats: integer("seats").notNull().default(4),
+  position: integer("position").notNull().default(0),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("pos_table_area_name_unique").on(table.areaId, table.name),
+  index("pos_table_company_idx").on(table.companyId),
+]);
+
+/**
+ * Cuenta abierta de una mesa (o de barra/para llevar sin mesa). No es factura: el ticket (factura
+ * simplificada con VeriFactu) se emite al cobrar; una cuenta dividida genera varios tickets.
+ */
+export const posOrder = pgTable("pos_order", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  registerId: text("registerId").notNull().references(() => posRegister.id, { onDelete: "restrict" }),
+  tableId: text("tableId").references(() => posTable.id, { onDelete: "set null" }),
+  // Nombre libre para cuentas sin mesa ("Barra · Juan", "Para llevar 12").
+  label: text("label"),
+  // OPEN | BILL_REQUESTED (pidió la cuenta) | PAID | CANCELLED
+  status: text("status").notNull().default("OPEN"),
+  guests: integer("guests").notNull().default(1),
+  // División a partes iguales en curso: { parts, paid } (cada parte es un ticket).
+  equalSplit: jsonb("equalSplit").$type<{ parts: number; paid: number } | null>(),
+  waiterUserId: text("waiterUserId").references(() => user.id, { onDelete: "set null" }),
+  openedByUserId: text("openedByUserId").references(() => user.id, { onDelete: "set null" }),
+  openedAt: timestamp("openedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  closedAt: timestamp("closedAt", { withTimezone: true, mode: "date" }),
+  cancelReason: text("cancelReason"),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // Una sola cuenta abierta por mesa.
+  uniqueIndex("pos_order_table_open_unique").on(table.tableId).where(sql`${table.status} IN ('OPEN', 'BILL_REQUESTED') AND ${table.tableId} IS NOT NULL`),
+  index("pos_order_company_status_idx").on(table.companyId, table.status),
+  check("pos_order_status_valid", sql`${table.status} IN ('OPEN', 'BILL_REQUESTED', 'PAID', 'CANCELLED')`),
+  check("pos_order_guests_valid", sql`${table.guests} BETWEEN 1 AND 200`),
+]);
+
+/** Línea de una cuenta: producto, unidades, nota para cocina y su estado en cocina/barra. */
+export const posOrderLine = pgTable("pos_order_line", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("orderId").notNull().references(() => posOrder.id, { onDelete: "cascade" }),
+  itemId: text("itemId").references(() => item.id, { onDelete: "set null" }),
+  description: text("description").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
+  // Precio sin IVA (2 decimales) y su IVA, como en la factura.
+  unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  taxRate: numeric("taxRate", { precision: 6, scale: 3 }).notNull(),
+  taxId: text("taxId").references(() => tax.id, { onDelete: "set null" }),
+  note: text("note"),
+  // KITCHEN | BAR | NONE: a qué estación va la comanda (según la categoría del producto).
+  station: text("station").notNull().default("NONE"),
+  // PENDING (sin enviar) | SENT | READY | SERVED | CANCELLED
+  status: text("status").notNull().default("PENDING"),
+  sentAt: timestamp("sentAt", { withTimezone: true, mode: "date" }),
+  kitchenBatchId: text("kitchenBatchId"),
+  // Unidades ya cobradas (cobro por productos).
+  paidQuantity: numeric("paidQuantity", { precision: 12, scale: 3 }).notNull().default("0"),
+  cancelReason: text("cancelReason"),
+  addedByUserId: text("addedByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("pos_order_line_order_idx").on(table.orderId),
+  index("pos_order_line_station_status_idx").on(table.station, table.status),
+  check("pos_order_line_status_valid", sql`${table.status} IN ('PENDING', 'SENT', 'READY', 'SERVED', 'CANCELLED')`),
+  check("pos_order_line_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
+  check("pos_order_line_quantity_positive", sql`${table.quantity} > 0`),
+]);
+
+/** Comanda enviada a una estación (cocina o barra): lo que se imprime o aparece en su pantalla. */
+export const posKitchenBatch = pgTable("pos_kitchen_batch", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  orderId: text("orderId").notNull().references(() => posOrder.id, { onDelete: "cascade" }),
+  station: text("station").notNull(),
+  sentByUserId: text("sentByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [index("pos_kitchen_batch_order_idx").on(table.orderId)]);
+
+/** A qué estación van los productos de cada categoría (lo demás no genera comanda). */
+export const posCategoryStation = pgTable("pos_category_station", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  categoryId: text("categoryId").notNull().references(() => itemCategory.id, { onDelete: "cascade" }),
+  station: text("station").notNull(),
+}, (table) => [
+  unique("pos_category_station_unique").on(table.companyId, table.categoryId),
+  check("pos_category_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
+]);
+
+/** PIN rápido de camarero para identificarse en una tablet compartida (solo atribución). */
+export const posStaffPin = pgTable("pos_staff_pin", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  userId: text("userId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  pinHash: text("pinHash").notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("pos_staff_pin_company_user_unique").on(table.companyId, table.userId)]);

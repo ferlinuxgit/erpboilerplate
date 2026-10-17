@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowsOut, Barcode, Calculator, DotsThreeVertical, GearSix, LockKey, Minus, Money, Plus, Printer, Receipt, ShoppingCart, SquaresFour, User, X } from "@phosphor-icons/react";
+import { ArrowsOut, DotsThreeVertical, GearSix, LockKey, Minus, Money, Plus, Printer, Receipt, ShoppingCart, SquaresFour, User, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +18,7 @@ import { CashMovementDialog } from "./cash-movement-dialog";
 import { CustomerSheet } from "./customer-sheet";
 import { FreeAmountSheet } from "./free-amount-sheet";
 import { KioskAction, KioskBar } from "./kiosk-bar";
+import { PosCatalogPanel } from "./pos-catalog-panel";
 import { LineEditorSheet } from "./line-editor-sheet";
 import { PaymentDialog, type PaymentChoice } from "./payment-dialog";
 import { TicketsDialog } from "./tickets-dialog";
@@ -34,7 +35,9 @@ type LastSale = { invoiceId: string; number: string; total: number; change: numb
  * - Móvil: dos pantallas («Productos» y «Ticket») con una barra fija abajo con el total y «Cobrar».
  * Buscar también sirve para lector de códigos (referencia + Intro). Con teclado: F2 busca, F9 cobra.
  */
-export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, register, session, tickets }: {
+export function PosTerminal({ backHref, bankAccounts, canManage, catalog, currencyCode, register, session, tickets }: {
+  /** Caja en modo mesas: la venta directa vuelve al plano. */
+  backHref?: string;
   bankAccounts: Array<{ id: string; name: string }>;
   canManage: boolean;
   catalog: PosCatalogItem[];
@@ -46,8 +49,6 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
   const [lines, setLines] = useState<CartLine[]>([]);
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
   const [customer, setCustomer] = useState<PosCustomer | null>(null);
   const [view, setView] = useState<"catalog" | "ticket">("catalog");
   const [sheet, setSheet] = useState<null | "pay" | "tickets" | "cash" | "free" | "customer" | "menu">(null);
@@ -71,14 +72,6 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
     return () => window.clearTimeout(timer);
   }, [flash]);
 
-  const categories = useMemo(() => [...new Set(catalog.map((entry) => entry.categoryName).filter((name): name is string => Boolean(name)))], [catalog]);
-  const visibleItems = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("es-ES");
-    return catalog
-      .filter((entry) => !category || entry.categoryName === category)
-      .filter((entry) => !normalized || entry.name.toLocaleLowerCase("es-ES").includes(normalized) || entry.sku.toLocaleLowerCase("es-ES").includes(normalized))
-      .slice(0, 200);
-  }, [catalog, category, query]);
   const totals = useMemo(() => cartTotals(lines), [lines]);
   const units = useMemo(() => lines.reduce((sum, line) => sum + line.quantity, 0), [lines]);
   const inCart = useMemo(() => {
@@ -124,19 +117,6 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
     setLines((current) => [...current, { key: crypto.randomUUID(), itemId: null, description: input.description, quantity: 1, unitPrice: net, taxRate: input.taxRate, taxId: null }]);
     setSheet(null);
     setFlash({ id: Date.now(), text: `+ ${input.description}` });
-  }
-
-  function onSearchEnter(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    const term = query.trim().toLocaleLowerCase("es-ES");
-    if (!term) return;
-    // Lector de códigos o referencia exacta: añade directamente.
-    const exact = catalog.find((entry) => entry.sku.toLocaleLowerCase("es-ES") === term) ?? (visibleItems.length === 1 ? visibleItems[0] : undefined);
-    if (exact) {
-      addItem(exact);
-      setQuery("");
-    }
   }
 
   function changeQuantity(key: string, delta: number) {
@@ -190,7 +170,7 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
 
   return (
     <div className="flex h-dvh flex-col bg-background [touch-action:manipulation]" data-testid="pos-terminal">
-      <KioskBar status={`Abierta ${openedAt} · ${saleCount} ${saleCount === 1 ? "ticket" : "tickets"}`} title={register.name}>
+      <KioskBar backHref={backHref} backLabel={backHref ? "Mesas" : undefined} status={`Abierta ${openedAt} · ${saleCount} ${saleCount === 1 ? "ticket" : "tickets"}`} title={backHref ? `${register.name} · mostrador` : register.name}>
         <KioskAction data-testid="pos-open-tickets" icon={<Receipt aria-hidden="true" className="size-5" />} label="Tickets" onClick={() => setSheet("tickets")} />
         <KioskAction icon={<Money aria-hidden="true" className="size-5" />} label="Entrada/salida de efectivo" onClick={() => setSheet("cash")}>Efectivo</KioskAction>
         <Link aria-label="Cerrar caja" className="flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-close-link" href={`/pos/${register.id}/close`}>
@@ -200,67 +180,7 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
       </KioskBar>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_22rem] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]">
-        {/* Productos */}
-        <section aria-label="Productos" className={cn("min-h-0 flex-col md:flex", view === "catalog" ? "flex" : "hidden")}>
-          <div className="space-y-2 border-b border-window-shadow p-2">
-            <div className="relative">
-              <Barcode aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                aria-label="Buscar artículo o leer código"
-                className="h-12 w-full border-2 border-window-dark-shadow bg-white pl-10 pr-10 text-base outline-none focus:border-primary"
-                data-testid="pos-search"
-                enterKeyHint="search"
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={onSearchEnter}
-                placeholder="Buscar o leer código"
-                ref={searchRef}
-                type="search"
-                value={query}
-              />
-              {query ? (
-                <button aria-label="Borrar búsqueda" className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center" onClick={() => setQuery("")} type="button"><X aria-hidden="true" className="size-5" /></button>
-              ) : null}
-            </div>
-            {categories.length > 0 ? (
-              <div className="-mx-2 flex snap-x gap-1.5 overflow-x-auto px-2 pb-1 [scrollbar-width:none]">
-                <CategoryChip active={category === null} label="Todo" onClick={() => setCategory(null)} />
-                {categories.map((name) => <CategoryChip active={category === name} key={name} label={name} onClick={() => setCategory(name)} />)}
-              </div>
-            ) : null}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-24 md:pb-2">
-            <ul className="grid grid-cols-[repeat(auto-fill,minmax(7.25rem,1fr))] gap-2 lg:grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]" data-testid="pos-catalog">
-              <li>
-                <button className="flex h-full min-h-24 w-full flex-col items-center justify-center gap-1 border-2 border-dashed border-window-dark-shadow bg-window-panel p-2 text-center font-mono text-sm font-bold active:translate-y-px" data-testid="pos-free-amount-tile" onClick={() => setSheet("free")} type="button">
-                  <Calculator aria-hidden="true" className="size-7 text-link" />Importe libre
-                </button>
-              </li>
-              {visibleItems.map((entry) => {
-                const count = inCart.get(entry.id);
-                return (
-                  <li key={entry.id}>
-                    <button
-                      className={cn("relative flex h-full min-h-24 w-full select-none flex-col justify-between border-2 bg-window-panel p-2 text-left shadow-raised active:translate-y-px active:bg-window-highlight", count ? "border-primary" : "border-window-dark-shadow")}
-                      data-testid={`pos-item-${entry.sku}`}
-                      onClick={() => addItem(entry)}
-                      type="button"
-                    >
-                      {count ? <span className="absolute right-1 top-1 min-w-6 bg-primary px-1 text-center font-mono text-xs font-bold text-primary-foreground">×{count.toLocaleString("es-ES")}</span> : null}
-                      <span className="line-clamp-3 pr-6 text-sm font-semibold leading-tight">{entry.name}</span>
-                      <span className="mt-1 flex items-end justify-between gap-1">
-                        <span className="font-mono text-base font-black tabular-nums">{formatMoney(grossPrice(entry.unitPrice, entry.taxRate), currencyCode)}</span>
-                        {entry.stock !== null ? <span className={cn("font-mono text-[11px]", entry.stock <= 0 ? "font-bold text-destructive" : "text-muted-foreground")}>{entry.stock.toLocaleString("es-ES")} ud</span> : null}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {visibleItems.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted-foreground">{catalog.length === 0 ? "No hay artículos en el catálogo: usa «Importe libre» o da de alta artículos." : "Sin resultados."}</p>
-            ) : null}
-          </div>
-        </section>
+        <PosCatalogPanel catalog={catalog} className={cn("md:flex", view === "catalog" ? "flex" : "hidden")} currencyCode={currencyCode} inCart={inCart} onAdd={addItem} onFreeAmount={() => setSheet("free")} ref={searchRef} />
 
         {/* Ticket */}
         <section aria-label="Ticket" className={cn("min-h-0 flex-col border-window-shadow md:flex md:border-l", view === "ticket" ? "flex" : "hidden")}>
@@ -385,13 +305,5 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
         </div>
       </Dialog>
     </div>
-  );
-}
-
-function CategoryChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button className={cn("h-11 shrink-0 snap-start border-2 px-4 font-mono text-sm font-bold", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} onClick={onClick} type="button">
-      {label}
-    </button>
   );
 }

@@ -140,6 +140,9 @@ export const settingsSections: SettingsSection[] = [
     module: "pos",
     items: [
       { label: "Cajas del TPV", description: "Serie de tickets, almacén, banco de la tarjeta y límite de factura simplificada.", href: "/pos/settings", keywords: "tpv caja punto de venta tickets serie datafono tarjeta factura simplificada", permission: "pos.read", module: "pos", external: true },
+      { label: "Salas y mesas", description: "Plano del bar o restaurante: salas y mesas numeradas.", href: "/pos/settings#mesas", keywords: "mesas salas terraza salon plano restaurante bar hosteleria", permission: "pos.read", module: "hospitality", external: true },
+      { label: "Cocina y barra", description: "A qué estación va cada categoría de productos.", href: "/pos/settings#cocina", keywords: "cocina barra comandas estacion categorias impresora", permission: "pos.read", module: "hospitality", external: true },
+      { label: "Camareros (PIN)", description: "PIN rápido para identificarse en una tablet compartida.", href: "/pos/settings#camareros", keywords: "camareros pin personal turno propinas", permission: "pos.read", module: "hospitality", external: true },
     ],
   },
   {

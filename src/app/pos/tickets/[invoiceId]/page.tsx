@@ -79,6 +79,7 @@ export default async function TicketPrintPage({ params, searchParams }: { params
           {ticket.payment.card !== 0 ? <p className="flex justify-between"><span>{isRefund ? "Devuelto en tarjeta" : "Tarjeta"}</span><span>{money(ticket.payment.card)}</span></p> : null}
           {ticket.payment.cashReceived !== null && !isRefund ? <p className="flex justify-between"><span>Entregado</span><span>{money(ticket.payment.cashReceived)}</span></p> : null}
           {ticket.payment.change !== null && ticket.payment.change > 0 ? <p className="flex justify-between"><span>Cambio</span><span>{money(ticket.payment.change)}</span></p> : null}
+          {ticket.payment.tip > 0 ? <p className="flex justify-between"><span>Propina (tarjeta)</span><span>{money(ticket.payment.tip)}</span></p> : null}
         </div>
       ) : null}
       {ticket.verifactu ? (

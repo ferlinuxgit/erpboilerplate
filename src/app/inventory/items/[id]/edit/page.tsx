@@ -7,6 +7,7 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { item } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
+import { listItemFormOptions } from "@/server/inventory/item-options";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -28,6 +29,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const [record] = await db.select().from(item).where(and(eq(item.id, id), eq(item.companyId, ctx.company.id))).limit(1);
   if (!record) notFound();
+  const options = await listItemFormOptions(ctx.company.id);
 
   return (
     <PageShell>
@@ -51,7 +53,10 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
             salePrice: record.salePrice,
             costPrice: record.costPrice,
             minimumStock: record.minimumStock,
+            categoryId: record.categoryId ?? "",
+            defaultTaxId: record.defaultTaxId ?? "",
           }}
+          options={options}
         />
       </PageSection>
     </PageShell>
