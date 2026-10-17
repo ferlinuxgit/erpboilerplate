@@ -21,6 +21,10 @@ export const metadata: Metadata = {
     template: "%s · ERP Suite",
   },
   description: "Gestión multiempresa de ventas, facturación, compras, inventario, contabilidad y tesorería.",
+  applicationName: "ERP Suite",
+  // Instalada en la pantalla de inicio (iPhone/iPad): a pantalla completa, como una aplicación.
+  appleWebApp: { capable: true, title: "ERP", statusBarStyle: "default" },
+  icons: { icon: "/favicon.ico", apple: "/icons/erp.svg" },
 };
 
 export default function RootLayout({

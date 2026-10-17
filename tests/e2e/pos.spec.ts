@@ -39,10 +39,11 @@ test("TPV: venta con cambio, ticket simplificado, devoluciones parciales, tarjet
   await expect(cafe).toContainText("2,00");
   await cafe.click();
   await cafe.click();
-  const freeLine = page.getByTestId("pos-free-line");
-  await freeLine.getByLabel("Concepto libre").fill("Bollo");
-  await freeLine.getByLabel("PVP").fill("0,50");
-  await freeLine.getByRole("button", { name: "Añadir concepto" }).click();
+  await page.getByTestId("pos-free-amount-tile").click();
+  const freeAmount = page.getByTestId("pos-free-amount");
+  await freeAmount.getByLabel("Concepto").fill("Bollo");
+  await freeAmount.getByLabel("Importe (IVA incluido)").fill("0,50");
+  await page.getByTestId("pos-free-amount-add").click();
   await expect(page.getByTestId("pos-cart-line")).toHaveCount(2);
   await expect(page.getByTestId("pos-charge")).toContainText("4,50");
 
@@ -97,9 +98,10 @@ test("TPV: venta con cambio, ticket simplificado, devoluciones parciales, tarjet
 
   // Por encima del límite de la simplificada (400 €) hay que identificar al cliente: factura completa.
   await page.getByRole("button", { name: "Nueva venta" }).click();
-  await freeLine.getByLabel("Concepto libre").fill("Cafetera industrial");
-  await freeLine.getByLabel("PVP").fill("605,00");
-  await freeLine.getByRole("button", { name: "Añadir concepto" }).click();
+  await page.getByTestId("pos-free-amount-tile").click();
+  await freeAmount.getByLabel("Concepto").fill("Cafetera industrial");
+  await freeAmount.getByLabel("Importe (IVA incluido)").fill("605,00");
+  await page.getByTestId("pos-free-amount-add").click();
   await expect(page.getByTestId("pos-charge")).toBeDisabled();
   await expect(page.getByText(/identifica al cliente/)).toBeVisible();
   await page.getByTestId("pos-customer-button").click();

@@ -12,10 +12,10 @@ export type SessionSummaryView = {
 };
 
 /** Informe de caja (X en curso, Z al cerrar): ventas, devoluciones, efectivo y desglose de IVA. */
-export function SessionReport({ countedCash, currencyCode, difference, summary }: { countedCash?: number | null; currencyCode: string; difference?: number | null; summary: SessionSummaryView }) {
+export function SessionReport({ compact = false, countedCash, currencyCode, difference, summary }: { compact?: boolean; countedCash?: number | null; currencyCode: string; difference?: number | null; summary: SessionSummaryView }) {
   const money = (value: number) => formatMoney(value, currencyCode);
   return (
-    <div className="grid gap-3 md:grid-cols-2" data-testid="pos-session-report">
+    <div className={compact ? "grid gap-3" : "grid gap-3 md:grid-cols-2"} data-testid="pos-session-report">
       <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 border border-window-shadow p-2 text-sm">
         <dt className="col-span-2 font-mono text-xs font-bold uppercase">Ventas</dt>
         <dt>Tickets</dt><dd className="text-right font-mono">{summary.sales.count}</dd>
@@ -40,7 +40,7 @@ export function SessionReport({ countedCash, currencyCode, difference, summary }
         ) : null}
       </dl>
       {summary.taxBreakdown.length > 0 ? (
-        <table className="w-full border border-window-shadow text-sm md:col-span-2">
+        <table className={compact ? "w-full border border-window-shadow text-sm" : "w-full border border-window-shadow text-sm md:col-span-2"}>
           <caption className="p-1 text-left font-mono text-xs font-bold uppercase">Desglose de IVA (ventas netas)</caption>
           <thead><tr className="bg-window-panel text-left font-mono text-xs"><th className="p-1">Tipo</th><th className="p-1 text-right">Base</th><th className="p-1 text-right">Cuota</th><th className="p-1 text-right">Total</th></tr></thead>
           <tbody>

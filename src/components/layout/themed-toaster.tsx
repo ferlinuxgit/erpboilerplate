@@ -1,7 +1,10 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
 import { Toaster } from "sonner";
+
+import { isPosKioskRoute } from "@/components/layout/pos-routes";
 
 /*
  * Los avisos usan los colores de ventana del tema activo (8 paletas) en lugar de los
@@ -37,6 +40,8 @@ const toastClassNames = {
 // Themes toggle the `dark` class on <html>; sonner still needs it for its own contrast rules.
 export function ThemedToaster() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  // En la caja del TPV los avisos no tapan los botones de la barra (arriba a la derecha).
+  const pathname = usePathname() ?? "";
 
   useEffect(() => {
     const root = document.documentElement;
@@ -50,7 +55,7 @@ export function ThemedToaster() {
   return (
     <Toaster
       closeButton
-      position="top-right"
+      position={isPosKioskRoute(pathname) ? "top-center" : "top-right"}
       style={toasterStyle}
       theme={theme}
       toastOptions={{ classNames: toastClassNames }}

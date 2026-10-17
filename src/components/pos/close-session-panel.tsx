@@ -6,11 +6,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { AccessibleField, FormErrorMessage, errorMessage, readApiError } from "@/components/ui/form";
-import { MoneyInput } from "@/components/ui/number-input";
 import { Textarea } from "@/components/ui/textarea";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney, parseDecimalInput } from "@/lib/format";
 import { countDenominations, EURO_DENOMINATIONS } from "@/modules/pos/model";
+
+import { AmountPad } from "./amount-pad";
 
 /** Cierre de caja: cuenta el efectivo (por billetes y monedas o el total) y compara con lo esperado. */
 export function CloseSessionPanel({ currencyCode, expectedCash, sessionId }: { currencyCode: string; expectedCash: number; sessionId: string }) {
@@ -58,18 +59,14 @@ export function CloseSessionPanel({ currencyCode, expectedCash, sessionId }: { c
           {EURO_DENOMINATIONS.map((denomination) => (
             <label className="grid gap-0.5 text-[11px] font-medium" key={denomination}>
               {formatMoney(denomination, currencyCode)}
-              <input className="h-8 border border-window-dark-shadow bg-window-panel px-1 text-right font-mono" inputMode="numeric" onChange={(event) => setCounts((current) => ({ ...current, [String(denomination)]: event.target.value.replace(/\D/g, "") }))} value={counts[String(denomination)] ?? ""} />
+              <input className="h-11 border border-window-dark-shadow bg-window-panel px-2 text-right font-mono text-base" inputMode="numeric" onChange={(event) => setCounts((current) => ({ ...current, [String(denomination)]: event.target.value.replace(/\D/g, "") }))} value={counts[String(denomination)] ?? ""} />
             </label>
           ))}
         </div>
         <p className="mt-2 text-right font-mono text-sm">Total contado: <strong>{formatMoney(fromCounts, currencyCode)}</strong></p>
       </details>
-      {!usingCounts ? (
-        <AccessibleField id="pos-counted-cash" label="Efectivo contado">
-          <MoneyInput autoFocus onChange={(event) => setManual(event.target.value)} value={manual} />
-        </AccessibleField>
-      ) : null}
-      <div className="flex items-center justify-between border border-window-shadow bg-window-panel p-2 font-mono">
+      {!usingCounts ? <AmountPad id="pos-counted-cash" label="Efectivo contado" onChange={setManual} value={manual} /> : null}
+      <div className="flex items-center justify-between border-2 border-window-shadow bg-window-panel p-3 font-mono text-base">
         <span>Esperado {formatMoney(expectedCash, currencyCode)}</span>
         <span className={difference === null ? "" : difference === 0 ? "font-bold text-success-text" : "font-bold text-destructive"} data-testid="pos-close-difference">
           {difference === null ? "—" : difference === 0 ? "Cuadra" : `${difference > 0 ? "Sobran" : "Faltan"} ${formatMoney(Math.abs(difference), currencyCode)}`}
@@ -83,7 +80,7 @@ export function CloseSessionPanel({ currencyCode, expectedCash, sessionId }: { c
       ) : null}
       <AccessibleField id="pos-close-notes" label="Notas del cierre (opcional)"><Textarea onChange={(event) => setNotes(event.target.value)} rows={2} value={notes} /></AccessibleField>
       {error ? <FormErrorMessage>{error}</FormErrorMessage> : null}
-      <Button className="w-full" data-testid="pos-close-submit" disabled={pending} size="lg" type="button" onClick={() => void close()}>{pending ? "Cerrando…" : "Cerrar caja"}</Button>
+      <Button className="h-16 w-full text-xl" data-testid="pos-close-submit" disabled={pending} type="button" onClick={() => void close()}>{pending ? "Cerrando…" : "Cerrar caja"}</Button>
     </div>
   );
 }

@@ -28,6 +28,14 @@ describe("pos cart", () => {
     expect(totals.settled.map((entry) => [entry.quantity, entry.unitPrice])).toEqual([[2, 1.65], [1, 0.42]]);
   });
 
+  it("never charges more than the shelf prices when VAT cannot match them to the cent", () => {
+    // 2 × 2,00 €: base 3,30 → 3,99 €; base 3,31 → 4,01 €. Se cobra 3,99 € y se muestra el redondeo.
+    const totals = cartTotals([line({ quantity: 2, unitPrice: 1.65 })]);
+    expect(totals.total).toBe(3.99);
+    expect(totals.rounding).toBe(-0.01);
+    expect(cartTotals([line({ quantity: 3, unitPrice: 1.65 })])).toMatchObject({ total: 6, rounding: 0 });
+  });
+
   it("splits one unit off when every line has several, keeping item and quantities", () => {
     const totals = cartTotals([line({ itemId: "bollo", quantity: 3, unitPrice: 0.41 })]);
     expect(totals.total).toBe(1.5);

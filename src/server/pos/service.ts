@@ -913,7 +913,8 @@ export async function listPosCatalog(companyId: string, warehouseId: string | nu
       categoryName: row.categoryName,
       taxId: usableTax ? row.taxId : fallback?.id ?? null,
       taxRate: usableTax ? num(row.taxRate) : fallback ? num(fallback.rate) : 21,
-      stock: withStock && !row.isService ? stockByItem.get(row.id) ?? 0 : null,
+      // Sin ubicación de stock (nunca ha tenido movimientos) no se muestra: evita «0 ud» en todo el catálogo.
+      stock: withStock && !row.isService && stockByItem.has(row.id) ? stockByItem.get(row.id) ?? 0 : null,
     };
   });
 }

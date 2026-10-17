@@ -1,35 +1,38 @@
 "use client";
 
-import { ArrowsOut, Barcode, CashRegister, Minus, Plus, Printer, Receipt, Trash, User, X } from "@phosphor-icons/react";
+import { ArrowsOut, Barcode, Calculator, DotsThreeVertical, GearSix, LockKey, Minus, Money, Plus, Printer, Receipt, ShoppingCart, SquaresFour, User, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { errorMessage, readApiError } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { formatMoney, parseDecimalInput } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { cartTotals, exceedsSimplifiedLimit, grossPrice, netFromGross, type CartLine } from "@/modules/pos/model";
 
 import { CashMovementDialog } from "./cash-movement-dialog";
+import { CustomerSheet } from "./customer-sheet";
+import { FreeAmountSheet } from "./free-amount-sheet";
+import { KioskAction, KioskBar } from "./kiosk-bar";
+import { LineEditorSheet } from "./line-editor-sheet";
 import { PaymentDialog, type PaymentChoice } from "./payment-dialog";
 import { TicketsDialog } from "./tickets-dialog";
 import { openTicketPrint, type PosCatalogItem, type PosCustomer, type PosRegisterView, type PosSessionView, type PosTicketView } from "./types";
+import { tapFeedback, useWakeLock } from "./use-touch-pos";
 
-const VAT_RATES = [21, 10, 4, 0];
 const AUTO_PRINT_KEY = "erp:pos:auto-print";
 
 type LastSale = { invoiceId: string; number: string; total: number; change: number; warnings: string[] };
 
-const priceText = (value: number) => value.toFixed(2).replace(".", ",");
-
 /**
- * Pantalla de venta: catálogo con buscador (también lector de códigos: escribe la referencia y pulsa
- * Intro), carrito con precios IVA incluido y cobro. F2 busca, F9 cobra.
+ * TPV táctil a pantalla completa (sin el menú del ERP).
+ * - Tablet y ordenador: catálogo y ticket lado a lado.
+ * - Móvil: dos pantallas («Productos» y «Ticket») con una barra fija abajo con el total y «Cobrar».
+ * Buscar también sirve para lector de códigos (referencia + Intro). Con teclado: F2 busca, F9 cobra.
  */
 export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, register, session, tickets }: {
   bankAccounts: Array<{ id: string; name: string }>;
@@ -46,22 +49,27 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [customer, setCustomer] = useState<PosCustomer | null>(null);
-  const [customerQuery, setCustomerQuery] = useState("");
-  const [customerResults, setCustomerResults] = useState<PosCustomer[]>([]);
-  const [showCustomer, setShowCustomer] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
+  const [view, setView] = useState<"catalog" | "ticket">("catalog");
+  const [sheet, setSheet] = useState<null | "pay" | "tickets" | "cash" | "free" | "customer" | "menu">(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
-  const [ticketsOpen, setTicketsOpen] = useState(false);
-  const [cashOpen, setCashOpen] = useState(false);
-  const [freeLine, setFreeLine] = useState({ description: "", price: "", taxRate: "21" });
   const [autoPrint, setAutoPrint] = useState(false);
+  const [flash, setFlash] = useState<{ id: number; text: string } | null>(null);
+
+  useWakeLock(true);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setAutoPrint(window.localStorage.getItem(AUTO_PRINT_KEY) === "1"), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!flash) return;
+    const timer = window.setTimeout(() => setFlash(null), 1200);
+    return () => window.clearTimeout(timer);
+  }, [flash]);
 
   const categories = useMemo(() => [...new Set(catalog.map((entry) => entry.categoryName).filter((name): name is string => Boolean(name)))], [catalog]);
   const visibleItems = useMemo(() => {
@@ -69,64 +77,53 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
     return catalog
       .filter((entry) => !category || entry.categoryName === category)
       .filter((entry) => !normalized || entry.name.toLocaleLowerCase("es-ES").includes(normalized) || entry.sku.toLocaleLowerCase("es-ES").includes(normalized))
-      .slice(0, 120);
+      .slice(0, 200);
   }, [catalog, category, query]);
   const totals = useMemo(() => cartTotals(lines), [lines]);
+  const units = useMemo(() => lines.reduce((sum, line) => sum + line.quantity, 0), [lines]);
+  const inCart = useMemo(() => {
+    const byItem = new Map<string, number>();
+    for (const line of lines) if (line.itemId) byItem.set(line.itemId, (byItem.get(line.itemId) ?? 0) + line.quantity);
+    return byItem;
+  }, [lines]);
   const overLimit = !customer && exceedsSimplifiedLimit(totals.total, register.simplifiedLimit);
   const saleCount = tickets.filter((ticket) => ticket.kind === "SALE").length;
+  const canCharge = lines.length > 0 && !overLimit;
+  const editingLine = lines.find((line) => line.key === editingKey) ?? null;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "F2") {
         event.preventDefault();
+        setView("catalog");
         searchRef.current?.focus();
       }
-      if (event.key === "F9" && lines.length > 0 && !payOpen) {
+      if (event.key === "F9" && canCharge && sheet === null) {
         event.preventDefault();
-        if (!overLimit) setPayOpen(true);
+        setSheet("pay");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lines.length, overLimit, payOpen]);
-
-  useEffect(() => {
-    const term = customerQuery.trim();
-    if (term.length < 2) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      fetch(`/api/pos/customers?q=${encodeURIComponent(term)}`, { signal: controller.signal })
-        .then((response) => (response.ok ? response.json() as Promise<PosCustomer[]> : []))
-        .then(setCustomerResults)
-        .catch(() => undefined);
-    }, 200);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [customerQuery]);
+  }, [canCharge, sheet]);
 
   function addItem(entry: PosCatalogItem) {
+    tapFeedback();
     setLastSale(null);
     setLines((current) => {
       const existing = current.find((line) => line.itemId === entry.id && line.unitPrice === entry.unitPrice);
       if (existing) return current.map((line) => (line === existing ? { ...line, quantity: line.quantity + 1 } : line));
       return [...current, { key: crypto.randomUUID(), itemId: entry.id, description: entry.name, quantity: 1, unitPrice: entry.unitPrice, taxRate: entry.taxRate, taxId: entry.taxId }];
     });
+    setFlash({ id: Date.now(), text: `+1 ${entry.name}` });
   }
 
-  function addFreeLine(event: React.FormEvent) {
-    event.preventDefault();
-    const gross = parseDecimalInput(freeLine.price, { maximumFractionDigits: 2 });
-    if (!freeLine.description.trim() || gross === null || gross <= 0) {
-      toast.error("Escribe el concepto y su precio (IVA incluido).");
-      return;
-    }
-    const taxRate = Number(freeLine.taxRate);
-    const { net } = netFromGross(gross, taxRate);
+  function addFree(input: { description: string; gross: number; taxRate: number }) {
+    const { net } = netFromGross(input.gross, input.taxRate);
     setLastSale(null);
-    setLines((current) => [...current, { key: crypto.randomUUID(), itemId: null, description: freeLine.description.trim(), quantity: 1, unitPrice: net, taxRate, taxId: null }]);
-    setFreeLine({ description: "", price: "", taxRate: freeLine.taxRate });
+    setLines((current) => [...current, { key: crypto.randomUUID(), itemId: null, description: input.description, quantity: 1, unitPrice: net, taxRate: input.taxRate, taxId: null }]);
+    setSheet(null);
+    setFlash({ id: Date.now(), text: `+ ${input.description}` });
   }
 
   function onSearchEnter(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -142,18 +139,12 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
     }
   }
 
-  function setQuantity(key: string, quantity: number) {
-    setLines((current) => current.flatMap((line) => (line.key !== key ? [line] : quantity <= 0 ? [] : [{ ...line, quantity: Math.round(quantity * 1000) / 1000 }])));
-  }
-
-  function setGross(key: string, raw: string) {
-    const gross = parseDecimalInput(raw, { maximumFractionDigits: 2 });
-    if (gross === null || gross < 0) return;
-    setLines((current) => current.map((line) => {
-      if (line.key !== key) return line;
-      const result = netFromGross(gross, line.taxRate);
-      if (!result.exact) toast.info(`Con IVA del ${line.taxRate} % el precio queda en ${formatMoney(result.gross, currencyCode)}.`);
-      return { ...line, unitPrice: result.net };
+  function changeQuantity(key: string, delta: number) {
+    tapFeedback();
+    setLines((current) => current.flatMap((line) => {
+      if (line.key !== key) return [line];
+      const quantity = Math.round((line.quantity + delta) * 1000) / 1000;
+      return quantity <= 0 ? [] : [{ ...line, quantity }];
     }));
   }
 
@@ -176,7 +167,8 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
       setLastSale(sale);
       setLines([]);
       setCustomer(null);
-      setPayOpen(false);
+      setSheet(null);
+      setView("ticket");
       setRequestId(crypto.randomUUID());
       for (const warning of sale.warnings) toast.warning(warning);
       if (autoPrint) openTicketPrint(sale.invoiceId);
@@ -190,179 +182,216 @@ export function PosTerminal({ bankAccounts, canManage, catalog, currencyCode, re
 
   function newSale() {
     setLastSale(null);
+    setView("catalog");
     searchRef.current?.focus();
   }
 
-  return (
-    <div className="space-y-2" data-testid="pos-terminal">
-      <div className="flex flex-wrap items-center justify-between gap-2 border border-window-shadow bg-window-panel px-2 py-1.5">
-        <p className="flex items-center gap-2 font-mono text-xs font-bold">
-          <CashRegister aria-hidden="true" className="size-4 text-link" /> {register.name}
-          <span className="font-normal text-muted-foreground">· abierta {new Date(session.openedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {saleCount} {saleCount === 1 ? "ticket" : "tickets"}</span>
-        </p>
-        <div className="flex flex-wrap gap-1">
-          <Button data-testid="pos-open-tickets" onClick={() => setTicketsOpen(true)} size="sm" type="button" variant="outline"><Receipt aria-hidden="true" /> Tickets</Button>
-          <Button onClick={() => setCashOpen(true)} size="sm" type="button" variant="outline">Entrada/salida de efectivo</Button>
-          <Link className={buttonVariants({ size: "sm", variant: "outline" })} data-testid="pos-close-link" href={`/pos/${register.id}/close`}>Cerrar caja</Link>
-          {canManage ? <Link className={buttonVariants({ size: "sm", variant: "ghost" })} href="/pos/settings">Configurar</Link> : null}
-          <Button aria-label="Pantalla completa" onClick={() => void document.documentElement.requestFullscreen?.().catch(() => undefined)} size="icon-sm" title="Pantalla completa" type="button" variant="ghost"><ArrowsOut aria-hidden="true" /></Button>
-        </div>
-      </div>
+  const openedAt = new Date(session.openedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
-      <div className="grid gap-2 lg:grid-cols-[minmax(0,7fr)_minmax(20rem,5fr)]">
-        {/* Catálogo */}
-        <section aria-label="Catálogo" className="space-y-2 border border-window-shadow bg-card p-2">
-          <div className="relative">
-            <Barcode aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Buscar artículo o leer código"
-              autoFocus
-              className="pl-8"
-              data-testid="pos-search"
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={onSearchEnter}
-              placeholder="Buscar artículo o leer código (F2)"
-              ref={searchRef}
-              value={query}
-            />
-          </div>
-          {categories.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              <Button onClick={() => setCategory(null)} size="sm" type="button" variant={category === null ? "default" : "outline"}>Todo</Button>
-              {categories.map((name) => <Button key={name} onClick={() => setCategory(name)} size="sm" type="button" variant={category === name ? "default" : "outline"}>{name}</Button>)}
+  return (
+    <div className="flex h-dvh flex-col bg-background [touch-action:manipulation]" data-testid="pos-terminal">
+      <KioskBar status={`Abierta ${openedAt} · ${saleCount} ${saleCount === 1 ? "ticket" : "tickets"}`} title={register.name}>
+        <KioskAction data-testid="pos-open-tickets" icon={<Receipt aria-hidden="true" className="size-5" />} label="Tickets" onClick={() => setSheet("tickets")} />
+        <KioskAction icon={<Money aria-hidden="true" className="size-5" />} label="Entrada/salida de efectivo" onClick={() => setSheet("cash")}>Efectivo</KioskAction>
+        <Link aria-label="Cerrar caja" className="flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-close-link" href={`/pos/${register.id}/close`}>
+          <LockKey aria-hidden="true" className="size-5" /><span className="hidden md:inline">Cerrar caja</span>
+        </Link>
+        <KioskAction icon={<DotsThreeVertical aria-hidden="true" className="size-5" />} label="Más opciones" onClick={() => setSheet("menu")}>Más</KioskAction>
+      </KioskBar>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_22rem] lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]">
+        {/* Productos */}
+        <section aria-label="Productos" className={cn("min-h-0 flex-col md:flex", view === "catalog" ? "flex" : "hidden")}>
+          <div className="space-y-2 border-b border-window-shadow p-2">
+            <div className="relative">
+              <Barcode aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                aria-label="Buscar artículo o leer código"
+                className="h-12 w-full border-2 border-window-dark-shadow bg-white pl-10 pr-10 text-base outline-none focus:border-primary"
+                data-testid="pos-search"
+                enterKeyHint="search"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={onSearchEnter}
+                placeholder="Buscar o leer código"
+                ref={searchRef}
+                type="search"
+                value={query}
+              />
+              {query ? (
+                <button aria-label="Borrar búsqueda" className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center" onClick={() => setQuery("")} type="button"><X aria-hidden="true" className="size-5" /></button>
+              ) : null}
             </div>
-          ) : null}
-          {visibleItems.length === 0 ? (
-            <p className="p-4 text-center text-sm text-muted-foreground">{catalog.length === 0 ? "No hay artículos en el catálogo: añade conceptos libres abajo o da de alta artículos." : "Sin resultados."}</p>
-          ) : (
-            <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 xl:grid-cols-4" data-testid="pos-catalog">
-              {visibleItems.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    className="flex h-full min-h-20 w-full flex-col justify-between border border-window-dark-shadow bg-window-panel p-2 text-left shadow-raised hover:bg-window-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus active:translate-y-px"
-                    data-testid={`pos-item-${entry.sku}`}
-                    onClick={() => addItem(entry)}
-                    type="button"
-                  >
-                    <span className="line-clamp-2 text-xs font-semibold">{entry.name}</span>
-                    <span className="mt-1 flex items-end justify-between gap-1">
-                      <span className="font-mono text-sm font-bold tabular-nums">{formatMoney(grossPrice(entry.unitPrice, entry.taxRate), currencyCode)}</span>
-                      {entry.stock !== null ? <span className={cn("font-mono text-[10px]", entry.stock <= 0 ? "font-bold text-destructive" : "text-muted-foreground")}>{entry.stock.toLocaleString("es-ES")} ud</span> : null}
-                    </span>
-                  </button>
-                </li>
-              ))}
+            {categories.length > 0 ? (
+              <div className="-mx-2 flex snap-x gap-1.5 overflow-x-auto px-2 pb-1 [scrollbar-width:none]">
+                <CategoryChip active={category === null} label="Todo" onClick={() => setCategory(null)} />
+                {categories.map((name) => <CategoryChip active={category === name} key={name} label={name} onClick={() => setCategory(name)} />)}
+              </div>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-24 md:pb-2">
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(7.25rem,1fr))] gap-2 lg:grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]" data-testid="pos-catalog">
+              <li>
+                <button className="flex h-full min-h-24 w-full flex-col items-center justify-center gap-1 border-2 border-dashed border-window-dark-shadow bg-window-panel p-2 text-center font-mono text-sm font-bold active:translate-y-px" data-testid="pos-free-amount-tile" onClick={() => setSheet("free")} type="button">
+                  <Calculator aria-hidden="true" className="size-7 text-link" />Importe libre
+                </button>
+              </li>
+              {visibleItems.map((entry) => {
+                const count = inCart.get(entry.id);
+                return (
+                  <li key={entry.id}>
+                    <button
+                      className={cn("relative flex h-full min-h-24 w-full select-none flex-col justify-between border-2 bg-window-panel p-2 text-left shadow-raised active:translate-y-px active:bg-window-highlight", count ? "border-primary" : "border-window-dark-shadow")}
+                      data-testid={`pos-item-${entry.sku}`}
+                      onClick={() => addItem(entry)}
+                      type="button"
+                    >
+                      {count ? <span className="absolute right-1 top-1 min-w-6 bg-primary px-1 text-center font-mono text-xs font-bold text-primary-foreground">×{count.toLocaleString("es-ES")}</span> : null}
+                      <span className="line-clamp-3 pr-6 text-sm font-semibold leading-tight">{entry.name}</span>
+                      <span className="mt-1 flex items-end justify-between gap-1">
+                        <span className="font-mono text-base font-black tabular-nums">{formatMoney(grossPrice(entry.unitPrice, entry.taxRate), currencyCode)}</span>
+                        {entry.stock !== null ? <span className={cn("font-mono text-[11px]", entry.stock <= 0 ? "font-bold text-destructive" : "text-muted-foreground")}>{entry.stock.toLocaleString("es-ES")} ud</span> : null}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
-          )}
-          <form className="grid grid-cols-[minmax(0,1fr)_6rem_5rem_auto] items-end gap-1 border-t border-window-shadow pt-2" data-testid="pos-free-line" onSubmit={addFreeLine}>
-            <label className="grid gap-0.5 text-[11px] font-medium">Concepto libre<Input onChange={(event) => setFreeLine((current) => ({ ...current, description: event.target.value }))} placeholder="Varios, servicio…" value={freeLine.description} /></label>
-            <label className="grid gap-0.5 text-[11px] font-medium">PVP<Input inputMode="decimal" onChange={(event) => setFreeLine((current) => ({ ...current, price: event.target.value }))} placeholder="0,00" value={freeLine.price} /></label>
-            <label className="grid gap-0.5 text-[11px] font-medium">IVA
-              <Select onChange={(event) => setFreeLine((current) => ({ ...current, taxRate: event.target.value }))} value={freeLine.taxRate}>
-                {VAT_RATES.map((rate) => <option key={rate} value={rate}>{rate} %</option>)}
-              </Select>
-            </label>
-            <Button aria-label="Añadir concepto" type="submit" variant="outline"><Plus aria-hidden="true" /></Button>
-          </form>
+            {visibleItems.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">{catalog.length === 0 ? "No hay artículos en el catálogo: usa «Importe libre» o da de alta artículos." : "Sin resultados."}</p>
+            ) : null}
+          </div>
         </section>
 
         {/* Ticket */}
-        <section aria-label="Ticket" className="flex flex-col border border-window-shadow bg-card lg:sticky lg:top-12 lg:max-h-[calc(100dvh-4rem)]">
-          <div className="flex items-center justify-between gap-2 border-b border-window-shadow p-2">
-            <button className="flex min-w-0 items-center gap-1 text-left text-xs" data-testid="pos-customer-button" onClick={() => setShowCustomer((current) => !current)} type="button">
-              <User aria-hidden="true" className="size-4 shrink-0 text-link" />
-              <span className="truncate">{customer ? <><strong>{customer.name}</strong>{customer.taxId ? ` · ${customer.taxId}` : ""}</> : "Cliente: sin identificar (ticket)"}</span>
-            </button>
-            {customer ? <Button aria-label="Quitar cliente" onClick={() => setCustomer(null)} size="icon-xs" type="button" variant="ghost"><X aria-hidden="true" /></Button> : null}
-          </div>
-          {showCustomer ? (
-            <div className="space-y-1 border-b border-window-shadow p-2">
-              <Input aria-label="Buscar cliente" autoFocus onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Nombre o NIF del cliente (factura completa)" value={customerQuery} />
-              <ul className="max-h-40 overflow-y-auto">
-                {customerQuery.trim().length >= 2 ? customerResults.map((entry) => (
-                  <li key={entry.id}><button className="w-full px-1 py-1 text-left text-xs hover:bg-window-highlight" onClick={() => { setCustomer(entry); setShowCustomer(false); setCustomerQuery(""); }} type="button">{entry.name}{entry.taxId ? <span className="text-muted-foreground"> · {entry.taxId}</span> : null}</button></li>
-                )) : null}
-              </ul>
-            </div>
-          ) : null}
-          <ol className="min-h-40 flex-1 divide-y divide-window-shadow overflow-y-auto" data-testid="pos-cart">
-            {lines.length === 0 ? (
-              <li className="p-6 text-center text-sm text-muted-foreground">
-                {lastSale ? null : "Toca un artículo o lee su código para empezar."}
+        <section aria-label="Ticket" className={cn("min-h-0 flex-col border-window-shadow md:flex md:border-l", view === "ticket" ? "flex" : "hidden")}>
+          <button className="flex min-h-12 items-center gap-2 border-b border-window-shadow px-3 text-left text-sm" data-testid="pos-customer-button" onClick={() => setSheet("customer")} type="button">
+            <User aria-hidden="true" className="size-5 shrink-0 text-link" />
+            <span className="min-w-0 flex-1 truncate">{customer ? <><strong>{customer.name}</strong>{customer.taxId ? ` · ${customer.taxId}` : ""}</> : "Cliente: sin identificar (ticket)"}</span>
+            <span className="font-mono text-xs text-link">{customer ? "Cambiar" : "Añadir"}</span>
+          </button>
+          <ol className="min-h-0 flex-1 divide-y divide-window-shadow overflow-y-auto overscroll-contain pb-24 md:pb-0" data-testid="pos-cart">
+            {lines.length === 0 && !lastSale ? (
+              <li className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
+                <ShoppingCart aria-hidden="true" className="size-10 opacity-40" />Toca un artículo o lee su código para empezar.
               </li>
             ) : null}
             {lines.map((line) => {
               const lineTotal = totals.lines.find((entry) => entry.key === line.key)?.total ?? 0;
               return (
-                <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-1 p-2 text-xs" data-testid="pos-cart-line" key={line.key}>
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">{line.description}</p>
-                    <div className="mt-1 flex items-center gap-1">
-                      <Button aria-label={`Quitar una unidad de ${line.description}`} onClick={() => setQuantity(line.key, line.quantity - 1)} size="icon-xs" type="button" variant="outline"><Minus aria-hidden="true" /></Button>
-                      <input aria-label={`Cantidad de ${line.description}`} className="h-6 w-12 border border-window-dark-shadow bg-window-panel text-center font-mono" inputMode="decimal" onChange={(event) => { const value = parseDecimalInput(event.target.value); if (value !== null) setQuantity(line.key, value); }} value={line.quantity.toLocaleString("es-ES")} />
-                      <Button aria-label={`Añadir una unidad de ${line.description}`} onClick={() => setQuantity(line.key, line.quantity + 1)} size="icon-xs" type="button" variant="outline"><Plus aria-hidden="true" /></Button>
-                      <span className="text-muted-foreground">×</span>
-                      <input
-                        aria-label={`Precio con IVA de ${line.description}`}
-                        className="h-6 w-16 border border-window-dark-shadow bg-window-panel text-right font-mono"
-                        defaultValue={priceText(grossPrice(line.unitPrice, line.taxRate))}
-                        inputMode="decimal"
-                        key={`${line.key}-${line.unitPrice}`}
-                        onBlur={(event) => setGross(line.key, event.target.value)}
-                        onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
-                      />
-                      <span className="text-[10px] text-muted-foreground">IVA {line.taxRate} %</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end justify-between">
-                    <span className="font-mono font-bold tabular-nums">{formatMoney(lineTotal, currencyCode)}</span>
-                    <Button aria-label={`Quitar ${line.description}`} onClick={() => setQuantity(line.key, 0)} size="icon-xs" type="button" variant="ghost"><Trash aria-hidden="true" /></Button>
+                <li className="flex items-stretch" data-testid="pos-cart-line" key={line.key}>
+                  <button aria-label={`Editar ${line.description}`} className="flex min-h-14 min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left hover:bg-window-highlight" onClick={() => setEditingKey(line.key)} type="button">
+                    <span className="min-w-8 font-mono text-base font-black">{line.quantity.toLocaleString("es-ES")}×</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{line.description}</span>
+                      <span className="block truncate font-mono text-xs text-muted-foreground">{formatMoney(grossPrice(line.unitPrice, line.taxRate), currencyCode)} · IVA {line.taxRate} %</span>
+                    </span>
+                    <span className="font-mono text-base font-bold tabular-nums">{formatMoney(lineTotal, currencyCode)}</span>
+                  </button>
+                  <div className="flex items-center gap-1 pr-2">
+                    <button aria-label={`Quitar una unidad de ${line.description}`} className="flex size-11 items-center justify-center border border-window-dark-shadow bg-window-panel active:translate-y-px" onClick={() => changeQuantity(line.key, -1)} type="button"><Minus aria-hidden="true" className="size-5" /></button>
+                    <button aria-label={`Añadir una unidad de ${line.description}`} className="flex size-11 items-center justify-center border border-window-dark-shadow bg-window-panel active:translate-y-px" onClick={() => changeQuantity(line.key, 1)} type="button"><Plus aria-hidden="true" className="size-5" /></button>
                   </div>
                 </li>
               );
             })}
+            {lastSale && lines.length === 0 ? (
+              <li className="space-y-3 bg-success/10 p-5 text-center" data-testid="pos-last-sale" role="status">
+                <p className="font-mono text-sm font-bold">Ticket {lastSale.number} cobrado · {formatMoney(lastSale.total, currencyCode)}</p>
+                {lastSale.change > 0 ? <p className="font-mono text-4xl font-black">Cambio {formatMoney(lastSale.change, currencyCode)}</p> : null}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button className="h-14" data-testid="pos-print-last" onClick={() => openTicketPrint(lastSale.invoiceId)} type="button" variant="outline"><Printer aria-hidden="true" /> Imprimir</Button>
+                  <Button className="h-14" onClick={newSale} type="button">Nueva venta</Button>
+                </div>
+              </li>
+            ) : null}
           </ol>
-          {lastSale && lines.length === 0 ? (
-            <div className="space-y-2 border-t border-success/60 bg-success/10 p-3 text-center" data-testid="pos-last-sale" role="status">
-              <p className="font-mono text-xs font-bold">Ticket {lastSale.number} cobrado · {formatMoney(lastSale.total, currencyCode)}</p>
-              {lastSale.change > 0 ? <p className="font-mono text-2xl font-black">Cambio {formatMoney(lastSale.change, currencyCode)}</p> : null}
-              <div className="flex justify-center gap-2">
-                <Button data-testid="pos-print-last" onClick={() => openTicketPrint(lastSale.invoiceId)} type="button" variant="outline"><Printer aria-hidden="true" /> Imprimir ticket</Button>
-                <Button onClick={newSale} type="button">Nueva venta</Button>
-              </div>
-            </div>
-          ) : null}
-          <div className="space-y-1 border-t border-window-shadow p-2">
-            {totals.taxBreakdown.length > 1 || totals.tax > 0 ? (
-              <dl className="grid grid-cols-[1fr_auto] gap-x-2 font-mono text-[11px] text-muted-foreground">
+          <div className="space-y-2 border-t border-window-shadow p-3">
+            {totals.taxBreakdown.length > 0 && lines.length > 0 ? (
+              <dl className="grid grid-cols-[1fr_auto] gap-x-2 font-mono text-xs text-muted-foreground">
                 {totals.taxBreakdown.map((bucket) => (
                   <div className="contents" key={bucket.rate}><dt>Base {bucket.rate} % {formatMoney(bucket.base, currencyCode)}</dt><dd className="text-right">IVA {formatMoney(bucket.tax, currencyCode)}</dd></div>
                 ))}
               </dl>
             ) : null}
-            {overLimit ? <p className="text-xs font-bold text-destructive">Supera {formatMoney(register.simplifiedLimit, currencyCode)}: identifica al cliente (con NIF) para hacer factura completa.</p> : null}
-            <Button className="h-14 w-full text-lg" data-testid="pos-charge" disabled={lines.length === 0 || overLimit} onClick={() => setPayOpen(true)} type="button">
-              Cobrar {formatMoney(totals.total, currencyCode)} <span className="ml-1 text-xs font-normal opacity-80">(F9)</span>
+            {totals.rounding !== 0 && lines.length > 0 ? (
+              <p className="flex justify-between font-mono text-xs text-muted-foreground" data-testid="pos-rounding"><span>Redondeo IVA</span><span>{formatMoney(totals.rounding, currencyCode)}</span></p>
+            ) : null}
+            {overLimit ? <p className="text-sm font-bold text-destructive">Supera {formatMoney(register.simplifiedLimit, currencyCode)}: identifica al cliente (con NIF) para hacer factura completa.</p> : null}
+            {/* En tablet el botón de cobrar vive aquí; en el móvil, en la barra inferior. */}
+            <Button className="hidden h-16 w-full text-xl md:flex" data-testid="pos-charge" disabled={!canCharge} onClick={() => setSheet("pay")} type="button">
+              Cobrar {formatMoney(totals.total, currencyCode)}
             </Button>
-            <label className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
-              <input checked={autoPrint} onChange={(event) => { setAutoPrint(event.target.checked); window.localStorage.setItem(AUTO_PRINT_KEY, event.target.checked ? "1" : "0"); }} type="checkbox" /> Imprimir el ticket al cobrar
-            </label>
           </div>
         </section>
       </div>
 
+      {flash ? (
+        <p aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-40 mx-auto w-fit max-w-[90vw] truncate bg-black/80 px-3 py-1.5 font-mono text-sm text-white md:hidden" key={flash.id}>{flash.text}</p>
+      ) : null}
+
+      {/* Barra inferior del móvil: pantallas y cobro siempre a mano. */}
+      <nav aria-label="TPV" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-[auto_1fr_auto] items-center gap-2 border-t border-window-dark-shadow bg-window-surface p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:hidden" data-testid="pos-mobile-bar">
+        <button aria-label={view === "catalog" ? "Ver ticket" : "Ver productos"} className="relative flex h-14 w-16 flex-col items-center justify-center border border-window-dark-shadow bg-window-panel font-mono text-[11px] font-bold" data-testid="pos-toggle-view" onClick={() => setView(view === "catalog" ? "ticket" : "catalog")} type="button">
+          {view === "catalog" ? <Receipt aria-hidden="true" className="size-6" /> : <SquaresFour aria-hidden="true" className="size-6" />}
+          {view === "catalog" ? "Ticket" : "Productos"}
+          {view === "catalog" && units > 0 ? <span className="absolute -right-1 -top-1 min-w-6 rounded-full bg-primary px-1 text-center text-xs text-primary-foreground" data-testid="pos-units-badge">{units.toLocaleString("es-ES")}</span> : null}
+        </button>
+        <button className="min-w-0 text-left" onClick={() => setView("ticket")} type="button">
+          <span className="block font-mono text-[11px] uppercase text-muted-foreground">{lines.length} {lines.length === 1 ? "línea" : "líneas"}</span>
+          <span className="block truncate font-mono text-2xl font-black tabular-nums" data-testid="pos-mobile-total">{formatMoney(totals.total, currencyCode)}</span>
+        </button>
+        <Button className="h-14 px-5 text-lg" data-testid="pos-charge-mobile" disabled={!canCharge} onClick={() => setSheet("pay")} type="button">Cobrar</Button>
+      </nav>
+
       <PaymentDialog
         cardEnabled={register.cardEnabled}
         currencyCode={currencyCode}
-        key={requestId + String(payOpen)}
-        onClose={() => setPayOpen(false)}
+        key={requestId + String(sheet === "pay")}
+        onClose={() => setSheet(null)}
         onConfirm={(choice) => void pay(choice)}
-        open={payOpen}
+        open={sheet === "pay"}
         pending={paying}
         total={totals.total}
       />
-      <TicketsDialog currencyCode={currencyCode} onClose={() => setTicketsOpen(false)} open={ticketsOpen} registerId={register.id} tickets={tickets} />
-      <CashMovementDialog bankAccounts={bankAccounts} onClose={() => setCashOpen(false)} open={cashOpen} sessionId={session.id} />
+      <FreeAmountSheet onAdd={addFree} onClose={() => setSheet(null)} open={sheet === "free"} />
+      <CustomerSheet current={customer} onClose={() => setSheet(null)} onSelect={(selected) => { setCustomer(selected); setSheet(null); }} open={sheet === "customer"} />
+      <TicketsDialog currencyCode={currencyCode} onClose={() => setSheet(null)} open={sheet === "tickets"} registerId={register.id} tickets={tickets} />
+      <CashMovementDialog bankAccounts={bankAccounts} onClose={() => setSheet(null)} open={sheet === "cash"} sessionId={session.id} />
+      {editingLine ? (
+        <LineEditorSheet
+          currencyCode={currencyCode}
+          key={editingLine.key}
+          line={editingLine}
+          onClose={() => setEditingKey(null)}
+          onRemove={(key) => { setLines((current) => current.filter((line) => line.key !== key)); setEditingKey(null); }}
+          onSave={(key, patch, adjustedGross) => {
+            setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+            if (adjustedGross !== null) toast.info(`Con este IVA el precio queda en ${formatMoney(adjustedGross, currencyCode)}.`);
+            setEditingKey(null);
+          }}
+        />
+      ) : null}
+      <Dialog onClose={() => setSheet(null)} open={sheet === "menu"} title="Más opciones">
+        <div className="grid gap-2" data-testid="pos-menu">
+          <label className="flex min-h-12 items-center gap-3 border border-window-shadow px-3 text-sm">
+            <input checked={autoPrint} className="size-5" onChange={(event) => { setAutoPrint(event.target.checked); window.localStorage.setItem(AUTO_PRINT_KEY, event.target.checked ? "1" : "0"); }} type="checkbox" />
+            Imprimir el ticket al cobrar
+          </label>
+          <Button className="h-12 justify-start" onClick={() => { void document.documentElement.requestFullscreen?.().catch(() => undefined); setSheet(null); }} type="button" variant="outline"><ArrowsOut aria-hidden="true" /> Pantalla completa</Button>
+          <Link className={buttonVariants({ className: "h-12 justify-start", variant: "outline" })} href="/pos/sessions"><Receipt aria-hidden="true" /> Cierres de caja anteriores</Link>
+          {canManage ? <Link className={buttonVariants({ className: "h-12 justify-start", variant: "outline" })} href="/pos/settings"><GearSix aria-hidden="true" /> Configurar cajas</Link> : null}
+          <Link className={buttonVariants({ className: "h-12 justify-start", variant: "outline" })} href="/pos?choose=1">Cambiar de caja</Link>
+          <p className="text-xs text-muted-foreground">Con teclado: F2 busca y F9 cobra. Consejo: en la tablet, «Añadir a pantalla de inicio» abre el TPV como una aplicación.</p>
+        </div>
+      </Dialog>
     </div>
+  );
+}
+
+function CategoryChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button className={cn("h-11 shrink-0 snap-start border-2 px-4 font-mono text-sm font-bold", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} onClick={onClick} type="button">
+      {label}
+    </button>
   );
 }

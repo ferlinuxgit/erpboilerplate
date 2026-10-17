@@ -27,6 +27,8 @@ export type CartTotals = {
   lines: Array<{ key: string; total: number }>;
   /** Líneas que se facturan: las del carrito con el redondeo del IVA ya absorbido. */
   settled: CartLine[];
+  /** Diferencia (≤ 0) entre el total y la suma de los PVP cuando el IVA no permite cuadrarlos al céntimo. */
+  rounding: number;
 };
 
 const lineBase = (line: Pick<CartLine, "quantity" | "unitPrice">) => roundHalfAwayFromZero(line.quantity * line.unitPrice * 100);
@@ -46,7 +48,11 @@ export function settleCartLines(lines: readonly CartLine[]): CartLine[] {
     const group = result.filter((line) => line.taxRate === rate);
     const grossCents = group.reduce((sum, line) => sum + lineGross(line), 0);
     const estimate = Math.round(grossCents / (1 + rate / 100));
-    const targetBase = [estimate, estimate - 1, estimate + 1, estimate - 2, estimate + 2].find((base) => base >= 0 && base + taxOnBaseCents(base, rate) === grossCents) ?? estimate;
+    const candidates = [estimate, estimate - 1, estimate + 1, estimate - 2, estimate + 2].filter((base) => base >= 0);
+    // Exacto si existe; si no (2 × 2,00 € al 21 % no tiene base exacta), el más cercano sin cobrar de más.
+    const targetBase = candidates.find((base) => base + taxOnBaseCents(base, rate) === grossCents)
+      ?? candidates.filter((base) => base + taxOnBaseCents(base, rate) <= grossCents).sort((a, b) => b - a)[0]
+      ?? estimate;
     const diff = targetBase - group.reduce((sum, line) => sum + lineBase(line), 0);
     if (diff === 0) continue;
     const single = group
@@ -79,6 +85,7 @@ export function cartTotals(lines: readonly CartLine[]): CartTotals {
       .sort((a, b) => b.rate - a.rate),
     lines: lines.map((line) => ({ key: line.key, total: centsToNumber(lineGross(line)) })),
     settled,
+    rounding: centsToNumber(document.totalCents - lines.reduce((sum, line) => sum + lineGross(line), 0)),
   };
 }
 

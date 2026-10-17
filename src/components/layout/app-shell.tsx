@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
+import { isPosKioskRoute } from "@/components/layout/pos-routes";
 import { ActiveContextSwitcher } from "@/components/layout/active-context-switcher";
 import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
 import { ContextNavigation } from "@/components/layout/context-navigation";
@@ -270,6 +271,8 @@ export function AppShell({ children }: AppShellProps) {
   if (isPublicRoute) return <div className="flex-1">{children}</div>;
   // Ticket del TPV para imprimir (80 mm): sin menú ni cabeceras.
   if (pathname.startsWith("/pos/tickets/")) return <div className="flex-1 bg-white">{children}</div>;
+  // Caja del TPV (vender, abrir, cerrar): pantalla de mostrador propia, sin el menú del ERP.
+  if (isPosKioskRoute(pathname)) return <div className="flex-1">{children}</div>;
 
   return (
     <div

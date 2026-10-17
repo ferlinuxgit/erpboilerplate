@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { KioskBar } from "@/components/pos/kiosk-bar";
 import { OpenRegisterPanel } from "@/components/pos/open-register-panel";
 import { PosTerminal } from "@/components/pos/pos-terminal";
-import { PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { isModuleEnabled } from "@/server/modules/service";
@@ -18,7 +18,12 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
   if (!register) notFound();
   const session = await getOpenSession(ctx.company.id, register.id);
   if (!session) {
-    return <PageShell><OpenRegisterPanel registerId={register.id} registerName={register.name} /></PageShell>;
+    return (
+      <div className="flex min-h-dvh flex-col bg-background">
+        <KioskBar backHref="/pos?choose=1" backLabel="Cajas" status="Cerrada" title={register.name} />
+        <main className="flex flex-1 items-start justify-center overflow-y-auto"><OpenRegisterPanel registerId={register.id} registerName={register.name} /></main>
+      </div>
+    );
   }
   const inventoryEnabled = await isModuleEnabled(ctx.company.id, "inventory");
   const [catalog, tickets, bankAccounts] = await Promise.all([
@@ -27,8 +32,7 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
     listBankAccountOptions(ctx.company.id),
   ]);
   return (
-    <PageShell className="max-w-none">
-      <PosTerminal
+    <PosTerminal
         bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name }))}
         canManage={can(ctx.membership.role, "pos.manage")}
         catalog={catalog}
@@ -46,7 +50,6 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
           createdAt: ticket.createdAt.toISOString(),
           refundedAmount: Number(ticket.refundedAmount),
         }))}
-      />
-    </PageShell>
+    />
   );
 }
