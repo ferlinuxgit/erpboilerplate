@@ -63,6 +63,31 @@ describe("expense export", () => {
     expect(deductibleTaxAmount(invoice({ prorrataPct: 80 }))).toBe(18.8);
   });
 
+  it("separates VAT charged by the supplier from self-assessed VAT (intra-EU, reverse charge)", async () => {
+    const anthropic = invoice({
+      id: "inv-eu", number: "FP-2026/0003", supplierName: "Anthropic Ireland, Limited", supplierTaxId: "IE4276970QH", supplierCountryCode: "IE",
+      vatTreatment: "INTRA_EU", subtotalAmount: 93.33, taxAmount: 19.6, totalAmount: 93.33, paidAmount: 93.33, paymentStatus: "PAID",
+      lines: [{ accountCode: "62900000", accountName: "Otros servicios", base: 93.33, taxRate: 21, taxAmount: 19.6, taxDeductiblePct: 100, retentionRate: 0, retentionAmount: 0 }],
+    });
+    const workbook = await readWorkbook(await buildExpenseExportWorkbook(data([invoice(), anthropic])));
+    const sheet = workbook.getWorksheet("Facturas")!;
+    const header = (sheet.getRow(1).values as unknown[]).slice(1);
+    const cell = (row: number, name: string) => sheet.getRow(row).getCell(header.indexOf(name) + 1).value;
+    // Nacional: el IVA lo cobra el proveedor.
+    expect([cell(2, "Cuota IVA"), cell(2, "IVA autorrepercutido")]).toEqual([26, null]);
+    // Intracomunitaria: no se cobra (base + cuota = total) y se declara como autorrepercutido y deducible.
+    expect(cell(3, "Tipo de operación")).toBe("Adquisición intracomunitaria");
+    expect([cell(3, "Base imponible"), cell(3, "Cuota IVA"), cell(3, "IVA autorrepercutido"), cell(3, "IVA deducible"), cell(3, "Total factura")]).toEqual([93.33, 0, 19.6, 19.6, 93.33]);
+    expect([cell(4, "Cuota IVA"), cell(4, "IVA autorrepercutido"), cell(4, "IVA deducible")]).toEqual([26, 19.6, 43.1]);
+
+    const breakdown = workbook.getWorksheet("Desglose IVA")!;
+    const breakdownHeader = (breakdown.getRow(1).values as unknown[]).slice(1);
+    const euRow = breakdown.getRow(breakdown.rowCount);
+    expect(euRow.getCell(breakdownHeader.indexOf("Cuota IVA") + 1).value).toBe(0);
+    expect(euRow.getCell(breakdownHeader.indexOf("IVA autorrepercutido") + 1).value).toBe(19.6);
+    expect(euRow.getCell(breakdownHeader.indexOf("IVA deducible") + 1).value).toBe(19.6);
+  });
+
   it("writes one row per invoice with totals and a VAT breakdown per account and rate", async () => {
     const workbook = await readWorkbook(await buildExpenseExportWorkbook(data([invoice(), invoice({ id: "inv-2", number: "FP-2026/0002", paidAmount: 176, paymentStatus: "PAID" })])));
     const sheet = workbook.getWorksheet("Facturas")!;

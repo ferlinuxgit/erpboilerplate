@@ -1,12 +1,16 @@
 import ExcelJS from "exceljs";
 import { strToU8, zipSync } from "fflate";
 
+import { isSelfAssessedTreatment, type SupplierVatTreatment } from "@/lib/fiscal-spain";
+
 /**
  * Exportación de facturas de proveedor para el asesor (sin base de datos).
  *
  * - Hoja "Facturas": una fila por factura con los datos que pide el asesor para contabilizar o
  *   revisar (registro, fechas, proveedor, NIF, tipo de operación, base, IVA, IVA deducible,
- *   retención, total, pagos y documento).
+ *   retención, total, pagos y documento). En adquisiciones intracomunitarias e inversión del sujeto
+ *   pasivo el proveedor no cobra IVA: "Cuota IVA" va a 0 (base + cuota − retención = total) y la cuota
+ *   que declara la empresa sale en "IVA autorrepercutido" (devengado en el 303; el deducible, aparte).
  * - Hoja "Desglose IVA": una fila por factura, tipo de IVA y cuenta de gasto (lo necesario para el
  *   303 y el libro registro cuando una factura tiene varios tipos).
  * - Con documentos: un ZIP con el Excel y `facturas/<registro>_<proveedor>_<nº proveedor>.<ext>`,
@@ -127,6 +131,16 @@ export function deductibleTaxAmount(invoice: Pick<ExpenseExportInvoice, "lines" 
   return cents / 100;
 }
 
+/** El IVA de la factura lo declara la empresa (autorepercusión), no lo cobra el proveedor. */
+function selfAssessed(invoice: Pick<ExpenseExportInvoice, "vatTreatment">) {
+  return Boolean(invoice.vatTreatment) && isSelfAssessedTreatment(invoice.vatTreatment as SupplierVatTreatment);
+}
+
+/** Cuota cobrada por el proveedor y cuota autorrepercutida (una de las dos es 0). */
+function taxColumns(invoice: Pick<ExpenseExportInvoice, "vatTreatment">, taxAmount: number) {
+  return selfAssessed(invoice) ? { tax: 0, selfAssessedTax: taxAmount } : { tax: taxAmount, selfAssessedTax: 0 };
+}
+
 function sheetWithHeader(workbook: ExcelJS.Workbook, name: string, columns: Array<Partial<ExcelJS.Column>>) {
   const sheet = workbook.addWorksheet(name);
   sheet.columns = columns;
@@ -159,6 +173,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "Tipos de IVA (%)", key: "rates", width: 14 },
     { header: "Base imponible", key: "base", width: 15, style: { numFmt: MONEY_FORMAT } },
     { header: "Cuota IVA", key: "tax", width: 13, style: { numFmt: MONEY_FORMAT } },
+    { header: "IVA autorrepercutido", key: "selfAssessedTax", width: 15, style: { numFmt: MONEY_FORMAT } },
     { header: "IVA deducible", key: "deductible", width: 13, style: { numFmt: MONEY_FORMAT } },
     { header: "Retención IRPF", key: "retention", width: 14, style: { numFmt: MONEY_FORMAT } },
     { header: "Total factura", key: "total", width: 14, style: { numFmt: MONEY_FORMAT } },
@@ -171,12 +186,13 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "Notas", key: "notes", width: 30 },
     { header: "Documento", key: "document", width: 44 },
   ]);
-  const totals = { base: 0, tax: 0, deductible: 0, retention: 0, total: 0, paid: 0, pending: 0 };
+  const totals = { base: 0, tax: 0, selfAssessedTax: 0, deductible: 0, retention: 0, total: 0, paid: 0, pending: 0 };
 
   for (const invoice of data.invoices) {
     const deductible = deductibleTaxAmount(invoice);
     const pending = round2(Math.max(invoice.totalAmount - invoice.paidAmount, 0));
     const paths = options.documentPaths?.get(invoice.id) ?? [];
+    const { tax, selfAssessedTax } = taxColumns(invoice, invoice.taxAmount);
     const row = invoicesSheet.addRow({
       number: invoice.number,
       issueDate: invoice.issueDate,
@@ -189,7 +205,8 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
       accounts: distinct(invoice.lines.map((line) => line.accountCode)).join(", "),
       rates: distinct(invoice.lines.map((line) => String(line.taxRate))).join(" / "),
       base: invoice.subtotalAmount,
-      tax: invoice.taxAmount,
+      tax,
+      selfAssessedTax: selfAssessedTax || null,
       deductible,
       retention: invoice.retentionAmount || null,
       total: invoice.totalAmount,
@@ -208,7 +225,8 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
       row.getCell("document").font = { color: { argb: "FF0563C1" }, underline: true };
     }
     totals.base += invoice.subtotalAmount;
-    totals.tax += invoice.taxAmount;
+    totals.tax += tax;
+    totals.selfAssessedTax += selfAssessedTax;
     totals.deductible += deductible;
     totals.retention += invoice.retentionAmount;
     totals.total += invoice.totalAmount;
@@ -219,6 +237,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     supplier: `Total (${data.invoices.length} facturas)`,
     base: round2(totals.base),
     tax: round2(totals.tax),
+    selfAssessedTax: round2(totals.selfAssessedTax),
     deductible: round2(totals.deductible),
     retention: round2(totals.retention),
     total: round2(totals.total),
@@ -239,6 +258,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "Tipo IVA (%)", key: "rate", width: 11, style: { numFmt: PERCENT_FORMAT } },
     { header: "Base imponible", key: "base", width: 15, style: { numFmt: MONEY_FORMAT } },
     { header: "Cuota IVA", key: "tax", width: 13, style: { numFmt: MONEY_FORMAT } },
+    { header: "IVA autorrepercutido", key: "selfAssessedTax", width: 15, style: { numFmt: MONEY_FORMAT } },
     { header: "% deducible", key: "deductiblePct", width: 11, style: { numFmt: PERCENT_FORMAT } },
     { header: "IVA deducible", key: "deductible", width: 13, style: { numFmt: MONEY_FORMAT } },
     { header: "Retención (%)", key: "retentionRate", width: 12, style: { numFmt: PERCENT_FORMAT } },
@@ -255,6 +275,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
         : { ...line });
     }
     for (const line of groups.values()) {
+      const { tax, selfAssessedTax } = taxColumns(invoice, round2(line.taxAmount));
       breakdownSheet.addRow({
         number: invoice.number,
         issueDate: invoice.issueDate,
@@ -266,7 +287,8 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
         accountName: line.accountName ?? "",
         rate: line.taxRate,
         base: round2(line.base),
-        tax: round2(line.taxAmount),
+        tax,
+        selfAssessedTax: selfAssessedTax || null,
         deductiblePct: round2(line.taxDeductiblePct * invoice.prorrataPct / 100),
         deductible: deductibleTaxAmount({ lines: [line], prorrataPct: invoice.prorrataPct }),
         retentionRate: line.retentionRate || null,
