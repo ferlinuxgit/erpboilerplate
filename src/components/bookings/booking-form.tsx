@@ -27,6 +27,7 @@ export type PublicPage = {
   openWeekdays: number[];
   closures: string[];
   deposit?: { perPerson: number; minParty: number; refundable: boolean; cancellationHours: number } | null;
+  whatsapp?: boolean;
 };
 
 type Slot = { time: string; available: boolean };
@@ -56,7 +57,7 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [time, setTime] = useState<string | null>(null);
   const [slots, setSlots] = useState<{ key: string; slots: Slot[]; reason: string | null } | null>(null);
-  const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "", consent: false, website: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "", consent: false, website: "", whatsappOptIn: false });
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [reload, setReload] = useState(0);
@@ -94,7 +95,7 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
       const response = await fetch(`/api/public/bookings/${page.slug}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, time, partySize: party, name: form.name, phone: form.phone, email: form.email, notes: form.notes || null, consent: form.consent, website: form.website }),
+        body: JSON.stringify({ date, time, partySize: party, name: form.name, phone: form.phone, email: form.email, notes: form.notes || null, consent: form.consent, website: form.website, whatsappOptIn: Boolean(page.whatsapp) && form.whatsappOptIn }),
       });
       if (!response.ok) {
         setError(await readError(response));
@@ -193,6 +194,7 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
             <input checked={form.consent} className="mt-1 size-4" onChange={(event) => setForm({ ...form, consent: event.target.checked })} required type="checkbox" />
             <span>Acepto que {page.name} use mis datos solo para gestionar esta reserva y avisarme de ella.</span>
           </label>
+          {page.whatsapp ? <label className="flex items-start gap-2 text-sm"><input checked={form.whatsappOptIn} className="mt-1 size-4" data-testid="booking-whatsapp" onChange={(event) => setForm({ ...form, whatsappOptIn: event.target.checked })} type="checkbox" /><span>Avisarme también por WhatsApp al teléfono indicado (confirmación y recordatorio).</span></label> : null}
           <p className="text-xs text-muted-foreground">
             {depositAmount ? `Para grupos de ${page.deposit!.minParty} o más se pide una fianza de ${formatMoney(page.deposit!.perPerson)} por persona (${formatMoney(depositAmount)}): al confirmar irás a pagarla con tarjeta y la mesa se te guarda 15 minutos. ${page.deposit!.refundable ? `Se devuelve si cancelas hasta ${page.deposit!.cancellationHours} h antes; si no vienes, no se devuelve.` : "No se devuelve si cancelas o no vienes."} ` : ""}
             {page.autoConfirm ? "La confirmación es inmediata y te llegará por email." : "El restaurante revisará tu solicitud y te confirmará por email."}
@@ -212,7 +214,7 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
 
 /** Día completo: lista de espera; si alguien cancela, se avisa por email a los primeros. */
 function WaitlistForm({ date, page, party, times }: { date: string; page: PublicPage; party: number; times: string[] }) {
-  const [form, setForm] = useState({ preferredTime: "", name: "", phone: "", email: "", consent: false, website: "" });
+  const [form, setForm] = useState({ preferredTime: "", name: "", phone: "", email: "", consent: false, website: "", whatsappOptIn: false });
   const [state, setState] = useState<{ sending: boolean; error: string | null; done: boolean }>({ sending: false, error: null, done: false });
   if (state.done) return <p className="border-2 border-success bg-success/10 p-3 text-sm font-semibold" data-testid="booking-waitlist-done" role="status">Te hemos apuntado a la lista de espera. Si se libera una mesa te avisaremos por email al momento.</p>;
   return (
@@ -231,6 +233,7 @@ function WaitlistForm({ date, page, party, times }: { date: string; page: Public
       </div>
       <div aria-hidden="true" className="absolute left-[-10000px] h-px w-px overflow-hidden"><input autoComplete="off" onChange={(event) => setForm({ ...form, website: event.target.value })} tabIndex={-1} value={form.website} /></div>
       <label className="flex items-start gap-2 text-sm"><input checked={form.consent} className="mt-1 size-4" onChange={(event) => setForm({ ...form, consent: event.target.checked })} type="checkbox" /><span>Acepto que {page.name} use mis datos para avisarme si queda mesa.</span></label>
+      {page.whatsapp ? <label className="flex items-start gap-2 text-sm"><input checked={form.whatsappOptIn} className="mt-1 size-4" onChange={(event) => setForm({ ...form, whatsappOptIn: event.target.checked })} type="checkbox" /><span>Avisarme también por WhatsApp.</span></label> : null}
       {state.error ? <p className="text-sm font-semibold text-destructive" role="alert">{state.error}</p> : null}
       <Button className="h-12 w-full" data-testid="booking-waitlist-submit" disabled={state.sending || !form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.consent} onClick={async () => {
         setState({ sending: true, error: null, done: false });

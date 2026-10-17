@@ -1,0 +1,1 @@
+ALTER TABLE "pos_waitlist" ADD COLUMN "whatsappOptIn" boolean DEFAULT false NOT NULL;

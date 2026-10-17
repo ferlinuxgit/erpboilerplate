@@ -59,6 +59,9 @@ test("Fianza: Redsys configurado, reserva de grupo retenida hasta pagar, aviso f
   });
   const date = tomorrowInMadrid();
 
+  // WhatsApp activo con su plantilla: el formulario ofrece los avisos por WhatsApp.
+  await api(page, "PUT", "/api/pos/hospitality/integrations/whatsapp", { enabled: true, config: { phoneNumberId: "123456789012345", language: "es", countryCode: "34", templateConfirmed: "reserva_confirmada" }, secrets: { accessToken: "EAAtest" } });
+
   // El formulario avisa de la fianza al elegir 6 personas.
   const guest = await browser.newContext();
   const customer = await guest.newPage();
@@ -67,6 +70,7 @@ test("Fianza: Redsys configurado, reserva de grupo retenida hasta pagar, aviso f
   await customer.getByTestId("booking-slot-21:00").click();
   await expect(customer.getByTestId("booking-contact")).toContainText("fianza de 10,00 € por persona (60,00 €)");
   await expect(customer.getByTestId("booking-submit")).toContainText("Reservar y pagar fianza (60,00 €)");
+  await expect(customer.getByTestId("booking-whatsapp")).toBeVisible();
   await guest.close();
 
   // Reserva de 6: queda esperando el pago, con la mesa retenida y el formulario firmado para Redsys.

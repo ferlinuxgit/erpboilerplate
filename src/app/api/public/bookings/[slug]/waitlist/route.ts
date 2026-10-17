@@ -13,6 +13,7 @@ const schema = z.object({
   email: z.string().trim().max(200).email("Email no válido."),
   notes: z.string().trim().max(300).nullable().optional().transform((value) => value || null),
   consent: z.literal(true, { error: "Debes aceptar el tratamiento de tus datos." }),
+  whatsappOptIn: z.boolean().optional(),
   website: z.string().max(0, "No se pudo enviar.").optional(),
 });
 

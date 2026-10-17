@@ -2165,6 +2165,7 @@ export const posWaitlist = pgTable("pos_waitlist", {
   status: text("status").notNull().default("WAITING"),
   manageTokenHash: text("manageTokenHash"),
   consentAt: timestamp("consentAt", { withTimezone: true, mode: "date" }),
+  whatsappOptIn: boolean("whatsappOptIn").notNull().default(false),
   notifiedAt: timestamp("notifiedAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

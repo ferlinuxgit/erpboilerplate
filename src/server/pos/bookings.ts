@@ -37,6 +37,7 @@ import { openOrder } from "@/server/pos/hospitality";
 import type { PosActor } from "@/server/pos/service";
 
 import { customerBookingEmail, restaurantBookingEmail, sendBookingEmail, type BookingEmailData } from "./booking-emails";
+import { sendBookingWhatsApp, whatsappOffered, type WhatsAppNotice } from "./booking-whatsapp";
 import { refundDeposit, startDepositPayment, syncStripeDeposit } from "./deposits";
 import { listWaitlist, notifyWaitlist } from "./waitlist";
 
@@ -272,6 +273,7 @@ export async function getPublicBookingPage(slug: string) {
     lastDay: addDays(today, settings.maxDaysAhead),
     openWeekdays: [...new Set(settings.hours.map((shift) => shift.weekday))],
     closures: settings.closures.map((closure) => closure.date).filter((date) => date >= today),
+    whatsapp: await whatsappOffered(row.companyId),
     deposit: settings.depositEnabled && settings.depositPerPerson > 0 ? { perPerson: settings.depositPerPerson, minParty: settings.depositMinParty, refundable: settings.depositRefundable, cancellationHours: settings.cancellationHours } : null,
   };
 }
@@ -411,11 +413,17 @@ async function emailData(bookingId: string) {
   return { booking: row.booking, settings, data, tables: tables.map((table) => table.name).join(" + ") };
 }
 
+/** El mismo aviso por WhatsApp (si lo aceptó y el restaurante lo tiene activo). */
+function whatsApp(info: NonNullable<Awaited<ReturnType<typeof emailData>>>, notice: WhatsAppNotice) {
+  return sendBookingWhatsApp(info.booking.companyId, notice, { phone: info.booking.phone, optIn: info.booking.whatsappOptIn, name: info.data.name, restaurant: info.data.restaurant, when: info.data.when, partySize: info.data.partySize, link: notice === "CANCELLED" ? null : info.data.manageUrl });
+}
+
 /** Correo al cliente (confirmada o pendiente) y aviso al restaurante. */
 export async function notifyNewBooking(companyId: string, bookingId: string) {
   const info = await emailData(bookingId);
   if (!info || info.booking.companyId !== companyId) return;
   await sendBookingEmail(info.booking.email, customerBookingEmail(info.booking.status === "PENDING" ? "PENDING" : "CONFIRMED", info.data));
+  await whatsApp(info, info.booking.status === "PENDING" ? "PENDING" : "CONFIRMED");
   if (info.booking.source === "WEB") {
     await sendBookingEmail(info.settings.notifyEmail, restaurantBookingEmail("NEW", { ...info.data, tables: info.tables, bookingsUrl: `${appBaseUrl()}/pos/bookings?date=${zonedParts(info.booking.startsAt, info.settings.timezone).date}`, email: info.booking.email, customerPhone: info.booking.phone }));
   }
@@ -425,6 +433,7 @@ async function notifyCustomer(bookingId: string, kind: "CONFIRMED" | "CANCELLED"
   const info = await emailData(bookingId);
   if (!info) return;
   await sendBookingEmail(info.booking.email, customerBookingEmail(kind, kind === "CANCELLED" ? { ...info.data, manageUrl: null } : info.data));
+  await whatsApp(info, kind);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -497,6 +506,7 @@ export async function cancelBookingByToken(token: string) {
       const info = await emailData(updated.id);
       if (!info) return;
       await sendBookingEmail(info.booking.email, customerBookingEmail("CANCELLED", { ...info.data, manageUrl: null }));
+      await whatsApp(info, "CANCELLED");
       await sendBookingEmail(info.settings.notifyEmail, restaurantBookingEmail("CANCELLED", { ...info.data, tables: info.tables, bookingsUrl: `${appBaseUrl()}/pos/bookings?date=${zonedParts(info.booking.startsAt, info.settings.timezone).date}`, email: info.booking.email, customerPhone: info.booking.phone }));
       await notifyWaitlist(updated.companyId, zonedParts(info.booking.startsAt, info.settings.timezone).date);
     },
@@ -753,7 +763,7 @@ export async function sendBookingReminders(now = new Date()) {
         eq(posBookingSettings.sendReminders, true),
         eq(posBooking.status, "CONFIRMED"),
         isNull(posBooking.reminderSentAt),
-        sql`${posBooking.email} is not null`,
+        or(sql`${posBooking.email} is not null`, eq(posBooking.whatsappOptIn, true)),
         gte(posBooking.startsAt, new Date(now.getTime() + 3 * 3_600_000)),
         lt(posBooking.startsAt, new Date(now.getTime() + 26 * 3_600_000)),
         sql`${posBooking.startsAt} - ${posBooking.createdAt} > interval '12 hours'`,
@@ -766,7 +776,10 @@ export async function sendBookingReminders(now = new Date()) {
     const [claimed] = await db.update(posBooking).set({ reminderSentAt: now }).where(and(eq(posBooking.id, id), isNull(posBooking.reminderSentAt))).returning({ id: posBooking.id });
     if (!claimed) continue;
     const info = await emailData(id);
-    if (info && (await sendBookingEmail(info.booking.email, customerBookingEmail("REMINDER", info.data)))) sent += 1;
+    if (!info) continue;
+    const byEmail = await sendBookingEmail(info.booking.email, customerBookingEmail("REMINDER", info.data));
+    const byWhatsApp = (await whatsApp(info, "REMINDER")).sent;
+    if (byEmail || byWhatsApp) sent += 1;
   }
   return { sent };
 }

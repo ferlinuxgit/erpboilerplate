@@ -386,6 +386,13 @@
       "when": 1792264749157,
       "tag": "0054_integrations_deposits_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792266588755,
+      "tag": "0055_waitlist_whatsapp",
+      "breakpoints": true
     }
   ]
 }

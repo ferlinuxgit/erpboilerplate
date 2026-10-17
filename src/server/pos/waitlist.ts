@@ -11,6 +11,7 @@ import { appBaseUrl } from "@/server/email/templates";
 import type { PosActor } from "@/server/pos/service";
 
 import { sendBookingEmail, waitlistEmail } from "./booking-emails";
+import { sendBookingWhatsApp } from "./booking-whatsapp";
 import { getBookingSettings, getPublicBookingPage, hasAvailability } from "./bookings";
 
 export const WAITLIST_STATUSES = ["WAITING", "NOTIFIED", "BOOKED", "CANCELLED"] as const;
@@ -24,7 +25,7 @@ const hashToken = (token: string) => createHash("sha256").update(token).digest("
 const cancelUrl = (id: string) => `${appBaseUrl()}/reservar/espera/${waitlistToken(id)}`;
 const dayLabel = (date: string) => new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
 
-export type WaitlistJoinInput = { date: string; partySize: number; preferredTime: string | null; name: string; phone: string; email: string; notes: string | null };
+export type WaitlistJoinInput = { date: string; partySize: number; preferredTime: string | null; name: string; phone: string; email: string; notes: string | null; whatsappOptIn?: boolean };
 
 /** Apuntarse desde el formulario público cuando el día está completo. */
 export async function joinWaitlist(slug: string, input: WaitlistJoinInput) {
@@ -38,7 +39,7 @@ export async function joinWaitlist(slug: string, input: WaitlistJoinInput) {
   const [existing] = await db.select({ id: posWaitlist.id }).from(posWaitlist).where(and(eq(posWaitlist.companyId, page.companyId), eq(posWaitlist.date, input.date), eq(posWaitlist.email, email), inArray(posWaitlist.status, ["WAITING", "NOTIFIED"]))).limit(1);
   if (existing) return { id: existing.id, token: waitlistToken(existing.id), notify: async () => undefined };
   const id = crypto.randomUUID();
-  await db.insert(posWaitlist).values({ id, companyId: page.companyId, date: input.date, preferredTime: input.preferredTime, partySize: input.partySize, name: input.name.trim(), phone: input.phone.trim(), email, notes: input.notes?.trim() || null, source: "WEB", manageTokenHash: hashToken(waitlistToken(id)), consentAt: new Date() });
+  await db.insert(posWaitlist).values({ id, companyId: page.companyId, date: input.date, preferredTime: input.preferredTime, partySize: input.partySize, name: input.name.trim(), phone: input.phone.trim(), email, notes: input.notes?.trim() || null, source: "WEB", manageTokenHash: hashToken(waitlistToken(id)), consentAt: new Date(), whatsappOptIn: Boolean(input.whatsappOptIn) });
   const bookUrl = `${appBaseUrl()}/reservar/${page.slug}?fecha=${input.date}&personas=${input.partySize}`;
   return {
     id,
@@ -86,7 +87,9 @@ export async function notifyWaitlist(companyId: string, date: string) {
     if (!available) continue;
     const [claimed] = await db.update(posWaitlist).set({ status: "NOTIFIED", notifiedAt: new Date(), updatedAt: new Date() }).where(and(eq(posWaitlist.id, entry.id), eq(posWaitlist.status, "WAITING"))).returning({ id: posWaitlist.id });
     if (!claimed) continue;
-    await sendBookingEmail(entry.email, waitlistEmail("AVAILABLE", { restaurant: page.name, name: entry.name, partySize: entry.partySize, day: dayLabel(date), preferredTime: entry.preferredTime, bookUrl: `${appBaseUrl()}/reservar/${page.slug}?fecha=${date}&personas=${entry.partySize}`, cancelUrl: cancelUrl(entry.id) }));
+    const bookUrl = `${appBaseUrl()}/reservar/${page.slug}?fecha=${date}&personas=${entry.partySize}`;
+    await sendBookingEmail(entry.email, waitlistEmail("AVAILABLE", { restaurant: page.name, name: entry.name, partySize: entry.partySize, day: dayLabel(date), preferredTime: entry.preferredTime, bookUrl, cancelUrl: cancelUrl(entry.id) }));
+    await sendBookingWhatsApp(companyId, "WAITLIST", { phone: entry.phone, optIn: entry.whatsappOptIn, name: entry.name, restaurant: page.name, when: `${dayLabel(date)}${entry.preferredTime ? ` · ${entry.preferredTime}` : ""}`, partySize: entry.partySize, link: bookUrl });
     notified += 1;
   }
   return { notified };
