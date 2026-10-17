@@ -14,7 +14,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!payload) return invalidJsonResponse();
     const parsed = addLinesSchema.safeParse(payload);
     if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
-    return NextResponse.json(await hospitality.addOrderLines(actor, (await params).id, parsed.data.lines, parsed.data.waiterUserId), { status: 200 });
+    return NextResponse.json(await hospitality.addOrderLines(actor, (await params).id, parsed.data.lines, parsed.data.waiterUserId, request.headers.get("x-request-key")), { status: 200 });
   } catch (error) {
     return handleRouteError(error, "pos.orders.add");
   }

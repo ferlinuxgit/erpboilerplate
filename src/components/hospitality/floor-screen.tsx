@@ -16,6 +16,8 @@ import { formatElapsed, minutesSince } from "@/modules/hospitality/model";
 
 import { KioskBar } from "../pos/kiosk-bar";
 import { useWakeLock } from "../pos/use-touch-pos";
+import { ConnectionBanner } from "./connection-banner";
+import { isConnectionError } from "./offline-queue";
 import { postJson, type FloorBooking, type FloorData, type FloorOrder, type FloorTable } from "./types";
 import { usePolling } from "./use-polling";
 import { useWaiter, WaiterButton } from "./waiter";
@@ -55,7 +57,7 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
       const result = await postJson<{ id: string }>("/api/pos/hospitality/orders", { registerId, waiterUserId: waiter?.userId ?? null, ...input });
       router.push(`/pos/${registerId}/orders/${result.id}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo abrir la cuenta.");
+      toast.error(isConnectionError(error) ? "Sin conexión: para abrir una mesa nueva hace falta conexión. Las mesas ya abiertas se pueden seguir usando." : error instanceof Error ? error.message : "No se pudo abrir la cuenta.");
     }
   }
 
@@ -91,6 +93,7 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
           <LockKey aria-hidden="true" className="size-5" /><span className="hidden lg:inline">Cerrar caja</span>
         </Link>
       </KioskBar>
+      <ConnectionBanner />
 
       {data.areas.length === 0 ? (
         <div className="m-auto max-w-sm space-y-3 p-6 text-center">

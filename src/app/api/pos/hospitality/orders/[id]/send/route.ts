@@ -6,10 +6,10 @@ import { sendOrderToKitchen } from "@/server/pos/hospitality";
 import { posActor } from "../../../../actor";
 
 /** Envía lo pendiente a cocina y barra (una comanda por estación). */
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { actor } = await posActor("pos.sell");
-    return NextResponse.json(await sendOrderToKitchen(actor, (await params).id));
+    return NextResponse.json(await sendOrderToKitchen(actor, (await params).id, request.headers.get("x-request-key")));
   } catch (error) {
     return handleRouteError(error, "pos.orders.send");
   }

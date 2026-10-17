@@ -80,6 +80,8 @@ const nextConfig: NextConfig = {
       // El formulario de reservas y la carta se pueden incrustar en la web del restaurante.
       { source: "/reservar/:path*", headers: securityHeaders("*") },
       { source: "/carta/:path*", headers: securityHeaders("*") },
+      // Service worker del TPV: siempre la versión nueva.
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, max-age=0" }, { key: "Service-Worker-Allowed", value: "/" }] },
     ];
   },
 };

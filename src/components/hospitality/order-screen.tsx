@@ -11,7 +11,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { formatElapsed, lineStatusLabels, minutesSince, type BillPart, type LineStatus } from "@/modules/hospitality/model";
+import { formatElapsed, lineStatusLabels, minutesSince, orderAmounts, type BillPart, type LineStatus } from "@/modules/hospitality/model";
 import { courseLabels, courseLongLabels, nextHeldCourse } from "@/modules/hospitality/ordering";
 import { grossPrice, netFromGross } from "@/modules/pos/model";
 import type { OrderingOptions } from "@/server/pos/ordering";
@@ -26,6 +26,8 @@ import { MoveDialog, type MoveAction } from "./move-dialog";
 import { OrderLineSheet } from "./order-line-sheet";
 import { ProductOptionsDialog, type ProductChoice } from "./product-options-dialog";
 import { SplitDialog } from "./split-dialog";
+import { ConnectionBanner } from "./connection-banner";
+import { sendOrQueue, usePosConnectionState } from "./offline-queue";
 import { postJson, type OrderData, type OrderLineView } from "./types";
 import { usePolling } from "./use-polling";
 import { useWaiter, WaiterButton } from "./waiter";
@@ -51,7 +53,10 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(0);
-  const { data: order, setData: setOrder, refresh } = usePolling<OrderData>(`/api/pos/hospitality/orders/${initial.id}`, initial, 5000, busy > 0);
+  const { online, pending: queued } = usePosConnectionState();
+  // Con operaciones guardadas sin enviar no se recarga: se perdería lo que el camarero ya ve.
+  const { data: order, setData: setOrder, refresh } = usePolling<OrderData>(`/api/pos/hospitality/orders/${initial.id}`, initial, 5000, busy > 0 || queued > 0);
+  const offlineNotice = useRef(0);
   const { waiter, setWaiter } = useWaiter();
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const [view, setView] = useState<"catalog" | "order">("catalog");
@@ -85,6 +90,8 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
   const sent = order.lines.filter((line) => line.status !== "PENDING");
   const ready = order.lines.filter((line) => line.status === "READY");
   const soldOut = useMemo(() => new Set(order.soldOutItemIds ?? []), [order.soldOutItemIds]);
+  // Total calculado aquí con la misma regla que el servidor: refleja al momento lo añadido (también sin red).
+  const amounts = useMemo(() => orderAmounts(order.lines, order.equalSplit), [order.lines, order.equalSplit]);
   const heldCourse = nextHeldCourse(order.lines.map((line) => ({ ...line, firedAt: line.firedAt })));
   const inCart = useMemo(() => {
     const byItem = new Map<string, number>();
@@ -108,6 +115,24 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
     });
   }
 
+  /**
+   * Operación que aguanta cortes: con red se envía; sin red se guarda en el dispositivo (y se ve ya en
+   * la cuenta) y se envía sola al volver.
+   */
+  function queue<T>(url: string, body: unknown, method: string, label: string, onSent?: (result: T) => void, onQueued?: () => void) {
+    run(() => sendOrQueue<T>(url, body, method, label), (outcome) => {
+      if (outcome.queued) {
+        onQueued?.();
+        if (Date.now() - offlineNotice.current > 60_000) {
+          offlineNotice.current = Date.now();
+          toast.warning("Sin conexión: queda guardado en este dispositivo y se enviará solo.");
+        }
+        return;
+      }
+      onSent?.(outcome.result);
+    });
+  }
+
   function chooseProduct(entry: PosCatalogItem, confirmed = false) {
     if (!confirmed && soldOut.has(entry.id)) {
       setSoldOutPrompt(entry);
@@ -125,7 +150,10 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
     setOptions(null);
     tapFeedback();
     setFlash({ id: Date.now(), text: `+1 ${entry.name}` });
-    run(() => postJson(`/api/pos/hospitality/orders/${order.id}/lines`, { waiterUserId: waiter?.userId ?? null, lines: [{ itemId: entry.id, description: entry.name, unitPrice: entry.unitPrice, taxRate: entry.taxRate, taxId: entry.taxId, quantity: 1, course, ...choice }] }));
+    queue(`/api/pos/hospitality/orders/${order.id}/lines`, { waiterUserId: waiter?.userId ?? null, lines: [{ itemId: entry.id, description: entry.name, unitPrice: entry.unitPrice, taxRate: entry.taxRate, taxId: entry.taxId, quantity: 1, course, ...choice }] }, "POST", `Añadir ${entry.name}`, undefined, () => {
+      // Sin red: se ve ya en la cuenta; el precio con suplementos lo pondrá el servidor al enviarse.
+      setOrder((current) => ({ ...current, lines: [...current.lines, { id: `tmp-${crypto.randomUUID()}`, orderId: current.id, itemId: entry.id, description: `${entry.name} (pendiente de enviar)`, quantity: 1, unitPrice: entry.unitPrice, taxRate: entry.taxRate, taxId: entry.taxId, note: null, station: "NONE" as const, status: "PENDING" as const, paidQuantity: 0, sentAt: null, createdAt: new Date().toISOString(), addedByName: waiter?.name ?? null, course: 0, firedAt: null, parentLineId: null, modifiers: [] }] }));
+    });
   }
 
   function addProduct(input: { itemId: string | null; description: string; unitPrice: number; taxRate: number; taxId: string | null }) {
@@ -140,22 +168,23 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
       return { ...current, lines, status: "OPEN" };
     });
     setFlash({ id: Date.now(), text: `+1 ${input.description}` });
-    run(() => postJson(`/api/pos/hospitality/orders/${order.id}/lines`, { waiterUserId: waiter?.userId ?? null, lines: [{ ...input, quantity: 1, course }] }));
+    queue(`/api/pos/hospitality/orders/${order.id}/lines`, { waiterUserId: waiter?.userId ?? null, lines: [{ ...input, quantity: 1, course }] }, "POST", `Añadir ${input.description}`);
   }
 
   function send() {
     if (unsent.length === 0) return;
-    run(() => postJson<{ batches: Array<{ id: string; station: string }>; held: number }>(`/api/pos/hospitality/orders/${order.id}/send`, {}), (result) => {
+    queue<{ batches: Array<{ id: string; station: string }>; held: number }>(`/api/pos/hospitality/orders/${order.id}/send`, {}, "POST", "Enviar a cocina", (result) => {
       toast.success(`${result.batches.length > 0 ? `Enviado a ${result.batches.map((batch) => (batch.station === "KITCHEN" ? "cocina" : "barra")).join(" y ")}` : "Marcado como servido"}${result.held > 0 ? ` · ${result.held} en espera hasta «Marchar»` : ""}.`);
       if (printKitchen) for (const batch of result.batches) window.open(`/pos/tickets/kitchen/${batch.id}?print=1`, "_blank", "noopener,width=420,height=600");
-    });
+    }, () => setOrder((current) => ({ ...current, lines: current.lines.map((line) => (line.status === "PENDING" ? { ...line, status: "SENT" as const } : line)) })));
   }
 
   function fire() {
-    run(() => postJson<{ course: number; lines: number; batches: string[] }>(`/api/pos/hospitality/orders/${order.id}/fire`, {}), (result) => {
+    const marching = heldCourse;
+    queue<{ course: number; lines: number; batches: string[] }>(`/api/pos/hospitality/orders/${order.id}/fire`, {}, "POST", "Marchar", (result) => {
       toast.success(`Marchan los ${courseLongLabels[result.course].toLowerCase()} (${result.lines}).`);
       if (printKitchen) for (const batchId of result.batches) window.open(`/pos/tickets/kitchen/${batchId}?print=1&course=${result.course}`, "_blank", "noopener,width=420,height=600");
-    });
+    }, () => setOrder((current) => ({ ...current, lines: current.lines.map((line) => (line.station === "KITCHEN" && line.status === "SENT" && !line.firedAt && line.course === marching ? { ...line, firedAt: new Date().toISOString() } : line)) })));
   }
 
   function setItemSoldOut(itemId: string, value: boolean, name: string) {
@@ -215,6 +244,7 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
           </>
         ) : null}
       </KioskBar>
+      <ConnectionBanner onSynced={() => void refresh()} />
 
       {paid || closed ? (
         <div className="m-auto w-full max-w-md space-y-4 p-6 text-center" data-testid="pos-order-closed" role="status">
@@ -257,13 +287,13 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
               ) : null}
               {ready.length > 0 ? <p className="flex items-center gap-1 text-sm font-bold text-success-text"><BellRinging aria-hidden="true" className="size-4" />{ready.length} {ready.length === 1 ? "plato listo" : "platos listos"} para servir</p> : null}
               <div className="flex items-baseline justify-between font-mono">
-                <span className="text-sm">{order.amounts.paid > 0 ? `Cobrado ${formatMoney(order.amounts.paid, currencyCode)} · pendiente` : "Total"}</span>
-                <span className="text-3xl font-black tabular-nums" data-testid="pos-order-pending">{formatMoney(order.amounts.pending, currencyCode)}</span>
+                <span className="text-sm">{amounts.paid > 0 ? `Cobrado ${formatMoney(amounts.paid, currencyCode)} · pendiente` : "Total"}</span>
+                <span className="text-3xl font-black tabular-nums" data-testid="pos-order-pending">{formatMoney(amounts.pending, currencyCode)}</span>
               </div>
               {order.equalSplit ? <p className="text-xs text-muted-foreground">Pagando a partes iguales: parte {order.equalSplit.paid + 1} de {order.equalSplit.parts}.</p> : null}
               <div className="hidden grid-cols-2 gap-2 md:grid">
                 <Button className="h-16 text-lg" data-testid="pos-order-send" disabled={unsent.length === 0 || busy > 0} onClick={send} type="button" variant={unsent.length > 0 ? "default" : "outline"}><PaperPlaneTilt aria-hidden="true" /> Enviar{unsent.length > 0 ? ` (${unsent.length})` : ""}</Button>
-                <Button className="h-16 text-lg" data-testid="pos-order-charge" disabled={order.amounts.pending <= 0 || busy > 0} onClick={() => setSheet("split")} type="button" variant={unsent.length > 0 ? "outline" : "default"}>Cobrar</Button>
+                <Button className="h-16 text-lg" data-testid="pos-order-charge" disabled={amounts.pending <= 0 || busy > 0 || !online || queued > 0} title={!online ? "Para cobrar hace falta conexión" : undefined} onClick={() => setSheet("split")} type="button" variant={unsent.length > 0 ? "outline" : "default"}>Cobrar</Button>
               </div>
             </div>
           </section>
@@ -281,10 +311,10 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
           </button>
           <button className="min-w-0 text-left" onClick={() => setView("order")} type="button">
             <span className="block font-mono text-[11px] uppercase text-muted-foreground">{order.name}</span>
-            <span className="block truncate font-mono text-xl font-black tabular-nums">{formatMoney(order.amounts.pending, currencyCode)}</span>
+            <span className="block truncate font-mono text-xl font-black tabular-nums">{formatMoney(amounts.pending, currencyCode)}</span>
           </button>
           <Button aria-label="Enviar a cocina" className="h-14 px-3" data-testid="pos-order-send-mobile" disabled={unsent.length === 0 || busy > 0} onClick={send} type="button" variant={unsent.length > 0 ? "default" : "outline"}><PaperPlaneTilt aria-hidden="true" className="size-5" /></Button>
-          <Button className="h-14 px-4" data-testid="pos-order-charge-mobile" disabled={order.amounts.pending <= 0 || busy > 0} onClick={() => setSheet("split")} type="button">Cobrar</Button>
+          <Button className="h-14 px-4" data-testid="pos-order-charge-mobile" disabled={amounts.pending <= 0 || busy > 0 || !online || queued > 0} onClick={() => setSheet("split")} type="button">Cobrar</Button>
         </nav>
       ) : null}
 
@@ -325,7 +355,7 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
           onSave={(patch) => {
             const lineId = editing.id;
             setEditing(null);
-            run(() => postJson(`/api/pos/hospitality/lines/${lineId}`, patch, "PATCH"));
+            queue(`/api/pos/hospitality/lines/${lineId}`, patch, "PATCH", "Cambiar línea", undefined, () => setOrder((current) => ({ ...current, lines: current.lines.flatMap((line) => (line.id !== lineId ? [line] : patch.quantity === 0 && line.status === "PENDING" ? [] : [{ ...line, ...(patch.quantity !== undefined ? { quantity: patch.quantity } : {}), ...(patch.note !== undefined ? { note: patch.note } : {}), ...(patch.course !== undefined ? { course: patch.course } : {}) }])) })));
           }}
         />
       ) : null}

@@ -1,6 +1,8 @@
 "use client";
 
 import { Keyboard, SignOut } from "@phosphor-icons/react";
+
+import { clearPosOfflineData } from "@/lib/pos-offline-cache";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -35,6 +37,7 @@ export function SessionPanel({ className, onNavigate }: { className?: string; on
   const onSignOut = async () => {
     setSigningOut(true);
     await authClient.signOut();
+    clearPosOfflineData();
     invalidateActiveContext();
     onNavigate?.();
     router.push("/auth/login");

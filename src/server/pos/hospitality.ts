@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 
 import {
   item,
@@ -12,6 +12,7 @@ import {
   posOrder,
   posOrderLine,
   posRegister,
+  posRequestKey,
   posStaffPin,
   posTable,
   posTicket,
@@ -33,6 +34,16 @@ const num = (value: string | number | null | undefined) => Number(value ?? 0);
 const money = (value: number) => (Math.round(value * 100) / 100).toFixed(2);
 const qty = (value: number) => (Math.round(value * 1000) / 1000).toFixed(3);
 const OPEN_STATUSES = ["OPEN", "BILL_REQUESTED"] as const;
+
+/**
+ * Marca una petición del TPV como aplicada. Devuelve false si ya se aplicó: un dispositivo que se
+ * quedó sin conexión reenvía su cola y no debe duplicar platos ni marchar dos tiempos.
+ */
+async function claimRequestKey(client: DbClient, companyId: string, key: string | null | undefined) {
+  if (!key) return true;
+  const [claimed] = await client.insert(posRequestKey).values({ companyId, key: key.slice(0, 100) }).onConflictDoNothing().returning({ id: posRequestKey.id });
+  return Boolean(claimed);
+}
 
 async function audit(actor: PosActor, action: string, entityName: string, entityId: string, payload: Record<string, unknown>, client: DbClient = db) {
   await recordAudit({ tenantId: actor.tenantId, companyId: actor.companyId, actorUserId: actor.actorUserId, action, entityName, entityId, payload }, client);
@@ -509,11 +520,12 @@ export type OrderLineInput = {
  * modificadores y menús se validan y se ponen precio aquí, no en el dispositivo. Pedir la cuenta y
  * volver a pedir reabre la mesa.
  */
-export async function addOrderLines(actor: PosActor, orderId: string, lines: OrderLineInput[], waiterUserId?: string | null) {
+export async function addOrderLines(actor: PosActor, orderId: string, lines: OrderLineInput[], waiterUserId?: string | null, requestKey?: string | null) {
   if (lines.length === 0) throw new HttpError(400, "No hay nada que añadir.");
   if (lines.some((line) => !(line.quantity > 0) || line.unitPrice < 0 || !line.description.trim())) throw new HttpError(400, "Revisa los productos: cantidades positivas y precios no negativos.");
   return db.transaction(async (tx) => {
     const order = await loadOpenOrder(tx, actor.companyId, orderId);
+    if (!(await claimRequestKey(tx, actor.companyId, requestKey))) return { id: orderId, duplicate: true };
     if (order.equalSplit) throw new HttpError(409, "La cuenta se está pagando a partes iguales: termina de cobrarla antes de añadir más.");
     const menuItemIds = lines.flatMap((line) => line.setMenuPicks ?? []).map((pick) => pick.itemId);
     const itemIds = [...new Set([...lines.map((line) => line.itemId).filter((id): id is string => Boolean(id)), ...menuItemIds])];
@@ -642,9 +654,10 @@ export async function updateOrderLine(actor: PosActor, lineId: string, input: { 
  * Envía a cocina y barra lo pendiente de la cuenta: una comanda por estación (para su pantalla o para
  * imprimirla). Lo que no lleva estación (bebida embotellada, pan…) queda servido.
  */
-export async function sendOrderToKitchen(actor: PosActor, orderId: string) {
+export async function sendOrderToKitchen(actor: PosActor, orderId: string, requestKey?: string | null) {
   return db.transaction(async (tx) => {
     const order = await loadOpenOrder(tx, actor.companyId, orderId);
+    if (!(await claimRequestKey(tx, actor.companyId, requestKey))) return { batches: [] as Array<{ id: string; station: Station }>, held: 0, duplicate: true };
     const all = await tx.select().from(posOrderLine).where(eq(posOrderLine.orderId, orderId));
     const pending = all.filter((line) => line.status === "PENDING");
     if (pending.length === 0) return { batches: [] as Array<{ id: string; station: Station }>, held: 0 };
@@ -674,9 +687,10 @@ export async function sendOrderToKitchen(actor: PosActor, orderId: string) {
 }
 
 /** «Marchar»: cocina empieza el siguiente tiempo en espera de la mesa. */
-export async function fireNextCourse(actor: PosActor, orderId: string) {
+export async function fireNextCourse(actor: PosActor, orderId: string, requestKey?: string | null) {
   return db.transaction(async (tx) => {
     await loadOpenOrder(tx, actor.companyId, orderId);
+    if (!(await claimRequestKey(tx, actor.companyId, requestKey))) return { course: null, lines: 0, batches: [] as string[], duplicate: true };
     const lines = await tx.select().from(posOrderLine).where(eq(posOrderLine.orderId, orderId));
     const course = nextHeldCourse(lines);
     if (course === null) throw new HttpError(409, "No hay nada en espera en cocina.");
@@ -936,4 +950,9 @@ export async function countOpenOrders(companyId: string, registerId: string) {
 /** ¿Puede vender esta caja (sesión abierta)? Las cuentas se pueden abrir y llevar sin caja abierta, pero no cobrar. */
 export async function hasOpenSession(companyId: string, registerId: string) {
   return Boolean(await getOpenSession(companyId, registerId));
+}
+
+/** Limpieza: las claves de reenvío solo hacen falta unos días. */
+export async function purgeOldRequestKeys(now = new Date()) {
+  await db.delete(posRequestKey).where(lt(posRequestKey.createdAt, new Date(now.getTime() - 7 * 86_400_000)));
 }

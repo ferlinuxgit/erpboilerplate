@@ -11,7 +11,8 @@ import { courseLabels, courseLongLabels } from "@/modules/hospitality/ordering";
 
 import { KioskAction, KioskBar } from "../pos/kiosk-bar";
 import { useWakeLock } from "../pos/use-touch-pos";
-import { postJson } from "./types";
+import { ConnectionBanner } from "./connection-banner";
+import { sendOrQueue } from "./offline-queue";
 import { usePolling } from "./use-polling";
 
 export type KitchenBatch = {
@@ -77,8 +78,8 @@ export function KitchenBoard({ initial, initialStation }: { initial: KitchenBatc
 
   async function setStatus(lineIds: string[], status: "SENT" | "READY" | "SERVED") {
     try {
-      await postJson("/api/pos/hospitality/kitchen/status", { lineIds, status });
-      await refresh();
+      const outcome = await sendOrQueue("/api/pos/hospitality/kitchen/status", { lineIds, status }, "POST", status === "READY" ? "Marcar listo" : status === "SERVED" ? "Marcar servido" : "Volver a preparación");
+      if (!outcome.queued) await refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo actualizar.");
     }
@@ -102,6 +103,7 @@ export function KitchenBoard({ initial, initialStation }: { initial: KitchenBatc
         <KioskAction aria-pressed={station === "BAR"} data-testid="pos-kitchen-station-bar" icon={<Coffee aria-hidden="true" className="size-5" />} label="Barra" onClick={() => changeStation("BAR")} />
         <KioskAction icon={sound ? <SpeakerHigh aria-hidden="true" className="size-5" /> : <SpeakerSlash aria-hidden="true" className="size-5" />} label={sound ? "Silenciar avisos" : "Activar avisos"} onClick={() => { setSound(!sound); window.localStorage.setItem(SOUND_KEY, sound ? "0" : "1"); }}>Sonido</KioskAction>
       </KioskBar>
+      <ConnectionBanner onSynced={() => void refresh()} />
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {batches.length === 0 ? (
           <p className="flex h-full flex-col items-center justify-center gap-2 text-lg text-muted-foreground"><CheckCircle aria-hidden="true" className="size-12" />Todo al día.</p>

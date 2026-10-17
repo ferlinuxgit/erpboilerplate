@@ -2122,6 +2122,14 @@ export const posCategoryStation = pgTable("pos_category_station", {
   check("pos_category_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
 ]);
 
+/** Peticiones del TPV ya aplicadas (reenvíos tras un corte de conexión no se duplican). */
+export const posRequestKey = pgTable("pos_request_key", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("pos_request_key_unique").on(table.companyId, table.key), index("pos_request_key_created_idx").on(table.createdAt)]);
+
 /** Escandallo: ingredientes (en su unidad) que lleva una ración de un plato o bebida. */
 export const itemRecipeLine = pgTable("item_recipe_line", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

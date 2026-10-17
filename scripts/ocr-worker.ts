@@ -6,6 +6,7 @@ async function main() {
   const { cleanupExpiredExpenseOcrJobs, processPendingExpenseOcrJobs } = await import("../src/server/ocr/expense-ocr");
   const { checkAllMailInboxes } = await import("../src/server/ocr/mail-inbox");
   const { sendBookingReminders } = await import("../src/server/pos/bookings");
+  const { purgeOldRequestKeys } = await import("../src/server/pos/hospitality");
 
   const intervalMs = Number(process.env.OCR_WORKER_INTERVAL_MS ?? 5000);
   // Buzones de facturas por correo: cada 2 minutos por defecto.
@@ -29,6 +30,7 @@ async function main() {
       if (Date.now() >= nextReminderAt) {
         nextReminderAt = Date.now() + 10 * 60 * 1000;
         const reminders = await sendBookingReminders();
+        await purgeOldRequestKeys();
         if (reminders.sent > 0) console.log(`Booking reminders sent: ${reminders.sent}.`);
       }
       if (Date.now() >= nextCleanupAt) {
