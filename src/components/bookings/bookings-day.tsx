@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowCounterClockwise, CaretLeft, CaretRight, Chair, Check, NotePencil, Phone, Plus, Prohibit, Receipt, UserMinus, Users } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, CaretLeft, CaretRight, Chair, Check, Hourglass, NotePencil, Phone, Plus, Prohibit, Receipt, UserMinus, Users, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -20,6 +20,15 @@ import type { BookingDay } from "@/server/pos/bookings";
 
 type DayData = Omit<BookingDay, "bookings"> & { bookings: Array<Omit<BookingDay["bookings"][number], "startsAt" | "endsAt"> & { startsAt: string; endsAt: string }> };
 type Booking = DayData["bookings"][number];
+type WaitlistEntry = DayData["waitlist"][number];
+type Prefill = { name: string; partySize: number; phone: string | null; email: string | null; notes: string | null; source: BookingSource; time: string };
+
+/** Hora actual redondeada a los 5 minutos siguientes (para dar mesa ya a quien espera). */
+function nowRounded() {
+  const now = new Date();
+  const minutes = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+  return `${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
 
 const STATUS_TONE: Record<BookingStatus, string> = {
   PENDING: "border-warning bg-warning/15",
@@ -48,6 +57,14 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
   const [seating, setSeating] = useState<Booking | null>(null);
   const [cancelling, setCancelling] = useState<Booking | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fromWaitlist, setFromWaitlist] = useState<WaitlistEntry | null>(null);
+  const [addingWalkIn, setAddingWalkIn] = useState(false);
+  // Reloj para el tiempo que lleva esperando cada grupo en la puerta.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const query = (date: string) => `/pos/bookings?date=${date}${registerId ? `&register=${registerId}` : ""}`;
   const active = data.bookings.filter((booking) => !["CANCELLED", "NO_SHOW"].includes(booking.status));
   const guests = active.reduce((sum, booking) => sum + booking.partySize, 0);
@@ -62,6 +79,19 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
       await refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo cambiar la reserva.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setWaitlist(entry: WaitlistEntry, status: "NOTIFIED" | "BOOKED" | "CANCELLED", success: string | null) {
+    setBusy(true);
+    try {
+      await postJson(`/api/pos/bookings/waitlist/${entry.id}`, { status });
+      if (success) toast.success(success);
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo actualizar la lista de espera.");
     } finally {
       setBusy(false);
     }
@@ -89,6 +119,7 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
   return (
     <div className="flex h-dvh flex-col bg-background [touch-action:manipulation]" data-testid="pos-bookings">
       <KioskBar backHref={registerId ? `/pos/${registerId}` : "/pos?choose=1"} backLabel={registerId ? "Mesas" : "Cajas"} status={`${active.length} ${active.length === 1 ? "reserva" : "reservas"} · ${guests} ${guests === 1 ? "persona" : "personas"}${pendingCount ? ` · ${pendingCount} por confirmar` : ""}`} title="Reservas">
+        <KioskAction data-testid="pos-waitlist-walk-in" icon={<Hourglass aria-hidden="true" className="size-5" />} label="Esperando en la puerta" onClick={() => setAddingWalkIn(true)}>En la puerta</KioskAction>
         <KioskAction data-testid="pos-booking-new" icon={<Plus aria-hidden="true" className="size-5" />} label="Nueva reserva" onClick={() => setEditing("new")} />
       </KioskBar>
 
@@ -101,6 +132,34 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
       </nav>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        {data.waitlist.length > 0 ? (
+          <section aria-label="Lista de espera" className="mb-3 space-y-1.5 border-2 border-dashed border-warning bg-warning/10 p-2" data-testid="pos-waitlist">
+            <h2 className="flex items-center gap-1.5 font-mono text-sm font-black"><Hourglass aria-hidden="true" className="size-4" />Lista de espera ({data.waitlist.length})</h2>
+            <ul className="grid gap-1.5 md:grid-cols-2">
+              {data.waitlist.map((entry) => {
+                const waited = Math.max(0, Math.round((now - new Date(entry.createdAt).getTime()) / 60_000));
+                return (
+                  <li className="flex flex-wrap items-center gap-2 border border-window-dark-shadow bg-window-surface p-2" data-testid={`pos-waitlist-${entry.name}`} key={entry.id}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold"><span className="mr-1 font-mono">{entry.partySize}p</span>{entry.name}</p>
+                      <p className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                        <span className="font-bold">{entry.source === "WALK_IN" ? "En la puerta" : "Web"}</span>
+                        {entry.source === "WALK_IN" ? <span>{waited < 60 ? `${waited} min esperando` : `${Math.floor(waited / 60)} h ${waited % 60} min`}</span> : <span>{entry.preferredTime ? `Hacia las ${entry.preferredTime}` : "Cualquier hora"}</span>}
+                        {entry.status === "NOTIFIED" ? <span className="font-bold text-success-text" data-testid="pos-waitlist-notified">Avisado</span> : null}
+                        {entry.phone ? <a className="text-link underline" href={`tel:${entry.phone.replace(/\s/g, "")}`}>{entry.phone}</a> : null}
+                      </p>
+                    </div>
+                    <span className="flex gap-1">
+                      <Button className="h-10" data-testid="pos-waitlist-seat" disabled={busy} onClick={() => setFromWaitlist(entry)} size="sm" type="button">Dar mesa</Button>
+                      {entry.status === "WAITING" ? <Button className="h-10" disabled={busy} onClick={() => void setWaitlist(entry, "NOTIFIED", `${entry.name}: avisado.`)} size="sm" type="button" variant="outline">Avisado</Button> : null}
+                      <Button aria-label={`Quitar a ${entry.name} de la lista`} className="h-10" disabled={busy} onClick={() => void setWaitlist(entry, "CANCELLED", null)} size="sm" type="button" variant="ghost"><X aria-hidden="true" /></Button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
         {!data.enabled ? <p className="mb-2 border border-window-shadow bg-window-panel p-2 text-sm text-muted-foreground">Las reservas online están desactivadas: puedes apuntar reservas por teléfono aquí y activarlas en TPV → Cajas → Reservas online.</p> : null}
         {groups.length === 0 ? (
           <div className="m-auto max-w-sm space-y-3 p-6 text-center">
@@ -156,6 +215,17 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
       </div>
 
       {editing ? <BookingDialog booking={editing === "new" ? null : editing} date={data.date} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await refresh(); }} tables={data.tables} /> : null}
+      {fromWaitlist ? (
+        <BookingDialog
+          booking={null}
+          date={data.date}
+          onClose={() => setFromWaitlist(null)}
+          onSaved={async () => { const entry = fromWaitlist; setFromWaitlist(null); await setWaitlist(entry, "BOOKED", `${entry.name} ya tiene mesa.`); }}
+          prefill={{ name: fromWaitlist.name, partySize: fromWaitlist.partySize, phone: fromWaitlist.phone, email: fromWaitlist.email, notes: fromWaitlist.notes, source: fromWaitlist.source === "WALK_IN" ? "WALK_IN" : "PHONE", time: fromWaitlist.source === "WALK_IN" || !fromWaitlist.preferredTime ? (data.date === today ? nowRounded() : "") : fromWaitlist.preferredTime }}
+          tables={data.tables}
+        />
+      ) : null}
+      {addingWalkIn ? <WalkInDialog onClose={() => setAddingWalkIn(false)} onSaved={async () => { setAddingWalkIn(false); if (data.date !== today) router.push(query(today)); else await refresh(); }} /> : null}
       {seating ? (
         <Dialog description="¿En qué caja se abre su cuenta?" onClose={() => setSeating(null)} open title={`Sentar a ${seating.name}`}>
           <div className="grid gap-2">
@@ -199,16 +269,16 @@ function CancelDialog({ booking, onClose, onDone }: { booking: Booking; onClose:
 type Slot = { time: string; available: boolean; tables: string | null };
 
 /** Alta o cambio de una reserva por el personal: horas con la mesa que se asignaría, o mesas a mano. */
-function BookingDialog({ booking, date: initialDate, onClose, onSaved, tables }: { booking: Booking | null; date: string; onClose: () => void; onSaved: () => Promise<void>; tables: DayData["tables"] }) {
+function BookingDialog({ booking, date: initialDate, onClose, onSaved, prefill, tables }: { booking: Booking | null; date: string; onClose: () => void; onSaved: () => Promise<void>; prefill?: Prefill; tables: DayData["tables"] }) {
   const [form, setForm] = useState({
     date: initialDate,
-    time: booking?.time ?? "",
-    partySize: booking?.partySize ?? 2,
-    name: booking?.name ?? "",
-    phone: booking?.phone ?? "",
-    email: booking?.email ?? "",
-    notes: booking?.notes ?? "",
-    source: (booking?.source ?? "PHONE") as BookingSource,
+    time: booking?.time ?? prefill?.time ?? "",
+    partySize: booking?.partySize ?? prefill?.partySize ?? 2,
+    name: booking?.name ?? prefill?.name ?? "",
+    phone: booking?.phone ?? prefill?.phone ?? "",
+    email: booking?.email ?? prefill?.email ?? "",
+    notes: booking?.notes ?? prefill?.notes ?? "",
+    source: (booking?.source ?? prefill?.source ?? "PHONE") as BookingSource,
     tableIds: booking?.tableIds ?? ([] as string[]),
   });
   const [slots, setSlots] = useState<{ key: string; list: Slot[] } | null>(null);
@@ -293,6 +363,37 @@ function BookingDialog({ booking, date: initialDate, onClose, onSaved, tables }:
           ))}
         </fieldset>
         <Button className="h-12 w-full" data-testid="pos-booking-save" disabled={pending || !form.name.trim() || !form.time} onClick={() => void save()} type="button">{booking ? "Guardar cambios" : "Apuntar reserva"}</Button>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Grupo que llega sin reserva y espera mesa. */
+function WalkInDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => Promise<void> }) {
+  const [form, setForm] = useState({ name: "", partySize: 2, phone: "" });
+  const [pending, setPending] = useState(false);
+  return (
+    <Dialog description="Se apunta en la lista de espera de hoy con la hora de llegada." onClose={onClose} open title="Esperando en la puerta">
+      <div className="space-y-3" data-testid="pos-walk-in-dialog">
+        <label className="grid gap-1 text-sm font-medium">Nombre<Input autoFocus className="h-12 text-base" maxLength={80} onChange={(event) => setForm({ ...form, name: event.target.value })} value={form.name} /></label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Personas</span>
+          <button aria-label="Una persona menos" className="h-12 w-12 border-2 border-window-dark-shadow bg-window-panel font-mono text-lg font-bold" disabled={form.partySize <= 1} onClick={() => setForm({ ...form, partySize: form.partySize - 1 })} type="button">−</button>
+          <span className="w-10 text-center font-mono text-xl font-black">{form.partySize}</span>
+          <button aria-label="Una persona más" className="h-12 w-12 border-2 border-window-dark-shadow bg-window-panel font-mono text-lg font-bold" onClick={() => setForm({ ...form, partySize: form.partySize + 1 })} type="button">+</button>
+        </div>
+        <label className="grid gap-1 text-sm font-medium">Teléfono (para avisarle)<Input className="h-12 text-base" inputMode="tel" maxLength={30} onChange={(event) => setForm({ ...form, phone: event.target.value })} type="tel" value={form.phone} /></label>
+        <Button className="h-12 w-full" data-testid="pos-walk-in-save" disabled={pending || !form.name.trim()} onClick={async () => {
+          setPending(true);
+          try {
+            await postJson("/api/pos/bookings/waitlist", { name: form.name, partySize: form.partySize, phone: form.phone || null });
+            toast.success(`${form.name} apuntado en la lista de espera.`);
+            await onSaved();
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "No se pudo apuntar.");
+            setPending(false);
+          }
+        }} type="button">Apuntar</Button>
       </div>
     </Dialog>
   );

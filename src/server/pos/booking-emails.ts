@@ -82,3 +82,20 @@ export async function sendBookingEmail(to: string | null | undefined, message: {
     return false;
   }
 }
+
+/** Lista de espera: apuntado y aviso de que se ha liberado mesa. */
+export function waitlistEmail(kind: "JOINED" | "AVAILABLE", data: { restaurant: string; name: string; partySize: number; day: string; preferredTime: string | null; bookUrl: string; cancelUrl: string | null }) {
+  const hello = `<p>Hola ${escapeEmailHtml(data.name)},</p>`;
+  const what = `${data.partySize} ${data.partySize === 1 ? "persona" : "personas"} · ${escapeEmailHtml(data.day)}${data.preferredTime ? ` · hacia las ${escapeEmailHtml(data.preferredTime)}` : ""}`;
+  const cancel = data.cancelUrl ? `<p style="color:#555;font-size:12px">¿Ya no lo necesitas? <a href="${escapeEmailHtml(data.cancelUrl)}">Sal de la lista de espera</a>.</p>` : "";
+  if (kind === "JOINED") {
+    return {
+      subject: `Estás en la lista de espera de ${data.restaurant}`,
+      html: `${hello}<p>Te hemos apuntado en la lista de espera de <strong>${escapeEmailHtml(data.restaurant)}</strong>: ${what}.</p><p>Si se libera una mesa te escribiremos al momento; la primera persona que reserve se la queda.</p>${cancel}`,
+    };
+  }
+  return {
+    subject: `¡Se ha liberado una mesa en ${data.restaurant}!`,
+    html: `${hello}<p>Hay sitio en <strong>${escapeEmailHtml(data.restaurant)}</strong> para ${what}.</p><p><a href="${escapeEmailHtml(data.bookUrl)}"><strong>Reservar ahora</strong></a></p><p style="color:#555;font-size:12px">Se lo hemos dicho a las personas de la lista: quien reserve primero se queda la mesa.</p>${cancel}`,
+  };
+}

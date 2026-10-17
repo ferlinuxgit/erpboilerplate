@@ -42,12 +42,14 @@ async function readError(response: Response) {
 }
 
 /** Reserva en tres pasos en una sola pantalla: personas y día → hora → tus datos. */
-export function BookingForm({ embed, page }: { embed: boolean; page: PublicPage }) {
+export function BookingForm({ embed, initialDate = null, initialParty = null, page }: { embed: boolean; initialDate?: string | null; initialParty?: number | null; page: PublicPage }) {
   const router = useRouter();
   const isOpen = (date: string) => page.openWeekdays.includes(weekdayOf(date)) && !page.closures.includes(date) && date <= page.lastDay;
   const firstOpen = Array.from({ length: 60 }, (_, index) => addDays(page.today, index)).find(isOpen) ?? page.today;
-  const [party, setParty] = useState(Math.min(Math.max(2, page.minPartySize), page.maxPartySize));
-  const [date, setDate] = useState(firstOpen);
+  const [party, setParty] = useState(Math.min(Math.max(initialParty ?? 2, page.minPartySize), page.maxPartySize));
+  // Desde el aviso de la lista de espera llega el día y el grupo ya elegidos.
+  const [date, setDate] = useState(initialDate && initialDate >= page.today && isOpen(initialDate) ? initialDate : firstOpen);
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [time, setTime] = useState<string | null>(null);
   const [slots, setSlots] = useState<{ key: string; slots: Slot[]; reason: string | null } | null>(null);
   const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "", consent: false, website: "" });
@@ -72,6 +74,7 @@ export function BookingForm({ embed, page }: { embed: boolean; page: PublicPage 
   }, [date, party, page.slug, reload]);
 
   function choose(next: { date?: string; party?: number }) {
+    setWaitlistOpen(false);
     if (next.date) setDate(next.date);
     if (next.party) setParty(next.party);
     setTime(null);
@@ -155,6 +158,11 @@ export function BookingForm({ embed, page }: { embed: boolean; page: PublicPage 
         ) : null}
         {!loading && slots?.reason ? <p className="text-sm text-warning-text" role="status">{slots.reason}</p> : null}
         {!loading && slots && available.length === 0 && !slots.reason ? <p className="text-sm text-warning-text" role="status">No quedan mesas ese día.</p> : null}
+        {!loading && slots && slots.slots.length > 0 && available.length === 0 ? (
+          waitlistOpen ? <WaitlistForm date={date} key={`${date}-${party}`} page={page} party={party} times={slots.slots.map((slot) => slot.time)} /> : (
+            <button className="flex h-12 w-full items-center justify-center gap-2 border-2 border-dashed border-primary font-mono text-sm font-bold text-link" data-testid="booking-waitlist-open" onClick={() => setWaitlistOpen(true)} type="button">Apuntarme a la lista de espera de este día</button>
+          )
+        ) : null}
       </fieldset>
 
       {time ? (
@@ -188,5 +196,40 @@ export function BookingForm({ embed, page }: { embed: boolean; page: PublicPage 
         <CheckCircle aria-hidden="true" /> {sending ? "Reservando…" : time ? (page.autoConfirm ? "Confirmar reserva" : "Solicitar reserva") : "Elige una hora"}
       </Button>
     </form>
+  );
+}
+
+/** Día completo: lista de espera; si alguien cancela, se avisa por email a los primeros. */
+function WaitlistForm({ date, page, party, times }: { date: string; page: PublicPage; party: number; times: string[] }) {
+  const [form, setForm] = useState({ preferredTime: "", name: "", phone: "", email: "", consent: false, website: "" });
+  const [state, setState] = useState<{ sending: boolean; error: string | null; done: boolean }>({ sending: false, error: null, done: false });
+  if (state.done) return <p className="border-2 border-success bg-success/10 p-3 text-sm font-semibold" data-testid="booking-waitlist-done" role="status">Te hemos apuntado a la lista de espera. Si se libera una mesa te avisaremos por email al momento.</p>;
+  return (
+    <div className="space-y-3 border-2 border-dashed border-primary p-3" data-testid="booking-waitlist">
+      <p className="font-mono text-sm font-bold">Lista de espera · {party} {party === 1 ? "persona" : "personas"}</p>
+      <label className="grid gap-1 text-sm font-medium">Hora preferida
+        <select className="h-11 border border-input bg-window-surface px-2 text-base" onChange={(event) => setForm({ ...form, preferredTime: event.target.value })} value={form.preferredTime}>
+          <option value="">Me vale cualquier hora</option>
+          {times.map((time) => <option key={time} value={time}>{time}</option>)}
+        </select>
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1 text-sm font-medium sm:col-span-2">Nombre<Input autoComplete="name" className="h-11 text-base" maxLength={80} onChange={(event) => setForm({ ...form, name: event.target.value })} value={form.name} /></label>
+        <label className="grid gap-1 text-sm font-medium">Teléfono<Input autoComplete="tel" className="h-11 text-base" maxLength={30} onChange={(event) => setForm({ ...form, phone: event.target.value })} type="tel" value={form.phone} /></label>
+        <label className="grid gap-1 text-sm font-medium">Email<Input autoComplete="email" className="h-11 text-base" maxLength={200} onChange={(event) => setForm({ ...form, email: event.target.value })} type="email" value={form.email} /></label>
+      </div>
+      <div aria-hidden="true" className="absolute left-[-10000px] h-px w-px overflow-hidden"><input autoComplete="off" onChange={(event) => setForm({ ...form, website: event.target.value })} tabIndex={-1} value={form.website} /></div>
+      <label className="flex items-start gap-2 text-sm"><input checked={form.consent} className="mt-1 size-4" onChange={(event) => setForm({ ...form, consent: event.target.checked })} type="checkbox" /><span>Acepto que {page.name} use mis datos para avisarme si queda mesa.</span></label>
+      {state.error ? <p className="text-sm font-semibold text-destructive" role="alert">{state.error}</p> : null}
+      <Button className="h-12 w-full" data-testid="booking-waitlist-submit" disabled={state.sending || !form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.consent} onClick={async () => {
+        setState({ sending: true, error: null, done: false });
+        const response = await fetch(`/api/public/bookings/${page.slug}/waitlist`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, partySize: party, ...form }) }).catch(() => null);
+        if (!response?.ok) {
+          setState({ sending: false, error: response ? await readError(response) : "Sin conexión. Inténtalo de nuevo.", done: false });
+          return;
+        }
+        setState({ sending: false, error: null, done: true });
+      }} type="button">Apuntarme</Button>
+    </div>
   );
 }

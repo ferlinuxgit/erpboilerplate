@@ -2,7 +2,7 @@ import { createHash, createHmac, randomInt } from "node:crypto";
 
 import { and, asc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 
-import { company, posArea, posBooking, posBookingClosure, posBookingHours, posBookingSettings, posOrder, posRegister, posTable } from "@/db/schema";
+import { company, posArea, posBooking, posWaitlist, posBookingClosure, posBookingHours, posBookingSettings, posOrder, posRegister, posTable } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import {
@@ -32,6 +32,7 @@ import { openOrder } from "@/server/pos/hospitality";
 import type { PosActor } from "@/server/pos/service";
 
 import { customerBookingEmail, restaurantBookingEmail, sendBookingEmail, type BookingEmailData } from "./booking-emails";
+import { listWaitlist, notifyWaitlist } from "./waitlist";
 
 const DEFAULT_RULES = { slotMinutes: 30, durationMinutes: 90, minPartySize: 1, maxPartySize: 8, leadMinutes: 60, maxDaysAhead: 60, allowCombining: true } satisfies BookingRules;
 
@@ -44,11 +45,11 @@ async function audit(actor: PosActor, action: string, entityId: string, payload:
 // base de datos solo se guarda su hash.
 // ---------------------------------------------------------------------------------------------
 
-function manageToken(bookingId: string) {
+export function manageToken(bookingId: string) {
   return createHmac("sha256", process.env.JWT_SECRET || "erp-bookings").update(`booking:${bookingId}`).digest("base64url");
 }
 
-function tokenHash(token: string) {
+export function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
@@ -252,8 +253,17 @@ export async function getPublicAvailability(slug: string, date: string, partySiz
   return { reason: result.reason, slots: result.slots.map((slot) => ({ time: slot.time, available: slot.available })) };
 }
 
-function formatWhen(startsAt: Date, timeZone: string) {
+export function formatWhen(startsAt: Date, timeZone: string) {
   return new Intl.DateTimeFormat("es-ES", { timeZone, weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(startsAt);
+}
+
+/** ¿Hay alguna hora libre ese día para ese grupo? (para avisar a la lista de espera). */
+export async function hasAvailability(companyId: string, date: string, partySize: number, now = new Date()) {
+  const settings = await getBookingSettings(companyId);
+  if (!settings.enabled) return { available: false, times: [] as string[] };
+  const { slots } = await computeSlots(db, companyId, settings, date, partySize, now);
+  const times = slots.filter((slot) => slot.available).map((slot) => slot.time);
+  return { available: times.length > 0, times };
 }
 
 export type PublicBookingInput = { date: string; time: string; partySize: number; name: string; phone: string; email: string; notes: string | null };
@@ -283,6 +293,8 @@ export async function createPublicBooking(slug: string, input: PublicBookingInpu
       createdByUserId: null,
     });
   });
+  // Si estaba en la lista de espera de ese día, ya tiene mesa.
+  await db.update(posWaitlist).set({ status: "BOOKED", updatedAt: new Date() }).where(and(eq(posWaitlist.companyId, page.companyId), eq(posWaitlist.date, input.date), eq(posWaitlist.email, input.email.trim().toLowerCase()), inArray(posWaitlist.status, ["WAITING", "NOTIFIED"])));
   return { ...booking, token: manageToken(booking.id), status, notify: () => notifyNewBooking(page.companyId, booking.id) };
 }
 
@@ -415,6 +427,7 @@ export async function cancelBookingByToken(token: string) {
       if (!info) return;
       await sendBookingEmail(info.booking.email, customerBookingEmail("CANCELLED", { ...info.data, manageUrl: null }));
       await sendBookingEmail(info.settings.notifyEmail, restaurantBookingEmail("CANCELLED", { ...info.data, tables: info.tables, bookingsUrl: `${appBaseUrl()}/pos/bookings?date=${zonedParts(info.booking.startsAt, info.settings.timezone).date}`, email: info.booking.email, customerPhone: info.booking.phone }));
+      await notifyWaitlist(updated.companyId, zonedParts(info.booking.startsAt, info.settings.timezone).date);
     },
   };
 }
@@ -437,8 +450,10 @@ export async function listBookings(companyId: string, date: string) {
     db.select().from(posBooking).where(and(eq(posBooking.companyId, companyId), gte(posBooking.startsAt, from), lt(posBooking.startsAt, to))).orderBy(asc(posBooking.startsAt), asc(posBooking.createdAt)),
     loadTables(db, companyId, false),
   ]);
+  const waitlist = await listWaitlist(companyId, date);
   return {
     date,
+    waitlist,
     timezone: settings.timezone,
     enabled: settings.enabled,
     slug: settings.slug,
@@ -573,7 +588,16 @@ export async function changeBookingStatus(actor: PosActor, bookingId: string, ac
     if (action === "CONFIRM") await notifyCustomer(bookingId, "CONFIRMED");
     if (action === "CANCEL") await notifyCustomer(bookingId, "CANCELLED");
   };
-  return { ...result, notify };
+  // Una mesa liberada (cancelación o «no vino») se ofrece a la lista de espera.
+  const freed = action === "CANCEL" || action === "NO_SHOW";
+  const notifyAll = async () => {
+    await notify();
+    if (freed) {
+      const [row] = await db.select({ startsAt: posBooking.startsAt }).from(posBooking).where(eq(posBooking.id, bookingId)).limit(1);
+      if (row) await notifyWaitlist(actor.companyId, zonedParts(row.startsAt, settings.timezone).date);
+    }
+  };
+  return { ...result, notify: notifyAll };
 }
 
 /** Sentar a una reserva: abre (o reutiliza) la cuenta de su primera mesa con sus comensales. */

@@ -2122,6 +2122,34 @@ export const posCategoryStation = pgTable("pos_category_station", {
   check("pos_category_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
 ]);
 
+/** Lista de espera: clientes online de un día completo o grupos esperando en la puerta. */
+export const posWaitlist = pgTable("pos_waitlist", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  // Hora preferida (HH:MM) o null si les vale cualquiera.
+  preferredTime: text("preferredTime"),
+  partySize: integer("partySize").notNull(),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  notes: text("notes"),
+  // WEB (formulario) | WALK_IN (en la puerta)
+  source: text("source").notNull().default("WEB"),
+  // WAITING | NOTIFIED (avisado de que hay mesa) | BOOKED (reservó o se sentó) | CANCELLED
+  status: text("status").notNull().default("WAITING"),
+  manageTokenHash: text("manageTokenHash"),
+  consentAt: timestamp("consentAt", { withTimezone: true, mode: "date" }),
+  notifiedAt: timestamp("notifiedAt", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("pos_waitlist_company_date_idx").on(table.companyId, table.date),
+  index("pos_waitlist_token_idx").on(table.manageTokenHash),
+  check("pos_waitlist_status_valid", sql`${table.status} IN ('WAITING', 'NOTIFIED', 'BOOKED', 'CANCELLED')`),
+  check("pos_waitlist_party_valid", sql`${table.partySize} BETWEEN 1 AND 500`),
+]);
+
 /** Peticiones del TPV ya aplicadas (reenvíos tras un corte de conexión no se duplican). */
 export const posRequestKey = pgTable("pos_request_key", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
