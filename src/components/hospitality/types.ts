@@ -17,7 +17,8 @@ export type FloorOrder = {
 };
 
 export type FloorBooking = { id: string; time: string; name: string; partySize: number; late: boolean };
-export type FloorTable = { id: string; name: string; seats: number; shape: TableShape; posX: number; posY: number; width: number; height: number; order: FloorOrder | null; booking: FloorBooking | null };
+export type TableRequest = { id: string; kind: "ORDER" | "CALL" | "BILL"; items: Array<{ itemId: string; name: string; quantity: number; note: string | null; price: number }>; note: string | null; createdAt: string };
+export type FloorTable = { id: string; name: string; seats: number; shape: TableShape; posX: number; posY: number; width: number; height: number; order: FloorOrder | null; booking: FloorBooking | null; requests: TableRequest[] };
 
 export type FloorData = {
   areas: Array<{ id: string; name: string; planned: boolean; tables: FloorTable[] }>;

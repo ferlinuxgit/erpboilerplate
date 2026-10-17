@@ -3,7 +3,7 @@
 import { BellRinging, CalendarCheck, ChefHat, Clock, ListBullets, LockKey, MapTrifold, Plus, Receipt, Users } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,11 @@ import { PLAN_COLS, PLAN_ROWS } from "@/modules/hospitality/floor-plan";
 import { formatElapsed, minutesSince } from "@/modules/hospitality/model";
 
 import { KioskBar } from "../pos/kiosk-bar";
-import { useWakeLock } from "../pos/use-touch-pos";
+import { tapFeedback, useWakeLock } from "../pos/use-touch-pos";
 import { ConnectionBanner } from "./connection-banner";
 import { isConnectionError } from "./offline-queue";
-import { postJson, type FloorBooking, type FloorData, type FloorOrder, type FloorTable } from "./types";
+import { postJson, type FloorBooking, type FloorData, type FloorOrder, type FloorTable, type TableRequest } from "./types";
+import { playChime, RequestBadge, RequestsDialog } from "./table-requests";
 import { usePolling } from "./use-polling";
 import { useWaiter, WaiterButton } from "./waiter";
 
@@ -34,6 +35,8 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
   const [areaId, setAreaId] = useState<string | null>(initial.areas[0]?.id ?? null);
   const [opening, setOpening] = useState<{ tableId: string; name: string; seats: number; booking: FloorBooking | null } | null>(null);
   const [looseOpen, setLooseOpen] = useState(false);
+  const [attending, setAttending] = useState<FloorTable | null>(null);
+  const knownRequests = useRef<Set<string> | null>(null);
   const [now, setNow] = useState(() => new Date());
   const view = useSyncExternalStore(subscribeFloorView, readFloorView, () => "list" as const);
   useWakeLock(true);
@@ -50,6 +53,16 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
     window.localStorage.setItem(FLOOR_VIEW_KEY, next);
     window.dispatchEvent(new Event(FLOOR_VIEW_KEY));
   }
+  // Aviso sonoro cuando una mesa pide, llama o quiere la cuenta desde su QR.
+  const requestIds = data.areas.flatMap((entry) => entry.tables.flatMap((table) => table.requests.map((request) => request.id))).join(",");
+  useEffect(() => {
+    const ids = new Set(requestIds ? requestIds.split(",") : []);
+    if (knownRequests.current && [...ids].some((id) => !knownRequests.current!.has(id))) {
+      tapFeedback();
+      playChime();
+    }
+    knownRequests.current = ids;
+  }, [requestIds]);
   const occupied = data.areas.flatMap((entry) => entry.tables).filter((table) => table.order).length + data.loose.length;
 
   async function open(input: { tableId?: string; label?: string; guests: number }) {
@@ -71,6 +84,10 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
   }
 
   function openTable(table: FloorTable) {
+    if (table.requests.length > 0) {
+      setAttending(table);
+      return;
+    }
     if (table.order) router.push(`/pos/${registerId}/orders/${table.order.id}`);
     else setOpening({ tableId: table.id, name: table.name, seats: table.seats, booking: table.booking });
   }
@@ -125,7 +142,7 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
               <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 md:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]" data-testid="pos-tables">
                 {(area?.tables ?? []).map((table) => (
                   <li key={table.id}>
-                    <TableTile booking={table.booking} currencyCode={currencyCode} now={now} onOpen={() => openTable(table)} order={table.order} seats={table.seats} title={table.name} />
+                    <TableTile booking={table.booking} currencyCode={currencyCode} now={now} onOpen={() => openTable(table)} order={table.order} requests={table.requests} seats={table.seats} title={table.name} />
                   </li>
                 ))}
               </ul>
@@ -147,6 +164,17 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
         </>
       )}
 
+      {attending ? (
+        <RequestsDialog
+          onClose={() => setAttending(null)}
+          onGoToTable={() => { const table = attending; setAttending(null); if (table.order) router.push(`/pos/${registerId}/orders/${table.order.id}`); else setOpening({ tableId: table.id, name: table.name, seats: table.seats, booking: table.booking }); }}
+          onHandled={(orderId) => { setAttending(null); if (orderId) router.push(`/pos/${registerId}/orders/${orderId}`); }}
+          registerId={registerId}
+          table={data.areas.flatMap((entry) => entry.tables).find((table) => table.id === attending.id) ?? attending}
+          currencyCode={currencyCode}
+          waiterUserId={waiter?.userId ?? null}
+        />
+      ) : null}
       {opening ? <GuestsDialog booking={opening.booking} name={opening.name} onClose={() => setOpening(null)} onConfirm={(guests) => { const target = opening; setOpening(null); void open({ tableId: target.tableId, guests }); }} onSeatBooking={(bookingId) => { setOpening(null); void seatBooking(bookingId); }} seats={opening.seats} /> : null}
       {looseOpen ? <LooseDialog onClose={() => setLooseOpen(false)} onConfirm={(label) => { setLooseOpen(false); void open({ label, guests: 1 }); }} /> : null}
     </div>
@@ -180,11 +208,11 @@ function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: st
         {tables.map((table) => {
           const order = table.order;
           const minutes = order ? minutesSince(order.openedAt, now) : 0;
-          const tone = !order ? (table.booking ? "border-dashed border-link bg-window-panel" : "border-window-dark-shadow bg-window-panel") : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/30" : "border-primary bg-primary/15";
+          const tone = table.requests.length > 0 ? "border-destructive bg-destructive/20 ring-2 ring-destructive" : !order ? (table.booking ? "border-dashed border-link bg-window-panel" : "border-window-dark-shadow bg-window-panel") : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/30" : "border-primary bg-primary/15";
           return (
             <button
               aria-label={`${table.name}: ${!order ? (table.booking ? `reservada a las ${table.booking.time}` : "libre") : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`}
-              className={cn("absolute flex select-none flex-col items-center justify-center gap-0.5 overflow-hidden border-2 p-0.5 text-center shadow-raised active:translate-y-px", table.shape === "ROUND" && "rounded-full", tone)}
+              className={cn("absolute flex select-none flex-col items-center justify-center gap-0.5 border-2 p-0.5 text-center shadow-raised active:translate-y-px", table.shape === "ROUND" && "rounded-full", tone)}
               data-testid={`pos-table-${table.name}`}
               key={table.id}
               onClick={() => onOpen(table)}
@@ -203,6 +231,7 @@ function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: st
                 <span className="text-xs leading-none text-muted-foreground">{table.seats} pax</span>
               )}
               {order?.ready ? <span className="absolute right-0.5 top-0.5 flex items-center bg-success px-0.5 font-mono text-xs font-bold text-white" title="Hay platos listos para servir"><BellRinging aria-hidden="true" className="size-3" />{order.ready}</span> : null}
+              <RequestBadge requests={table.requests} />
             </button>
           );
         })}
@@ -211,14 +240,15 @@ function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: st
   );
 }
 
-function TableTile({ booking, currencyCode, now, onOpen, order, seats, title }: { booking?: FloorBooking | null; currencyCode: string; now: Date; onOpen: () => void; order: FloorOrder | null; seats?: number; title: string }) {
+function TableTile({ booking, currencyCode, now, onOpen, order, requests = [], seats, title }: { booking?: FloorBooking | null; currencyCode: string; now: Date; onOpen: () => void; order: FloorOrder | null; requests?: TableRequest[]; seats?: number; title: string }) {
   const minutes = order ? minutesSince(order.openedAt, now) : 0;
-  const tone = !order ? "border-window-dark-shadow bg-window-panel" : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/20" : "border-primary bg-primary/10";
+  const tone = requests.length > 0 ? "border-destructive bg-destructive/20 ring-2 ring-destructive" : !order ? "border-window-dark-shadow bg-window-panel" : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/20" : "border-primary bg-primary/10";
   return (
     <button aria-label={`${title}: ${!order ? (booking ? `reservada a las ${booking.time}` : "libre") : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`} className={cn("relative flex min-h-28 w-full select-none flex-col justify-between border-2 p-2 text-left shadow-raised active:translate-y-px", tone)} data-testid={`pos-table-${title}`} onClick={onOpen} type="button">
       <span className="flex items-start justify-between gap-1">
         <span className="font-mono text-lg font-black leading-tight">{title}</span>
         {order?.ready ? <span className="flex items-center gap-0.5 bg-success px-1 font-mono text-xs font-bold text-white" title="Hay platos listos para servir"><BellRinging aria-hidden="true" className="size-3.5" />{order.ready}</span> : null}
+        <RequestBadge requests={requests} />
       </span>
       {order ? (
         <span className="space-y-0.5">

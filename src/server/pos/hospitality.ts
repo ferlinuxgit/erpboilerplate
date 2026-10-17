@@ -315,7 +315,8 @@ export async function getFloor(companyId: string, registerId: string) {
   ]);
   // Import diferido: el módulo de reservas usa openOrder de este archivo.
   const { countPendingBookings, upcomingBookingsByTable } = await import("@/server/pos/bookings");
-  const [lines, upcoming, pendingBookings] = await Promise.all([loadLines(db, orders.map((order) => order.id)), upcomingBookingsByTable(companyId), countPendingBookings(companyId)]);
+  const { pendingRequestsByTable } = await import("@/server/pos/table-requests");
+  const [lines, upcoming, pendingBookings, requests] = await Promise.all([loadLines(db, orders.map((order) => order.id)), upcomingBookingsByTable(companyId), countPendingBookings(companyId), pendingRequestsByTable(companyId)]);
   const summaries = orders.map((order) => {
     const own = lines.filter((line) => line.orderId === order.id);
     const amounts = orderAmounts(own, order.equalSplit as EqualSplit | null);
@@ -349,6 +350,7 @@ export async function getFloor(companyId: string, registerId: string) {
         height: entry.height,
         order: summaries.find((order) => order.tableId === entry.id) ?? null,
         booking: upcoming.get(entry.id) ?? null,
+        requests: requests.get(entry.id) ?? [],
       })),
     })),
     pendingBookings,

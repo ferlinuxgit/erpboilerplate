@@ -53,6 +53,8 @@ export const RATE_LIMIT_RULES = {
   resendVerificationEmail: { id: "auth-resend-verification-email", limit: 3, windowMs: 60 * MINUTE },
   // Formulario público de reservas: crear o cancelar, por IP.
   publicBooking: { id: "public-booking", limit: 10, windowMs: 15 * MINUTE },
+  // Pedidos y avisos desde la mesa: muchos clientes comparten la wifi del local (misma IP).
+  publicTableRequest: { id: "public-table-request", limit: 120, windowMs: 15 * MINUTE },
   publicRead: { id: "public-read", limit: 120, windowMs: MINUTE },
 } satisfies Record<string, RateLimitRule>;
 
@@ -85,6 +87,7 @@ function resolveBaseRateLimitRule(pathname: string, method: string): RateLimitRu
     if (pathname === "/api/auth/reset-password") return RATE_LIMIT_RULES.resetPassword;
     if (pathname === "/api/auth/resend-verification") return RATE_LIMIT_RULES.resendVerification;
     if (/^\/api\/invitations\/[^/]+\/accept$/.test(pathname)) return RATE_LIMIT_RULES.invitationAccept;
+    if (pathname.startsWith("/api/public/menu/")) return RATE_LIMIT_RULES.publicTableRequest;
     if (pathname.startsWith("/api/public/")) return RATE_LIMIT_RULES.publicBooking;
   }
   if (pathname.startsWith("/api/public/")) return RATE_LIMIT_RULES.publicRead;

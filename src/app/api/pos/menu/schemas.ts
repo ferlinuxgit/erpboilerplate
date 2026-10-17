@@ -10,6 +10,9 @@ export const menuSettingsSchema = z.object({
   intro: text(600),
   introEn: text(600),
   showBookingLink: z.boolean(),
+  tableService: z.boolean().default(false),
+  tableOrdering: z.boolean().default(false),
+  directToKitchen: z.boolean().default(false),
 });
 
 export const sectionSchema = z.object({

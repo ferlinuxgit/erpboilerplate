@@ -2367,8 +2367,37 @@ export const posMenuSettings = pgTable("pos_menu_settings", {
   intro: text("intro"),
   introEn: text("introEn"),
   showBookingLink: boolean("showBookingLink").notNull().default(true),
+  // Desde la mesa (QR de mesa): llamar al camarero / pedir la cuenta, y pedir platos.
+  tableService: boolean("tableService").notNull().default(false),
+  tableOrdering: boolean("tableOrdering").notNull().default(false),
+  // Sin confirmación del camarero: el pedido entra en la cuenta y va directo a cocina.
+  directToKitchen: boolean("directToKitchen").notNull().default(false),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
+
+/** Petición desde una mesa (QR): un pedido, llamar al camarero o pedir la cuenta. */
+export const posTableRequest = pgTable("pos_table_request", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  tableId: text("tableId").notNull().references(() => posTable.id, { onDelete: "cascade" }),
+  // ORDER | CALL | BILL
+  kind: text("kind").notNull(),
+  // Pedido: [{ itemId, name, quantity, note, price }] (precio con IVA en el momento de pedir).
+  items: jsonb("items").$type<Array<{ itemId: string; name: string; quantity: number; note: string | null; price: number }>>().notNull().default([]),
+  note: text("note"),
+  // PENDING | ACCEPTED | REJECTED | DONE
+  status: text("status").notNull().default("PENDING"),
+  // Para que el cliente vea en qué queda su pedido sin cuenta.
+  tokenHash: text("tokenHash").notNull(),
+  orderId: text("orderId").references(() => posOrder.id, { onDelete: "set null" }),
+  handledByUserId: text("handledByUserId").references(() => user.id, { onDelete: "set null" }),
+  handledAt: timestamp("handledAt", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("pos_table_request_company_status_idx").on(table.companyId, table.status),
+  check("pos_table_request_kind_valid", sql`${table.kind} IN ('ORDER', 'CALL', 'BILL')`),
+  check("pos_table_request_status_valid", sql`${table.status} IN ('PENDING', 'ACCEPTED', 'REJECTED', 'DONE')`),
+]);
 
 /** Secciones de la carta (Entrantes, Bebidas, Menú del día…), con horario opcional y precio cerrado. */
 export const posMenuSection = pgTable("pos_menu_section", {

@@ -8,6 +8,7 @@ import { ALLERGEN_IDS, dietConflicts, isSectionAvailable, localized, MENU_TAG_ID
 import { grossPrice } from "@/modules/pos/model";
 import { recordAudit } from "@/server/audit";
 import { isModuleEnabled } from "@/server/modules/service";
+import { getOrderingOptions } from "@/server/pos/ordering";
 import { listPosCatalog, type PosActor } from "@/server/pos/service";
 
 const MAX_IMAGE_BYTES = 450_000;
@@ -39,15 +40,18 @@ export async function getMenuSettings(companyId: string) {
     intro: settings?.intro ?? null,
     introEn: settings?.introEn ?? null,
     showBookingLink: settings?.showBookingLink ?? true,
+    tableService: settings?.tableService ?? false,
+    tableOrdering: settings?.tableOrdering ?? false,
+    directToKitchen: settings?.directToKitchen ?? false,
   };
 }
 
-export async function saveMenuSettings(actor: PosActor, input: { enabled: boolean; slug: string; intro: string | null; introEn: string | null; showBookingLink: boolean }) {
+export async function saveMenuSettings(actor: PosActor, input: { enabled: boolean; slug: string; intro: string | null; introEn: string | null; showBookingLink: boolean; tableService: boolean; tableOrdering: boolean; directToKitchen: boolean }) {
   const slug = slugify(input.slug);
   if (slug.length < 3) throw new HttpError(400, "La dirección de la carta debe tener al menos 3 letras o números.");
   const [taken] = await db.select({ id: posMenuSettings.id }).from(posMenuSettings).where(and(eq(posMenuSettings.slug, slug), ne(posMenuSettings.companyId, actor.companyId))).limit(1);
   if (taken) throw new HttpError(409, `La dirección «${slug}» ya la usa otro local: elige otra.`);
-  const values = { enabled: input.enabled, slug, intro: input.intro?.trim() || null, introEn: input.introEn?.trim() || null, showBookingLink: input.showBookingLink, updatedAt: new Date() };
+  const values = { enabled: input.enabled, slug, intro: input.intro?.trim() || null, introEn: input.introEn?.trim() || null, showBookingLink: input.showBookingLink, tableService: input.tableService || input.tableOrdering, tableOrdering: input.tableOrdering, directToKitchen: input.tableOrdering && input.directToKitchen, updatedAt: new Date() };
   await db.insert(posMenuSettings).values({ companyId: actor.companyId, ...values }).onConflictDoUpdate({ target: posMenuSettings.companyId, set: values });
   await audit(actor, "pos_menu_settings.update", "pos_menu_settings", actor.companyId, values);
   return { slug };
@@ -275,13 +279,13 @@ export type MenuAdmin = Awaited<ReturnType<typeof getMenuAdmin>>;
 
 export async function getPublicMenu(slug: string, lang: MenuLang, tableId: string | null) {
   const [settings] = await db
-    .select({ companyId: posMenuSettings.companyId, enabled: posMenuSettings.enabled, slug: posMenuSettings.slug, intro: posMenuSettings.intro, introEn: posMenuSettings.introEn, showBookingLink: posMenuSettings.showBookingLink })
+    .select({ companyId: posMenuSettings.companyId, enabled: posMenuSettings.enabled, slug: posMenuSettings.slug, intro: posMenuSettings.intro, introEn: posMenuSettings.introEn, showBookingLink: posMenuSettings.showBookingLink, tableService: posMenuSettings.tableService, tableOrdering: posMenuSettings.tableOrdering })
     .from(posMenuSettings)
     .where(eq(posMenuSettings.slug, slugify(slug)))
     .limit(1);
   if (!settings || !settings.enabled || !(await isModuleEnabled(settings.companyId, "hospitality"))) return null;
   const companyId = settings.companyId;
-  const [[owner], sections, rows, catalog, today, [booking], [table]] = await Promise.all([
+  const [[owner], sections, rows, catalog, today, [booking], [table], ordering] = await Promise.all([
     db.select({ name: company.name, address: company.fiscalAddress, city: company.city, phone: company.phone, logo: company.logoDataUrl, currency: company.baseCurrencyCode }).from(company).where(eq(company.id, companyId)).limit(1),
     db.select().from(posMenuSection).where(and(eq(posMenuSection.companyId, companyId), eq(posMenuSection.isActive, true))).orderBy(asc(posMenuSection.position), asc(posMenuSection.name)),
     db
@@ -292,6 +296,7 @@ export async function getPublicMenu(slug: string, lang: MenuLang, tableId: strin
     companyToday(companyId),
     settings.showBookingLink ? db.select({ slug: posBookingSettings.slug }).from(posBookingSettings).where(and(eq(posBookingSettings.companyId, companyId), eq(posBookingSettings.enabled, true))).limit(1) : Promise.resolve([]),
     tableId ? db.select({ name: posTable.name }).from(posTable).innerJoin(posArea, eq(posArea.id, posTable.areaId)).where(and(eq(posTable.id, tableId), eq(posTable.companyId, companyId), eq(posTable.isActive, true))).limit(1) : Promise.resolve([]),
+    settings.tableOrdering && tableId ? getOrderingOptions(companyId) : Promise.resolve(null),
   ]);
   const catalogById = new Map(catalog.map((entry) => [entry.id, entry]));
   const dishes = rows
@@ -311,6 +316,8 @@ export async function getPublicMenu(slug: string, lang: MenuLang, tableId: strin
         tags: row.tags,
         imageUrl: row.hasImage ? `/api/public/menu/image/${row.id}?v=${row.imageVersion}` : null,
         soldOut: row.soldOutDate === today.date,
+        // Desde la mesa solo se piden platos sin opciones (punto, menús): esos, al camarero.
+        orderable: Boolean(ordering) && row.soldOutDate !== today.date && !ordering?.modifiers[row.itemId]?.length && !ordering?.setMenus[row.itemId]?.length,
       };
     })
     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "es"));
@@ -344,6 +351,9 @@ export async function getPublicMenu(slug: string, lang: MenuLang, tableId: strin
     hasEnglish: Boolean(settings.introEn || rows.some((row) => row.nameEn) || sections.some((section) => section.nameEn)),
     bookingSlug: booking?.slug ?? null,
     tableName: table?.name ?? null,
+    tableId: table ? tableId : null,
+    tableService: Boolean(table) && settings.tableService,
+    tableOrdering: Boolean(table) && settings.tableOrdering,
     sections: publicSections,
   };
 }

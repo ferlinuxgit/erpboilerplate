@@ -11,6 +11,7 @@ import { ALLERGENS, dishWarnings, matchesFilters, MENU_TAGS, MENU_TEXT, type Men
 import type { PublicMenu } from "@/server/pos/menu";
 
 import { AllergenChip, AllergenIcon, AllergenLegend, AllergenMatrix, TagBadge } from "./allergen-icons";
+import { AddToOrder, TableOrderProvider } from "./table-ordering";
 
 type Diet = "ALL" | "VEGETARIAN" | "VEGAN";
 type Preferences = { without: string[]; diet: Diet; hide: boolean; pregnant: boolean };
@@ -59,7 +60,7 @@ export function PublicMenuView({ embed, lang, menu, tableId }: { embed: boolean;
   const allergenName = (id: string) => ALLERGENS.find((allergen) => allergen.id === id)?.[lang] ?? id;
   const allDishes = menu.sections.flatMap((section) => section.dishes.map((dish) => ({ ...dish, group: section.name })));
 
-  return (
+  const body = (
     <div className="space-y-4" data-testid="public-menu" lang={lang}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
@@ -181,6 +182,9 @@ export function PublicMenuView({ embed, lang, menu, tableId }: { embed: boolean;
                     </div>
                     {dietTags.length > 0 ? <p className="flex flex-wrap gap-1">{dietTags.map((tag) => <TagBadge id={tag} key={tag} lang={lang} />)}</p> : null}
                     {dish.description ? <p className="text-sm text-muted-foreground">{dish.description}</p> : null}
+                    {menu.tableOrdering && !dish.soldOut && section.availableNow && section.fixedPrice === null ? (
+                      <div className="flex justify-end">{dish.orderable ? <AddToOrder dish={{ id: dish.id, name: dish.name, price: dish.price }} lang={lang} /> : <span className="text-xs text-muted-foreground">{text.askWaiter}</span>}</div>
+                    ) : null}
                     {blocked ? <p className="flex items-center gap-1 text-sm font-bold text-destructive" data-testid="public-menu-warning"><Warning aria-hidden="true" className="size-4 shrink-0" weight="fill" />{text.contains}: {warnings.contains.map(allergenName).join(", ")}</p> : null}
                     {warnings.traces.length > 0 ? <p className="flex items-center gap-1 text-sm font-semibold text-warning-text"><Warning aria-hidden="true" className="size-4 shrink-0" />{text.mayContain}: {warnings.traces.map(allergenName).join(", ")}</p> : null}
                     {dish.reviewed ? (
@@ -217,4 +221,7 @@ export function PublicMenuView({ embed, lang, menu, tableId }: { embed: boolean;
       </footer>
     </div>
   );
+  // Con QR de mesa y servicio en mesa activo: llamar, pedir la cuenta y pedir platos.
+  if (!menu.tableId || !(menu.tableService || menu.tableOrdering)) return body;
+  return <TableOrderProvider currency={menu.currency} lang={lang} ordering={menu.tableOrdering} service={menu.tableService} slug={menu.slug} tableId={menu.tableId}>{body}</TableOrderProvider>;
 }
