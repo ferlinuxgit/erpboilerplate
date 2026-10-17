@@ -53,9 +53,10 @@ type Props = {
   backHref?: string;
 };
 
-const MAX_FILES = 50;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
-const MAX_BATCH_BYTES = 120 * 1024 * 1024;
+// Sin límite de archivos: se suben en lotes internos de este tamaño (el del servidor) y la lectura
+// va en cola en el servidor, unos pocos documentos a la vez.
+const SERVER_BATCH_SIZE = 50;
 const POLL_STALL_MS = 4 * 60 * 1000;
 // Unos 30 s sin respuesta (un despliegue o un corte breve no deben dar el lote por atascado).
 const MAX_POLL_FAILURES = 12;
@@ -75,9 +76,9 @@ const parsePercent = (raw: string) => parseDecimalInput(raw, { maximumFractionDi
 
 function statusLabel(status: BatchItem["status"]) {
   return {
-    WAITING: "En cola",
+    WAITING: "Esperando subida",
     UPLOADING: "Subiendo",
-    PENDING: "Pendiente de análisis",
+    PENDING: "En cola de lectura",
     PROCESSING: "Analizando",
     DONE: "Por revisar",
     FAILED: "Error",
@@ -235,7 +236,9 @@ export function ExpenseBatchUpload({
     pollingGeneration.current += 1;
     const generation = pollingGeneration.current;
     setPollState("polling");
-    const startedAt = Date.now();
+    // Con una cola larga un documento puede esperar turno mucho rato: solo se da por atascado si
+    // ningún documento cambia de estado durante POLL_STALL_MS.
+    let lastProgressAt = Date.now();
     let failures = 0;
     for (let attempt = 0; pollingGeneration.current === generation; attempt += 1) {
       await sleep(attempt < 4 ? 1000 : 2500);
@@ -245,13 +248,14 @@ export function ExpenseBatchUpload({
         setPollState("idle");
         return;
       }
-      if (Date.now() - startedAt > POLL_STALL_MS || failures >= MAX_POLL_FAILURES) {
+      if (Date.now() - lastProgressAt > POLL_STALL_MS || failures >= MAX_POLL_FAILURES) {
         setPollState("stalled");
         return;
       }
       try {
         const progress = await fetchProgress(pending);
         failures = 0;
+        if (pending.some((item) => progress.get(item.jobId!)?.status !== item.status)) lastProgressAt = Date.now();
         setItems((current) => current.map((item) => {
           const job = item.jobId ? progress.get(item.jobId) : undefined;
           return job ? mergeJobProgress(item, job, context) : item;
@@ -311,58 +315,60 @@ export function ExpenseBatchUpload({
     });
   }
 
-  function validateFiles(files: File[]) {
-    if (files.length === 0) return false;
-    if (files.length > MAX_FILES) {
-      toast.error(`Selecciona como máximo ${MAX_FILES} archivos por lote.`);
-      return false;
-    }
-    const invalid = files.find((file) => file.size > MAX_FILE_BYTES);
-    if (invalid) {
-      toast.error(`${invalid.name} supera el límite de 12 MB.`);
-      return false;
-    }
-    if (files.reduce((total, file) => total + file.size, 0) > MAX_BATCH_BYTES) {
-      toast.error("El lote supera el límite total de 120 MB.");
-      return false;
-    }
-    return true;
+  async function createServerBatch(expectedFiles: number) {
+    const response = await fetch("/api/expenses/ocr/batches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+      body: JSON.stringify({ expectedFiles }),
+    });
+    if (!response.ok) throw new Error(await readApiError(response, "No se pudo crear el lote de facturas."));
+    const batch = (await response.json().catch(() => ({}))) as { id?: string };
+    if (!batch.id) throw new Error("No se pudo crear el lote de facturas. Inténtalo de nuevo.");
+    return batch.id;
   }
 
   async function startBatch(files: File[]) {
-    if (!validateFiles(files)) return;
+    if (files.length === 0) return;
     setIsStarting(true);
-    const newItems = files.map((file) => newBatchItem({ file, fileName: file.name, sizeBytes: file.size, contentType: file.type }));
+    const newItems = files.map((file) => ({
+      ...newBatchItem({ file, fileName: file.name, sizeBytes: file.size, contentType: file.type }),
+      // Un archivo demasiado grande no frena al resto: queda marcado y se suben los demás.
+      ...(file.size > MAX_FILE_BYTES ? { status: "FAILED" as const, error: `${file.name} supera el límite de 12 MB.` } : {}),
+    }));
     setItems((current) => [...current, ...newItems]);
+    const uploadable = newItems.filter((item) => item.status !== "FAILED");
+    let uploaded = 0;
     try {
-      const response = await fetch("/api/expenses/ocr/batches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ expectedFiles: files.length }),
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "No se pudo crear el lote de facturas."));
-      const batch = (await response.json().catch(() => ({}))) as { id?: string };
-      const batchId = batch.id;
-      if (!batchId) throw new Error("No se pudo crear el lote de facturas. Inténtalo de nuevo.");
-      let cursor = 0;
-      const workers = Array.from({ length: Math.min(3, newItems.length) }, async () => {
-        while (cursor < newItems.length) {
-          const item = newItems[cursor++];
-          try {
-            await uploadOne(item, batchId);
-          } catch (error) {
-            patchItem(item.localId, { status: "FAILED", error: errorMessage(error, `No se pudo subir ${item.fileName}.`) });
-          }
+      for (let offset = 0; offset < uploadable.length; offset += SERVER_BATCH_SIZE) {
+        const chunk = uploadable.slice(offset, offset + SERVER_BATCH_SIZE);
+        let batchId: string;
+        try {
+          batchId = await createServerBatch(chunk.length);
+        } catch (error) {
+          const message = errorMessage(error, "No se pudo iniciar el lote.");
+          const ids = new Set(chunk.map((item) => item.localId));
+          setItems((current) => current.map((item) => (ids.has(item.localId) ? { ...item, status: "FAILED", error: message } : item)));
+          continue;
         }
-      });
-      await Promise.all(workers);
-      toast.success(`${files.length === 1 ? "Archivo subido" : `${files.length} archivos subidos`}; el análisis continúa en segundo plano.`);
-      void poll();
-    } catch (error) {
-      const message = errorMessage(error, "No se pudo iniciar el lote.");
-      const ids = new Set(newItems.map((item) => item.localId));
-      setItems((current) => current.map((item) => (ids.has(item.localId) ? { ...item, status: "FAILED", error: message } : item)));
-      toast.error(message);
+        let cursor = 0;
+        const workers = Array.from({ length: Math.min(3, chunk.length) }, async () => {
+          while (cursor < chunk.length) {
+            const item = chunk[cursor++];
+            try {
+              await uploadOne(item, batchId);
+              uploaded += 1;
+            } catch (error) {
+              patchItem(item.localId, { status: "FAILED", error: errorMessage(error, `No se pudo subir ${item.fileName}.`) });
+            }
+          }
+        });
+        await Promise.all(workers);
+        // Los primeros resultados aparecen mientras se sube el resto.
+        void poll();
+      }
+      const skipped = newItems.length - uploaded;
+      if (uploaded > 0) toast.success(`${uploaded === 1 ? "Archivo subido" : `${uploaded} archivos subidos`}; se leen en cola, unos pocos a la vez.`);
+      if (skipped > 0) toast.error(`${skipped} ${skipped === 1 ? "archivo no se pudo subir" : "archivos no se pudieron subir"}: revisa los marcados con error.`);
     } finally {
       setIsStarting(false);
     }
@@ -474,9 +480,9 @@ export function ExpenseBatchUpload({
   async function retryItem(item: BatchItem) {
     // La subida no llegó a guardarse: se vuelve a subir el archivo (sigue en esta sesión).
     if (!item.jobId) {
-      if (!item.file || !item.batchId) return;
+      if (!item.file || item.file.size > MAX_FILE_BYTES) return;
       try {
-        await uploadOne(item, item.batchId);
+        await uploadOne(item, item.batchId ?? await createServerBatch(1));
         void poll();
       } catch (error) {
         const message = errorMessage(error, `No se pudo subir ${item.fileName}.`);
@@ -615,7 +621,7 @@ export function ExpenseBatchUpload({
             <UploadSimple className="size-6 text-link" aria-hidden="true" />
             <span>
               <span className="block font-mono text-sm font-bold">{isStarting ? "Subiendo…" : "Seleccionar facturas"}</span>
-              <span className="block text-xs text-muted-foreground" id="expense-batch-files-helper">PDF, PNG, JPG o WEBP · hasta 50 archivos de 12 MB</span>
+              <span className="block text-xs text-muted-foreground" id="expense-batch-files-helper">PDF, PNG, JPG o WEBP · tantos archivos como quieras, de hasta 12 MB cada uno</span>
             </span>
             <input
               accept={ACCEPTED_TYPES}
@@ -747,7 +753,7 @@ export function ExpenseBatchUpload({
                         {isOpen ? "Cerrar" : "Revisar"}
                       </Button>
                     ) : null}
-                    {item.status === "FAILED" && (item.jobId || (item.file && item.batchId)) ? <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar</Button> : null}
+                    {item.status === "FAILED" && (item.jobId || (item.file && item.file.size <= MAX_FILE_BYTES)) ? <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar</Button> : null}
                     {(item.status === "PENDING" || item.status === "PROCESSING") && pollState === "stalled" && item.jobId ? (
                       <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar análisis</Button>
                     ) : null}

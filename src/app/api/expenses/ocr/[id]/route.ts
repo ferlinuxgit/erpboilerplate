@@ -4,7 +4,7 @@ import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
-import { discardExpenseOcrJob, getExpenseOcrJob, processExpenseOcrJob, retryExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { discardExpenseOcrJob, drainExpenseOcrQueue, getExpenseOcrJob, retryExpenseOcrJob } from "@/server/ocr/expense-ocr";
 import { withHttpErrors } from "@/lib/http";
 
 async function handleGET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +29,7 @@ async function handlePOST(_request: Request, { params }: { params: Promise<{ id:
   if (existing.status === "DONE") return NextResponse.json({ id, status: "DONE" });
   // Fallido o colgado (p. ej. el servidor se reinició durante la lectura): vuelve a la cola.
   await retryExpenseOcrJob(ctx.company.id, id);
-  after(() => processExpenseOcrJob(id));
+  after(() => drainExpenseOcrQueue());
   return NextResponse.json({ id, status: "PENDING" }, { status: 202 });
 }
 

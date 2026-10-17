@@ -585,18 +585,23 @@ async function analyzeJobWithOpenAI(job: typeof expenseOcrJob.$inferSelect) {
   return updated;
 }
 
-export async function processExpenseOcrJob(jobId: string) {
+function claimValues(now: Date) {
+  return {
+    status: "PROCESSING",
+    startedAt: now,
+    finishedAt: null,
+    errorMessage: null,
+    leaseExpiresAt: new Date(now.getTime() + jobLeaseMs),
+    attempts: sql`${expenseOcrJob.attempts} + 1`,
+  };
+}
+
+/** Reserva un documento concreto para leerlo (si nadie lo está leyendo ya). */
+async function claimExpenseOcrJob(jobId: string) {
   const now = new Date();
   const [job] = await db
     .update(expenseOcrJob)
-    .set({
-      status: "PROCESSING",
-      startedAt: now,
-      finishedAt: null,
-      errorMessage: null,
-      leaseExpiresAt: new Date(now.getTime() + jobLeaseMs),
-      attempts: sql`${expenseOcrJob.attempts} + 1`,
-    })
+    .set(claimValues(now))
     .where(and(
       eq(expenseOcrJob.id, jobId),
       or(
@@ -605,7 +610,61 @@ export async function processExpenseOcrJob(jobId: string) {
       ),
     ))
     .returning();
+  return job ?? null;
+}
+
+/** Reserva el documento más antiguo de la cola (SKIP LOCKED: dos procesos nunca cogen el mismo). */
+async function claimNextQueuedExpenseOcrJob() {
+  const [job] = await db
+    .update(expenseOcrJob)
+    .set(claimValues(new Date()))
+    .where(and(
+      eq(expenseOcrJob.status, "PENDING"),
+      eq(expenseOcrJob.id, sql`(select "id" from "expense_ocr_job" where "status" = 'PENDING' and "attempts" < ${maxJobAttempts} order by "createdAt", "id" limit 1 for update skip locked)`),
+    ))
+    .returning();
+  return job ?? null;
+}
+
+export async function processExpenseOcrJob(jobId: string) {
+  const job = await claimExpenseOcrJob(jobId);
   if (!job) return null;
+  return runClaimedExpenseOcrJob(job);
+}
+
+// Lecturas simultáneas como máximo en este proceso: con cientos de documentos subidos a la vez,
+// el resto espera en cola (PENDING) en lugar de lanzar cientos de llamadas a OpenAI de golpe.
+const maxConcurrentReadings = Math.max(Number(process.env.OCR_MAX_CONCURRENT ?? 3) || 3, 1);
+let activeReadings = 0;
+
+/**
+ * Lee documentos de la cola hasta llenar los huecos libres; cada lectura que termina pide la
+ * siguiente. Si el servidor se reinicia, el worker de OCR sigue vaciando la cola.
+ */
+export async function drainExpenseOcrQueue() {
+  while (activeReadings < maxConcurrentReadings) {
+    activeReadings += 1;
+    let job: typeof expenseOcrJob.$inferSelect | null = null;
+    try {
+      job = await claimNextQueuedExpenseOcrJob();
+    } catch (error) {
+      logger.error({ error: error instanceof Error ? error.message : String(error) }, "expense_ocr.queue_claim_failed");
+    }
+    if (!job) {
+      activeReadings -= 1;
+      return;
+    }
+    void runClaimedExpenseOcrJob(job)
+      .catch(() => undefined)
+      .finally(() => {
+        activeReadings -= 1;
+        void drainExpenseOcrQueue();
+      });
+  }
+}
+
+async function runClaimedExpenseOcrJob(job: typeof expenseOcrJob.$inferSelect) {
+  const jobId = job.id;
   logger.info({ jobId: job.id, attempt: job.attempts, batchId: job.batchId }, "expense_ocr.processing_started");
 
   let processingPath = job.filePath;

@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { createExpenseOcrJob, isLocalOcrEnabled, listRecentExpenseOcrJobs, processExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { createExpenseOcrJob, drainExpenseOcrQueue, isLocalOcrEnabled, listRecentExpenseOcrJobs } from "@/server/ocr/expense-ocr";
 import { withHttpErrors } from "@/lib/http";
 
 async function handleGET() {
@@ -39,7 +39,7 @@ async function handlePOST(request: Request) {
       // Con el OCR local desactivado (por defecto) el documento se lee con OpenAI en segundo plano.
       extractionProvider: isLocalOcrEnabled() ? "tesseract" : "openai",
     });
-    void processExpenseOcrJob(job.id);
+    after(() => drainExpenseOcrQueue());
     return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo guardar el documento para leerlo.";

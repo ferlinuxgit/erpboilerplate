@@ -4,7 +4,7 @@ import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { expenseAnalysisModel } from "@/server/ai/expense-invoice-analysis";
-import { createExpenseOcrJob, processExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { createExpenseOcrJob, drainExpenseOcrQueue } from "@/server/ocr/expense-ocr";
 import { getExpenseOcrSettings } from "@/server/ocr/settings";
 import { withHttpErrors } from "@/lib/http";
 
@@ -12,7 +12,7 @@ const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jp
 
 /**
  * Sube una factura para leerla con OpenAI. Solo guarda el original y responde al momento (202);
- * la lectura (10-45 s) sigue en segundo plano. Si el servidor se reinicia a mitad (p. ej. un
+ * la lectura (10-45 s) sigue en segundo plano, en cola. Si el servidor se reinicia a mitad (p. ej. un
  * despliegue), el worker de OCR retoma el trabajo cuando vence su reserva: nada se pierde.
  */
 async function handlePOST(request: Request) {
@@ -48,7 +48,8 @@ async function handlePOST(request: Request) {
       extractionModel: expenseAnalysisModel(),
       batchId: typeof batchId === "string" && batchId.trim() ? batchId.trim() : undefined,
     });
-    after(() => processExpenseOcrJob(job.id));
+    // Entra en la cola: se lee en cuanto haya hueco (máximo de lecturas simultáneas).
+    after(() => drainExpenseOcrQueue());
     return NextResponse.json({ id: job.id, jobId: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo guardar el documento para leerlo.";
