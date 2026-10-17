@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { importBankCsv } from "@/server/treasury/reconciliation";
@@ -12,7 +12,7 @@ const payloadSchema = z.object({
   csv: z.string().trim().min(1).max(2_000_000),
 });
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -37,3 +37,5 @@ export async function POST(request: Request) {
     return handleRouteError(error, "treasury.import-csv", "No se pudo importar el extracto. Revisa el formato e inténtalo de nuevo.");
   }
 }
+
+export const POST = withHttpErrors(handlePOST);

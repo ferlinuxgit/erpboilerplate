@@ -5,7 +5,7 @@ import { z } from "zod";
 import { warehouse } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -19,9 +19,9 @@ function isUniqueViolation(error: unknown) {
 }
 
 async function context() { const session = await getUserSession(); if (!session?.user) return null; return { session, ctx: await ensureUserTenant({ id: session.user.id, name: session.user.name }) }; }
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) { const auth = await context(); if (!auth) return NextResponse.json({ message: "No autorizado." }, { status: 401 }); if (!can(auth.ctx.membership.role, "stock.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 }); const { id } = await params; const [record] = await db.select().from(warehouse).where(and(eq(warehouse.id, id), eq(warehouse.companyId, auth.ctx.company.id))).limit(1); return record ? NextResponse.json(record) : NextResponse.json({ message: "Almacén no encontrado." }, { status: 404 }); }
+async function handleGET(_request: Request, { params }: { params: Promise<{ id: string }> }) { const auth = await context(); if (!auth) return NextResponse.json({ message: "No autorizado." }, { status: 401 }); if (!can(auth.ctx.membership.role, "stock.read")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 }); const { id } = await params; const [record] = await db.select().from(warehouse).where(and(eq(warehouse.id, id), eq(warehouse.companyId, auth.ctx.company.id))).limit(1); return record ? NextResponse.json(record) : NextResponse.json({ message: "Almacén no encontrado." }, { status: 404 }); }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await context();
   if (!auth) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   if (!can(auth.ctx.membership.role, "stock.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
@@ -52,7 +52,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json(result.value);
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await context();
   if (!auth) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   if (!can(auth.ctx.membership.role, "stock.write")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
@@ -75,3 +75,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!result.value) return NextResponse.json({ message: "Almacén no encontrado." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
+
+export const GET = withHttpErrors(handleGET);
+export const PATCH = withHttpErrors(handlePATCH);
+export const DELETE = withHttpErrors(handleDELETE);

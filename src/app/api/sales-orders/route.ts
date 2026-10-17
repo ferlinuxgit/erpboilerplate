@@ -11,7 +11,7 @@ import {
 } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -51,7 +51,7 @@ const payloadSchema = z
       });
   });
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user)
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
@@ -66,7 +66,7 @@ export async function GET() {
   );
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user)
     return NextResponse.json({ message: "No autorizado." }, { status: 401 });
@@ -235,3 +235,6 @@ export async function POST(request: Request) {
   if (!result.ok) return handleRouteError(result.error, "salesOrder.create", "No se pudo crear el pedido de venta.");
   return NextResponse.json(result.value, { status: 201 });
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

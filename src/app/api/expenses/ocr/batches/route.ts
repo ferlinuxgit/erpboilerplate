@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createExpenseOcrBatch, listExpenseInbox, listExpenseOcrBatches } from "@/server/ocr/expense-ocr";
@@ -11,7 +11,7 @@ import { withDuplicateAssessment } from "@/server/ocr/inbox";
 const payloadSchema = z.object({ expectedFiles: z.number().int().min(1).max(50) });
 
 /** Bandeja pendiente: lotes recientes y documentos todavía sin registrar de la empresa activa. */
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -21,7 +21,7 @@ export async function GET() {
   return NextResponse.json({ batches, jobs });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -38,3 +38,6 @@ export async function POST(request: Request) {
   });
   return NextResponse.json(batch, { status: 201 });
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

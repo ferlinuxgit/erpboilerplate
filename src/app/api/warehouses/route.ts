@@ -5,7 +5,7 @@ import { z } from "zod";
 import { warehouse } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -13,7 +13,7 @@ import { recordAudit } from "@/server/audit";
 
 const warehousePayloadSchema = z.object({ name: z.string().trim().min(1, "El nombre es obligatorio."), code: z.string().trim().min(1, "El código es obligatorio.") });
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -21,7 +21,7 @@ export async function GET() {
   return NextResponse.json(rows);
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -41,3 +41,6 @@ export async function POST(request: Request) {
   }
   return NextResponse.json(result.value, { status: 201 });
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

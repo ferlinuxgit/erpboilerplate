@@ -5,8 +5,9 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
 import { discardExpenseOcrJob, getExpenseOcrJob, processExpenseOcrJob, retryExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { withHttpErrors } from "@/lib/http";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -17,7 +18,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   return NextResponse.json(job);
 }
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePOST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -32,7 +33,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 }
 
 /** Descarta un documento de la bandeja pendiente (solo si todavía no es una factura). */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -56,3 +57,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return NextResponse.json({ message }, { status: 409 });
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);
+export const DELETE = withHttpErrors(handleDELETE);

@@ -4,8 +4,9 @@ import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getExpenseOcrJob, readExpenseOcrFile } from "@/server/ocr/expense-ocr";
+import { withHttpErrors } from "@/lib/http";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -23,3 +24,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     },
   });
 }
+
+export const GET = withHttpErrors(handleGET);

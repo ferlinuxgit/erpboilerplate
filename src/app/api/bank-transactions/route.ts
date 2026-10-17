@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { listBankTransactions, recordBankTransaction } from "@/server/treasury/service";
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -15,7 +15,7 @@ export async function GET() {
   return NextResponse.json(await listBankTransactions(ctx.company.id));
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -44,3 +44,6 @@ export async function POST(request: Request) {
     return handleRouteError(error, "bank-transactions.create", "No se pudo registrar el movimiento. Inténtalo de nuevo.");
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

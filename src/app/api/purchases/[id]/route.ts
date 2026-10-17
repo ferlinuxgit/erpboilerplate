@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { purchaseOrderStatuses } from "@/lib/document-pipelines";
 import { deletePurchaseOrder, getPurchaseOrder, PURCHASE_SUPPLIER_NOT_FOUND, updatePurchaseOrder } from "@/server/purchases/service";
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const tenantContext = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -22,7 +22,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   return NextResponse.json(order);
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const tenantContext = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -63,7 +63,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const tenantContext = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -86,3 +86,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     return handleRouteError(error, "purchases.delete", "No se pudo eliminar el pedido.");
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const PATCH = withHttpErrors(handlePATCH);
+export const DELETE = withHttpErrors(handleDELETE);

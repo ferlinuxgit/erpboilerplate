@@ -5,7 +5,7 @@ import { z } from "zod";
 import { deliveryNote } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { convertOrderToDelivery } from "@/server/sales/service";
@@ -19,7 +19,7 @@ const payloadSchema = z.object({
   lines: z.array(z.object({ salesOrderLineId: z.string().trim().min(1), quantity: z.coerce.number().positive() })).min(1).optional(),
 });
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -27,7 +27,7 @@ export async function GET() {
   return NextResponse.json(await db.select().from(deliveryNote).where(eq(deliveryNote.companyId, ctx.company.id)));
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -55,3 +55,6 @@ export async function POST(request: Request) {
     return handleRouteError(error, "deliveryNote.create", "No se pudo crear el albarán.");
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

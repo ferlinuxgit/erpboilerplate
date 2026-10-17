@@ -38,4 +38,13 @@ test("módulos: desactivar oculta el menú y bloquea páginas y API; activar lo 
   await expect(page).toHaveURL(/\/inventory\/movements$/);
   await expect(mainNav.locator('a[href="/inventory"]')).toHaveCount(1);
   expect((await page.request.get("/api/inventory")).ok()).toBe(true);
+
+  // Las rutas antiguas del módulo (sin try/catch propio) también responden 403 en JSON, no 500.
+  await page.goto("/settings/modules");
+  const quotesSwitch = page.getByTestId("module-card-sales-documents").getByRole("switch");
+  await quotesSwitch.click();
+  await expect(quotesSwitch).not.toBeChecked();
+  const legacy = await page.request.get("/api/sales-quotes");
+  expect(legacy.status()).toBe(403);
+  expect((await legacy.json()).message).toMatch(/Presupuestos y pedidos.*no está activado/);
 });

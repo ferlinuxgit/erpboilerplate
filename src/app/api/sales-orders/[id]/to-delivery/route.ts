@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
-import { handleRouteError } from "@/lib/http";
+import { handleRouteError, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { convertOrderToDelivery } from "@/server/sales/service";
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePOST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -26,3 +26,5 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     return handleRouteError(error, "deliveryNote.create", "No se pudo generar el albarán.");
   }
 }
+
+export const POST = withHttpErrors(handlePOST);

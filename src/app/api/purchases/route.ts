@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createPurchaseOrder, listPurchaseOrders, PURCHASE_SUPPLIER_NOT_FOUND } from "@/server/purchases/service";
@@ -24,7 +24,7 @@ const payloadSchema = z.object({
     .optional(),
 });
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const tenantContext = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -35,7 +35,7 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const tenantContext = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -67,3 +67,6 @@ export async function POST(request: Request) {
     return handleRouteError(error, "purchases.create", "No se pudo crear el pedido de compra.");
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

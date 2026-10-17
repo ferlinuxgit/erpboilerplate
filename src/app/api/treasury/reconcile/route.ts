@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
@@ -15,7 +15,7 @@ const manualSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("unmatch"), transactionId: z.string().min(1) }),
 ]);
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   return NextResponse.json(result);
 }
 
-export async function POST() {
+async function handlePOST() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -52,7 +52,7 @@ export async function POST() {
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -72,3 +72,7 @@ export async function PATCH(request: Request) {
     return handleRouteError(error, "treasury.reconcile.manual", "No se pudo actualizar la conciliación. Inténtalo de nuevo.");
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);
+export const PATCH = withHttpErrors(handlePATCH);

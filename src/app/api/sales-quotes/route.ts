@@ -5,7 +5,7 @@ import { z } from "zod";
 import { customer, salesQuote, salesQuoteLine } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { handleRouteError, invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { settle } from "@/lib/settle";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -39,7 +39,7 @@ const payloadSchema = z.object({
   ).min(1),
 });
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -47,7 +47,7 @@ export async function GET() {
   return NextResponse.json(await db.select().from(salesQuote).where(eq(salesQuote.companyId, ctx.company.id)));
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -145,3 +145,6 @@ export async function POST(request: Request) {
   if (!result.ok) return handleRouteError(result.error, "salesQuote.create", "No se pudo crear el presupuesto.");
   return NextResponse.json(result.value, { status: 201 });
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);

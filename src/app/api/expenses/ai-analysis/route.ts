@@ -6,10 +6,11 @@ import { ensureUserTenant } from "@/lib/tenant";
 import { analyzeExpenseInvoiceWithOpenAI, expenseAnalysisModel } from "@/server/ai/expense-invoice-analysis";
 import { companyOwnTaxIds, completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
 import { getExpenseOcrSettings } from "@/server/ocr/settings";
+import { withHttpErrors } from "@/lib/http";
 
 const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -64,3 +65,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ message, jobId: job?.id, fileName: job?.fileName, fileUrl: job?.fileUrl, contentType: job?.contentType, sizeBytes: job?.sizeBytes }, { status });
   }
 }
+
+export const POST = withHttpErrors(handlePOST);

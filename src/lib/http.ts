@@ -85,3 +85,19 @@ export function isSafeAttachmentUrl(value: string): boolean {
     return false;
   }
 }
+
+/**
+ * Envuelve un route handler para que los `HttpError` que se lancen fuera de su propio try/catch
+ * (p. ej. «módulo no activado» al resolver el contexto) respondan con su estado y mensaje en JSON
+ * en lugar de un 500. El resto de errores siguen su curso.
+ */
+export function withHttpErrors<Args extends unknown[], Result extends Response>(handler: (...args: Args) => Promise<Result>) {
+  return async (...args: Args): Promise<Result | NextResponse> => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      if (isHttpError(error)) return jsonError(error.status, error.message);
+      throw error;
+    }
+  };
+}

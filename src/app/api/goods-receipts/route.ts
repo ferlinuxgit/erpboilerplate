@@ -6,7 +6,7 @@ import { goodsReceipt, goodsReceiptLine, purchaseOrder, purchaseOrderLine, stock
 import { refreshStockLocation, registerInMovementCost } from "@/server/inventory/stock-location";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, readJsonBody, withHttpErrors } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
@@ -29,7 +29,7 @@ const payloadSchema = z.object({
     .optional(),
 });
 
-export async function GET() {
+async function handleGET() {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -49,7 +49,7 @@ export async function GET() {
   );
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
   const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
@@ -233,3 +233,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudo registrar la recepción." }, { status: 400 });
   }
 }
+
+export const GET = withHttpErrors(handleGET);
+export const POST = withHttpErrors(handlePOST);
