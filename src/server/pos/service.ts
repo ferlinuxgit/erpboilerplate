@@ -38,6 +38,8 @@ import { resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods"
 import { registerInvoicePayment, removeInvoicePayment } from "@/server/invoices/payments";
 import { createCreditNote, createDraftInvoiceInTransaction, ensureCompanyDefaults, issueInvoiceInTransaction, loadStoredLines, resolveLineTaxes, type InvoiceActor } from "@/server/invoices/service";
 import { isModuleEnabled } from "@/server/modules/service";
+import { expandRecipes } from "@/modules/hospitality/recipes";
+import { loadRecipeBook } from "@/server/pos/recipes";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { centsToNumber, computeEngineDocument, legacyLineTaxes, amountToCents } from "@/server/taxation/engine";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
@@ -680,7 +682,10 @@ export async function createSale(actor: PosActor, input: SaleInput, options: Sal
   return { ...result, change: paymentCheck.change, warnings };
 }
 
-/** Salida (venta) o entrada (devolución) de stock de los artículos con control de stock. */
+/**
+ * Salida (venta) o entrada (devolución) de stock de los artículos con control de stock. Los platos con
+ * escandallo mueven sus ingredientes (una hamburguesa vendida descuenta pan, carne y salsa).
+ */
 export async function moveStock(
   client: DbClient,
   companyId: string,
@@ -691,8 +696,9 @@ export async function moveStock(
   reason: string,
   warnings: string[],
 ) {
-  const quantities = new Map<string, number>();
-  for (const line of lines) if (line.itemId) quantities.set(line.itemId, (quantities.get(line.itemId) ?? 0) + line.quantity);
+  const sold = lines.filter((line): line is { itemId: string; quantity: number } => Boolean(line.itemId));
+  if (sold.length === 0) return;
+  const quantities = expandRecipes(sold, await loadRecipeBook(client, companyId));
   if (quantities.size === 0) return;
   const products = await client
     .select({ id: item.id, name: item.name })

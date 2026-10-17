@@ -8,7 +8,7 @@ describe("POS kiosk routes", () => {
     expect(isPosKioskRoute("/pos/reg-1/close")).toBe(true);
     expect(isPosKioskRoute("/pos/reg-1/orders/ord-1")).toBe(true);
     expect(isPosKioskRoute("/pos/kitchen")).toBe(true);
-    for (const path of ["/pos", "/pos/sessions", "/pos/sessions/abc", "/pos/settings", "/pos/tickets/inv-1", "/pos/menu", "/pos/menu/qr", "/posx/a", "/pos/reg-1/other"]) {
+    for (const path of ["/pos", "/pos/sessions", "/pos/sessions/abc", "/pos/settings", "/pos/tickets/inv-1", "/pos/menu", "/pos/menu/qr", "/pos/recipes", "/posx/a", "/pos/reg-1/other"]) {
       expect(isPosKioskRoute(path), path).toBe(false);
     }
   });

@@ -344,6 +344,13 @@
       "when": 1792243936186,
       "tag": "0048_modifiers_set_menus_courses",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1792246336480,
+      "tag": "0049_item_recipes",
+      "breakpoints": true
     }
   ]
 }

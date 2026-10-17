@@ -2122,6 +2122,21 @@ export const posCategoryStation = pgTable("pos_category_station", {
   check("pos_category_station_valid", sql`${table.station} IN ('KITCHEN', 'BAR', 'NONE')`),
 ]);
 
+/** Escandallo: ingredientes (en su unidad) que lleva una ración de un plato o bebida. */
+export const itemRecipeLine = pgTable("item_recipe_line", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
+  ingredientItemId: text("ingredientItemId").notNull().references(() => item.id, { onDelete: "restrict" }),
+  quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+  position: integer("position").notNull().default(0),
+}, (table) => [
+  unique("item_recipe_line_unique").on(table.itemId, table.ingredientItemId),
+  index("item_recipe_line_company_idx").on(table.companyId),
+  check("item_recipe_line_not_self", sql`${table.itemId} <> ${table.ingredientItemId}`),
+  check("item_recipe_line_quantity_positive", sql`${table.quantity} > 0`),
+]);
+
 /** Grupo de modificadores (Punto de la carne, Guarnición, Extras…) con cuántas opciones se eligen. */
 export const posModifierGroup = pgTable("pos_modifier_group", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

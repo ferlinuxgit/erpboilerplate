@@ -147,6 +147,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/pos", label: "Vender", exact: true, commandLabel: "TPV: vender", keywords: "caja mostrador ticket cobrar", module: "pos" },
       { href: "/pos/kitchen", label: "Cocina", commandLabel: "TPV: pantalla de cocina y barra", keywords: "cocina barra comandas kds pedidos platos", module: "hospitality" },
       { href: "/pos/bookings", label: "Reservas", commandLabel: "TPV: reservas de mesa", keywords: "reservas mesas reservar clientes agenda", module: "hospitality" },
+      { href: "/pos/recipes", label: "Escandallos", commandLabel: "TPV: escandallos y food cost", keywords: "escandallo receta ingredientes coste food cost margen", module: "hospitality" },
       { href: "/pos/menu", label: "Carta", commandLabel: "TPV: carta digital y QR", keywords: "carta menu qr alergenos platos agotado", module: "hospitality" },
       { href: "/pos/sessions", label: "Cierres de caja", commandLabel: "TPV: cierres de caja", keywords: "arqueo informe z cierre caja turnos", module: "pos" },
       { href: "/pos/settings", label: "Cajas", commandLabel: "TPV: configurar cajas", keywords: "configurar caja serie tickets tarjeta datafono almacen", module: "pos" },

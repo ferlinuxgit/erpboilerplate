@@ -3,5 +3,5 @@
  * una mesa (/pos/<caja>/orders/<cuenta>) y la pantalla de cocina (/pos/kitchen).
  */
 export function isPosKioskRoute(pathname: string) {
-  return /^\/pos\/(?!sessions(\/|$)|settings(\/|$)|tickets(\/|$)|menu(\/|$))[^/]+(\/close|\/orders\/[^/]+)?\/?$/.test(pathname);
+  return /^\/pos\/(?!sessions(\/|$)|settings(\/|$)|tickets(\/|$)|menu(\/|$)|recipes(\/|$))[^/]+(\/close|\/orders\/[^/]+)?\/?$/.test(pathname);
 }
