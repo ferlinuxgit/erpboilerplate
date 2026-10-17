@@ -3,11 +3,14 @@ import { expect, test } from "@playwright/test";
 import { postJson } from "./helpers/api-client";
 import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-session";
 
-test("TPV: caja, venta con cambio, ticket simplificado, devolución y cierre cuadrado", async ({ page }) => {
+test("TPV: venta con cambio, ticket simplificado, devoluciones parciales, tarjeta, factura con NIF y cierre", async ({ page }) => {
   test.setTimeout(150_000);
   await registerAndSignIn(page, "POS E2E");
   await completeOnboarding(page, "Tienda TPV E2E S.L.");
   await postJson(page, "/api/items", { name: "Café con leche", sku: "CAFE", salePrice: 1.65 });
+  // Banco para los cobros con tarjeta y un cliente con NIF para la factura completa.
+  await postJson(page, "/api/bank-accounts", { bankName: "Banco datáfono", iban: "ES91 2100 0418 4502 0005 1332" });
+  await postJson(page, "/api/customers", { name: "Hostelería Pérez S.L.", taxId: "B12345674", address: "Calle Mayor 1", postalCode: "28001", city: "Madrid", province: "Madrid", countryCode: "ES" });
 
   // Activar el TPV.
   await page.goto("/settings/modules");
@@ -63,15 +66,58 @@ test("TPV: caja, venta con cambio, ticket simplificado, devolución y cierre cua
   await expect(popup.getByTestId("pos-ticket-print")).toContainText("4,50");
   await popup.close();
 
-  // Devolución del ticket: rectificativa y el efectivo sale del cajón.
+  // Devolución parcial: solo un café (2,00 €) en efectivo.
   await page.getByTestId("pos-open-tickets").click();
-  page.once("dialog", (prompt) => void prompt.accept("Cambia de opinión"));
   await page.getByTestId("pos-refund-T000001").click();
-  await expect(page.getByText(/Devolución .*: devuelve 4,50/)).toBeVisible();
-  await expect(page.getByTestId("pos-tickets-dialog")).toContainText("Devolución");
+  const refund = page.getByTestId("pos-refund-dialog");
+  await expect(refund.getByTestId("pos-refund-line")).toHaveCount(2);
+  await refund.getByRole("button", { name: "Nada" }).click();
+  await refund.getByRole("button", { name: "Devolver una unidad más de Café con leche" }).click();
+  await expect(page.getByTestId("pos-refund-amount")).toContainText("2,00");
+  await page.getByTestId("pos-refund-confirm").click();
+  await expect(page.getByText(/Devolución .*: devuelve 2,00\s€ en efectivo/)).toBeVisible();
+
+  // Después, el resto (1 café + bollo = 2,50 €): se vuelve a la lista y se propone todo lo que queda.
+  await expect(page.getByTestId("pos-tickets-dialog")).toContainText("Devuelto en parte");
+  await page.getByTestId("pos-refund-T000001").click();
+  await expect(page.getByTestId("pos-refund-amount")).toContainText("2,50");
+  await page.getByTestId("pos-refund-confirm").click();
+  await expect(page.getByText(/Devolución .*: devuelve 2,50\s€ en efectivo/)).toBeVisible();
+  await expect(page.getByTestId("pos-ticket-T000001")).toContainText("Devuelto");
+  await expect(page.getByTestId("pos-refund-T000001")).toHaveCount(0);
   await page.getByRole("dialog", { name: "Tickets" }).getByRole("button", { name: "Cerrar diálogo" }).click();
 
-  // Cierre: fondo 50 + 4,50 − 4,50 = 50 € esperados; se cuentan 50 → cuadra.
+  // Cobro con tarjeta: no cuenta en el efectivo del cajón.
+  await page.getByRole("button", { name: "Nueva venta" }).click();
+  await cafe.click();
+  await page.getByTestId("pos-charge").click();
+  await page.getByTestId("pos-method-card").click();
+  await page.getByTestId("pos-pay-confirm").click();
+  await expect(page.getByTestId("pos-last-sale")).toContainText("Ticket T000002 cobrado");
+
+  // Por encima del límite de la simplificada (400 €) hay que identificar al cliente: factura completa.
+  await page.getByRole("button", { name: "Nueva venta" }).click();
+  await freeLine.getByLabel("Concepto libre").fill("Cafetera industrial");
+  await freeLine.getByLabel("PVP").fill("605,00");
+  await freeLine.getByRole("button", { name: "Añadir concepto" }).click();
+  await expect(page.getByTestId("pos-charge")).toBeDisabled();
+  await expect(page.getByText(/identifica al cliente/)).toBeVisible();
+  await page.getByTestId("pos-customer-button").click();
+  await page.getByLabel("Buscar cliente").fill("Pérez");
+  await page.getByRole("button", { name: /Hostelería Pérez S\.L\./ }).click();
+  await expect(page.getByTestId("pos-charge")).toBeEnabled();
+  await page.getByTestId("pos-charge").click();
+  await page.getByTestId("pos-method-card").click();
+  await page.getByTestId("pos-pay-confirm").click();
+  await expect(page.getByTestId("pos-last-sale")).toContainText("Ticket T000003 cobrado");
+  const fullInvoicePopup = page.waitForEvent("popup");
+  await page.getByTestId("pos-print-last").click();
+  const invoicePrint = await fullInvoicePopup;
+  await expect(invoicePrint.getByTestId("pos-ticket-print")).toContainText("B12345674");
+  await expect(invoicePrint.getByTestId("pos-ticket-print")).not.toContainText("SIMPLIFICADA");
+  await invoicePrint.close();
+
+  // Cierre: fondo 50 + 4,50 − 2,00 − 2,50 = 50 € en efectivo (las tarjetas no cuentan); se cuentan 50 → cuadra.
   await page.getByTestId("pos-close-link").click();
   await expect(page.getByTestId("pos-expected-cash")).toContainText("50,00");
   await page.waitForLoadState("networkidle");
@@ -80,7 +126,8 @@ test("TPV: caja, venta con cambio, ticket simplificado, devolución y cierre cua
   await page.getByTestId("pos-close-submit").click();
   await expect(page).toHaveURL(/\/pos\/sessions\/[^/]+$/);
   await expect(page.getByRole("heading", { name: /Informe Z/ })).toBeVisible();
-  await expect(page.getByTestId("pos-net-total")).toContainText("0,00");
+  // Ventas netas: 4,50 − 4,50 + 2,00 (tarjeta) + 605,00 (factura) = 607,00.
+  await expect(page.getByTestId("pos-net-total")).toContainText("607,00");
   await expect(page.getByTestId("pos-difference")).toContainText("0,00");
 
   // Las dos facturas (ticket y rectificativa) están en Facturas.

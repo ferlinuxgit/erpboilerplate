@@ -29,7 +29,14 @@ export const saleSchema = z.object({
   payment: z.object({ cash: amount, card: amount, cashReceived: amount.nullable().optional() }),
 });
 
-export const refundSchema = z.object({ registerId: z.string().trim().min(1), reason: z.string().trim().max(300).nullable().optional() });
+export const refundSchema = z.object({
+  registerId: z.string().trim().min(1),
+  clientRequestId: z.string().trim().min(8).max(80),
+  reason: z.string().trim().max(300).nullable().optional(),
+  method: z.enum(["cash", "card"]).optional(),
+  // Sin líneas: se devuelve todo lo que quede del ticket.
+  lines: z.array(z.object({ lineId: z.string().trim().min(1), quantity: z.number().positive() })).max(300).optional(),
+});
 
 export const movementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.number().positive().max(999_999_999), reason: z.string().trim().min(2, "Indica el motivo.").max(200) });
 

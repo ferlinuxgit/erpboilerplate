@@ -1953,13 +1953,15 @@ export const posTicket = pgTable("pos_ticket", {
   changeGiven: numeric("changeGiven", { precision: 12, scale: 2 }),
   // Identificador de la petición del TPV: un doble clic o un reintento de red no cobra dos veces.
   clientRequestId: text("clientRequestId"),
+  // Devolución: líneas de la factura original y unidades devueltas (permite devolver por partes).
+  returnedLines: jsonb("returnedLines").$type<Array<{ lineId: string; quantity: number }>>(),
   createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("pos_ticket_invoice_unique").on(table.invoiceId),
   unique("pos_ticket_client_request_unique").on(table.companyId, table.clientRequestId),
   index("pos_ticket_session_idx").on(table.sessionId),
-  uniqueIndex("pos_ticket_refund_once_unique").on(table.refundOfTicketId).where(sql`${table.refundOfTicketId} IS NOT NULL`),
+  index("pos_ticket_refund_of_idx").on(table.refundOfTicketId),
   check("pos_ticket_kind_valid", sql`${table.kind} IN ('SALE', 'REFUND')`),
 ]);
 

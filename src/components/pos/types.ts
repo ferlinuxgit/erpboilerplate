@@ -25,7 +25,8 @@ export type PosTicketView = {
   cashAmount: number;
   cardAmount: number;
   createdAt: string;
-  refunded: boolean;
+  /** Importe ya devuelto del ticket (devoluciones parciales o completa). */
+  refundedAmount: number;
 };
 
 export type PosCustomer = { id: string; name: string; taxId: string | null };

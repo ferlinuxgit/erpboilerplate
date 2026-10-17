@@ -148,3 +148,29 @@ export function expectedCash(movements: SessionMovements) {
 export function exceedsSimplifiedLimit(total: number, limit: number) {
   return amountToCents(total) > amountToCents(limit);
 }
+
+export type RefundMethod = "cash" | "card";
+
+/**
+ * Reparte el importe de una devolución entre lo cobrado en efectivo y con tarjeta: primero por la vía
+ * elegida (hasta lo que se cobró por ella) y el resto por la otra.
+ */
+export function splitRefund(amount: number, paid: { cash: number; card: number }, preferred: RefundMethod): { cash: number; card: number } | null {
+  const total = amountToCents(amount);
+  const available = { cash: amountToCents(paid.cash), card: amountToCents(paid.card) };
+  if (total <= 0 || total > available.cash + available.card) return null;
+  const other: RefundMethod = preferred === "cash" ? "card" : "cash";
+  const first = Math.min(total, available[preferred]);
+  const second = total - first;
+  const result = { cash: 0, card: 0 };
+  result[preferred] = first;
+  result[other] = second;
+  return { cash: centsToNumber(result.cash), card: centsToNumber(result.card) };
+}
+
+/** Unidades que quedan por devolver de cada línea del ticket. */
+export function remainingQuantities(lines: ReadonlyArray<{ id: string; quantity: number }>, returned: ReadonlyArray<{ lineId: string; quantity: number }>) {
+  const used = new Map<string, number>();
+  for (const entry of returned) used.set(entry.lineId, (used.get(entry.lineId) ?? 0) + entry.quantity);
+  return new Map(lines.map((line) => [line.id, Math.max(0, Math.round((line.quantity - (used.get(line.id) ?? 0)) * 1000) / 1000)]));
+}

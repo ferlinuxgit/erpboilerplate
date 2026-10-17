@@ -25,7 +25,7 @@ import {
 import { db, type DbClient } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { HttpError } from "@/lib/http";
-import { cartTotals, exceedsSimplifiedLimit, expectedCash, validatePayment } from "@/modules/pos/model";
+import { cartTotals, exceedsSimplifiedLimit, expectedCash, remainingQuantities, splitRefund, validatePayment, type RefundMethod } from "@/modules/pos/model";
 import { recordAudit } from "@/server/audit";
 import { defaultSeriesFormat } from "@/lib/document-series-format";
 import { findFiscalYearForDate } from "@/server/documents/series";
@@ -608,47 +608,168 @@ async function moveStock(
   }
 }
 
-/**
- * Devolución de un ticket completo: rectificativa (R5 si era simplificada, R1 si llevaba NIF), anulación
- * de sus cobros con fecha de hoy (sale el efectivo de caja o se devuelve en la tarjeta), entrada del
- * stock y el registro en la sesión abierta. Si la rectificativa ya existía (reintento), se reutiliza.
- */
-export async function refundTicket(actor: PosActor, input: { ticketId: string; registerId: string; reason?: string | null }) {
-  const [ticket] = await db
-    .select({ id: posTicket.id, kind: posTicket.kind, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, number: invoice.number, customerTaxId: sql<string | null>`${invoice.customerSnapshot}->>'taxId'` })
+async function loadSaleTicket(client: DbClient, companyId: string, ticketId: string) {
+  const [ticket] = await client
+    .select({
+      id: posTicket.id,
+      kind: posTicket.kind,
+      invoiceId: posTicket.invoiceId,
+      totalAmount: posTicket.totalAmount,
+      number: invoice.number,
+      createdAt: posTicket.createdAt,
+      customerTaxId: sql<string | null>`${invoice.customerSnapshot}->>'taxId'`,
+    })
     .from(posTicket)
     .innerJoin(invoice, eq(invoice.id, posTicket.invoiceId))
-    .where(and(eq(posTicket.id, input.ticketId), eq(posTicket.companyId, actor.companyId)))
+    .where(and(eq(posTicket.id, ticketId), eq(posTicket.companyId, companyId)))
     .limit(1);
   if (!ticket) throw new HttpError(404, "Ticket no encontrado.");
   if (ticket.kind !== "SALE") throw new HttpError(409, "Una devolución no se puede devolver.");
-  const [alreadyRefunded] = await db.select({ id: posTicket.id }).from(posTicket).where(eq(posTicket.refundOfTicketId, ticket.id)).limit(1);
-  if (alreadyRefunded) throw new HttpError(409, `El ticket ${ticket.number} ya está devuelto.`);
+  return ticket;
+}
+
+/** Lo cobrado ahora mismo de una factura, por forma de pago (efectivo o tarjeta/banco). */
+async function paidByMethod(client: DbClient, companyId: string, invoiceId: string) {
+  const rows = await client
+    .select({ id: payment.id, amount: payment.amount, paymentMethodId: payment.paymentMethodId, type: paymentMethod.type })
+    .from(payment)
+    .leftJoin(paymentMethod, eq(paymentMethod.id, payment.paymentMethodId))
+    .where(and(eq(payment.companyId, companyId), eq(payment.invoiceId, invoiceId)));
+  const sumCents = (filter: (row: (typeof rows)[number]) => boolean) => rows.filter(filter).reduce((total, row) => total + amountToCents(num(row.amount)), 0);
+  return {
+    rows,
+    cash: centsToNumber(sumCents((row) => row.type === "CASH")),
+    card: centsToNumber(sumCents((row) => row.type !== "CASH")),
+    cardMethodId: rows.find((row) => row.type !== "CASH")?.paymentMethodId ?? null,
+    cashMethodId: rows.find((row) => row.type === "CASH")?.paymentMethodId ?? null,
+  };
+}
+
+async function returnedLinesOf(client: DbClient, ticketId: string) {
+  const refunds = await client.select({ returnedLines: posTicket.returnedLines }).from(posTicket).where(eq(posTicket.refundOfTicketId, ticketId));
+  return refunds.flatMap((refund) => refund.returnedLines ?? []);
+}
+
+/** Ticket para la pantalla de devolución: líneas, unidades que quedan por devolver y cómo se cobró. */
+export async function getRefundableTicket(companyId: string, ticketId: string) {
+  const ticket = await loadSaleTicket(db, companyId, ticketId);
+  const [lines, returned, paid] = await Promise.all([loadStoredLines(db, ticket.invoiceId), returnedLinesOf(db, ticket.id), paidByMethod(db, companyId, ticket.invoiceId)]);
+  const remaining = remainingQuantities(lines.map((line) => ({ id: line.lineId, quantity: line.quantity })), returned);
+  return {
+    ticket: { id: ticket.id, number: ticket.number, totalAmount: num(ticket.totalAmount), createdAt: ticket.createdAt },
+    lines: lines.map((line) => ({
+      id: line.lineId,
+      description: line.description,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      taxRate: line.taxes?.find((entry) => entry.operation === "ADD")?.rate ?? line.taxRate ?? 0,
+      remaining: remaining.get(line.lineId) ?? 0,
+    })),
+    paid: { cash: paid.cash, card: paid.card },
+  };
+}
+
+export type RefundInput = {
+  ticketId: string;
+  registerId: string;
+  /** Líneas y unidades a devolver; sin indicar, todo lo que quede por devolver. */
+  lines?: Array<{ lineId: string; quantity: number }>;
+  method?: RefundMethod;
+  reason?: string | null;
+  clientRequestId: string;
+};
+
+/**
+ * Devolución (completa o de algunas líneas/unidades) de un ticket: rectificativa (R5 si era
+ * simplificada, R1 si llevaba NIF; completa o parcial), el dinero sale por la vía elegida (los cobros se
+ * reajustan con fecha de hoy), entra el stock devuelto y queda registrada en la sesión abierta. Se puede
+ * devolver por partes hasta completar el ticket. Un reintento con la misma petición no duplica nada.
+ */
+export async function refundTicket(actor: PosActor, input: RefundInput) {
+  const [previous] = await db
+    .select({ id: posTicket.id, invoiceId: posTicket.invoiceId, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, number: invoice.number, totalAmount: posTicket.totalAmount })
+    .from(posTicket)
+    .innerJoin(invoice, eq(invoice.id, posTicket.invoiceId))
+    .where(and(eq(posTicket.companyId, actor.companyId), eq(posTicket.clientRequestId, input.clientRequestId)))
+    .limit(1);
+  if (previous) return { ticketId: previous.id, creditNoteId: previous.invoiceId, number: previous.number, total: num(previous.totalAmount), cash: num(previous.cashAmount), card: num(previous.cardAmount) };
+
+  const ticket = await loadSaleTicket(db, actor.companyId, input.ticketId);
   const register = await loadRegister(db, actor.companyId, input.registerId);
   const session = await getOpenSession(actor.companyId, register.id);
   if (!session) throw new HttpError(409, "Abre la caja antes de hacer una devolución.");
 
-  const description = `Devolución en TPV del ticket ${ticket.number}${input.reason?.trim() ? `: ${input.reason.trim()}` : ""}`;
+  const [lines, returnedBefore, paidBefore] = await Promise.all([loadStoredLines(db, ticket.invoiceId), returnedLinesOf(db, ticket.id), paidByMethod(db, actor.companyId, ticket.invoiceId)]);
+  const remaining = remainingQuantities(lines.map((line) => ({ id: line.lineId, quantity: line.quantity })), returnedBefore);
+  const requested = (input.lines ?? lines.map((line) => ({ lineId: line.lineId, quantity: remaining.get(line.lineId) ?? 0 })))
+    .filter((entry) => entry.quantity > 0);
+  if (requested.length === 0) throw new HttpError(409, `No queda nada por devolver del ticket ${ticket.number}.`);
+  for (const entry of requested) {
+    const left = remaining.get(entry.lineId);
+    if (left === undefined) throw new HttpError(400, "Esa línea no es de este ticket.");
+    if (entry.quantity > left + 0.0005) throw new HttpError(409, `Solo quedan ${left.toLocaleString("es-ES")} unidades por devolver de una línea.`);
+  }
+  const everything = returnedBefore.length === 0 && lines.every((line) => {
+    const asked = requested.find((entry) => entry.lineId === line.lineId);
+    return asked && Math.abs(asked.quantity - line.quantity) < 0.0005;
+  });
+
+  // Marca de la petición en el motivo: si el proceso se corta tras emitir la rectificativa, el reintento la reutiliza.
+  const marker = `[${input.clientRequestId.slice(0, 8)}]`;
+  const description = `Devolución en TPV del ticket ${ticket.number}${input.reason?.trim() ? `: ${input.reason.trim()}` : ""} ${marker}`.slice(0, 500);
   const [existingCredit] = await db
-    .select({ id: invoice.id, number: invoice.number, totalAmount: invoice.totalAmount, issuedAt: invoice.issuedAt })
+    .select({ id: invoice.id, number: invoice.number, issuedAt: invoice.issuedAt })
     .from(invoice)
-    .where(and(eq(invoice.companyId, actor.companyId), eq(invoice.rectifiedInvoiceId, ticket.invoiceId), eq(invoice.invoiceType, "CREDIT_NOTE"), ilike(invoice.rectificationDescription, `Devolución en TPV del ticket ${ticket.number}%`)))
+    .where(and(eq(invoice.companyId, actor.companyId), eq(invoice.rectifiedInvoiceId, ticket.invoiceId), eq(invoice.invoiceType, "CREDIT_NOTE"), ilike(invoice.rectificationDescription, `%${marker}`)))
     .limit(1);
+  const lineById = new Map(lines.map((line) => [line.lineId, line]));
   const credit = existingCredit?.issuedAt
     ? { id: existingCredit.id, number: existingCredit.number }
-    : await createCreditNote(actor, ticket.invoiceId, { reason: ticket.customerTaxId ? "R1" : "R5", type: "DIFFERENCES", scope: "FULL", description: description.slice(0, 500) });
+    : await createCreditNote(actor, ticket.invoiceId, {
+      reason: ticket.customerTaxId ? "R1" : "R5",
+      type: "DIFFERENCES",
+      scope: everything ? "FULL" : "PARTIAL",
+      description,
+      ...(everything ? {} : {
+        lines: requested.map((entry) => {
+          const line = lineById.get(entry.lineId)!;
+          const taxIds = (line.taxes ?? []).map((entryTax) => entryTax.id).filter((id): id is string => Boolean(id));
+          return {
+            itemId: line.itemId ?? null,
+            description: line.description,
+            quantity: entry.quantity,
+            unitPrice: line.unitPrice,
+            discountPct: line.discountPct ?? 0,
+            ...(taxIds.length > 0 ? { taxIds } : { taxRate: line.taxRate ?? 0 }),
+          };
+        }),
+      }),
+    });
   if (!credit) throw new HttpError(404, "Ticket no encontrado.");
+  const [creditRow] = await db.select({ totalAmount: invoice.totalAmount }).from(invoice).where(eq(invoice.id, credit.id)).limit(1);
+  const refundTotal = Math.abs(num(creditRow?.totalAmount));
+  const split = splitRefund(refundTotal, paidBefore, input.method ?? (paidBefore.cash > 0 ? "cash" : "card"));
+  if (!split) throw new HttpError(409, "La devolución supera lo cobrado del ticket.");
 
   const inventoryEnabled = Boolean(register.warehouseId) && (await isModuleEnabled(actor.companyId, "inventory"));
   const now = new Date();
   return db.transaction(async (tx) => {
-    const payments = await tx.select({ id: payment.id }).from(payment).where(and(eq(payment.companyId, actor.companyId), eq(payment.invoiceId, ticket.invoiceId)));
-    for (const row of payments) {
+    // Los cobros se reajustan: se anulan (con fecha de hoy) y se vuelve a cobrar lo que se queda el cliente.
+    const paid = await paidByMethod(tx, actor.companyId, ticket.invoiceId);
+    for (const row of paid.rows) {
       await removeInvoicePayment({ tenantId: actor.tenantId, companyId: actor.companyId, actorUserId: actor.actorUserId }, row.id, { postedAt: now, reason: description, origin: "pos.refund" }, tx);
     }
+    const paymentActor = { tenantId: actor.tenantId, companyId: actor.companyId, actorUserId: actor.actorUserId, activeFiscalYearId: actor.activeFiscalYearId };
+    const keepCash = centsToNumber(amountToCents(paid.cash) - amountToCents(split.cash));
+    const keepCard = centsToNumber(amountToCents(paid.card) - amountToCents(split.card));
+    if (keepCash > 0) {
+      await registerInvoicePayment(paymentActor, { invoiceId: ticket.invoiceId, amountApplied: keepCash, postedAt: now, paymentMethodId: paid.cashMethodId ?? register.cashPaymentMethodId, reference: `Ticket ${ticket.number} tras devolución`, origin: "pos" }, tx);
+    }
+    if (keepCard > 0 && (paid.cardMethodId ?? register.cardPaymentMethodId)) {
+      await registerInvoicePayment(paymentActor, { invoiceId: ticket.invoiceId, amountApplied: keepCard, postedAt: now, paymentMethodId: paid.cardMethodId ?? register.cardPaymentMethodId, reference: `Ticket ${ticket.number} tras devolución`, origin: "pos" }, tx);
+    }
     if (inventoryEnabled && register.warehouseId) {
-      const lines = await tx.select({ itemId: invoiceLine.itemId, quantity: invoiceLine.quantity }).from(invoiceLine).where(eq(invoiceLine.invoiceId, ticket.invoiceId));
-      await moveStock(tx, actor.companyId, register.warehouseId, lines.map((line) => ({ itemId: line.itemId, quantity: num(line.quantity) })), "IN", `pos-refund:${ticket.id}`, `Devolución TPV ${ticket.number}`, []);
+      await moveStock(tx, actor.companyId, register.warehouseId, requested.map((entry) => ({ itemId: lineById.get(entry.lineId)?.itemId ?? null, quantity: entry.quantity })), "IN", `pos-refund:${input.clientRequestId}`, `Devolución TPV ${ticket.number}`, []);
     }
     const [refund] = await tx
       .insert(posTicket)
@@ -658,9 +779,11 @@ export async function refundTicket(actor: PosActor, input: { ticketId: string; r
         kind: "REFUND",
         invoiceId: credit.id,
         refundOfTicketId: ticket.id,
-        totalAmount: ticket.totalAmount,
-        cashAmount: ticket.cashAmount,
-        cardAmount: ticket.cardAmount,
+        totalAmount: money(refundTotal),
+        cashAmount: money(split.cash),
+        cardAmount: money(split.card),
+        returnedLines: requested,
+        clientRequestId: input.clientRequestId,
         createdByUserId: actor.actorUserId,
       })
       .returning({ id: posTicket.id });
@@ -671,9 +794,9 @@ export async function refundTicket(actor: PosActor, input: { ticketId: string; r
       action: "pos_ticket.refund",
       entityName: "pos_ticket",
       entityId: refund.id,
-      payload: { ticketId: ticket.id, invoiceId: ticket.invoiceId, creditNoteId: credit.id, total: num(ticket.totalAmount), sessionId: session.id },
+      payload: { ticketId: ticket.id, invoiceId: ticket.invoiceId, creditNoteId: credit.id, total: refundTotal, cash: split.cash, card: split.card, lines: requested, full: everything, sessionId: session.id },
     }, tx);
-    return { ticketId: refund.id, creditNoteId: credit.id, number: credit.number, cash: num(ticket.cashAmount), card: num(ticket.cardAmount) };
+    return { ticketId: refund.id, creditNoteId: credit.id, number: credit.number, total: refundTotal, cash: split.cash, card: split.card };
   });
 }
 
@@ -738,7 +861,7 @@ export async function listSessionTickets(companyId: string, sessionId: string) {
       cardAmount: posTicket.cardAmount,
       createdAt: posTicket.createdAt,
       refundOfTicketId: posTicket.refundOfTicketId,
-      refunded: sql<boolean>`exists (select 1 from ${posTicket} r where r."refundOfTicketId" = ${posTicket.id})`,
+      refundedAmount: sql<string>`coalesce((select sum(r."totalAmount") from ${posTicket} r where r."refundOfTicketId" = ${posTicket.id}), 0)`,
     })
     .from(posTicket)
     .innerJoin(invoice, eq(invoice.id, posTicket.invoiceId))

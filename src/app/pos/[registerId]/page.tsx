@@ -42,7 +42,7 @@ export default async function PosRegisterPage({ params }: { params: Promise<{ re
           cashAmount: Number(ticket.cashAmount),
           cardAmount: Number(ticket.cardAmount),
           createdAt: ticket.createdAt.toISOString(),
-          refunded: Boolean(ticket.refunded),
+          refundedAmount: Number(ticket.refundedAmount),
         }))}
       />
     </PageShell>

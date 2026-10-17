@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cartTotals, countDenominations, exceedsSimplifiedLimit, expectedCash, grossPrice, netFromGross, validatePayment, type CartLine } from "@/modules/pos/model";
+import { cartTotals, countDenominations, exceedsSimplifiedLimit, expectedCash, grossPrice, netFromGross, remainingQuantities, splitRefund, validatePayment, type CartLine } from "@/modules/pos/model";
 
 const line = (patch: Partial<CartLine>): CartLine => ({ key: Math.random().toString(36), itemId: null, description: "x", quantity: 1, unitPrice: 1, taxRate: 21, ...patch });
 
@@ -64,5 +64,20 @@ describe("pos cash count", () => {
   it("adds coins and notes without float errors and computes the expected drawer", () => {
     expect(countDenominations({ "50": 1, "20": 2, "0.1": 3, "0.05": 1, "0.01": 2 })).toBe(90.37);
     expect(expectedCash({ openingCash: 50, cashSales: 120.4, cashRefunds: 10.2, cashIn: 5, cashOut: 100 })).toBe(65.2);
+  });
+});
+
+describe("pos refunds", () => {
+  it("refunds by the chosen method first and the rest by the other", () => {
+    expect(splitRefund(4, { cash: 10, card: 0 }, "cash")).toEqual({ cash: 4, card: 0 });
+    expect(splitRefund(4, { cash: 2.5, card: 7.5 }, "cash")).toEqual({ cash: 2.5, card: 1.5 });
+    expect(splitRefund(4, { cash: 2.5, card: 7.5 }, "card")).toEqual({ cash: 0, card: 4 });
+    expect(splitRefund(11, { cash: 10, card: 0 }, "cash")).toBeNull();
+  });
+
+  it("tracks what is left to return after partial refunds", () => {
+    const remaining = remainingQuantities([{ id: "a", quantity: 3 }, { id: "b", quantity: 1 }], [{ lineId: "a", quantity: 1 }, { lineId: "a", quantity: 1.5 }]);
+    expect(remaining.get("a")).toBe(0.5);
+    expect(remaining.get("b")).toBe(1);
   });
 });

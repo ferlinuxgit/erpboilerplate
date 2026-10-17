@@ -6,7 +6,7 @@ import { refundTicket } from "@/server/pos/service";
 import { posActor } from "../../../actor";
 import { firstIssue, refundSchema } from "../../../schemas";
 
-/** Devolución completa de un ticket (rectificativa + devolución del cobro + entrada de stock). */
+/** Devolución (completa o de algunas líneas) de un ticket: rectificativa, devolución del cobro y entrada de stock. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { actor } = await posActor("pos.sell");
@@ -14,7 +14,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!payload) return invalidJsonResponse();
     const parsed = refundSchema.safeParse(payload);
     if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
-    return NextResponse.json(await refundTicket(actor, { ticketId: (await params).id, registerId: parsed.data.registerId, reason: parsed.data.reason }), { status: 201 });
+    return NextResponse.json(await refundTicket(actor, { ...parsed.data, ticketId: (await params).id }), { status: 201 });
   } catch (error) {
     return handleRouteError(error, "pos.tickets.refund");
   }

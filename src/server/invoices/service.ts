@@ -174,7 +174,7 @@ export async function resolveLineTaxes(
 }
 
 /** Líneas guardadas de una factura con sus impuestos congelados (`invoice_line_tax`). */
-export async function loadStoredLines(client: DbClient, invoiceId: string): Promise<CalculatedLine[]> {
+export async function loadStoredLines(client: DbClient, invoiceId: string): Promise<Array<CalculatedLine & { lineId: string }>> {
   const lines = await client
     .select({
       id: invoiceLine.id,
@@ -210,6 +210,7 @@ export async function loadStoredLines(client: DbClient, invoiceId: string): Prom
     ]);
   }
   return lines.map((line) => ({
+    lineId: line.id,
     itemId: line.itemId,
     description: line.description,
     quantity: Number(line.quantity),
