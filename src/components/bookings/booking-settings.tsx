@@ -29,6 +29,11 @@ export type BookingSettingsData = {
   welcomeMessage: string | null;
   notifyEmail: string | null;
   sendReminders: boolean;
+  depositEnabled: boolean;
+  depositProvider: "STRIPE" | "REDSYS" | null;
+  depositPerPerson: number;
+  depositMinParty: number;
+  depositRefundable: boolean;
   hours: Shift[];
   closures: Array<{ id: string; date: string; reason: string | null }>;
 };
@@ -60,11 +65,12 @@ function Toggle({ checked, disabled, label, hint, onChange, testId }: { checked:
 }
 
 /** Reglas de las reservas online: horario por turnos, duración, grupos, antelación, cierres y avisos. */
-export function BookingSettings({ baseUrl, canManage, initial, qrDataUrl, registers }: { baseUrl: string; canManage: boolean; initial: BookingSettingsData; qrDataUrl: string | null; registers: Array<{ id: string; name: string }> }) {
+export function BookingSettings({ baseUrl, canManage, initial, paymentProviders = { STRIPE: false, REDSYS: false }, qrDataUrl, registers }: { baseUrl: string; canManage: boolean; initial: BookingSettingsData; paymentProviders?: { STRIPE: boolean; REDSYS: boolean }; qrDataUrl: string | null; registers: Array<{ id: string; name: string }> }) {
   const router = useRouter();
   const [data, setData] = useState(initial);
   const [pending, setPending] = useState(false);
   const [closure, setClosure] = useState({ date: "", reason: "" });
+  const [depositText, setDepositText] = useState(initial.depositPerPerson ? String(initial.depositPerPerson).replace(".", ",") : "");
   const disabled = !canManage || pending;
   const publicUrl = `${baseUrl}/reservar/${slugify(data.slug) || "…"}`;
   const embedCode = `<iframe src="${publicUrl}?embed=1" title="Reservar mesa" style="width:100%;max-width:640px;height:900px;border:0" loading="lazy"></iframe>`;
@@ -191,6 +197,23 @@ export function BookingSettings({ baseUrl, canManage, initial, qrDataUrl, regist
           <Toggle checked={data.allowCombining} disabled={disabled} hint="Para grupos que no caben en una mesa (misma sala)." label="Juntar dos mesas" onChange={(value) => set("allowCombining", value)} />
           <Toggle checked={data.sendReminders} disabled={disabled} hint="Email el día antes con el enlace para cancelar." label="Enviar recordatorio" onChange={(value) => set("sendReminders", value)} />
         </div>
+        <fieldset className="space-y-3 border border-window-shadow p-3" data-testid="booking-deposit-settings">
+          <legend className="px-1 text-sm font-medium">Fianza contra los «no vino»</legend>
+          <Toggle checked={data.depositEnabled} disabled={disabled || (!paymentProviders.STRIPE && !paymentProviders.REDSYS)} hint={!paymentProviders.STRIPE && !paymentProviders.REDSYS ? "Activa antes Stripe o Redsys en «Cobros online y WhatsApp»." : "El cliente paga con tarjeta al reservar; la mesa se le guarda 15 minutos mientras paga."} label="Pedir fianza al reservar online" onChange={(value) => setData((current) => ({ ...current, depositEnabled: value, depositProvider: current.depositProvider ?? (paymentProviders.STRIPE ? "STRIPE" : paymentProviders.REDSYS ? "REDSYS" : null) }))} testId="booking-deposit-enabled" />
+          {data.depositEnabled ? (
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="grid gap-1 text-sm font-medium">Cobrar con
+                <select className="h-11 border border-input bg-window-surface px-2 text-sm" disabled={disabled} onChange={(event) => set("depositProvider", event.target.value as "STRIPE" | "REDSYS")} value={data.depositProvider ?? ""}>
+                  {paymentProviders.STRIPE ? <option value="STRIPE">Stripe</option> : null}
+                  {paymentProviders.REDSYS ? <option value="REDSYS">Redsys (TPV virtual del banco)</option> : null}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-medium">Por persona (€)<Input className="h-11 w-28" data-testid="booking-deposit-amount" disabled={disabled} inputMode="decimal" onChange={(event) => { const text = event.target.value.replace(/[^\d,.]/g, ""); setDepositText(text); set("depositPerPerson", Number(text.replace(",", ".")) || 0); }} value={depositText} /></label>
+              <NumberField disabled={disabled} hint="Grupos desde" label="A partir de (personas)" max={100} min={1} onChange={(value) => set("depositMinParty", Math.max(1, value))} value={data.depositMinParty} />
+              <Toggle checked={data.depositRefundable} disabled={disabled} hint={`Si cancela hasta ${data.cancellationHours} h antes se le devuelve sola; si no viene, se queda.`} label="Devolver si cancela a tiempo" onChange={(value) => set("depositRefundable", value)} />
+            </div>
+          ) : null}
+        </fieldset>
         <label className="grid gap-1 text-sm font-medium">
           Caja donde se sientan las reservas
           <select className="h-11 w-full max-w-xs border border-input bg-window-surface px-2 text-sm" disabled={disabled} onChange={(event) => set("registerId", event.target.value || null)} value={data.registerId ?? ""}>

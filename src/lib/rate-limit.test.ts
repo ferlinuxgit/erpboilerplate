@@ -61,6 +61,7 @@ describe("rate limit buckets", () => {
     expect(resolveRateLimitRule("/api/public/bookings/bar-pepe", "POST")).toBe(RATE_LIMIT_RULES.publicBooking);
     expect(resolveRateLimitRule("/api/public/bookings/bar-pepe/availability", "GET")).toBe(RATE_LIMIT_RULES.publicRead);
     expect(resolveRateLimitRule("/api/public/menu/bar-pepe/requests", "POST")).toBe(RATE_LIMIT_RULES.publicTableRequest);
+    expect(resolveRateLimitRule("/api/public/payments/redsys/company-1", "POST")).toBeNull();
     expect(resolveRateLimitRule("/api/auth/forgot-password", "POST")).toBe(RATE_LIMIT_RULES.forgotPassword);
     expect(resolveRateLimitRule("/api/auth/reset-password", "POST")).toBe(RATE_LIMIT_RULES.resetPassword);
     expect(resolveRateLimitRule("/api/auth/resend-verification", "POST")).toBe(RATE_LIMIT_RULES.resendVerification);

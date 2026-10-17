@@ -23,6 +23,11 @@ export const settingsSchema = z.object({
   welcomeMessage: optionalText(1000),
   notifyEmail: z.union([email, z.literal("")]).nullable().optional().transform((value) => value || null),
   sendReminders: z.boolean(),
+  depositEnabled: z.boolean().default(false),
+  depositProvider: z.enum(["STRIPE", "REDSYS"]).nullable().default(null),
+  depositPerPerson: z.number().min(0).max(1000).default(0),
+  depositMinParty: z.number().int().min(1).max(100).default(1),
+  depositRefundable: z.boolean().default(true),
   hours: z.array(z.object({ weekday: z.number().int().min(0).max(6), opensAt: time, lastStart: time })).max(50),
 });
 
@@ -41,7 +46,7 @@ const bookingFields = {
 
 export const staffBookingSchema = z.object({ ...bookingFields, source: z.enum(BOOKING_SOURCES).default("PHONE") });
 export const staffBookingUpdateSchema = z.object(bookingFields);
-export const statusSchema = z.object({ action: z.enum(["CONFIRM", "CANCEL", "NO_SHOW", "COMPLETE", "RESTORE"]), reason: optionalText(200), notifyCustomer: z.boolean().optional() });
+export const statusSchema = z.object({ action: z.enum(["CONFIRM", "CANCEL", "NO_SHOW", "COMPLETE", "RESTORE"]), reason: optionalText(200), notifyCustomer: z.boolean().optional(), refundDeposit: z.boolean().optional() });
 export const seatSchema = z.object({ registerId: z.string().trim().nullable().optional(), waiterUserId: z.string().trim().nullable().optional() });
 
 export const publicBookingSchema = z.object({
@@ -53,6 +58,7 @@ export const publicBookingSchema = z.object({
   email,
   notes: optionalText(500),
   consent: z.literal(true, { error: "Debes aceptar el tratamiento de tus datos para reservar." }),
+  whatsappOptIn: z.boolean().optional(),
   // Trampa para bots: un campo oculto que una persona nunca rellena.
   website: z.string().max(0, "No se pudo enviar la reserva.").optional(),
 });

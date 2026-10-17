@@ -7,8 +7,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { addDays, weekdayOf } from "@/modules/hospitality/bookings";
+
+import { goToPayment, type DepositPayment } from "./payment-redirect";
 
 export type PublicPage = {
   slug: string;
@@ -23,6 +26,7 @@ export type PublicPage = {
   lastDay: string;
   openWeekdays: number[];
   closures: string[];
+  deposit?: { perPerson: number; minParty: number; refundable: boolean; cancellationHours: number } | null;
 };
 
 type Slot = { time: string; available: boolean };
@@ -100,13 +104,19 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
         }
         return;
       }
-      const result = (await response.json()) as { token: string };
+      const result = (await response.json()) as { token: string; payment: DepositPayment | null };
+      // Con fianza: a pagar (la mesa queda guardada unos minutos); sin ella, a la confirmación.
+      if (result.payment) {
+        goToPayment(result.payment);
+        return;
+      }
       router.push(`/reservar/gestion/${result.token}?nueva=1${embed ? "&embed=1" : ""}`);
     } finally {
       setSending(false);
     }
   }
 
+  const depositAmount = page.deposit && party >= page.deposit.minParty ? Math.round(page.deposit.perPerson * party * 100) / 100 : null;
   const partyOptions = Array.from({ length: page.maxPartySize - page.minPartySize + 1 }, (_, index) => page.minPartySize + index);
   const available = slots && !loading ? slots.slots.filter((slot) => slot.available) : [];
 
@@ -184,6 +194,7 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
             <span>Acepto que {page.name} use mis datos solo para gestionar esta reserva y avisarme de ella.</span>
           </label>
           <p className="text-xs text-muted-foreground">
+            {depositAmount ? `Para grupos de ${page.deposit!.minParty} o más se pide una fianza de ${formatMoney(page.deposit!.perPerson)} por persona (${formatMoney(depositAmount)}): al confirmar irás a pagarla con tarjeta y la mesa se te guarda 15 minutos. ${page.deposit!.refundable ? `Se devuelve si cancelas hasta ${page.deposit!.cancellationHours} h antes; si no vienes, no se devuelve.` : "No se devuelve si cancelas o no vienes."} ` : ""}
             {page.autoConfirm ? "La confirmación es inmediata y te llegará por email." : "El restaurante revisará tu solicitud y te confirmará por email."}
             {page.cancellationHours > 0 ? ` Puedes cancelar gratis desde el enlace del email hasta ${page.cancellationHours} h antes.` : " Puedes cancelar desde el enlace del email."}
           </p>
@@ -193,7 +204,7 @@ export function BookingForm({ embed, initialDate = null, initialParty = null, pa
       {error ? <p className="border-2 border-destructive bg-destructive/10 p-2 text-sm font-semibold text-destructive" role="alert">{error}</p> : null}
 
       <Button className="h-14 w-full text-lg" data-testid="booking-submit" disabled={!time || sending} type="submit">
-        <CheckCircle aria-hidden="true" /> {sending ? "Reservando…" : time ? (page.autoConfirm ? "Confirmar reserva" : "Solicitar reserva") : "Elige una hora"}
+        <CheckCircle aria-hidden="true" /> {sending ? "Reservando…" : !time ? "Elige una hora" : depositAmount ? `Reservar y pagar fianza (${formatMoney(depositAmount)})` : page.autoConfirm ? "Confirmar reserva" : "Solicitar reserva"}
       </Button>
     </form>
   );

@@ -59,6 +59,8 @@ export const RATE_LIMIT_RULES = {
 } satisfies Record<string, RateLimitRule>;
 
 const RATE_LIMIT_EXEMPT_PATHS = new Set(["/api/billing/webhook", "/api/health", "/api/readyz"]);
+/** Avisos de pago de Stripe y Redsys (servidor a servidor, firmados): sin límite por IP. */
+const RATE_LIMIT_EXEMPT_PREFIXES = ["/api/public/payments/"];
 
 /**
  * Multiplicador de límites (por defecto 1). Solo para entornos automatizados como el e2e,
@@ -77,7 +79,7 @@ export function resolveRateLimitRule(pathname: string, method: string): RateLimi
 }
 
 function resolveBaseRateLimitRule(pathname: string, method: string): RateLimitRule | null {
-  if (RATE_LIMIT_EXEMPT_PATHS.has(pathname)) return null;
+  if (RATE_LIMIT_EXEMPT_PATHS.has(pathname) || RATE_LIMIT_EXEMPT_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return null;
   if (method === "POST") {
     if (pathname === "/api/auth/login") return RATE_LIMIT_RULES.login;
     if (pathname === "/api/auth/register") return RATE_LIMIT_RULES.register;

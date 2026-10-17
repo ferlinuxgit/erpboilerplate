@@ -15,7 +15,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { addDays, bookingSourceLabels, bookingStatusLabels, type BookingSource, type BookingStatus } from "@/modules/hospitality/bookings";
+import { addDays, bookingSourceLabels, bookingStatusLabels, depositStatusLabels, type BookingSource, type BookingStatus } from "@/modules/hospitality/bookings";
 import type { BookingDay } from "@/server/pos/bookings";
 
 type DayData = Omit<BookingDay, "bookings"> & { bookings: Array<Omit<BookingDay["bookings"][number], "startsAt" | "endsAt"> & { startsAt: string; endsAt: string }> };
@@ -31,6 +31,7 @@ function nowRounded() {
 }
 
 const STATUS_TONE: Record<BookingStatus, string> = {
+  AWAITING_PAYMENT: "border-dashed border-warning bg-window-surface",
   PENDING: "border-warning bg-warning/15",
   CONFIRMED: "border-window-dark-shadow bg-window-panel",
   SEATED: "border-primary bg-primary/10",
@@ -39,6 +40,7 @@ const STATUS_TONE: Record<BookingStatus, string> = {
   CANCELLED: "border-dashed border-window-shadow bg-window-surface opacity-60",
 };
 const BADGE_TONE: Record<BookingStatus, string> = {
+  AWAITING_PAYMENT: "bg-window-shadow text-white",
   PENDING: "bg-warning text-warning-foreground",
   CONFIRMED: "bg-success text-white",
   SEATED: "bg-primary text-primary-foreground",
@@ -185,6 +187,7 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
                         </div>
                         <span className={cn("shrink-0 px-1.5 py-0.5 font-mono text-[11px] font-bold uppercase", BADGE_TONE[booking.status])} data-testid="pos-booking-status">{bookingStatusLabels[booking.status]}</span>
                       </div>
+                      {booking.depositStatus !== "NONE" && booking.depositAmount ? <p className={cn("inline-block px-1.5 py-0.5 font-mono text-xs font-bold", booking.depositStatus === "PAID" ? "bg-success text-white" : booking.depositStatus === "KEPT" ? "bg-destructive text-destructive-foreground" : "bg-window-panel")} data-testid="pos-booking-deposit">{depositStatusLabels[booking.depositStatus]} · {booking.depositAmount.toLocaleString("es-ES", { style: "currency", currency: "EUR" })}</p> : null}
                       {booking.notes ? <p className="border-l-4 border-warning bg-warning/10 px-2 py-1 text-sm">{booking.notes}</p> : null}
                       {booking.phone ? <a className="flex items-center gap-1 text-sm text-link underline" href={`tel:${booking.phone.replace(/\s/g, "")}`}><Phone aria-hidden="true" className="size-4" />{booking.phone}</a> : null}
                       <div className="flex flex-wrap gap-1.5">
@@ -241,19 +244,22 @@ export function BookingsDay({ initial, registerId, registers, today }: { initial
 function CancelDialog({ booking, onClose, onDone }: { booking: Booking; onClose: () => void; onDone: () => Promise<void> }) {
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(Boolean(booking.email));
+  const [refund, setRefund] = useState(true);
   const [pending, setPending] = useState(false);
   return (
     <Dialog onClose={onClose} open title={`Cancelar la reserva de ${booking.name}`}>
       <div className="space-y-3">
         <label className="grid gap-1 text-sm font-medium">Motivo (opcional)<Input className="h-11" maxLength={200} onChange={(event) => setReason(event.target.value)} placeholder="Lo pidió por teléfono, cierre…" value={reason} /></label>
         {booking.email ? <label className="flex items-center gap-2 text-sm"><input checked={notify} onChange={(event) => setNotify(event.target.checked)} type="checkbox" /> Avisar al cliente por email</label> : null}
+        {booking.depositStatus === "PAID" ? <label className="flex items-center gap-2 text-sm"><input checked={refund} data-testid="pos-booking-refund" onChange={(event) => setRefund(event.target.checked)} type="checkbox" /> Devolver la fianza ({booking.depositAmount?.toLocaleString("es-ES", { style: "currency", currency: "EUR" })})</label> : null}
         <div className="grid grid-cols-2 gap-2">
           <Button className="h-12" onClick={onClose} type="button" variant="outline">Volver</Button>
           <Button className="h-12" data-testid="pos-booking-cancel-confirm" disabled={pending} onClick={async () => {
             setPending(true);
             try {
-              await postJson(`/api/pos/bookings/${booking.id}/status`, { action: "CANCEL", reason: reason || null, notifyCustomer: notify });
-              toast.success("Reserva cancelada.");
+              const result = await postJson<{ refunded?: boolean; refundError?: string | null }>(`/api/pos/bookings/${booking.id}/status`, { action: "CANCEL", reason: reason || null, notifyCustomer: notify, refundDeposit: refund });
+              if (result.refundError) toast.error(`Reserva cancelada, pero no se pudo devolver la fianza: ${result.refundError}`);
+              else toast.success(result.refunded ? "Reserva cancelada y fianza devuelta." : "Reserva cancelada.");
               await onDone();
             } catch (error) {
               toast.error(error instanceof Error ? error.message : "No se pudo cancelar.");

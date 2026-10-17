@@ -11,9 +11,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     if (!payload) return invalidJsonResponse();
     const parsed = publicBookingSchema.safeParse(payload);
     if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
-    const { notify, token, code, status } = await createPublicBooking((await params).slug, parsed.data);
+    const { notify, token, code, status, payment } = await createPublicBooking((await params).slug, parsed.data);
     after(notify);
-    return NextResponse.json({ token, code, status }, { status: 201 });
+    return NextResponse.json({ token, code, status, payment }, { status: 201 });
   } catch (error) {
     return handleRouteError(error, "public.bookings.create");
   }

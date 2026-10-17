@@ -66,19 +66,20 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
-    const securityHeaders = (frameAncestors: string) => [
+    const securityHeaders = (frameAncestors: string, formAction = "'self'") => [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       {
         key: "Content-Security-Policy",
-        value: `default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors ${frameAncestors}; img-src 'self' data: https:; connect-src ${connectSrc}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com;`,
+        value: `default-src 'self'; base-uri 'self'; object-src 'none'; form-action ${formAction}; frame-ancestors ${frameAncestors}; img-src 'self' data: https:; connect-src ${connectSrc}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com;`,
       },
       { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
     ];
     return [
       { source: "/((?!reservar(?:/|$)|carta(?:/|$)).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }, ...securityHeaders("'none'")] },
       // El formulario de reservas y la carta se pueden incrustar en la web del restaurante.
-      { source: "/reservar/:path*", headers: securityHeaders("*") },
+      // Desde las reservas el cliente puede ir a pagar la fianza al TPV virtual de su banco (Redsys).
+      { source: "/reservar/:path*", headers: securityHeaders("*", "'self' https://sis.redsys.es https://sis-t.redsys.es:25443") },
       { source: "/carta/:path*", headers: securityHeaders("*") },
       // Service worker del TPV: siempre la versión nueva.
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, max-age=0" }, { key: "Service-Worker-Allowed", value: "/" }] },

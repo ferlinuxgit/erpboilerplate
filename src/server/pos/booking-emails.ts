@@ -13,6 +13,8 @@ export type BookingEmailData = {
   notes: string | null;
   manageUrl: string | null;
   welcomeMessage: string | null;
+  /** «Fianza pagada · 40,00 €», si la hay. */
+  deposit?: string | null;
 };
 
 function details(data: BookingEmailData) {
@@ -22,6 +24,7 @@ function details(data: BookingEmailData) {
     ["Personas", String(data.partySize)],
     ["A nombre de", data.name],
     ...(data.notes ? [["Comentarios", data.notes]] : []),
+    ...(data.deposit ? [["Fianza", data.deposit]] : []),
     ...(data.address ? [["Dirección", data.address]] : []),
     ...(data.phone ? [["Teléfono del local", data.phone]] : []),
   ];

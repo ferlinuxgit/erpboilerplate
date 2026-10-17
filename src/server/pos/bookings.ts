@@ -1,12 +1,16 @@
 import { createHash, createHmac, randomInt } from "node:crypto";
 
-import { and, asc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { company, posArea, posBooking, posWaitlist, posBookingClosure, posBookingHours, posBookingSettings, posOrder, posRegister, posTable } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import {
   ACTIVE_BOOKING_STATUSES,
+  DEPOSIT_HOLD_MINUTES,
+  type DepositStatus,
+  depositStatusLabels,
+  depositFor,
   addDays,
   bookingCode,
   canCustomerCancel,
@@ -27,11 +31,13 @@ import {
 } from "@/modules/hospitality/bookings";
 import { recordAudit } from "@/server/audit";
 import { appBaseUrl } from "@/server/email/templates";
+import { loadIntegration } from "@/server/integrations/service";
 import { isModuleEnabled } from "@/server/modules/service";
 import { openOrder } from "@/server/pos/hospitality";
 import type { PosActor } from "@/server/pos/service";
 
 import { customerBookingEmail, restaurantBookingEmail, sendBookingEmail, type BookingEmailData } from "./booking-emails";
+import { refundDeposit, startDepositPayment, syncStripeDeposit } from "./deposits";
 import { listWaitlist, notifyWaitlist } from "./waitlist";
 
 const DEFAULT_RULES = { slotMinutes: 30, durationMinutes: 90, minPartySize: 1, maxPartySize: 8, leadMinutes: 60, maxDaysAhead: 60, allowCombining: true } satisfies BookingRules;
@@ -77,6 +83,11 @@ export type BookingSettingsInput = {
   welcomeMessage: string | null;
   notifyEmail: string | null;
   sendReminders: boolean;
+  depositEnabled: boolean;
+  depositProvider: "STRIPE" | "REDSYS" | null;
+  depositPerPerson: number;
+  depositMinParty: number;
+  depositRefundable: boolean;
   hours: Array<{ weekday: number; opensAt: string; lastStart: string }>;
 };
 
@@ -104,6 +115,11 @@ export async function getBookingSettings(companyId: string) {
     welcomeMessage: settings?.welcomeMessage ?? null,
     notifyEmail: settings?.notifyEmail ?? owner?.email ?? null,
     sendReminders: settings?.sendReminders ?? true,
+    depositEnabled: settings?.depositEnabled ?? false,
+    depositProvider: (settings?.depositProvider ?? null) as "STRIPE" | "REDSYS" | null,
+    depositPerPerson: Number(settings?.depositPerPerson ?? 0),
+    depositMinParty: settings?.depositMinParty ?? 1,
+    depositRefundable: settings?.depositRefundable ?? true,
     timezone: owner?.timezone ?? "Europe/Madrid",
     hours: hours.map(({ weekday, opensAt, lastStart }) => ({ weekday, opensAt, lastStart })),
     closures: closures.map(({ id, date, reason }) => ({ id, date, reason })),
@@ -126,6 +142,12 @@ export async function saveBookingSettings(actor: PosActor, input: BookingSetting
     const [register] = await db.select({ id: posRegister.id }).from(posRegister).where(and(eq(posRegister.id, input.registerId), eq(posRegister.companyId, actor.companyId))).limit(1);
     if (!register) throw new HttpError(404, "Caja no encontrada.");
   }
+  if (input.depositEnabled) {
+    if (!input.depositProvider) throw new HttpError(400, "Elige con qué se cobra la fianza (Stripe o Redsys).");
+    if (!(input.depositPerPerson > 0)) throw new HttpError(400, "Pon el importe de la fianza por persona.");
+    const integration = await loadIntegration(actor.companyId, input.depositProvider);
+    if (!integration?.enabled) throw new HttpError(400, `Activa primero ${input.depositProvider === "STRIPE" ? "Stripe" : "Redsys"} en «Cobros online y WhatsApp».`);
+  }
   const [taken] = await db.select({ companyId: posBookingSettings.companyId }).from(posBookingSettings).where(and(eq(posBookingSettings.slug, slug), ne(posBookingSettings.companyId, actor.companyId))).limit(1);
   if (taken) throw new HttpError(409, `La dirección «${slug}» ya la usa otro restaurante: elige otra.`);
   const values = {
@@ -144,6 +166,11 @@ export async function saveBookingSettings(actor: PosActor, input: BookingSetting
     welcomeMessage: input.welcomeMessage?.trim() || null,
     notifyEmail: input.notifyEmail?.trim() || null,
     sendReminders: input.sendReminders,
+    depositEnabled: input.depositEnabled,
+    depositProvider: input.depositEnabled ? input.depositProvider : null,
+    depositPerPerson: Math.max(0, input.depositPerPerson).toFixed(2),
+    depositMinParty: Math.max(1, input.depositMinParty),
+    depositRefundable: input.depositRefundable,
     updatedAt: new Date(),
   };
   await db.transaction(async (tx) => {
@@ -187,7 +214,14 @@ async function loadBusy(client: DbClient, companyId: string, date: string, timeZ
   return client
     .select({ id: posBooking.id, startsAt: posBooking.startsAt, endsAt: posBooking.endsAt, tableIds: posBooking.tableIds })
     .from(posBooking)
-    .where(and(eq(posBooking.companyId, companyId), inArray(posBooking.status, [...ACTIVE_BOOKING_STATUSES]), lt(posBooking.startsAt, to), gte(posBooking.endsAt, from)));
+    .where(and(
+      eq(posBooking.companyId, companyId),
+      inArray(posBooking.status, [...ACTIVE_BOOKING_STATUSES]),
+      lt(posBooking.startsAt, to),
+      gte(posBooking.endsAt, from),
+      // Una reserva que no pagó la fianza a tiempo ya no retiene la mesa.
+      or(ne(posBooking.status, "AWAITING_PAYMENT"), gte(posBooking.holdExpiresAt, new Date())),
+    ));
 }
 
 type Settings = BookingSettingsView;
@@ -238,6 +272,7 @@ export async function getPublicBookingPage(slug: string) {
     lastDay: addDays(today, settings.maxDaysAhead),
     openWeekdays: [...new Set(settings.hours.map((shift) => shift.weekday))],
     closures: settings.closures.map((closure) => closure.date).filter((date) => date >= today),
+    deposit: settings.depositEnabled && settings.depositPerPerson > 0 ? { perPerson: settings.depositPerPerson, minParty: settings.depositMinParty, refundable: settings.depositRefundable, cancellationHours: settings.cancellationHours } : null,
   };
 }
 
@@ -266,11 +301,13 @@ export async function hasAvailability(companyId: string, date: string, partySize
   return { available: times.length > 0, times };
 }
 
-export type PublicBookingInput = { date: string; time: string; partySize: number; name: string; phone: string; email: string; notes: string | null };
+export type PublicBookingInput = { date: string; time: string; partySize: number; name: string; phone: string; email: string; notes: string | null; whatsappOptIn?: boolean };
 
 export async function createPublicBooking(slug: string, input: PublicBookingInput) {
   const { page, settings } = await requirePublic(slug);
-  const status: BookingStatus = settings.autoConfirm ? "CONFIRMED" : "PENDING";
+  // Con fianza, la mesa queda retenida unos minutos mientras paga; sin ella, reservada ya.
+  const deposit = depositFor(settings, input.partySize);
+  const status: BookingStatus = deposit ? "AWAITING_PAYMENT" : settings.autoConfirm ? "CONFIRMED" : "PENDING";
   const booking = await db.transaction(async (tx) => {
     // Una reserva a la vez por restaurante: dos clientes no pueden quedarse la misma mesa.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`booking:${page.companyId}`}))`);
@@ -291,17 +328,30 @@ export async function createPublicBooking(slug: string, input: PublicBookingInpu
       source: "WEB",
       consentAt: new Date(),
       createdByUserId: null,
+      whatsappOptIn: Boolean(input.whatsappOptIn),
+      deposit: deposit ? { amount: deposit, provider: settings.depositProvider!, holdExpiresAt: new Date(Date.now() + DEPOSIT_HOLD_MINUTES * 60_000) } : null,
     });
   });
   // Si estaba en la lista de espera de ese día, ya tiene mesa.
   await db.update(posWaitlist).set({ status: "BOOKED", updatedAt: new Date() }).where(and(eq(posWaitlist.companyId, page.companyId), eq(posWaitlist.date, input.date), eq(posWaitlist.email, input.email.trim().toLowerCase()), inArray(posWaitlist.status, ["WAITING", "NOTIFIED"])));
-  return { ...booking, token: manageToken(booking.id), status, notify: () => notifyNewBooking(page.companyId, booking.id) };
+  const token = manageToken(booking.id);
+  if (deposit) {
+    try {
+      const payment = await startDepositPayment(booking.id, token);
+      return { ...booking, token, status, payment, notify: async () => undefined };
+    } catch (error) {
+      // Sin pasarela disponible no se retiene la mesa en vano.
+      await db.update(posBooking).set({ status: "CANCELLED", cancelledAt: new Date(), cancelReason: "No se pudo iniciar el pago de la fianza", depositStatus: "NONE" }).where(eq(posBooking.id, booking.id));
+      throw error;
+    }
+  }
+  return { ...booking, token, status, payment: null, notify: () => notifyNewBooking(page.companyId, booking.id) };
 }
 
 async function insertBooking(
   tx: DbClient,
   companyId: string,
-  input: { status: BookingStatus; startsAt: Date; durationMinutes: number; partySize: number; name: string; phone: string | null; email: string | null; notes: string | null; tableIds: string[]; source: BookingSource; consentAt: Date | null; createdByUserId: string | null },
+  input: { status: BookingStatus; startsAt: Date; durationMinutes: number; partySize: number; name: string; phone: string | null; email: string | null; notes: string | null; tableIds: string[]; source: BookingSource; consentAt: Date | null; createdByUserId: string | null; whatsappOptIn?: boolean; deposit?: { amount: number; provider: string; holdExpiresAt: Date } | null },
 ) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const code = bookingCode((max) => randomInt(max));
@@ -325,6 +375,8 @@ async function insertBooking(
         manageTokenHash: tokenHash(manageToken(id)),
         consentAt: input.consentAt,
         createdByUserId: input.createdByUserId,
+        whatsappOptIn: Boolean(input.whatsappOptIn),
+        ...(input.deposit ? { depositStatus: "PENDING", depositAmount: input.deposit.amount.toFixed(2), depositProvider: input.deposit.provider, holdExpiresAt: input.deposit.holdExpiresAt } : {}),
       })
       .onConflictDoNothing()
       .returning({ id: posBooking.id, code: posBooking.code, startsAt: posBooking.startsAt });
@@ -354,6 +406,7 @@ async function emailData(bookingId: string) {
     notes: row.booking.notes,
     manageUrl: manageUrl(row.booking.id),
     welcomeMessage: settings.welcomeMessage,
+    deposit: row.booking.depositStatus !== "NONE" && row.booking.depositAmount ? `${depositStatusLabels[row.booking.depositStatus as DepositStatus]} · ${Number(row.booking.depositAmount).toLocaleString("es-ES", { style: "currency", currency: "EUR" })}` : null,
   };
   return { booking: row.booking, settings, data, tables: tables.map((table) => table.name).join(" + ") };
 }
@@ -378,8 +431,16 @@ async function notifyCustomer(bookingId: string, kind: "CONFIRMED" | "CANCELLED"
 // Enlace del cliente: ver, descargar al calendario y cancelar
 // ---------------------------------------------------------------------------------------------
 
-export async function getBookingByToken(token: string) {
+export async function getBookingByToken(token: string, options: { syncPayment?: boolean } = {}) {
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return null;
+  // Vuelve de pagar con Stripe y el aviso de la pasarela aún no ha llegado: se pregunta a Stripe.
+  if (options.syncPayment) {
+    const [pending] = await db.select({ companyId: posBooking.companyId, id: posBooking.id, reference: posBooking.depositReference, provider: posBooking.depositProvider, depositStatus: posBooking.depositStatus }).from(posBooking).where(eq(posBooking.manageTokenHash, tokenHash(token))).limit(1);
+    if (pending?.depositStatus === "PENDING" && pending.provider === "STRIPE" && pending.reference) {
+      const result = await syncStripeDeposit(pending.companyId, pending.reference).catch(() => null);
+      if (result?.notify) await notifyNewBooking(pending.companyId, pending.id).catch(() => undefined);
+    }
+  }
   const [row] = await db
     .select({ booking: posBooking, restaurant: company.name, address: company.fiscalAddress, city: company.city, phone: company.phone, timezone: company.timezone })
     .from(posBooking)
@@ -406,6 +467,7 @@ export async function getBookingByToken(token: string) {
     welcomeMessage: settings.welcomeMessage,
     cancellationHours: settings.cancellationHours,
     canCancel: canCustomerCancel(row.booking, settings.cancellationHours, now),
+    deposit: row.booking.depositStatus === "NONE" ? null : { status: row.booking.depositStatus as DepositStatus, amount: Number(row.booking.depositAmount ?? 0), refundable: settings.depositRefundable, holdExpiresAt: row.booking.holdExpiresAt?.toISOString() ?? null },
   };
 }
 
@@ -416,11 +478,20 @@ export async function cancelBookingByToken(token: string) {
   if (!booking.canCancel) throw new HttpError(409, `Ya no se puede cancelar online (hasta ${booking.cancellationHours} h antes). Llama al restaurante${booking.phone ? ` al ${booking.phone}` : ""}.`);
   const [updated] = await db
     .update(posBooking)
-    .set({ status: "CANCELLED", cancelledAt: new Date(), cancelReason: "Cancelada por el cliente", updatedAt: new Date() })
-    .where(and(eq(posBooking.id, booking.id), inArray(posBooking.status, ["PENDING", "CONFIRMED"])))
+    .set({ status: "CANCELLED", cancelledAt: new Date(), cancelReason: "Cancelada por el cliente", updatedAt: new Date(), ...(booking.status === "AWAITING_PAYMENT" ? { depositStatus: "NONE" as const } : {}) })
+    .where(and(eq(posBooking.id, booking.id), inArray(posBooking.status, ["AWAITING_PAYMENT", "PENDING", "CONFIRMED"])))
     .returning({ id: posBooking.id, companyId: posBooking.companyId });
+  // Cancela dentro del plazo: se le devuelve la fianza.
+  let refundError: string | null = null;
+  if (updated && booking.deposit?.status === "PAID" && booking.deposit.refundable) {
+    await refundDeposit(updated.companyId, updated.id).catch((error: unknown) => {
+      refundError = error instanceof Error ? error.message : "No se pudo devolver la fianza.";
+    });
+  }
+  if (updated && booking.status === "AWAITING_PAYMENT") return { cancelled: true, refundError: null, notify: async () => undefined };
   return {
     cancelled: Boolean(updated),
+    refundError: refundError as string | null,
     notify: async () => {
       if (!updated) return;
       const info = await emailData(updated.id);
@@ -476,6 +547,8 @@ export async function listBookings(companyId: string, date: string) {
       tableIds: row.tableIds,
       tableNames: row.tableIds.map((id) => tables.find((table) => table.id === id)?.name ?? "?").join(" + "),
       orderId: row.orderId,
+      depositStatus: row.depositStatus as DepositStatus,
+      depositAmount: row.depositAmount === null ? null : Number(row.depositAmount),
     })),
   };
 }
@@ -557,14 +630,14 @@ export async function updateStaffBooking(actor: PosActor, bookingId: string, inp
 
 const TRANSITIONS: Record<"CONFIRM" | "CANCEL" | "NO_SHOW" | "COMPLETE" | "RESTORE", { from: BookingStatus[]; to: BookingStatus }> = {
   CONFIRM: { from: ["PENDING"], to: "CONFIRMED" },
-  CANCEL: { from: ["PENDING", "CONFIRMED"], to: "CANCELLED" },
+  CANCEL: { from: ["AWAITING_PAYMENT", "PENDING", "CONFIRMED"], to: "CANCELLED" },
   NO_SHOW: { from: ["PENDING", "CONFIRMED"], to: "NO_SHOW" },
   COMPLETE: { from: ["SEATED"], to: "COMPLETED" },
   RESTORE: { from: ["CANCELLED", "NO_SHOW"], to: "CONFIRMED" },
 };
 export type BookingAction = keyof typeof TRANSITIONS;
 
-export async function changeBookingStatus(actor: PosActor, bookingId: string, action: BookingAction, input: { reason?: string | null; notifyCustomer?: boolean } = {}) {
+export async function changeBookingStatus(actor: PosActor, bookingId: string, action: BookingAction, input: { reason?: string | null; notifyCustomer?: boolean; refundDeposit?: boolean } = {}) {
   const transition = TRANSITIONS[action];
   const settings = await getBookingSettings(actor.companyId);
   const result = await db.transaction(async (tx) => {
@@ -580,9 +653,21 @@ export async function changeBookingStatus(actor: PosActor, bookingId: string, ac
       .update(posBooking)
       .set({ status: transition.to, updatedAt: new Date(), ...(transition.to === "CANCELLED" ? { cancelledAt: new Date(), cancelReason: input.reason?.trim() || "Cancelada por el restaurante" } : {}), ...(action === "RESTORE" ? { cancelledAt: null, cancelReason: null } : {}) })
       .where(eq(posBooking.id, bookingId));
-    await audit(actor, `pos_booking.${action.toLowerCase()}`, bookingId, { reason: input.reason ?? null }, tx);
-    return { id: bookingId, status: transition.to };
+    // Fianza: si no viene, se queda; si se cancela sin haberla pagado, deja de estar pendiente.
+    if (action === "NO_SHOW" && current.depositStatus === "PAID") await tx.update(posBooking).set({ depositStatus: "KEPT" }).where(eq(posBooking.id, bookingId));
+    if (action === "CANCEL" && current.depositStatus === "PENDING") await tx.update(posBooking).set({ depositStatus: "NONE" }).where(eq(posBooking.id, bookingId));
+    await audit(actor, `pos_booking.${action.toLowerCase()}`, bookingId, { reason: input.reason ?? null, deposit: current.depositStatus }, tx);
+    return { id: bookingId, status: transition.to, depositStatus: current.depositStatus };
   });
+  let refundError: string | null = null;
+  let refunded = false;
+  if (action === "CANCEL" && result.depositStatus === "PAID" && input.refundDeposit !== false) {
+    try {
+      refunded = (await refundDeposit(actor.companyId, bookingId)).refunded;
+    } catch (error) {
+      refundError = error instanceof Error ? error.message : "No se pudo devolver la fianza.";
+    }
+  }
   const notify = async () => {
     if (input.notifyCustomer === false) return;
     if (action === "CONFIRM") await notifyCustomer(bookingId, "CONFIRMED");
@@ -597,7 +682,7 @@ export async function changeBookingStatus(actor: PosActor, bookingId: string, ac
       if (row) await notifyWaitlist(actor.companyId, zonedParts(row.startsAt, settings.timezone).date);
     }
   };
-  return { ...result, notify: notifyAll };
+  return { ...result, refunded, refundError, notify: notifyAll };
 }
 
 /** Sentar a una reserva: abre (o reutiliza) la cuenta de su primera mesa con sus comensales. */

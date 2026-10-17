@@ -6,12 +6,13 @@ import { getBookingByToken } from "@/server/pos/bookings";
 
 export const metadata: Metadata = { title: "Tu reserva", robots: { index: false, follow: false } };
 
-type Props = { params: Promise<{ token: string }>; searchParams: Promise<{ nueva?: string; embed?: string }> };
+type Props = { params: Promise<{ token: string }>; searchParams: Promise<{ nueva?: string; embed?: string; pago?: string }> };
 
 /** Enlace privado del cliente: ver su reserva, añadirla al calendario o cancelarla. */
 export default async function ManageBookingPage({ params, searchParams }: Props) {
-  const [{ token }, { nueva, embed }] = await Promise.all([params, searchParams]);
-  const booking = await getBookingByToken(token);
+  const [{ token }, { nueva, embed, pago }] = await Promise.all([params, searchParams]);
+  // Vuelve de la pasarela: se comprueba el pago por si su aviso aún no ha llegado.
+  const booking = await getBookingByToken(token, { syncPayment: pago === "ok" });
   if (!booking) {
     return (
       <PublicBookingShell embed={embed === "1"} name="Reservas">
@@ -23,8 +24,9 @@ export default async function ManageBookingPage({ params, searchParams }: Props)
   return (
     <PublicBookingShell address={booking.address} embed={embed === "1"} name={booking.restaurant} phone={booking.phone}>
       <ManageBooking
-        booking={{ code: booking.code, status: booking.status, when: booking.when, partySize: booking.partySize, name: booking.name, notes: booking.notes, canCancel: booking.canCancel, cancellationHours: booking.cancellationHours, phone: booking.phone, slug: booking.slug, welcomeMessage: booking.welcomeMessage }}
-        isNew={nueva === "1"}
+        booking={{ code: booking.code, status: booking.status, when: booking.when, partySize: booking.partySize, name: booking.name, notes: booking.notes, canCancel: booking.canCancel, cancellationHours: booking.cancellationHours, phone: booking.phone, slug: booking.slug, welcomeMessage: booking.welcomeMessage, deposit: booking.deposit }}
+        isNew={nueva === "1" || pago === "ok"}
+        payment={pago === "ok" ? "ok" : pago === "cancelado" ? "cancelled" : null}
         token={token}
       />
     </PublicBookingShell>

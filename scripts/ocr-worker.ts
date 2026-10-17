@@ -7,6 +7,7 @@ async function main() {
   const { checkAllMailInboxes } = await import("../src/server/ocr/mail-inbox");
   const { sendBookingReminders } = await import("../src/server/pos/bookings");
   const { purgeOldRequestKeys } = await import("../src/server/pos/hospitality");
+  const { expireDepositHolds } = await import("../src/server/pos/deposits");
 
   const intervalMs = Number(process.env.OCR_WORKER_INTERVAL_MS ?? 5000);
   // Buzones de facturas por correo: cada 2 minutos por defecto.
@@ -15,6 +16,7 @@ async function main() {
   let nextMailCheckAt = 0;
   // Recordatorios de reservas (el día antes): cada 10 minutos.
   let nextReminderAt = 0;
+  let nextHoldCheckAt = 0;
 
   async function tick() {
     try {
@@ -26,6 +28,12 @@ async function main() {
         nextMailCheckAt = Date.now() + mailIntervalMs;
         const mail = await checkAllMailInboxes();
         if (mail.imported > 0) console.log(`OCR worker imported ${mail.imported} document(s) from ${mail.inboxes} mail inbox(es).`);
+      }
+      // Mesas retenidas por una fianza sin pagar: se liberan al minuto de caducar.
+      if (Date.now() >= nextHoldCheckAt) {
+        nextHoldCheckAt = Date.now() + 60 * 1000;
+        const holds = await expireDepositHolds();
+        if (holds.expired > 0) console.log(`Booking holds released: ${holds.expired}.`);
       }
       if (Date.now() >= nextReminderAt) {
         nextReminderAt = Date.now() + 10 * 60 * 1000;

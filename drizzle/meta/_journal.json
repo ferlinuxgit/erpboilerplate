@@ -379,6 +379,13 @@
       "when": 1792256055359,
       "tag": "0053_table_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792264749157,
+      "tag": "0054_integrations_deposits_whatsapp",
+      "breakpoints": true
     }
   ]
 }

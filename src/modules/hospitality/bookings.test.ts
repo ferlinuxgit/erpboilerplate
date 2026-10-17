@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bookingCode, bookingIcs, canCustomerCancel, dateUnavailableReason, daySlots, isDate, pickTables, shiftStarts, slugify, zonedParts, zonedToUtc, type BookingRules } from "./bookings";
+import { bookingCode, bookingIcs, canCustomerCancel, depositFor, dateUnavailableReason, daySlots, isDate, pickTables, shiftStarts, slugify, zonedParts, zonedToUtc, type BookingRules } from "./bookings";
 
 const rules: BookingRules = { slotMinutes: 30, durationMinutes: 90, minPartySize: 1, maxPartySize: 8, leadMinutes: 60, maxDaysAhead: 30, allowCombining: true };
 const tables = [
@@ -106,6 +106,15 @@ describe("utilidades", () => {
     expect(canCustomerCancel({ status: "CONFIRMED", startsAt }, 2, new Date("2026-10-17T17:59:00Z"))).toBe(true);
     expect(canCustomerCancel({ status: "CONFIRMED", startsAt }, 2, new Date("2026-10-17T18:30:00Z"))).toBe(false);
     expect(canCustomerCancel({ status: "SEATED", startsAt }, 2, new Date("2026-10-16T00:00:00Z"))).toBe(false);
+  });
+
+  it("calcula la fianza por persona desde el mínimo de comensales", () => {
+    const settings = { depositEnabled: true, depositPerPerson: 10, depositMinParty: 6 };
+    expect(depositFor(settings, 5)).toBeNull();
+    expect(depositFor(settings, 6)).toBe(60);
+    expect(depositFor({ ...settings, depositEnabled: false }, 8)).toBeNull();
+    expect(depositFor({ ...settings, depositPerPerson: 7.5, depositMinParty: 1 }, 3)).toBe(22.5);
+    expect(canCustomerCancel({ status: "AWAITING_PAYMENT", startsAt: new Date("2026-10-17T20:00:00Z") }, 2, new Date("2026-10-17T19:30:00Z"))).toBe(true);
   });
 
   it("crea slugs y calendarios", () => {

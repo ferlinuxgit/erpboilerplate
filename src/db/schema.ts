@@ -2175,6 +2175,26 @@ export const posWaitlist = pgTable("pos_waitlist", {
   check("pos_waitlist_party_valid", sql`${table.partySize} BETWEEN 1 AND 500`),
 ]);
 
+/**
+ * Integraciones de cada empresa con servicios externos: Stripe y Redsys (cobros online) y WhatsApp
+ * (Cloud API de Meta). Lo no secreto va en `config`; claves y tokens, cifrados en `secretEncrypted`.
+ */
+export const companyIntegration = pgTable("company_integration", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // STRIPE | REDSYS | WHATSAPP
+  provider: text("provider").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  config: jsonb("config").$type<Record<string, string>>().notNull().default({}),
+  secretEncrypted: text("secretEncrypted"),
+  lastTestAt: timestamp("lastTestAt", { withTimezone: true, mode: "date" }),
+  lastTestOk: boolean("lastTestOk"),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("company_integration_unique").on(table.companyId, table.provider),
+  check("company_integration_provider_valid", sql`${table.provider} IN ('STRIPE', 'REDSYS', 'WHATSAPP')`),
+]);
+
 /** Peticiones del TPV ya aplicadas (reenvíos tras un corte de conexión no se duplican). */
 export const posRequestKey = pgTable("pos_request_key", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -2292,6 +2312,13 @@ export const posBookingSettings = pgTable("pos_booking_settings", {
   welcomeMessage: text("welcomeMessage"),
   notifyEmail: text("notifyEmail"),
   sendReminders: boolean("sendReminders").notNull().default(true),
+  // Fianza: importe por persona (con IVA) desde cierto número de comensales, cobrada con Stripe o Redsys.
+  depositEnabled: boolean("depositEnabled").notNull().default(false),
+  depositProvider: text("depositProvider"),
+  depositPerPerson: numeric("depositPerPerson", { precision: 12, scale: 2 }).notNull().default("0"),
+  depositMinParty: integer("depositMinParty").notNull().default(1),
+  // Se devuelve si el cliente cancela dentro del plazo; si no viene, se queda.
+  depositRefundable: boolean("depositRefundable").notNull().default(true),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   check("pos_booking_settings_slot_valid", sql`${table.slotMinutes} BETWEEN 5 AND 120`),
@@ -2347,13 +2374,27 @@ export const posBooking = pgTable("pos_booking", {
   cancelledAt: timestamp("cancelledAt", { withTimezone: true, mode: "date" }),
   cancelReason: text("cancelReason"),
   createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  // Avisos por WhatsApp aceptados por el cliente.
+  whatsappOptIn: boolean("whatsappOptIn").notNull().default(false),
+  // Fianza: NONE | PENDING (esperando pago) | PAID | REFUNDED | KEPT (no vino)
+  depositStatus: text("depositStatus").notNull().default("NONE"),
+  depositAmount: numeric("depositAmount", { precision: 12, scale: 2 }),
+  depositProvider: text("depositProvider"),
+  // Referencia del cobro: sesión/pago de Stripe o número de pedido de Redsys.
+  depositReference: text("depositReference"),
+  depositPaymentId: text("depositPaymentId"),
+  depositPaidAt: timestamp("depositPaidAt", { withTimezone: true, mode: "date" }),
+  // Mesa retenida mientras se paga la fianza.
+  holdExpiresAt: timestamp("holdExpiresAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("pos_booking_company_code_unique").on(table.companyId, table.code),
   index("pos_booking_company_starts_idx").on(table.companyId, table.startsAt),
   index("pos_booking_token_idx").on(table.manageTokenHash),
-  check("pos_booking_status_valid", sql`${table.status} IN ('PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'NO_SHOW', 'CANCELLED')`),
+  check("pos_booking_status_valid", sql`${table.status} IN ('AWAITING_PAYMENT', 'PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'NO_SHOW', 'CANCELLED')`),
+  check("pos_booking_deposit_status_valid", sql`${table.depositStatus} IN ('NONE', 'PENDING', 'PAID', 'REFUNDED', 'KEPT')`),
+  index("pos_booking_deposit_reference_idx").on(table.depositReference),
   check("pos_booking_party_valid", sql`${table.partySize} BETWEEN 1 AND 500`),
 ]);
 

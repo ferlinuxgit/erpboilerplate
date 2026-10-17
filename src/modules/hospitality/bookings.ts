@@ -3,14 +3,25 @@
  * probarlo: las horas se calculan en la zona horaria de la empresa y se guardan en UTC.
  */
 
-export const BOOKING_STATUSES = ["PENDING", "CONFIRMED", "SEATED", "COMPLETED", "NO_SHOW", "CANCELLED"] as const;
+export const BOOKING_STATUSES = ["AWAITING_PAYMENT", "PENDING", "CONFIRMED", "SEATED", "COMPLETED", "NO_SHOW", "CANCELLED"] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
-/** Estados que ocupan la mesa. */
-export const ACTIVE_BOOKING_STATUSES = ["PENDING", "CONFIRMED", "SEATED"] as const satisfies readonly BookingStatus[];
+/** Estados que ocupan la mesa (esperando el pago de la fianza la retiene unos minutos). */
+export const ACTIVE_BOOKING_STATUSES = ["AWAITING_PAYMENT", "PENDING", "CONFIRMED", "SEATED"] as const satisfies readonly BookingStatus[];
+export type DepositStatus = "NONE" | "PENDING" | "PAID" | "REFUNDED" | "KEPT";
+export const depositStatusLabels: Record<DepositStatus, string> = { NONE: "Sin fianza", PENDING: "Fianza pendiente", PAID: "Fianza pagada", REFUNDED: "Fianza devuelta", KEPT: "Fianza retenida" };
+/** Minutos que se guarda la mesa mientras el cliente paga la fianza. */
+export const DEPOSIT_HOLD_MINUTES = 15;
+
+/** Fianza de una reserva: importe por persona desde cierto número de comensales (null si no aplica). */
+export function depositFor(settings: { depositEnabled: boolean; depositPerPerson: number; depositMinParty: number }, partySize: number) {
+  if (!settings.depositEnabled || settings.depositPerPerson <= 0 || partySize < settings.depositMinParty) return null;
+  return Math.round(settings.depositPerPerson * partySize * 100) / 100;
+}
 export const BOOKING_SOURCES = ["WEB", "PHONE", "WALK_IN", "STAFF"] as const;
 export type BookingSource = (typeof BOOKING_SOURCES)[number];
 
 export const bookingStatusLabels: Record<BookingStatus, string> = {
+  AWAITING_PAYMENT: "Esperando fianza",
   PENDING: "Pendiente",
   CONFIRMED: "Confirmada",
   SEATED: "Sentados",
@@ -175,6 +186,7 @@ export function bookingCode(random: (max: number) => number) {
 
 /** ¿Puede el cliente cancelar online todavía? */
 export function canCustomerCancel(booking: { status: string; startsAt: Date }, cancellationHours: number, now: Date) {
+  if (booking.status === "AWAITING_PAYMENT") return true;
   if (!["PENDING", "CONFIRMED"].includes(booking.status)) return false;
   return booking.startsAt.getTime() - now.getTime() >= cancellationHours * 3_600_000;
 }
