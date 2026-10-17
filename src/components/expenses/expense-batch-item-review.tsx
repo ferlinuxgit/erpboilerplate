@@ -11,7 +11,7 @@ import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-
 import { Select } from "@/components/ui/select";
 import { SupplierPicker } from "@/components/suppliers/supplier-picker";
 import type { AccountOption } from "@/lib/account-aliases";
-import { supplierVatTreatmentLabels } from "@/lib/fiscal-spain";
+import { isSelfAssessedTreatment, supplierVatTreatmentLabels } from "@/lib/fiscal-spain";
 import { formatMoney } from "@/lib/format";
 import { dueDateInputFor, parseSupplierVatTreatment, SUPPLIER_VAT_TREATMENTS } from "@/lib/supplier-defaults";
 import { cn } from "@/lib/utils";
@@ -66,6 +66,8 @@ export function ExpenseBatchItemReview({
   const selectedSupplier = suppliers.find((supplier) => supplier.id === item.supplierPartnerId);
   const supplierDefaultAccount = selectedSupplier?.defaults?.defaultExpenseAccountId ?? null;
   const total = readiness?.total ?? reviewDocumentTotal(item.lines, item.vatTreatment);
+  // Autorepercusión: el tipo de la línea es el IVA que declara la empresa, no el que cobra el proveedor.
+  const selfAssessedVat = Boolean(item.vatTreatment) && isSelfAssessedTreatment(item.vatTreatment as Exclude<typeof item.vatTreatment, "">);
   const totalsMismatch = readiness?.reasons.includes("totals") ?? false;
   const accountMissing = readiness?.reasons.includes("account") ?? false;
   const currencySymbol = item.currencyCode === "EUR" ? "€" : item.currencyCode;
@@ -239,11 +241,17 @@ export function ExpenseBatchItemReview({
         <ExpenseCurrencyConversion baseCurrencyCode={baseCurrencyCode} disabled={disabled} item={item} onPatch={onPatch} />
 
         <fieldset className="space-y-2 border border-window-shadow p-2.5">
-          <legend className="px-1 font-mono text-xs font-bold">Líneas · {formatMoney(total, item.currencyCode)}</legend>
+          <legend className="px-1 font-mono text-xs font-bold">Líneas · {selfAssessedVat ? "a pagar " : ""}{formatMoney(total, item.currencyCode)}</legend>
           <p className="text-xs text-muted-foreground">
             <strong>Base</strong>: importe sin IVA. <strong>Deducible</strong>: parte del IVA que recuperas (100 % si el gasto es solo del negocio).{" "}
             <strong>Retención</strong>: IRPF que te descuenta un profesional (15 %) o el casero de un local (19 %); si la factura no la indica, déjalo en 0.
           </p>
+          {selfAssessedVat ? (
+            <p className="border border-info/70 bg-info/10 px-2 py-1.5 text-xs" data-testid={`batch-item-${idBase}-self-assessed`}>
+              <strong>IVA autorrepercutido</strong>: el proveedor no te lo cobra y no se suma a lo que pagas. Lo declaras tú en el 303 como
+              IVA devengado y, a la vez, como soportado deducible: si es 100 % deducible, el efecto neto es 0 €. Normalmente es el 21 %.
+            </p>
+          ) : null}
           {item.lines.map((line, lineIndex) => {
             const lineLabel = item.lines.length > 1 ? ` (línea ${lineIndex + 1})` : "";
             const needsAccount = !line.expenseAccountId || line.accountSource === "none";
@@ -276,7 +284,7 @@ export function ExpenseBatchItemReview({
                 <AccessibleField id={`unitPrice-${line.id}`} label={`Base${lineLabel}`}>
                   <MoneyInput currencySymbol={currencySymbol} disabled={disabled} onChange={(event) => patchLine(line.id, { unitPrice: event.target.value })} value={line.unitPrice} />
                 </AccessibleField>
-                <AccessibleField id={`taxRate-${line.id}`} label={`IVA${lineLabel}`}>
+                <AccessibleField id={`taxRate-${line.id}`} label={`${selfAssessedVat ? "IVA autorrep." : "IVA"}${lineLabel}`}>
                   <PercentInput disabled={disabled} onChange={(event) => patchLine(line.id, { taxRate: event.target.value })} value={line.taxRate} />
                 </AccessibleField>
                 <AccessibleField id={`taxDeductiblePct-${line.id}`} label={`Deducible${lineLabel}`}>
