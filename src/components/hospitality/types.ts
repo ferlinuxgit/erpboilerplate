@@ -59,6 +59,7 @@ export type OrderData = {
   guests: number;
   equalSplit: EqualSplit | null;
   firedCourse: number;
+  soldOutItemIds: string[];
   waiterUserId: string | null;
   waiterName: string | null;
   openedAt: string;

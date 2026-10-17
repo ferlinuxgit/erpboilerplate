@@ -66,6 +66,7 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
   // Tiempo en el que entran los platos de cocina que se van añadiendo.
   const [course, setCourse] = useState(1);
   const [options, setOptions] = useState<PosCatalogItem | null>(null);
+  const [soldOutPrompt, setSoldOutPrompt] = useState<PosCatalogItem | null>(null);
   useWakeLock(true);
 
   useEffect(() => {
@@ -83,6 +84,7 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
   const unsent = order.lines.filter((line) => line.status === "PENDING");
   const sent = order.lines.filter((line) => line.status !== "PENDING");
   const ready = order.lines.filter((line) => line.status === "READY");
+  const soldOut = useMemo(() => new Set(order.soldOutItemIds ?? []), [order.soldOutItemIds]);
   const heldCourse = nextHeldCourse(order.lines.map((line) => ({ ...line, firedAt: line.firedAt })));
   const inCart = useMemo(() => {
     const byItem = new Map<string, number>();
@@ -106,7 +108,11 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
     });
   }
 
-  function chooseProduct(entry: PosCatalogItem) {
+  function chooseProduct(entry: PosCatalogItem, confirmed = false) {
+    if (!confirmed && soldOut.has(entry.id)) {
+      setSoldOutPrompt(entry);
+      return;
+    }
     if (ordering.modifiers[entry.id]?.length || ordering.setMenus[entry.id]?.length) {
       setOptions(entry);
       return;
@@ -150,6 +156,10 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
       toast.success(`Marchan los ${courseLongLabels[result.course].toLowerCase()} (${result.lines}).`);
       if (printKitchen) for (const batchId of result.batches) window.open(`/pos/tickets/kitchen/${batchId}?print=1&course=${result.course}`, "_blank", "noopener,width=420,height=600");
     });
+  }
+
+  function setItemSoldOut(itemId: string, value: boolean, name: string) {
+    run(() => postJson(`/api/pos/menu/items/${itemId}/sold-out`, { soldOut: value }), () => toast.success(value ? `${name}: agotado hoy.` : `${name}: disponible de nuevo.`));
   }
 
   function requestBill() {
@@ -230,7 +240,7 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
                 <button aria-checked={course === value} className={cn("h-10 min-w-12 border-2 px-2 font-mono text-sm font-black", course === value ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid={`pos-course-${value}`} key={value} onClick={() => setCourse(value)} role="radio" type="button">{courseLabels[value]}</button>
               ))}
             </div>
-            <PosCatalogPanel catalog={catalog} className="flex min-h-0 flex-1" currencyCode={currencyCode} inCart={inCart} onAdd={chooseProduct} onFreeAmount={() => setSheet("free")} ref={searchRef} />
+            <PosCatalogPanel catalog={catalog} className="flex min-h-0 flex-1" currencyCode={currencyCode} inCart={inCart} onAdd={(entry) => chooseProduct(entry)} onFreeAmount={() => setSheet("free")} ref={searchRef} soldOut={soldOut} />
           </div>
 
           <section aria-label="Cuenta" className={cn("min-h-0 flex-col border-window-shadow md:flex md:border-l", view === "order" ? "flex" : "hidden")}>
@@ -292,12 +302,23 @@ export function OrderScreen({ cardEnabled, catalog, currencyCode, initial, order
         title={`Cobrar ${order.name}`}
         total={part?.amount ?? 0}
       />
-      {options ? <ProductOptionsDialog basePrice={grossPrice(options.unitPrice, options.taxRate)} currencyCode={currencyCode} groups={ordering.modifiers[options.id] ?? []} menu={ordering.setMenus[options.id] ?? null} name={options.name} onClose={() => setOptions(null)} onConfirm={(choice) => addWithChoice(options, choice)} /> : null}
+      {options ? <ProductOptionsDialog basePrice={grossPrice(options.unitPrice, options.taxRate)} currencyCode={currencyCode} groups={ordering.modifiers[options.id] ?? []} menu={ordering.setMenus[options.id] ?? null} name={options.name} onClose={() => setOptions(null)} onConfirm={(choice) => addWithChoice(options, choice)} soldOut={soldOut} /> : null}
+      {soldOutPrompt ? (
+        <Dialog description="Está marcado como agotado hoy." onClose={() => setSoldOutPrompt(null)} open title={soldOutPrompt.name}>
+          <div className="grid gap-2" data-testid="pos-sold-out-prompt">
+            <Button className="h-14" onClick={() => { const entry = soldOutPrompt; setSoldOutPrompt(null); chooseProduct(entry, true); }} type="button" variant="outline">Añadir igualmente</Button>
+            <Button className="h-14" data-testid="pos-sold-out-restore" onClick={() => { const entry = soldOutPrompt; setSoldOutPrompt(null); setItemSoldOut(entry.id, false, entry.name); chooseProduct(entry, true); }} type="button">Ya hay: quitar «agotado» y añadir</Button>
+            <Button className="h-12" onClick={() => setSoldOutPrompt(null)} type="button" variant="ghost">Cancelar</Button>
+          </div>
+        </Dialog>
+      ) : null}
       {sheet === "move" ? <MoveDialog onClose={() => setSheet(null)} onConfirm={move} order={order} registerId={order.registerId} /> : null}
       {editing ? (
         <OrderLineSheet
           currencyCode={currencyCode}
           isMenu={order.lines.some((line) => line.parentLineId === editing.id)}
+          onToggleSoldOut={editing.itemId ? () => { const target = editing; setEditing(null); setItemSoldOut(target.itemId!, !soldOut.has(target.itemId!), target.description); } : undefined}
+          soldOut={editing.itemId ? soldOut.has(editing.itemId) : false}
           key={editing.id}
           line={editing}
           onClose={() => setEditing(null)}

@@ -62,6 +62,9 @@ test("Sala: modificadores con suplemento, menú del día con platos a elegir y m
     { name: "Postre", course: 4, choices: [{ itemId: flan.id, supplement: 0 }] },
   ] });
 
+  // La ensalada se ha acabado (desde la carta o la cocina).
+  await postJson(page, `/api/pos/menu/items/${ensalada.id}/sold-out`, { soldOut: true });
+
   // Abrir caja y mesa.
   await page.goto(`/pos/${register.id}`);
   await page.getByLabel("Fondo de caja").fill("100");
@@ -72,6 +75,13 @@ test("Sala: modificadores con suplemento, menú del día con platos a elegir y m
   await page.getByTestId("pos-guests-dialog").getByRole("button", { name: "2", exact: true }).click();
   await expect(page.getByTestId("pos-order-screen")).toBeVisible();
   await page.waitForLoadState("networkidle");
+
+  // Agotados: se ven en el catálogo y piden confirmación al tocarlos.
+  await expect(page.getByTestId("pos-item-ENSA").getByTestId("pos-item-sold-out")).toBeVisible();
+  await page.getByTestId("pos-item-ENSA").click();
+  await expect(page.getByTestId("pos-sold-out-prompt")).toBeVisible();
+  await page.getByTestId("pos-sold-out-prompt").getByRole("button", { name: "Cancelar" }).click();
+  await expect(page.getByTestId("pos-order-lines")).not.toContainText("Ensalada");
 
   // Una caña (barra, sin tiempo).
   await page.getByTestId("pos-item-CANA").click();
@@ -90,6 +100,8 @@ test("Sala: modificadores con suplemento, menú del día con platos a elegir y m
   // Menú del día: sopa, entrecot (+3 €) y flan.
   await page.getByTestId("pos-course-1").click();
   await page.getByTestId("pos-item-MENU").click();
+  await expect(options.getByTestId("pos-menu-choice-Ensalada")).toBeDisabled();
+  await expect(options.getByTestId("pos-menu-choice-Ensalada")).toContainText("Agotado");
   await options.getByTestId("pos-menu-choice-Sopa").click();
   await options.getByTestId("pos-menu-choice-Entrecot").click();
   await expect(options.getByTestId("pos-product-options-add")).toContainText("17,50");
@@ -97,6 +109,12 @@ test("Sala: modificadores con suplemento, menú del día con platos a elegir y m
   await expect(page.getByTestId("pos-order-lines")).toContainText("Menú del día");
   await expect(page.getByTestId("pos-order-lines")).toContainText("Flan");
   await expect(page.getByTestId("pos-order-pending")).toContainText("41,19");
+
+  // Se acaba la cerveza: el camarero la marca agotada desde su línea y queda marcada para todos.
+  await page.getByRole("button", { name: "Editar Caña" }).click();
+  await page.getByTestId("pos-line-sold-out").click();
+  await expect(page.getByText("Caña: agotado hoy.")).toBeVisible();
+  await expect(page.getByTestId("pos-item-CANA").getByTestId("pos-item-sold-out")).toBeVisible();
 
   // Enviar: salen la caña y la sopa; segundos y postre esperan.
   await page.getByTestId("pos-order-send").click();

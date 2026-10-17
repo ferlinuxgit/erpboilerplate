@@ -15,7 +15,7 @@ export type ProductChoice = { modifierOptionIds?: string[]; setMenuPicks?: Array
  * Al tocar un producto con opciones: elegir punto, guarnición o extras (con su suplemento), o los platos
  * de cada tiempo de un menú. Botones grandes para el dedo y total al momento.
  */
-export function ProductOptionsDialog({ basePrice, currencyCode, groups, menu, name, onClose, onConfirm }: { basePrice: number; currencyCode: string; groups: ModifierGroup[]; menu: SetMenuCourse[] | null; name: string; onClose: () => void; onConfirm: (choice: ProductChoice) => void }) {
+export function ProductOptionsDialog({ basePrice, currencyCode, groups, menu, name, onClose, onConfirm, soldOut }: { basePrice: number; currencyCode: string; groups: ModifierGroup[]; menu: SetMenuCourse[] | null; name: string; onClose: () => void; onConfirm: (choice: ProductChoice) => void; soldOut?: ReadonlySet<string> }) {
   const [selected, setSelected] = useState<string[]>(() => groups.flatMap((group) => (group.minSelect === 1 && group.maxSelect === 1 && group.options.length === 1 ? [group.options[0].id] : [])));
   const [picks, setPicks] = useState<Record<string, string>>(() => Object.fromEntries((menu ?? []).filter((course) => course.choices.length === 1).map((course) => [course.id, course.choices[0].itemId])));
 
@@ -47,9 +47,10 @@ export function ProductOptionsDialog({ basePrice, currencyCode, groups, menu, na
                 <div className="grid grid-cols-2 gap-1.5">
                   {course.choices.map((choice) => {
                     const active = picks[course.id] === choice.itemId;
+                    const out = soldOut?.has(choice.itemId) ?? false;
                     return (
-                      <button aria-pressed={active} className={cn("flex min-h-14 items-center justify-between gap-2 border-2 px-3 py-2 text-left text-sm font-semibold", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid={`pos-menu-choice-${choice.name}`} key={choice.itemId} onClick={() => setPicks((current) => ({ ...current, [course.id]: choice.itemId }))} type="button">
-                        <span>{choice.name}</span>
+                      <button aria-pressed={active} className={cn("flex min-h-14 items-center justify-between gap-2 border-2 px-3 py-2 text-left text-sm font-semibold disabled:border-dashed disabled:opacity-50", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid={`pos-menu-choice-${choice.name}`} disabled={out && !active} key={choice.itemId} onClick={() => setPicks((current) => ({ ...current, [course.id]: choice.itemId }))} type="button">
+                        <span>{choice.name}{out ? <span className="block font-mono text-[11px] font-black uppercase text-destructive">Agotado</span> : null}</span>
                         {choice.supplement > 0 ? <span className="shrink-0 font-mono text-xs">+{formatMoney(choice.supplement, currencyCode)}</span> : active ? <Check aria-hidden="true" className="size-4 shrink-0" /> : null}
                       </button>
                     );

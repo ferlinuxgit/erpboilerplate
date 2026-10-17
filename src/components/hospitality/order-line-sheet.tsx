@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Plus, Trash } from "@phosphor-icons/react";
+import { Minus, Plus, Prohibit, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,11 @@ const QUICK_NOTES = ["Sin hielo", "Con hielo", "Poco hecho", "Al punto", "Muy he
  * Editar una línea de la cuenta. Sin enviar: unidades y nota libremente. Ya en cocina: nota y anular
  * unidades con su motivo (queda registrado y cocina lo ve).
  */
-export function OrderLineSheet({ currencyCode, isMenu = false, line, onClose, onSave }: {
+export function OrderLineSheet({ currencyCode, isMenu = false, line, onClose, onSave, onToggleSoldOut, soldOut = false }: {
   currencyCode: string;
   isMenu?: boolean;
+  onToggleSoldOut?: () => void;
+  soldOut?: boolean;
   line: OrderLineView;
   onClose: () => void;
   onSave: (patch: { quantity?: number; note?: string | null; cancelReason?: string | null; course?: number }) => void;
@@ -82,6 +84,9 @@ export function OrderLineSheet({ currencyCode, isMenu = false, line, onClose, on
             <label className="block font-mono text-xs font-bold uppercase text-destructive" htmlFor="pos-line-cancel-reason">Motivo de la anulación</label>
             <Input className="h-12 text-base" id="pos-line-cancel-reason" maxLength={200} onChange={(event) => setReason(event.target.value)} placeholder="Error al pedir, cliente lo cambia…" value={reason} />
           </div>
+        ) : null}
+        {onToggleSoldOut ? (
+          <Button className="h-12 w-full" data-testid="pos-line-sold-out" onClick={onToggleSoldOut} type="button" variant={soldOut ? "destructive" : "outline"}><Prohibit aria-hidden="true" /> {soldOut ? "Agotado hoy · quitar" : "Marcar agotado hoy"}</Button>
         ) : null}
         <div className="grid grid-cols-2 gap-2">
           {!sent && !child ? <Button className="h-14" data-testid="pos-order-line-remove" onClick={() => onSave({ quantity: 0 })} type="button" variant="outline"><Trash aria-hidden="true" /> Quitar</Button> : <span />}

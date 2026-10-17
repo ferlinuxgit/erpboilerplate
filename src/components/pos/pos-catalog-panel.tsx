@@ -20,7 +20,9 @@ export const PosCatalogPanel = forwardRef<HTMLInputElement, {
   inCart: Map<string, number>;
   onAdd: (entry: PosCatalogItem) => void;
   onFreeAmount: () => void;
-}>(function PosCatalogPanel({ catalog, className, currencyCode, inCart, onAdd, onFreeAmount }, searchRef) {
+  /** Artículos agotados hoy (se ven marcados; el que los toca decide). */
+  soldOut?: ReadonlySet<string>;
+}>(function PosCatalogPanel({ catalog, className, currencyCode, inCart, onAdd, onFreeAmount, soldOut }, searchRef) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const categories = useMemo(() => [...new Set(catalog.map((entry) => entry.categoryName).filter((name): name is string => Boolean(name)))], [catalog]);
@@ -82,15 +84,18 @@ export const PosCatalogPanel = forwardRef<HTMLInputElement, {
           </li>
           {visibleItems.map((entry) => {
             const count = inCart.get(entry.id);
+            const out = soldOut?.has(entry.id) ?? false;
             return (
               <li key={entry.id}>
                 <button
-                  className={cn("relative flex h-full min-h-24 w-full select-none flex-col justify-between border-2 bg-window-panel p-2 text-left shadow-raised active:translate-y-px active:bg-window-highlight", count ? "border-primary" : "border-window-dark-shadow")}
+                  aria-label={out ? `${entry.name} (agotado)` : undefined}
+                  className={cn("relative flex h-full min-h-24 w-full select-none flex-col justify-between border-2 bg-window-panel p-2 text-left shadow-raised active:translate-y-px active:bg-window-highlight", out ? "border-dashed border-destructive opacity-60" : count ? "border-primary" : "border-window-dark-shadow")}
                   data-testid={`pos-item-${entry.sku}`}
                   onClick={() => onAdd(entry)}
                   type="button"
                 >
                   {count ? <span className="absolute right-1 top-1 min-w-6 bg-primary px-1 text-center font-mono text-xs font-bold text-primary-foreground">×{count.toLocaleString("es-ES")}</span> : null}
+                  {out ? <span className="absolute bottom-1 right-1 bg-destructive px-1 font-mono text-[11px] font-black uppercase text-destructive-foreground" data-testid="pos-item-sold-out">Agotado</span> : null}
                   <span className="line-clamp-3 pr-6 text-sm font-semibold leading-tight">{entry.name}</span>
                   <span className="mt-1 flex items-end justify-between gap-1">
                     <span className="font-mono text-base font-black tabular-nums">{formatMoney(grossPrice(entry.unitPrice, entry.taxRate), currencyCode)}</span>

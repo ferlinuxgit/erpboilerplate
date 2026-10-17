@@ -25,6 +25,7 @@ import { applyModifiers, fireThreshold, firesNow, nextHeldCourse, resolveModifie
 import { billPartLines, orderAmounts, type BillPart, type EqualSplit, type LineStatus, type OrderLine, type OrderStatus, type Station } from "@/modules/hospitality/model";
 import { recordAudit } from "@/server/audit";
 import { isModuleEnabled } from "@/server/modules/service";
+import { countSoldOut } from "@/server/pos/menu";
 import { getOrderingOptions } from "@/server/pos/ordering";
 import { createSale, getOpenSession, moveStock, type PosActor, type SaleResult } from "@/server/pos/service";
 
@@ -438,9 +439,11 @@ export async function getOrder(companyId: string, orderId: string) {
     .where(and(eq(posOrder.id, orderId), eq(posOrder.companyId, companyId)))
     .limit(1);
   if (!row) return null;
-  const [lines, tickets] = await Promise.all([
+  const [lines, tickets, soldOutItemIds] = await Promise.all([
     loadLines(db, [orderId]),
     db.select({ id: posTicket.id, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, tipAmount: posTicket.tipAmount, createdAt: posTicket.createdAt }).from(posTicket).where(and(eq(posTicket.companyId, companyId), eq(posTicket.orderId, orderId), eq(posTicket.kind, "SALE"))).orderBy(asc(posTicket.createdAt)),
+    // Agotados de hoy (carta digital): el TPV los marca al pedir.
+    countSoldOut(companyId),
   ]);
   const equalSplit = row.equalSplit as EqualSplit | null;
   return {
@@ -450,6 +453,7 @@ export async function getOrder(companyId: string, orderId: string) {
     name: row.tableName ?? row.label ?? "Cuenta",
     lines,
     amounts: orderAmounts(lines, equalSplit),
+    soldOutItemIds,
     tickets: tickets.map((ticket) => ({ ...ticket, totalAmount: num(ticket.totalAmount), tipAmount: num(ticket.tipAmount) })),
   };
 }
