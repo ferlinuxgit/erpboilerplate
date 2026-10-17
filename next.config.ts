@@ -76,9 +76,10 @@ const nextConfig: NextConfig = {
       { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
     ];
     return [
-      { source: "/((?!reservar(?:/|$)).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }, ...securityHeaders("'none'")] },
-      // El formulario público de reservas se puede incrustar en la web del restaurante.
+      { source: "/((?!reservar(?:/|$)|carta(?:/|$)).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }, ...securityHeaders("'none'")] },
+      // El formulario de reservas y la carta se pueden incrustar en la web del restaurante.
       { source: "/reservar/:path*", headers: securityHeaders("*") },
+      { source: "/carta/:path*", headers: securityHeaders("*") },
     ];
   },
 };

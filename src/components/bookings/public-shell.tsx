@@ -4,10 +4,10 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /** Marco de las páginas públicas de reservas: una ventana con el nombre del local. En modo incrustado, sin fondo. */
-export function PublicBookingShell({ address, children, embed = false, logo, name, phone }: { address?: string | null; children: ReactNode; embed?: boolean; logo?: string | null; name: string; phone?: string | null }) {
+export function PublicBookingShell({ address, children, embed = false, label = "Reservas", logo, name, phone, wide = false }: { address?: string | null; children: ReactNode; embed?: boolean; label?: string; logo?: string | null; name: string; phone?: string | null; wide?: boolean }) {
   return (
     <main className={cn("grid min-h-dvh place-items-start justify-items-center px-2 py-4 sm:place-items-center sm:px-6 sm:py-10", embed ? "bg-transparent sm:py-2" : "retro-checker")}>
-      <div className="w-full max-w-xl overflow-hidden rounded-surface border border-window-dark-shadow bg-window-surface shadow-window-lg">
+      <div className={cn("w-full overflow-hidden rounded-surface border border-window-dark-shadow bg-window-surface shadow-window-lg", wide ? "max-w-3xl" : "max-w-xl")}>
         <div className="flex min-h-11 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
           {logo ? (
             // eslint-disable-next-line @next/next/no-img-element -- logo propio guardado como data URL
@@ -16,7 +16,7 @@ export function PublicBookingShell({ address, children, embed = false, logo, nam
             <span aria-hidden="true" className="grid size-7 place-items-center border border-white/70 bg-window-highlight text-xs font-black text-window-text shadow-raised">{name.slice(0, 2).toUpperCase()}</span>
           )}
           <span className="truncate font-mono text-sm font-bold">{name}</span>
-          <span aria-hidden="true" className="ml-auto shrink-0 font-mono text-xs text-chrome-active-foreground/75">Reservas</span>
+          <span aria-hidden="true" className="ml-auto shrink-0 font-mono text-xs text-chrome-active-foreground/75">{label}</span>
         </div>
         {address || phone ? (
           <p className="flex flex-wrap gap-x-4 gap-y-1 border-b border-window-shadow bg-window-panel px-3 py-2 text-xs text-window-muted">

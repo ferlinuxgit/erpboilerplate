@@ -323,6 +323,13 @@
       "when": 1792228154902,
       "tag": "0045_floor_plan_bookings",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792234043133,
+      "tag": "0046_digital_menu",
+      "breakpoints": true
     }
   ]
 }

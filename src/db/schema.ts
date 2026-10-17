@@ -2215,3 +2215,58 @@ export const posBooking = pgTable("pos_booking", {
   check("pos_booking_status_valid", sql`${table.status} IN ('PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'NO_SHOW', 'CANCELLED')`),
   check("pos_booking_party_valid", sql`${table.partySize} BETWEEN 1 AND 500`),
 ]);
+
+/** Carta digital pública (/carta/<slug>): ajustes por empresa. */
+export const posMenuSettings = pgTable("pos_menu_settings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),
+  enabled: boolean("enabled").notNull().default(false),
+  slug: text("slug").notNull().unique(),
+  // Texto de bienvenida en español e inglés (horario de cocina, wifi, alérgenos…).
+  intro: text("intro"),
+  introEn: text("introEn"),
+  showBookingLink: boolean("showBookingLink").notNull().default(true),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+/** Secciones de la carta (Entrantes, Bebidas, Menú del día…), con horario opcional y precio cerrado. */
+export const posMenuSection = pgTable("pos_menu_section", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  nameEn: text("nameEn"),
+  description: text("description"),
+  descriptionEn: text("descriptionEn"),
+  position: integer("position").notNull().default(0),
+  // Días (0 = domingo) y franja en que se sirve; vacío = siempre.
+  weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]),
+  fromTime: text("fromTime"),
+  toTime: text("toTime"),
+  // Menú de precio cerrado (menú del día): los platos se muestran sin precio.
+  fixedPrice: numeric("fixedPrice", { precision: 12, scale: 2 }),
+  isActive: boolean("isActive").notNull().default(true),
+}, (table) => [index("pos_menu_section_company_idx").on(table.companyId, table.position)]);
+
+/** Ficha de carta de un artículo: sección, textos, alérgenos, etiquetas, foto y agotado. */
+export const posMenuItem = pgTable("pos_menu_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }).unique(),
+  sectionId: text("sectionId").references(() => posMenuSection.id, { onDelete: "set null" }),
+  visible: boolean("visible").notNull().default(true),
+  position: integer("position").notNull().default(0),
+  // Nombre para la carta (si no, el del artículo) y traducción.
+  displayName: text("displayName"),
+  nameEn: text("nameEn"),
+  description: text("description"),
+  descriptionEn: text("descriptionEn"),
+  // Los 14 alérgenos del Reglamento (UE) 1169/2011 y etiquetas (vegano, picante…).
+  allergens: jsonb("allergens").$type<string[]>().notNull().default([]),
+  tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  // Foto comprimida (JPEG/WebP en data URL); se sirve por /api/public/menu/image/<id>.
+  image: text("image"),
+  imageVersion: integer("imageVersion").notNull().default(0),
+  // Agotado el día indicado (fecha local de la empresa).
+  soldOutDate: text("soldOutDate"),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [index("pos_menu_item_company_idx").on(table.companyId, table.sectionId)]);
