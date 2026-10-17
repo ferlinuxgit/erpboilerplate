@@ -669,11 +669,23 @@ export async function getExpenseOcrJob(companyId: string, id: string) {
   };
 }
 
+/** Una lectura que lleva más de esto en marcha se da por interrumpida (reinicio del servidor). */
+const STUCK_PROCESSING_MS = 3 * 60 * 1000;
+
+/** Vuelve a poner en cola un documento fallido o cuya lectura se quedó colgada. */
 export async function retryExpenseOcrJob(companyId: string, id: string) {
+  const stuckBefore = new Date(Date.now() - STUCK_PROCESSING_MS);
   const [job] = await db
     .update(expenseOcrJob)
     .set({ status: "PENDING", attempts: 0, startedAt: null, finishedAt: null, leaseExpiresAt: null, errorMessage: null })
-    .where(and(eq(expenseOcrJob.companyId, companyId), eq(expenseOcrJob.id, id), eq(expenseOcrJob.status, "FAILED")))
+    .where(and(
+      eq(expenseOcrJob.companyId, companyId),
+      eq(expenseOcrJob.id, id),
+      or(
+        eq(expenseOcrJob.status, "FAILED"),
+        and(eq(expenseOcrJob.status, "PROCESSING"), or(isNull(expenseOcrJob.startedAt), lt(expenseOcrJob.startedAt, stuckBefore))),
+      ),
+    ))
     .returning();
   return job ?? null;
 }

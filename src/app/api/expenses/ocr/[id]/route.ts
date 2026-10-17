@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
@@ -27,8 +27,9 @@ async function handlePOST(_request: Request, { params }: { params: Promise<{ id:
   const existing = await getExpenseOcrJob(ctx.company.id, id);
   if (!existing) return NextResponse.json({ message: "Documento no encontrado." }, { status: 404 });
   if (existing.status === "DONE") return NextResponse.json({ id, status: "DONE" });
-  if (existing.status === "FAILED") await retryExpenseOcrJob(ctx.company.id, id);
-  void processExpenseOcrJob(id);
+  // Fallido o colgado (p. ej. el servidor se reinició durante la lectura): vuelve a la cola.
+  await retryExpenseOcrJob(ctx.company.id, id);
+  after(() => processExpenseOcrJob(id));
   return NextResponse.json({ id, status: "PENDING" }, { status: 202 });
 }
 

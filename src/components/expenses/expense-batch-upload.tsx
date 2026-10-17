@@ -57,7 +57,10 @@ const MAX_FILES = 50;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const MAX_BATCH_BYTES = 120 * 1024 * 1024;
 const POLL_STALL_MS = 4 * 60 * 1000;
-const MAX_POLL_FAILURES = 5;
+// Unos 30 s sin respuesta (un despliegue o un corte breve no deben dar el lote por atascado).
+const MAX_POLL_FAILURES = 12;
+// Reintentos automáticos de una subida que falla por la red o el servidor (502/503/504).
+const UPLOAD_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const ACCEPTED_TYPES = "application/pdf,image/png,image/jpeg,image/webp";
 
 type PollState = "idle" | "polling" | "stalled";
@@ -270,13 +273,28 @@ export function ExpenseBatchUpload({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Sube el archivo; los fallos de red o de servidor no disponible se reintentan solos. */
+  async function sendUpload(endpoint: string, item: BatchItem, batchId: string) {
+    for (let attempt = 0; ; attempt += 1) {
+      const formData = new FormData();
+      if (item.file) formData.set("file", item.file);
+      formData.set("batchId", batchId);
+      const delay = UPLOAD_RETRY_DELAYS_MS[attempt];
+      try {
+        const response = await fetch(endpoint, { method: "POST", headers: getCsrfHeader(), body: formData });
+        if (delay === undefined || ![502, 503, 504].includes(response.status)) return response;
+      } catch (error) {
+        if (delay === undefined) throw new Error(`No se pudo subir ${item.fileName}: sin conexión con el servidor.`, { cause: error });
+      }
+      await sleep(delay);
+    }
+  }
+
   async function uploadOne(item: BatchItem, batchId: string) {
-    patchItem(item.localId, { status: "UPLOADING" });
-    const formData = new FormData();
-    if (item.file) formData.set("file", item.file);
-    formData.set("batchId", batchId);
+    // El lote se guarda ya: si la subida falla, "Reintentar" vuelve a subirlo al mismo lote.
+    patchItem(item.localId, { status: "UPLOADING", batchId, error: undefined });
     const endpoint = effectiveEngine === "openai" ? "/api/expenses/ai-analysis" : "/api/expenses/ocr";
-    const response = await fetch(endpoint, { method: "POST", headers: getCsrfHeader(), body: formData });
+    const response = await sendUpload(endpoint, item, batchId);
     const payload = (await response.clone().json().catch(() => ({}))) as { id?: string; jobId?: string; fileUrl?: string; draft?: InboxJob["extracted"] };
     const jobId = payload.id ?? payload.jobId;
     if (!response.ok) {
@@ -454,7 +472,19 @@ export function ExpenseBatchUpload({
   }
 
   async function retryItem(item: BatchItem) {
-    if (!item.jobId) return;
+    // La subida no llegó a guardarse: se vuelve a subir el archivo (sigue en esta sesión).
+    if (!item.jobId) {
+      if (!item.file || !item.batchId) return;
+      try {
+        await uploadOne(item, item.batchId);
+        void poll();
+      } catch (error) {
+        const message = errorMessage(error, `No se pudo subir ${item.fileName}.`);
+        toast.error(message);
+        patchItem(item.localId, { status: "FAILED", error: message });
+      }
+      return;
+    }
     patchItem(item.localId, { status: "PENDING", error: undefined });
     const response = await fetch(`/api/expenses/ocr/${item.jobId}`, { method: "POST", headers: getCsrfHeader() });
     if (!response.ok) {
@@ -717,7 +747,7 @@ export function ExpenseBatchUpload({
                         {isOpen ? "Cerrar" : "Revisar"}
                       </Button>
                     ) : null}
-                    {item.status === "FAILED" && item.jobId ? <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar</Button> : null}
+                    {item.status === "FAILED" && (item.jobId || (item.file && item.batchId)) ? <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar</Button> : null}
                     {(item.status === "PENDING" || item.status === "PROCESSING") && pollState === "stalled" && item.jobId ? (
                       <Button onClick={() => void retryItem(item)} size="sm" type="button" variant="outline">Reintentar análisis</Button>
                     ) : null}

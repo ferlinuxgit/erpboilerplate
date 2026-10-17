@@ -1,15 +1,20 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
-import { analyzeExpenseInvoiceWithOpenAI, expenseAnalysisModel } from "@/server/ai/expense-invoice-analysis";
-import { companyOwnTaxIds, completeExpenseOcrJob, createExpenseOcrJob, failExpenseOcrJob } from "@/server/ocr/expense-ocr";
+import { expenseAnalysisModel } from "@/server/ai/expense-invoice-analysis";
+import { createExpenseOcrJob, processExpenseOcrJob } from "@/server/ocr/expense-ocr";
 import { getExpenseOcrSettings } from "@/server/ocr/settings";
 import { withHttpErrors } from "@/lib/http";
 
 const supportedContentTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
 
+/**
+ * Sube una factura para leerla con OpenAI. Solo guarda el original y responde al momento (202);
+ * la lectura (10-45 s) sigue en segundo plano. Si el servidor se reinicia a mitad (p. ej. un
+ * despliegue), el worker de OCR retoma el trabajo cuando vence su reserva: nada se pierde.
+ */
 async function handlePOST(request: Request) {
   const session = await getUserSession();
   if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
@@ -20,6 +25,9 @@ async function handlePOST(request: Request) {
   if (!settings.externalAiEnabled) {
     return NextResponse.json({ message: "La lectura con IA está desactivada para esta empresa. Actívala en Configuración → Automatización o registra la factura a mano." }, { status: 403 });
   }
+  if (!settings.externalAiConfigured) {
+    return NextResponse.json({ message: "La lectura de facturas necesita OPENAI_API_KEY configurada en el servidor." }, { status: 503 });
+  }
 
   const formData = await request.formData();
   const file = formData.get("file");
@@ -28,41 +36,23 @@ async function handlePOST(request: Request) {
   if (!supportedContentTypes.has(file.type)) return NextResponse.json({ message: "Formato no soportado. Usa PDF, PNG, JPG o WEBP." }, { status: 400 });
   if (file.size > 12 * 1024 * 1024) return NextResponse.json({ message: "El archivo no puede superar 12 MB." }, { status: 400 });
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  let job: Awaited<ReturnType<typeof createExpenseOcrJob>> | null = null;
   try {
-    job = await createExpenseOcrJob({
+    const job = await createExpenseOcrJob({
       tenantId: ctx.tenant.id,
       companyId: ctx.company.id,
       actorUserId: session.user.id,
       fileName: file.name,
       contentType: file.type,
-      buffer,
-      initialStatus: "PROCESSING",
+      buffer: Buffer.from(await file.arrayBuffer()),
       extractionProvider: "openai",
       extractionModel: expenseAnalysisModel(),
       batchId: typeof batchId === "string" && batchId.trim() ? batchId.trim() : undefined,
     });
-    const result = await analyzeExpenseInvoiceWithOpenAI({
-      fileName: file.name,
-      contentType: file.type,
-      buffer,
-      ownTaxIds: await companyOwnTaxIds(ctx.company.id),
-    });
-    await completeExpenseOcrJob(job.id, result.draft, JSON.stringify(result.analysis), { provider: "openai", model: result.model });
-    return NextResponse.json({
-      fileName: job.fileName,
-      fileUrl: job.fileUrl,
-      contentType: job.contentType,
-      sizeBytes: job.sizeBytes,
-      jobId: job.id,
-      ...result,
-    });
+    after(() => processExpenseOcrJob(job.id));
+    return NextResponse.json({ id: job.id, jobId: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });
   } catch (error) {
-    if (job) await failExpenseOcrJob(job.id, error);
-    const message = error instanceof Error ? error.message : "No se pudo analizar la factura con OpenAI.";
-    const status = message.includes("OPENAI_API_KEY") ? 503 : 400;
-    return NextResponse.json({ message, jobId: job?.id, fileName: job?.fileName, fileUrl: job?.fileUrl, contentType: job?.contentType, sizeBytes: job?.sizeBytes }, { status });
+    const message = error instanceof Error ? error.message : "No se pudo guardar el documento para leerlo.";
+    return NextResponse.json({ message }, { status: 400 });
   }
 }
 
