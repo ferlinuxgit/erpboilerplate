@@ -222,7 +222,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.clearTimeout(timer);
   }, [drawerState]);
 
-  const isPublicRoute = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/invitations/");
+  const isPublicRoute = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/invitations/") || pathname.startsWith("/reservar/");
   const activeContext = useActiveContext(!isPublicRoute);
   const { keyboardMode } = useKeyboardPreferences();
   const visibleGroups = filterNavigationGroups(navGroups, { modules: activeContext?.modules, businessType: activeContext?.businessType, role: activeContext?.user.role });

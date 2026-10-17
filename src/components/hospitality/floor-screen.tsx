@@ -1,9 +1,9 @@
 "use client";
 
-import { BellRinging, ChefHat, Clock, LockKey, Plus, Receipt, Users } from "@phosphor-icons/react";
+import { BellRinging, CalendarCheck, ChefHat, Clock, ListBullets, LockKey, MapTrifold, Plus, Receipt, Users } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,11 +11,12 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { PLAN_COLS, PLAN_ROWS } from "@/modules/hospitality/floor-plan";
 import { formatElapsed, minutesSince } from "@/modules/hospitality/model";
 
 import { KioskBar } from "../pos/kiosk-bar";
 import { useWakeLock } from "../pos/use-touch-pos";
-import { postJson, type FloorData, type FloorOrder } from "./types";
+import { postJson, type FloorBooking, type FloorData, type FloorOrder, type FloorTable } from "./types";
 import { usePolling } from "./use-polling";
 import { useWaiter, WaiterButton } from "./waiter";
 
@@ -29,9 +30,10 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
   const { data } = usePolling<FloorData>(`/api/pos/hospitality/floor?registerId=${registerId}`, initial, 4000);
   const { waiter, setWaiter } = useWaiter();
   const [areaId, setAreaId] = useState<string | null>(initial.areas[0]?.id ?? null);
-  const [opening, setOpening] = useState<{ tableId: string; name: string; seats: number } | null>(null);
+  const [opening, setOpening] = useState<{ tableId: string; name: string; seats: number; booking: FloorBooking | null } | null>(null);
   const [looseOpen, setLooseOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const view = useSyncExternalStore(subscribeFloorView, readFloorView, () => "list" as const);
   useWakeLock(true);
 
   useEffect(() => {
@@ -40,6 +42,12 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
   }, []);
 
   const area = data.areas.find((entry) => entry.id === areaId) ?? data.areas[0];
+  // Sin preferencia guardada: plano si la sala está dibujada y la pantalla da para verlo; si no, lista.
+  const showPlan = Boolean(area?.planned) && view === "plan";
+  function chooseView(next: "plan" | "list") {
+    window.localStorage.setItem(FLOOR_VIEW_KEY, next);
+    window.dispatchEvent(new Event(FLOOR_VIEW_KEY));
+  }
   const occupied = data.areas.flatMap((entry) => entry.tables).filter((table) => table.order).length + data.loose.length;
 
   async function open(input: { tableId?: string; label?: string; guests: number }) {
@@ -51,10 +59,28 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
     }
   }
 
+  async function seatBooking(bookingId: string) {
+    try {
+      const result = await postJson<{ orderId: string; registerId: string }>(`/api/pos/bookings/${bookingId}/seat`, { registerId, waiterUserId: waiter?.userId ?? null });
+      router.push(`/pos/${result.registerId}/orders/${result.orderId}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo sentar la reserva.");
+    }
+  }
+
+  function openTable(table: FloorTable) {
+    if (table.order) router.push(`/pos/${registerId}/orders/${table.order.id}`);
+    else setOpening({ tableId: table.id, name: table.name, seats: table.seats, booking: table.booking });
+  }
+
   return (
     <div className="flex h-dvh flex-col bg-background [touch-action:manipulation]" data-testid="pos-floor">
       <KioskBar backHref="/pos?choose=1" backLabel="Cajas" status={`${occupied} ${occupied === 1 ? "mesa abierta" : "mesas abiertas"}`} title={registerName}>
         <WaiterButton onChange={setWaiter} waiter={waiter} />
+        <Link aria-label={`Reservas${data.pendingBookings ? ` (${data.pendingBookings} por confirmar)` : ""}`} className="relative flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-bookings-link" href={`/pos/bookings?register=${registerId}`}>
+          <CalendarCheck aria-hidden="true" className="size-5" /><span className="hidden md:inline">Reservas</span>
+          {data.pendingBookings ? <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center bg-warning px-1 font-mono text-[11px] font-black text-warning-foreground">{data.pendingBookings}</span> : null}
+        </Link>
         <Link aria-label="Cocina y barra" className="flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-kitchen-link" href="/pos/kitchen">
           <ChefHat aria-hidden="true" className="size-5" /><span className="hidden md:inline">Cocina</span>
         </Link>
@@ -83,15 +109,24 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
                 </button>
               );
             })}
+            {area?.planned ? (
+              <button aria-label={showPlan ? "Ver como lista" : "Ver el plano"} className="ml-auto flex h-11 shrink-0 items-center gap-1.5 border-2 border-window-dark-shadow bg-window-panel px-3 font-mono text-xs font-bold" data-testid="pos-floor-view" onClick={() => chooseView(showPlan ? "list" : "plan")} type="button">
+                {showPlan ? <ListBullets aria-hidden="true" className="size-5" /> : <MapTrifold aria-hidden="true" className="size-5" />}<span className="hidden sm:inline">{showPlan ? "Lista" : "Plano"}</span>
+              </button>
+            ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-            <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 md:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]" data-testid="pos-tables">
-              {(area?.tables ?? []).map((table) => (
-                <li key={table.id}>
-                  <TableTile currencyCode={currencyCode} now={now} onOpen={() => (table.order ? router.push(`/pos/${registerId}/orders/${table.order.id}`) : setOpening({ tableId: table.id, name: table.name, seats: table.seats }))} order={table.order} seats={table.seats} title={table.name} />
-                </li>
-              ))}
-            </ul>
+            {showPlan && area ? (
+              <FloorPlanView currencyCode={currencyCode} now={now} onOpen={openTable} tables={area.tables} />
+            ) : (
+              <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 md:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]" data-testid="pos-tables">
+                {(area?.tables ?? []).map((table) => (
+                  <li key={table.id}>
+                    <TableTile booking={table.booking} currencyCode={currencyCode} now={now} onOpen={() => openTable(table)} order={table.order} seats={table.seats} title={table.name} />
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="mt-4 space-y-2">
               <div className="flex items-center justify-between">
                 <h2 className="font-mono text-xs font-bold uppercase text-muted-foreground">Barra y para llevar</h2>
@@ -109,17 +144,75 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
         </>
       )}
 
-      {opening ? <GuestsDialog name={opening.name} onClose={() => setOpening(null)} onConfirm={(guests) => { const target = opening; setOpening(null); void open({ tableId: target.tableId, guests }); }} seats={opening.seats} /> : null}
+      {opening ? <GuestsDialog booking={opening.booking} name={opening.name} onClose={() => setOpening(null)} onConfirm={(guests) => { const target = opening; setOpening(null); void open({ tableId: target.tableId, guests }); }} onSeatBooking={(bookingId) => { setOpening(null); void seatBooking(bookingId); }} seats={opening.seats} /> : null}
       {looseOpen ? <LooseDialog onClose={() => setLooseOpen(false)} onConfirm={(label) => { setLooseOpen(false); void open({ label, guests: 1 }); }} /> : null}
     </div>
   );
 }
 
-function TableTile({ currencyCode, now, onOpen, order, seats, title }: { currencyCode: string; now: Date; onOpen: () => void; order: FloorOrder | null; seats?: number; title: string }) {
+const FLOOR_VIEW_KEY = "pos-floor-view";
+
+function subscribeFloorView(onChange: () => void) {
+  window.addEventListener(FLOOR_VIEW_KEY, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(FLOOR_VIEW_KEY, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+/** Lo que eligió el camarero en este dispositivo; si no eligió, plano en tablet y ordenador y lista en el móvil. */
+function readFloorView(): "plan" | "list" {
+  const saved = window.localStorage.getItem(FLOOR_VIEW_KEY);
+  if (saved === "plan" || saved === "list") return saved;
+  return window.matchMedia("(min-width: 768px)").matches ? "plan" : "list";
+}
+
+/** La sala tal como está dibujada en la configuración; en pantallas estrechas se desplaza en horizontal. */
+function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: string; now: Date; onOpen: (table: FloorTable) => void; tables: FloorTable[] }) {
+  return (
+    <div className="overflow-x-auto overscroll-x-contain">
+      {/* Ancho limitado por el alto disponible: la sala entera cabe en la tablet sin desplazarse. */}
+      <div className="relative mx-auto min-w-[40rem] max-w-[max(40rem,calc((100dvh-9rem)*1.5))] border-2 border-window-shadow bg-window-surface" data-testid="pos-tables" style={{ aspectRatio: `${PLAN_COLS} / ${PLAN_ROWS}` }}>
+        {tables.map((table) => {
+          const order = table.order;
+          const minutes = order ? minutesSince(order.openedAt, now) : 0;
+          const tone = !order ? (table.booking ? "border-dashed border-link bg-window-panel" : "border-window-dark-shadow bg-window-panel") : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/30" : "border-primary bg-primary/15";
+          return (
+            <button
+              aria-label={`${table.name}: ${!order ? (table.booking ? `reservada a las ${table.booking.time}` : "libre") : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`}
+              className={cn("absolute flex select-none flex-col items-center justify-center gap-0.5 overflow-hidden border-2 p-0.5 text-center shadow-raised active:translate-y-px", table.shape === "ROUND" && "rounded-full", tone)}
+              data-testid={`pos-table-${table.name}`}
+              key={table.id}
+              onClick={() => onOpen(table)}
+              style={{ left: `${(table.posX / PLAN_COLS) * 100}%`, top: `${(table.posY / PLAN_ROWS) * 100}%`, width: `${(table.width / PLAN_COLS) * 100}%`, height: `${(table.height / PLAN_ROWS) * 100}%` }}
+              type="button"
+            >
+              <span className="max-w-full truncate font-mono text-sm font-black leading-none">{table.name}</span>
+              {order ? (
+                <>
+                  <span className="font-mono text-xs font-bold tabular-nums leading-none">{formatMoney(order.pending, currencyCode)}</span>
+                  <span className={cn("flex items-center gap-1 text-xs leading-none text-muted-foreground", minutes >= 90 && "font-bold text-warning-text")}><Users aria-hidden="true" className="size-3" />{order.guests} · {formatElapsed(minutes)}</span>
+                </>
+              ) : table.booking ? (
+                <span className={cn("max-w-full truncate px-0.5 font-mono text-xs font-bold leading-none", table.booking.late ? "text-destructive" : "text-link")}>{table.booking.time} · {table.booking.partySize}p</span>
+              ) : (
+                <span className="text-xs leading-none text-muted-foreground">{table.seats} pax</span>
+              )}
+              {order?.ready ? <span className="absolute right-0.5 top-0.5 flex items-center bg-success px-0.5 font-mono text-xs font-bold text-white" title="Hay platos listos para servir"><BellRinging aria-hidden="true" className="size-3" />{order.ready}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TableTile({ booking, currencyCode, now, onOpen, order, seats, title }: { booking?: FloorBooking | null; currencyCode: string; now: Date; onOpen: () => void; order: FloorOrder | null; seats?: number; title: string }) {
   const minutes = order ? minutesSince(order.openedAt, now) : 0;
   const tone = !order ? "border-window-dark-shadow bg-window-panel" : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/20" : "border-primary bg-primary/10";
   return (
-    <button aria-label={`${title}: ${!order ? "libre" : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`} className={cn("relative flex min-h-28 w-full select-none flex-col justify-between border-2 p-2 text-left shadow-raised active:translate-y-px", tone)} data-testid={`pos-table-${title}`} onClick={onOpen} type="button">
+    <button aria-label={`${title}: ${!order ? (booking ? `reservada a las ${booking.time}` : "libre") : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`} className={cn("relative flex min-h-28 w-full select-none flex-col justify-between border-2 p-2 text-left shadow-raised active:translate-y-px", tone)} data-testid={`pos-table-${title}`} onClick={onOpen} type="button">
       <span className="flex items-start justify-between gap-1">
         <span className="font-mono text-lg font-black leading-tight">{title}</span>
         {order?.ready ? <span className="flex items-center gap-0.5 bg-success px-1 font-mono text-xs font-bold text-white" title="Hay platos listos para servir"><BellRinging aria-hidden="true" className="size-3.5" />{order.ready}</span> : null}
@@ -134,6 +227,11 @@ function TableTile({ currencyCode, now, onOpen, order, seats, title }: { currenc
           </span>
           {order.status === "BILL_REQUESTED" ? <span className="block font-mono text-xs font-bold uppercase text-warning-text">Pide la cuenta</span> : order.waiterName ? <span className="block truncate text-xs">{order.waiterName}</span> : null}
         </span>
+      ) : booking ? (
+        <span className="space-y-0.5">
+          <span className={cn("block font-mono text-sm font-black", booking.late ? "text-destructive" : "text-link")}>{booking.late ? "Llega tarde · " : "Reserva "}{booking.time}</span>
+          <span className="block truncate text-xs">{booking.name} · {booking.partySize} pax</span>
+        </span>
       ) : (
         <span className="text-xs text-muted-foreground">Libre{seats ? ` · ${seats} pax` : ""}</span>
       )}
@@ -141,10 +239,16 @@ function TableTile({ currencyCode, now, onOpen, order, seats, title }: { currenc
   );
 }
 
-function GuestsDialog({ name, onClose, onConfirm, seats }: { name: string; onClose: () => void; onConfirm: (guests: number) => void; seats: number }) {
+function GuestsDialog({ booking, name, onClose, onConfirm, onSeatBooking, seats }: { booking: FloorBooking | null; name: string; onClose: () => void; onConfirm: (guests: number) => void; onSeatBooking: (bookingId: string) => void; seats: number }) {
   const options = Array.from({ length: Math.max(8, seats) }, (_, index) => index + 1);
   return (
-    <Dialog description="¿Cuántos comensales?" onClose={onClose} open title={`Abrir ${name}`}>
+    <Dialog description={booking ? "Reservada: sienta a la reserva o ábrela para otros clientes." : "¿Cuántos comensales?"} onClose={onClose} open title={`Abrir ${name}`}>
+      {booking ? (
+        <Button className="mb-3 h-16 w-full flex-col gap-0 text-base" data-testid="pos-seat-booking" onClick={() => onSeatBooking(booking.id)} type="button">
+          <span className="font-black">Sentar a {booking.name}</span>
+          <span className="text-xs font-normal">Reserva de las {booking.time} · {booking.partySize} personas</span>
+        </Button>
+      ) : null}
       <div className="grid grid-cols-4 gap-2" data-testid="pos-guests-dialog">
         {options.map((guests) => (
           <button className={cn("h-16 border-2 font-mono text-2xl font-black active:translate-y-px", guests === seats ? "border-primary bg-primary/10" : "border-window-dark-shadow bg-window-panel")} key={guests} onClick={() => onConfirm(guests)} type="button">{guests}</button>

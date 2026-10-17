@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
+import { autoLayout, clampToPlan, overlaps, type TableShape } from "@/modules/hospitality/floor-plan";
 import { billPartLines, orderAmounts, type BillPart, type EqualSplit, type LineStatus, type OrderLine, type OrderStatus, type Station } from "@/modules/hospitality/model";
 import { recordAudit } from "@/server/audit";
 import { isModuleEnabled } from "@/server/modules/service";
@@ -54,10 +55,10 @@ export async function createArea(actor: PosActor, name: string) {
   return created;
 }
 
-export async function updateArea(actor: PosActor, areaId: string, input: { name?: string; position?: number }) {
+export async function updateArea(actor: PosActor, areaId: string, input: { name?: string; position?: number; bookable?: boolean }) {
   const [updated] = await db
     .update(posArea)
-    .set({ ...(input.name ? { name: input.name.trim() } : {}), ...(input.position !== undefined ? { position: input.position } : {}) })
+    .set({ ...(input.name ? { name: input.name.trim() } : {}), ...(input.position !== undefined ? { position: input.position } : {}), ...(input.bookable !== undefined ? { bookable: input.bookable } : {}) })
     .where(and(eq(posArea.id, areaId), eq(posArea.companyId, actor.companyId)))
     .returning({ id: posArea.id });
   if (!updated) throw new HttpError(404, "Sala no encontrada.");
@@ -105,19 +106,45 @@ export async function createTables(actor: PosActor, input: { areaId: string; pre
   });
 }
 
-export async function updateTable(actor: PosActor, tableId: string, input: { name?: string; seats?: number; isActive?: boolean; areaId?: string }) {
+export async function updateTable(actor: PosActor, tableId: string, input: { name?: string; seats?: number; isActive?: boolean; areaId?: string; shape?: TableShape; bookable?: boolean }) {
   if (input.areaId) {
     const [area] = await db.select({ id: posArea.id }).from(posArea).where(and(eq(posArea.id, input.areaId), eq(posArea.companyId, actor.companyId))).limit(1);
     if (!area) throw new HttpError(404, "Sala no encontrada.");
   }
   const [updated] = await db
     .update(posTable)
-    .set({ ...(input.name ? { name: input.name.trim() } : {}), ...(input.seats ? { seats: input.seats } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}), ...(input.areaId ? { areaId: input.areaId } : {}) })
+    .set({
+      ...(input.name ? { name: input.name.trim() } : {}),
+      ...(input.seats ? { seats: input.seats } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.areaId ? { areaId: input.areaId, posX: null, posY: null } : {}),
+      ...(input.shape ? { shape: input.shape } : {}),
+      ...(input.bookable !== undefined ? { bookable: input.bookable } : {}),
+    })
     .where(and(eq(posTable.id, tableId), eq(posTable.companyId, actor.companyId)))
     .returning({ id: posTable.id });
   if (!updated) throw new HttpError(404, "Mesa no encontrada.");
   await audit(actor, "pos_table.update", "pos_table", tableId, input);
   return updated;
+}
+
+/** Guarda el plano de una sala: posición, tamaño y forma de cada mesa (dentro de la cuadrícula, sin solaparse). */
+export async function saveAreaLayout(actor: PosActor, areaId: string, tables: Array<{ id: string; posX: number; posY: number; width: number; height: number; shape: TableShape }>) {
+  const placed = tables.map((table) => ({ ...table, ...clampToPlan(table) }));
+  for (const [index, table] of placed.entries()) {
+    const clash = placed.slice(index + 1).find((other) => overlaps(table, other));
+    if (clash) throw new HttpError(400, "Hay dos mesas encima una de otra: sepáralas antes de guardar.");
+  }
+  await db.transaction(async (tx) => {
+    const owned = await tx.select({ id: posTable.id }).from(posTable).where(and(eq(posTable.areaId, areaId), eq(posTable.companyId, actor.companyId)));
+    const ids = new Set(owned.map((row) => row.id));
+    if (placed.some((table) => !ids.has(table.id))) throw new HttpError(404, "Alguna mesa no es de esta sala.");
+    for (const table of placed) {
+      await tx.update(posTable).set({ posX: table.posX, posY: table.posY, width: table.width, height: table.height, shape: table.shape }).where(eq(posTable.id, table.id));
+    }
+    await audit(actor, "pos_area.layout", "pos_area", areaId, { tables: placed.length }, tx);
+  });
+  return { saved: placed.length };
 }
 
 export async function deleteTable(actor: PosActor, tableId: string) {
@@ -266,7 +293,9 @@ export async function getFloor(companyId: string, registerId: string) {
       .where(and(eq(posOrder.companyId, companyId), eq(posOrder.registerId, registerId), inArray(posOrder.status, [...OPEN_STATUSES])))
       .orderBy(asc(posOrder.openedAt)),
   ]);
-  const lines = await loadLines(db, orders.map((order) => order.id));
+  // Import diferido: el módulo de reservas usa openOrder de este archivo.
+  const { countPendingBookings, upcomingBookingsByTable } = await import("@/server/pos/bookings");
+  const [lines, upcoming, pendingBookings] = await Promise.all([loadLines(db, orders.map((order) => order.id)), upcomingBookingsByTable(companyId), countPendingBookings(companyId)]);
   const summaries = orders.map((order) => {
     const own = lines.filter((line) => line.orderId === order.id);
     const amounts = orderAmounts(own, order.equalSplit as EqualSplit | null);
@@ -285,7 +314,24 @@ export async function getFloor(companyId: string, registerId: string) {
     };
   });
   return {
-    areas: areas.map((area) => ({ id: area.id, name: area.name, tables: area.tables.filter((entry) => entry.isActive).map((entry) => ({ id: entry.id, name: entry.name, seats: entry.seats, order: summaries.find((order) => order.tableId === entry.id) ?? null })) })),
+    areas: areas.map((area) => ({
+      id: area.id,
+      name: area.name,
+      planned: area.tables.some((entry) => entry.isActive && entry.posX !== null),
+      tables: autoLayout(area.tables.filter((entry) => entry.isActive)).map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        seats: entry.seats,
+        shape: entry.shape as TableShape,
+        posX: entry.posX,
+        posY: entry.posY,
+        width: entry.width,
+        height: entry.height,
+        order: summaries.find((order) => order.tableId === entry.id) ?? null,
+        booking: upcoming.get(entry.id) ?? null,
+      })),
+    })),
+    pendingBookings,
     // Cuentas sin mesa (barra, para llevar).
     loose: summaries.filter((order) => !order.tableId),
   };

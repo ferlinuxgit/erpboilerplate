@@ -66,20 +66,19 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
-    return [
+    const securityHeaders = (frameAncestors: string) => [
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       {
-        source: "/(.*)",
-        headers: [
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          {
-            key: "Content-Security-Policy",
-            value: `default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https:; connect-src ${connectSrc}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com;`,
-          },
-          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-        ],
+        key: "Content-Security-Policy",
+        value: `default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors ${frameAncestors}; img-src 'self' data: https:; connect-src ${connectSrc}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com;`,
       },
+      { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+    ];
+    return [
+      { source: "/((?!reservar(?:/|$)).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }, ...securityHeaders("'none'")] },
+      // El formulario público de reservas se puede incrustar en la web del restaurante.
+      { source: "/reservar/:path*", headers: securityHeaders("*") },
     ];
   },
 };

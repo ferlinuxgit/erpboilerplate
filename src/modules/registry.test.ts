@@ -23,6 +23,10 @@ describe("module registry", () => {
     expect(moduleForPath("/api/pos/sessions")?.id).toBe("pos");
     expect(moduleForPath("/pos/kitchen")?.id).toBe("hospitality");
     expect(moduleForPath("/api/pos/hospitality/orders")?.id).toBe("hospitality");
+    expect(moduleForPath("/pos/bookings")?.id).toBe("hospitality");
+    expect(moduleForPath("/api/pos/bookings/abc/seat")?.id).toBe("hospitality");
+    // El formulario público no pasa por la sesión: comprueba el módulo por su cuenta.
+    expect(moduleForPath("/reservar/bar-pepe")).toBeNull();
     for (const core of ["/invoices", "/expenses", "/expenses/new", "/api/expenses", "/accounting", "/fiscal", "/settings", "/settings/modules", "/modules/crm", "/dashboard", "/customers", "/purchases/payments"]) {
       expect(moduleForPath(core), core).toBeNull();
     }

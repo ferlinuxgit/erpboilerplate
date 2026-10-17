@@ -57,9 +57,12 @@ export const paySchema = z.object({
 export const kitchenStatusSchema = z.object({ lineIds: z.array(id).min(1).max(200), status: z.enum(["SENT", "READY", "SERVED"]) });
 
 export const areaSchema = z.object({ name: z.string().trim().min(1, "Pon nombre a la sala.").max(40) });
-export const areaUpdateSchema = z.object({ name: z.string().trim().min(1).max(40).optional(), position: z.number().int().min(0).max(1000).optional() });
+export const areaUpdateSchema = z.object({ name: z.string().trim().min(1).max(40).optional(), position: z.number().int().min(0).max(1000).optional(), bookable: z.boolean().optional() });
+export const layoutSchema = z.object({
+  tables: z.array(z.object({ id, posX: z.number().int().min(0).max(100), posY: z.number().int().min(0).max(100), width: z.number().int().min(1).max(24), height: z.number().int().min(1).max(16), shape: z.enum(["SQUARE", "ROUND", "RECT"]) })).max(300),
+});
 export const tablesSchema = z.object({ areaId: id, prefix: z.string().trim().max(20).default("Mesa"), from: z.number().int().min(0).max(9999), to: z.number().int().min(0).max(9999), seats: z.number().int().min(1).max(50).default(4) });
-export const tableUpdateSchema = z.object({ name: z.string().trim().min(1).max(30).optional(), seats: z.number().int().min(1).max(50).optional(), isActive: z.boolean().optional(), areaId: z.string().trim().optional() });
+export const tableUpdateSchema = z.object({ name: z.string().trim().min(1).max(30).optional(), seats: z.number().int().min(1).max(50).optional(), isActive: z.boolean().optional(), areaId: z.string().trim().optional(), shape: z.enum(["SQUARE", "ROUND", "RECT"]).optional(), bookable: z.boolean().optional() });
 export const stationsSchema = z.object({ entries: z.array(z.object({ categoryId: id, station: z.enum(["KITCHEN", "BAR", "NONE"]) })).max(500) });
 export const pinSchema = z.object({ pin: z.string().trim().regex(/^(\d{4,6})?$/, "El PIN tiene de 4 a 6 cifras.").nullable() });
 export const verifySchema = z.object({ pin: z.string().trim().max(6) });

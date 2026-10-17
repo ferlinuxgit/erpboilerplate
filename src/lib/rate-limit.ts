@@ -51,6 +51,9 @@ export const RATE_LIMIT_RULES = {
   resetPassword: { id: "auth-reset-password", limit: 10, windowMs: 15 * MINUTE },
   resendVerification: { id: "auth-resend-verification", limit: 5, windowMs: 15 * MINUTE },
   resendVerificationEmail: { id: "auth-resend-verification-email", limit: 3, windowMs: 60 * MINUTE },
+  // Formulario público de reservas: crear o cancelar, por IP.
+  publicBooking: { id: "public-booking", limit: 10, windowMs: 15 * MINUTE },
+  publicRead: { id: "public-read", limit: 120, windowMs: MINUTE },
 } satisfies Record<string, RateLimitRule>;
 
 const RATE_LIMIT_EXEMPT_PATHS = new Set(["/api/billing/webhook", "/api/health", "/api/readyz"]);
@@ -82,7 +85,9 @@ function resolveBaseRateLimitRule(pathname: string, method: string): RateLimitRu
     if (pathname === "/api/auth/reset-password") return RATE_LIMIT_RULES.resetPassword;
     if (pathname === "/api/auth/resend-verification") return RATE_LIMIT_RULES.resendVerification;
     if (/^\/api\/invitations\/[^/]+\/accept$/.test(pathname)) return RATE_LIMIT_RULES.invitationAccept;
+    if (pathname.startsWith("/api/public/")) return RATE_LIMIT_RULES.publicBooking;
   }
+  if (pathname.startsWith("/api/public/")) return RATE_LIMIT_RULES.publicRead;
   return RATE_LIMIT_RULES.api;
 }
 

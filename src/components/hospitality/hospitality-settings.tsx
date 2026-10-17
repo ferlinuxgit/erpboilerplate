@@ -6,16 +6,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import { stationLabels, STATIONS, type Station } from "@/modules/hospitality/model";
 
+import { FloorPlanEditor, type EditorTable } from "./floor-plan-editor";
 import { postJson } from "./types";
 
-type Table = { id: string; name: string; seats: number; isActive: boolean };
-type Area = { id: string; name: string; tables: Table[] };
+type Area = { id: string; name: string; bookable: boolean; tables: EditorTable[] };
 
 function useAction() {
   const router = useRouter();
@@ -41,24 +40,22 @@ function useAction() {
 export function AreasTablesManager({ areas, canManage }: { areas: Area[]; canManage: boolean }) {
   const { act, pending } = useAction();
   const [areaName, setAreaName] = useState("");
-  const [editing, setEditing] = useState<Table | null>(null);
 
   return (
     <div className="space-y-4" data-testid="pos-areas-manager">
       {areas.length === 0 ? <p className="text-sm text-muted-foreground">Aún no hay salas. Crea la primera (p. ej. «Salón») y añade sus mesas.</p> : null}
-      {areas.map((area) => <AreaBlock area={area} canManage={canManage} key={area.id} onEditTable={setEditing} />)}
+      {areas.map((area) => <AreaBlock area={area} canManage={canManage} key={area.id} />)}
       {canManage ? (
         <form className="flex flex-wrap items-end gap-2 border-t border-window-shadow pt-3" onSubmit={async (event) => { event.preventDefault(); if (areaName.trim() && (await act(() => postJson("/api/pos/hospitality/areas", { name: areaName }), "Sala creada."))) setAreaName(""); }}>
           <label className="grid gap-1 text-sm font-medium">Nueva sala<Input aria-label="Nombre de la nueva sala" className="h-11 w-56" maxLength={40} onChange={(event) => setAreaName(event.target.value)} placeholder="Salón, Terraza, Barra…" value={areaName} /></label>
           <Button className="h-11" data-testid="pos-area-create" disabled={pending || !areaName.trim()} type="submit"><Plus aria-hidden="true" /> Crear sala</Button>
         </form>
       ) : null}
-      {editing ? <TableDialog onClose={() => setEditing(null)} table={editing} /> : null}
     </div>
   );
 }
 
-function AreaBlock({ area, canManage, onEditTable }: { area: Area; canManage: boolean; onEditTable: (table: Table) => void }) {
+function AreaBlock({ area, canManage }: { area: Area; canManage: boolean }) {
   const { act, pending } = useAction();
   const next = area.tables.length + 1;
   const [range, setRange] = useState({ prefix: "Mesa", from: String(next), to: String(next + 9), seats: "4" });
@@ -68,41 +65,18 @@ function AreaBlock({ area, canManage, onEditTable }: { area: Area; canManage: bo
         <h3 className="font-mono text-sm font-bold">{area.name} <span className="font-normal text-muted-foreground">· {area.tables.length} mesas</span></h3>
         {canManage ? <Button aria-label={`Borrar la sala ${area.name}`} disabled={pending} onClick={() => { if (window.confirm(`¿Borrar «${area.name}» y sus mesas?`)) void act(() => postJson(`/api/pos/hospitality/areas/${area.id}`, {}, "DELETE"), "Sala borrada."); }} size="icon-sm" type="button" variant="ghost"><Trash aria-hidden="true" /></Button> : null}
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {area.tables.map((table) => (
-          <button className={cn("min-h-11 border px-3 font-mono text-sm", table.isActive ? "border-window-dark-shadow bg-window-panel" : "border-dashed text-muted-foreground line-through")} disabled={!canManage} key={table.id} onClick={() => onEditTable(table)} type="button">{table.name} <span className="text-xs text-muted-foreground">· {table.seats}</span></button>
-        ))}
-      </div>
+      <label className="flex items-center gap-2 text-sm"><input checked={area.bookable} data-testid={`pos-area-bookable-${area.name}`} disabled={!canManage || pending} onChange={(event) => void act(() => postJson(`/api/pos/hospitality/areas/${area.id}`, { bookable: event.target.checked }, "PATCH"), event.target.checked ? "Sala disponible para reservas." : "Sala sin reservas online.")} type="checkbox" /> Admite reservas online</label>
+      <FloorPlanEditor areaId={area.id} areaName={area.name} canManage={canManage} key={area.tables.map((table) => `${table.id}:${table.name}:${table.seats}:${table.isActive}:${table.bookable}:${table.posX}:${table.posY}:${table.width}:${table.height}:${table.shape}`).join("|")} tables={area.tables} />
       {canManage ? (
         <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void act(() => postJson("/api/pos/hospitality/tables", { areaId: area.id, prefix: range.prefix, from: Number(range.from), to: Number(range.to), seats: Number(range.seats) || 4 }), "Mesas añadidas."); }}>
           <label className="grid gap-1 text-xs font-medium">Nombre<Input className="h-11 w-24" onChange={(event) => setRange({ ...range, prefix: event.target.value })} value={range.prefix} /></label>
           <label className="grid gap-1 text-xs font-medium">Desde<Input className="h-11 w-16" inputMode="numeric" onChange={(event) => setRange({ ...range, from: event.target.value.replace(/\D/g, "") })} value={range.from} /></label>
           <label className="grid gap-1 text-xs font-medium">Hasta<Input className="h-11 w-16" inputMode="numeric" onChange={(event) => setRange({ ...range, to: event.target.value.replace(/\D/g, "") })} value={range.to} /></label>
           <label className="grid gap-1 text-xs font-medium">Plazas<Input className="h-11 w-16" inputMode="numeric" onChange={(event) => setRange({ ...range, seats: event.target.value.replace(/\D/g, "") })} value={range.seats} /></label>
-          <Button className="h-11" data-testid={`pos-tables-create-${area.name}`} disabled={pending} type="submit" variant="outline"><Plus aria-hidden="true" /> Añadir mesas</Button>
+          <Button className="h-11" data-testid={`pos-tables-create-${area.name}`} disabled={pending} type="submit" variant="outline"><Plus aria-hidden="true" /> Añadir varias mesas</Button>
         </form>
       ) : null}
     </section>
-  );
-}
-
-function TableDialog({ onClose, table }: { onClose: () => void; table: Table }) {
-  const { act, pending } = useAction();
-  const [name, setName] = useState(table.name);
-  const [seats, setSeats] = useState(String(table.seats));
-  const [active, setActive] = useState(table.isActive);
-  return (
-    <Dialog onClose={onClose} open title={`Mesa ${table.name}`}>
-      <div className="space-y-3">
-        <label className="grid gap-1 text-sm font-medium">Nombre<Input className="h-11" onChange={(event) => setName(event.target.value)} value={name} /></label>
-        <label className="grid gap-1 text-sm font-medium">Plazas<Input className="h-11" inputMode="numeric" onChange={(event) => setSeats(event.target.value.replace(/\D/g, ""))} value={seats} /></label>
-        <label className="flex items-center gap-2 text-sm"><input checked={active} onChange={(event) => setActive(event.target.checked)} type="checkbox" /> En uso (desmárcala para ocultarla del plano)</label>
-        <div className="grid grid-cols-2 gap-2">
-          <Button className="h-12" disabled={pending} onClick={() => void act(() => postJson(`/api/pos/hospitality/tables/${table.id}`, {}, "DELETE"), "Mesa borrada.").then((ok) => ok && onClose())} type="button" variant="outline"><Trash aria-hidden="true" /> Borrar</Button>
-          <Button className="h-12" disabled={pending || !name.trim()} onClick={() => void act(() => postJson(`/api/pos/hospitality/tables/${table.id}`, { name, seats: Number(seats) || 1, isActive: active }, "PATCH"), "Mesa guardada.").then((ok) => ok && onClose())} type="button">Guardar</Button>
-        </div>
-      </div>
-    </Dialog>
   );
 }
 

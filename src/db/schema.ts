@@ -2002,6 +2002,8 @@ export const posArea = pgTable("pos_area", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   position: integer("position").notNull().default(0),
+  // Se puede reservar en esta sala desde el formulario público.
+  bookable: boolean("bookable").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [unique("pos_area_company_name_unique").on(table.companyId, table.name)]);
 
@@ -2013,6 +2015,14 @@ export const posTable = pgTable("pos_table", {
   seats: integer("seats").notNull().default(4),
   position: integer("position").notNull().default(0),
   isActive: boolean("isActive").notNull().default(true),
+  // Plano: forma (SQUARE, ROUND, RECT) y posición/tamaño en celdas de la cuadrícula de la sala.
+  shape: text("shape").notNull().default("SQUARE"),
+  posX: integer("posX"),
+  posY: integer("posY"),
+  width: integer("width").notNull().default(2),
+  height: integer("height").notNull().default(2),
+  // Se ofrece en las reservas online (algunas mesas se guardan para clientes sin reserva).
+  bookable: boolean("bookable").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("pos_table_area_name_unique").on(table.areaId, table.name),
@@ -2110,3 +2120,98 @@ export const posStaffPin = pgTable("pos_staff_pin", {
   pinHash: text("pinHash").notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [unique("pos_staff_pin_company_user_unique").on(table.companyId, table.userId)]);
+
+// ---------------------------------------------------------------------------------------------
+// Reservas de mesa (módulo Hostelería): reglas, horarios, cierres y reservas.
+// ---------------------------------------------------------------------------------------------
+
+/** Reglas de las reservas online de la empresa. */
+export const posBookingSettings = pgTable("pos_booking_settings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),
+  enabled: boolean("enabled").notNull().default(false),
+  // Dirección pública del formulario: /reservar/<slug>.
+  slug: text("slug").notNull().unique(),
+  // Caja (y por tanto el plano) en la que se sientan las reservas.
+  registerId: text("registerId").references(() => posRegister.id, { onDelete: "set null" }),
+  slotMinutes: integer("slotMinutes").notNull().default(30),
+  durationMinutes: integer("durationMinutes").notNull().default(90),
+  minPartySize: integer("minPartySize").notNull().default(1),
+  maxPartySize: integer("maxPartySize").notNull().default(8),
+  // Antelación mínima (minutos) y máxima (días) para reservar online.
+  leadMinutes: integer("leadMinutes").notNull().default(60),
+  maxDaysAhead: integer("maxDaysAhead").notNull().default(60),
+  // Confirmación automática o revisión por el restaurante.
+  autoConfirm: boolean("autoConfirm").notNull().default(true),
+  // El cliente puede cancelar online hasta X horas antes.
+  cancellationHours: integer("cancellationHours").notNull().default(2),
+  // Se permite juntar dos mesas de la misma sala para grupos grandes.
+  allowCombining: boolean("allowCombining").notNull().default(true),
+  // Mensaje que ve el cliente (normas, alérgenos, fianza…) y email donde avisar de reservas nuevas.
+  welcomeMessage: text("welcomeMessage"),
+  notifyEmail: text("notifyEmail"),
+  sendReminders: boolean("sendReminders").notNull().default(true),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  check("pos_booking_settings_slot_valid", sql`${table.slotMinutes} BETWEEN 5 AND 120`),
+  check("pos_booking_settings_duration_valid", sql`${table.durationMinutes} BETWEEN 15 AND 600`),
+]);
+
+/** Horario de reservas por día de la semana (0 = domingo) y turno (13:00–16:00, 20:00–23:30…). */
+export const posBookingHours = pgTable("pos_booking_hours", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  weekday: integer("weekday").notNull(),
+  // "HH:MM" en la zona horaria de la empresa; la última reserva empieza como tarde a «lastStart».
+  opensAt: text("opensAt").notNull(),
+  lastStart: text("lastStart").notNull(),
+}, (table) => [
+  index("pos_booking_hours_company_idx").on(table.companyId, table.weekday),
+  check("pos_booking_hours_weekday_valid", sql`${table.weekday} BETWEEN 0 AND 6`),
+]);
+
+/** Días sin reservas (cierre, vacaciones, evento privado). */
+export const posBookingClosure = pgTable("pos_booking_closure", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  reason: text("reason"),
+}, (table) => [unique("pos_booking_closure_company_date_unique").on(table.companyId, table.date)]);
+
+/** Reserva de mesa. */
+export const posBooking = pgTable("pos_booking", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // Localizador corto que ve el cliente (p. ej. "R7K2QF").
+  code: text("code").notNull(),
+  // PENDING | CONFIRMED | SEATED | COMPLETED | NO_SHOW | CANCELLED
+  status: text("status").notNull().default("CONFIRMED"),
+  startsAt: timestamp("startsAt", { withTimezone: true, mode: "date" }).notNull(),
+  endsAt: timestamp("endsAt", { withTimezone: true, mode: "date" }).notNull(),
+  partySize: integer("partySize").notNull(),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  notes: text("notes"),
+  // Mesas asignadas (una o dos juntas).
+  tableIds: jsonb("tableIds").$type<string[]>().notNull().default([]),
+  // WEB (formulario público) | PHONE | WALK_IN | STAFF
+  source: text("source").notNull().default("WEB"),
+  // Cuenta abierta al sentarlos.
+  orderId: text("orderId").references(() => posOrder.id, { onDelete: "set null" }),
+  // Hash del enlace privado del cliente para ver o cancelar su reserva.
+  manageTokenHash: text("manageTokenHash"),
+  consentAt: timestamp("consentAt", { withTimezone: true, mode: "date" }),
+  reminderSentAt: timestamp("reminderSentAt", { withTimezone: true, mode: "date" }),
+  cancelledAt: timestamp("cancelledAt", { withTimezone: true, mode: "date" }),
+  cancelReason: text("cancelReason"),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("pos_booking_company_code_unique").on(table.companyId, table.code),
+  index("pos_booking_company_starts_idx").on(table.companyId, table.startsAt),
+  index("pos_booking_token_idx").on(table.manageTokenHash),
+  check("pos_booking_status_valid", sql`${table.status} IN ('PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'NO_SHOW', 'CANCELLED')`),
+  check("pos_booking_party_valid", sql`${table.partySize} BETWEEN 1 AND 500`),
+]);

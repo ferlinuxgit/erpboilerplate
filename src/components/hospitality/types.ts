@@ -1,3 +1,4 @@
+import type { TableShape } from "@/modules/hospitality/floor-plan";
 import type { EqualSplit, LineStatus, OrderStatus, Station } from "@/modules/hospitality/model";
 
 /** JSON que devuelve la API de hostelería (fechas como texto). */
@@ -15,9 +16,13 @@ export type FloorOrder = {
   ready: number;
 };
 
+export type FloorBooking = { id: string; time: string; name: string; partySize: number; late: boolean };
+export type FloorTable = { id: string; name: string; seats: number; shape: TableShape; posX: number; posY: number; width: number; height: number; order: FloorOrder | null; booking: FloorBooking | null };
+
 export type FloorData = {
-  areas: Array<{ id: string; name: string; tables: Array<{ id: string; name: string; seats: number; order: FloorOrder | null }> }>;
+  areas: Array<{ id: string; name: string; planned: boolean; tables: FloorTable[] }>;
   loose: FloorOrder[];
+  pendingBookings: number;
 };
 
 export type OrderLineView = {

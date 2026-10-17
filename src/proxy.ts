@@ -45,7 +45,8 @@ export async function proxy(request: NextRequest) {
 
     const hasApiKeyAuthorization = hasApiKeyBearerAuthorization(request.headers.get("authorization"));
     const safeMethod = request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
-    if (!safeMethod && !CSRF_EXEMPT_PATHS.has(pathname) && !hasApiKeyAuthorization) {
+    // /api/public/*: formularios públicos sin sesión (reservas), no hay credenciales que proteger con CSRF.
+    if (!safeMethod && !CSRF_EXEMPT_PATHS.has(pathname) && !pathname.startsWith("/api/public/") && !hasApiKeyAuthorization) {
       const csrfToken = request.headers.get("x-csrf-token");
       const csrfCookie = request.cookies.get("csrf-token")?.value;
       if (!csrfToken || !csrfCookie || csrfToken !== csrfCookie) {
