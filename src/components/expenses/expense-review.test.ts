@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assessReadiness, selectSafeToPost, type ReviewItem, type ReviewLine } from "./expense-review";
+import { assessReadiness, reviewLineTotal, selectSafeToPost, type ReviewItem, type ReviewLine } from "./expense-review";
 
 const line = (patch: Partial<ReviewLine> = {}): ReviewLine => ({
   description: "Luz de marzo",
@@ -62,6 +62,19 @@ describe("assessReadiness", () => {
 
   it("is never ready while not in review state", () => {
     expect(assessReadiness(item({ status: "POSTED" }), "EUR").ready).toBe(false);
+  });
+});
+
+describe("reviewLineTotal", () => {
+  it("shows what is paid to the supplier: no VAT when it is self-assessed or not subject", () => {
+    const eu = line({ unitPrice: "93,33" });
+    expect(reviewLineTotal(eu)).toBe(112.93);
+    expect(reviewLineTotal(eu, "DOMESTIC")).toBe(112.93);
+    expect(reviewLineTotal(eu, "INTRA_EU")).toBe(93.33);
+    expect(reviewLineTotal(eu, "REVERSE_CHARGE")).toBe(93.33);
+    expect(reviewLineTotal(eu, "NOT_SUBJECT")).toBe(93.33);
+    // Coincide con el total del documento que se compara con el leído.
+    expect(assessReadiness(item({ extractedTotal: 93.33, vatTreatment: "INTRA_EU", lines: [eu] }), "EUR")).toMatchObject({ ready: true, total: 93.33 });
   });
 });
 

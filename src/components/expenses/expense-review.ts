@@ -77,10 +77,18 @@ const parseQuantity = (raw: string) => parseDecimalInput(raw) ?? Number.NaN;
 const parseMoney = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? Number.NaN;
 const parsePercent = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? Number.NaN;
 
-/** Total a pagar de una línea (base + IVA − retención); 0 si algún importe no es válido. */
-export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">) {
+/** El proveedor no cobra IVA: autorepercusión (UE, inversión del sujeto pasivo) o no sujeta. */
+function supplierChargesNoVat(vatTreatment?: SupplierVatTreatment | "") {
+  return Boolean(vatTreatment) && (isSelfAssessedTreatment(vatTreatment as SupplierVatTreatment) || vatTreatment === "NOT_SUBJECT");
+}
+
+/**
+ * Total a pagar de una línea (base + IVA − retención; sin IVA si el proveedor no lo cobra);
+ * 0 si algún importe no es válido.
+ */
+export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">, vatTreatment?: SupplierVatTreatment | "") {
   const subtotal = parseQuantity(line.quantity) * parseMoney(line.unitPrice);
-  const tax = subtotal * parsePercent(line.taxRate) / 100;
+  const tax = supplierChargesNoVat(vatTreatment) ? 0 : subtotal * parsePercent(line.taxRate) / 100;
   const retention = subtotal * parsePercent(line.retentionRate) / 100;
   const total = subtotal + tax - retention;
   return Number.isFinite(total) ? Math.round((total + Number.EPSILON) * 100) / 100 : 0;
@@ -99,8 +107,7 @@ export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" 
     retentionRate: parsePercent(line.retentionRate),
   })).filter((line) => [line.quantity, line.unitPrice, line.taxRate, line.retentionRate].every(Number.isFinite));
   const document = computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })));
-  // Autorepercusión (UE, inversión del sujeto pasivo) o no sujeta: el proveedor no cobra IVA.
-  if (vatTreatment && (isSelfAssessedTreatment(vatTreatment) || vatTreatment === "NOT_SUBJECT")) return centsToNumber(document.subtotalCents - document.retentionCents);
+  if (supplierChargesNoVat(vatTreatment)) return centsToNumber(document.subtotalCents - document.retentionCents);
   return centsToNumber(document.totalCents);
 }
 

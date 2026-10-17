@@ -286,7 +286,7 @@ export function ExpenseBatchItemReview({
                   <PercentInput disabled={disabled} onChange={(event) => patchLine(line.id, { retentionRate: event.target.value })} value={line.retentionRate} />
                 </AccessibleField>
                 <div className="flex items-end justify-between gap-2">
-                  <p className="pb-2 font-mono text-xs font-bold tabular-nums">{formatMoney(reviewLineTotal(line), item.currencyCode)}</p>
+                  <p className="pb-2 font-mono text-xs font-bold tabular-nums">{formatMoney(reviewLineTotal(line, item.vatTreatment), item.currencyCode)}</p>
                   <Button aria-label={`Eliminar línea ${lineIndex + 1}`} disabled={disabled || item.lines.length === 1} onClick={() => onPatch((current) => ({ ...current, lines: current.lines.filter((candidate) => candidate.id !== line.id) }))} size="icon-sm" title="Eliminar línea" type="button" variant="ghost">
                     <Trash aria-hidden="true" />
                   </Button>
