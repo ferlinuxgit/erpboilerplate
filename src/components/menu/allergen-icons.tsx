@@ -1,4 +1,4 @@
-import { Acorn, Carrot, Drop, DropSlash, Egg, FishSimple, Flower, Grains, GrainsSlash, JarLabel, Leaf, Pepper, Plant, Shrimp, Sparkle, Spiral, Star } from "@phosphor-icons/react/dist/ssr";
+import { Acorn, Baby, Carrot, Drop, DropSlash, Egg, FishSimple, Flower, Grains, GrainsSlash, JarLabel, Leaf, Pepper, Plant, Shrimp, Sparkle, Spiral, Star, ThermometerHot } from "@phosphor-icons/react/dist/ssr";
 import type { Icon } from "@phosphor-icons/react";
 import { useId, type SVGProps } from "react";
 
@@ -75,7 +75,7 @@ const ALLERGEN_GLYPHS: Record<string, Glyph> = {
   MOLLUSCS: fromPhosphor(Spiral),
 };
 
-const TAG_GLYPHS: Record<string, Icon> = { VEGAN: Leaf, VEGETARIAN: Carrot, GLUTEN_FREE: GrainsSlash, LACTOSE_FREE: DropSlash, SPICY: Pepper, RECOMMENDED: Star, NEW: Sparkle };
+const TAG_GLYPHS: Record<string, Icon> = { VEGAN: Leaf, VEGETARIAN: Carrot, GLUTEN_FREE: GrainsSlash, LACTOSE_FREE: DropSlash, PREGNANCY_SAFE: Baby, PASTEURIZED: ThermometerHot, SPICY: Pepper, RECOMMENDED: Star, NEW: Sparkle };
 
 const SIZES = { sm: "size-6 p-1", md: "size-8 p-1.5", lg: "size-12 p-2.5", xl: "size-14 p-3" } as const;
 

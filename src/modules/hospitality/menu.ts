@@ -31,6 +31,8 @@ export const MENU_TAGS = [
   { id: "VEGETARIAN", es: "Vegetariano", en: "Vegetarian", icon: "🥕", color: "#4d7c0f", diet: true },
   { id: "GLUTEN_FREE", es: "Apto celíacos", en: "Gluten free", icon: "🚫🌾", color: "#b45309", diet: true },
   { id: "LACTOSE_FREE", es: "Sin lactosa", en: "Lactose free", icon: "🚫🥛", color: "#0369a1", diet: true },
+  { id: "PREGNANCY_SAFE", es: "Apto embarazadas", en: "Pregnancy safe", icon: "🤰", color: "#be185d", diet: true },
+  { id: "PASTEURIZED", es: "Pasteurizado", en: "Pasteurised", icon: "🌡️", color: "#4338ca", diet: true },
   { id: "SPICY", es: "Picante", en: "Spicy", icon: "🌶️", color: "#b91c1c", diet: false },
   { id: "RECOMMENDED", es: "Recomendado", en: "Chef's pick", icon: "⭐", color: "#a16207", diet: false },
   { id: "NEW", es: "Novedad", en: "New", icon: "✨", color: "#7e22ce", diet: false },
@@ -50,6 +52,9 @@ export function dietConflicts(allergens: readonly string[], tags: readonly strin
   if (tags.includes("VEGETARIAN") && animal.length > 0) conflicts.push(`Marcado vegetariano pero lleva ${names(animal)}.`);
   if (tags.includes("GLUTEN_FREE") && allergens.includes("GLUTEN")) conflicts.push("Marcado apto celíacos pero lleva gluten.");
   if (tags.includes("GLUTEN_FREE") && traces.includes("GLUTEN")) conflicts.push("Marcado apto celíacos pero puede contener trazas de gluten.");
+  // Embarazo: lácteos y huevo solo si están pasteurizados (riesgo de listeria y salmonela).
+  const raw = allergens.filter((id) => id === "MILK" || id === "EGGS");
+  if (tags.includes("PREGNANCY_SAFE") && raw.length > 0 && !tags.includes("PASTEURIZED")) conflicts.push(`Marcado apto embarazadas con ${names(raw)}: confirma que están pasteurizados y márcalo como «Pasteurizado».`);
   if (tags.includes("LACTOSE_FREE") && allergens.includes("MILK")) conflicts.push("Marcado sin lactosa pero lleva lácteos: revisa si es leche sin lactosa (sigue siendo alérgeno de la leche).");
   return conflicts;
 }
@@ -111,8 +116,10 @@ export function scheduleLabel(schedule: SectionSchedule, lang: MenuLang) {
 export type FilterableDish = { allergens: readonly string[]; tags: readonly string[]; name: string; description: string | null };
 
 /** Filtro del cliente: sin ciertos alérgenos, solo vegetariano/vegano y búsqueda por texto. */
-export function matchesFilters(dish: FilterableDish, filters: { without: readonly string[]; diet: "ALL" | "VEGETARIAN" | "VEGAN"; query: string }) {
+export function matchesFilters(dish: FilterableDish, filters: { without: readonly string[]; diet: "ALL" | "VEGETARIAN" | "VEGAN"; query: string; pregnant?: boolean }) {
   if (filters.without.some((allergen) => dish.allergens.includes(allergen))) return false;
+  // Embarazo: solo lo que el local ha marcado expresamente como apto.
+  if (filters.pregnant && !dish.tags.includes("PREGNANCY_SAFE")) return false;
   if (filters.diet === "VEGAN" && !dish.tags.includes("VEGAN")) return false;
   if (filters.diet === "VEGETARIAN" && !dish.tags.includes("VEGETARIAN") && !dish.tags.includes("VEGAN")) return false;
   const query = normalize(filters.query);
@@ -161,6 +168,8 @@ export const MENU_TEXT = {
     allergenTable: "Tabla de alérgenos",
     dish: "Plato",
     avoiding: "Evitas",
+    pregnant: "Estoy embarazada: solo platos aptos",
+    pregnantHelp: "Se muestran solo los platos que el local marca como aptos para embarazadas. Ante la duda, consulta al personal.",
   },
   en: {
     menu: "Menu",
@@ -197,5 +206,7 @@ export const MENU_TEXT = {
     allergenTable: "Allergen chart",
     dish: "Dish",
     avoiding: "Avoiding",
+    pregnant: "I'm pregnant: only suitable dishes",
+    pregnantHelp: "Only dishes the venue marks as safe during pregnancy are shown. If in doubt, ask our staff.",
   },
 } as const satisfies Record<MenuLang, Record<string, string>>;

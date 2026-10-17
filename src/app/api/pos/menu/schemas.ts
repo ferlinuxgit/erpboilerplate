@@ -35,7 +35,7 @@ export const menuItemSchema = z.object({
   descriptionEn: text(400),
   allergens: z.array(z.string()).max(14),
   traces: z.array(z.string()).max(14).default([]),
-  tags: z.array(z.string()).max(10),
+  tags: z.array(z.string()).max(20),
 });
 
 export const visibleSchema = z.object({ visible: z.boolean() });

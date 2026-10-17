@@ -44,6 +44,9 @@ describe("carta digital", () => {
     expect(dietConflicts([], ["GLUTEN_FREE"], ["GLUTEN"])[0]).toMatch(/trazas de gluten/);
     expect(dietConflicts(["MILK"], ["LACTOSE_FREE"])).toHaveLength(1);
     expect(dietConflicts([], ["VEGAN", "GLUTEN_FREE"])).toEqual([]);
+    expect(dietConflicts(["MILK"], ["PREGNANCY_SAFE"])[0]).toMatch(/embarazadas con lácteos.*pasteurizados/);
+    expect(dietConflicts(["MILK", "EGGS"], ["PREGNANCY_SAFE", "PASTEURIZED"])).toEqual([]);
+    expect(dietConflicts(["GLUTEN"], ["PREGNANCY_SAFE"])).toEqual([]);
   });
 
   it("separa lo que contiene de las trazas según lo que evita el cliente", () => {
@@ -61,5 +64,7 @@ describe("carta digital", () => {
     expect(matchesFilters(croquetas, { ...none, diet: "VEGAN" })).toBe(false);
     expect(matchesFilters(croquetas, { ...none, query: "JAMON" })).toBe(true);
     expect(matchesFilters(croquetas, { ...none, query: "casera" })).toBe(true);
+    expect(matchesFilters(ensalada, { ...none, pregnant: true })).toBe(false);
+    expect(matchesFilters({ ...ensalada, tags: ["VEGAN", "PREGNANCY_SAFE"] }, { ...none, pregnant: true })).toBe(true);
   });
 });

@@ -58,6 +58,11 @@ test("Carta digital: secciones desde categorías, ficha con alérgenos y foto, a
   await expect(dialog.getByTestId("menu-dish-conflicts")).toContainText("vegano pero lleva lácteos");
   await dialog.getByTestId("menu-tag-VEGAN").click();
   await expect(dialog.getByTestId("menu-dish-conflicts")).toHaveCount(0);
+  // Apta para embarazadas con lácteos: pide confirmar que están pasteurizados.
+  await dialog.getByTestId("menu-tag-PREGNANCY_SAFE").click();
+  await expect(dialog.getByTestId("menu-dish-conflicts")).toContainText("pasteurizados");
+  await dialog.getByTestId("menu-tag-PASTEURIZED").click();
+  await expect(dialog.getByTestId("menu-dish-conflicts")).toHaveCount(0);
   await dialog.getByTestId("menu-tag-RECOMMENDED").click();
   await dialog.locator('input[type="file"]').setInputFiles({ name: "croquetas.png", mimeType: "image/png", buffer: PNG });
   await expect(page.getByText("Foto guardada.")).toBeVisible();
@@ -117,6 +122,12 @@ test("Carta digital: secciones desde categorías, ficha con alérgenos y foto, a
   await expect(customer.getByTestId("public-menu-filters")).toContainText("(2)");
   await customer.getByTestId("public-menu-filters").click();
   await customer.getByRole("button", { name: "Quitar filtros" }).click();
+  // Embarazada: solo lo marcado como apto (las croquetas sí, la caña no).
+  await customer.getByTestId("public-menu-pregnant").click();
+  await expect(menu.getByTestId("public-menu-dish-Croquetas")).toContainText("Apto embarazadas");
+  await expect(menu.getByTestId("public-menu-dish-Croquetas")).toContainText("Pasteurizado");
+  await expect(menu.getByTestId("public-menu-dish-Caña")).toHaveCount(0);
+  await customer.getByTestId("public-menu-pregnant").click();
   await customer.getByTestId("public-menu-search").fill("jamon");
   await expect(menu.getByTestId("public-menu-dish-Croquetas")).toBeVisible();
   await expect(menu.getByTestId("public-menu-dish-Caña")).toHaveCount(0);

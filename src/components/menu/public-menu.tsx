@@ -13,9 +13,9 @@ import type { PublicMenu } from "@/server/pos/menu";
 import { AllergenChip, AllergenIcon, AllergenLegend, AllergenMatrix, TagBadge } from "./allergen-icons";
 
 type Diet = "ALL" | "VEGETARIAN" | "VEGAN";
-type Preferences = { without: string[]; diet: Diet; hide: boolean };
+type Preferences = { without: string[]; diet: Diet; hide: boolean; pregnant: boolean };
 const STORAGE_KEY = "menu-allergies";
-const DEFAULT_PREFERENCES: Preferences = { without: [], diet: "ALL", hide: true };
+const DEFAULT_PREFERENCES: Preferences = { without: [], diet: "ALL", hide: true, pregnant: false };
 
 /** Alergias y dieta del cliente, recordadas en su móvil para la próxima visita. */
 function usePreferences() {
@@ -47,12 +47,12 @@ const DIET_TAGS: Record<Exclude<Diet, "ALL">, string> = { VEGETARIAN: "VEGETARIA
 export function PublicMenuView({ embed, lang, menu, tableId }: { embed: boolean; lang: MenuLang; menu: PublicMenu; tableId: string | null }) {
   const text = MENU_TEXT[lang];
   const [query, setQuery] = useState("");
-  const [{ without, diet, hide }, setPreferences] = usePreferences();
+  const [{ without, diet, hide, pregnant }, setPreferences] = usePreferences();
   const [showFilters, setShowFilters] = useState(false);
-  const activeFilters = without.length + (diet !== "ALL" ? 1 : 0);
+  const activeFilters = without.length + (diet !== "ALL" ? 1 : 0) + (pregnant ? 1 : 0);
   const filtering = query.trim() !== "" || activeFilters > 0;
   const sections = menu.sections
-    .map((section) => ({ ...section, dishes: section.dishes.filter((dish) => matchesFilters(dish, { without: hide ? without : [], diet, query })) }))
+    .map((section) => ({ ...section, dishes: section.dishes.filter((dish) => matchesFilters(dish, { without: hide ? without : [], diet, query, pregnant })) }))
     .filter((section) => section.dishes.length > 0 || (!filtering && section.fixedPrice !== null));
   const money = (value: number) => formatMoney(value, menu.currency, lang === "en" ? "en-IE" : "es-ES");
   const langHref = (target: MenuLang) => `/carta/${menu.slug}?lang=${target}${tableId ? `&mesa=${encodeURIComponent(tableId)}` : ""}${embed ? "&embed=1" : ""}`;
@@ -108,6 +108,11 @@ export function PublicMenuView({ embed, lang, menu, tableId }: { embed: boolean;
                 })}
               </div>
             </fieldset>
+            <label className={cn("flex items-start gap-2 rounded-md border-2 p-2 text-sm", pregnant ? "border-[#be185d] bg-[#be185d]/10" : "border-window-shadow")}>
+              <input checked={pregnant} className="mt-0.5 size-5" data-testid="public-menu-pregnant" onChange={(event) => setPreferences({ pregnant: event.target.checked })} type="checkbox" />
+              <TagBadge compact id="PREGNANCY_SAFE" lang={lang} />
+              <span><span className="font-semibold">{text.pregnant}</span><span className="block text-xs text-muted-foreground">{text.pregnantHelp}</span></span>
+            </label>
             <fieldset>
               <legend className="mb-1.5 text-xs font-bold uppercase text-muted-foreground">{text.without}</legend>
               <div className="grid grid-cols-4 gap-1.5 min-[480px]:grid-cols-5 sm:grid-cols-7">
@@ -126,11 +131,12 @@ export function PublicMenuView({ embed, lang, menu, tableId }: { embed: boolean;
               </div>
             </fieldset>
             <label className="flex items-center gap-2 text-sm font-semibold"><input checked={hide} className="size-5" data-testid="public-menu-hide" onChange={(event) => setPreferences({ hide: event.target.checked })} type="checkbox" /> {text.hideConflicts}</label>
-            {filtering ? <button className="flex h-10 items-center gap-1 text-sm font-semibold text-link underline" onClick={() => { setPreferences({ without: [], diet: "ALL" }); setQuery(""); }} type="button"><X aria-hidden="true" className="size-4" />{text.clear}</button> : null}
+            {filtering ? <button className="flex h-10 items-center gap-1 text-sm font-semibold text-link underline" onClick={() => { setPreferences({ without: [], diet: "ALL", pregnant: false }); setQuery(""); }} type="button"><X aria-hidden="true" className="size-4" />{text.clear}</button> : null}
           </div>
         ) : activeFilters > 0 ? (
           <button className="flex w-full flex-wrap items-center gap-1.5 text-left text-xs font-semibold" onClick={() => setShowFilters(true)} type="button">
             {diet !== "ALL" ? <TagBadge id={DIET_TAGS[diet]} lang={lang} /> : null}
+            {pregnant ? <TagBadge id="PREGNANCY_SAFE" lang={lang} /> : null}
             {without.length > 0 ? <><span>{text.avoiding}:</span>{without.map((id) => <AllergenIcon id={id} key={id} lang={lang} size="sm" variant="off" />)}</> : null}
           </button>
         ) : null}
