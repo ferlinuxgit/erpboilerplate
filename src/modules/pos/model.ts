@@ -174,3 +174,33 @@ export function remainingQuantities(lines: ReadonlyArray<{ id: string; quantity:
   for (const entry of returned) used.set(entry.lineId, (used.get(entry.lineId) ?? 0) + entry.quantity);
   return new Map(lines.map((line) => [line.id, Math.max(0, Math.round((line.quantity - (used.get(line.id) ?? 0)) * 1000) / 1000)]));
 }
+
+export type SalesDay = { key: string; label: string; longLabel: string };
+
+function dayKey(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+/**
+ * Ventas netas del TPV por día (ventas − devoluciones) de los últimos `days` días, en la zona horaria
+ * de la empresa, con el número de tickets de venta.
+ */
+export function dailySales(tickets: ReadonlyArray<{ kind: string; total: number; createdAt: Date | string }>, now = new Date(), days = 30, timeZone = "Europe/Madrid") {
+  const short = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", timeZone });
+  const long = new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long", timeZone });
+  const categories: SalesDay[] = Array.from({ length: days }, (_, index) => {
+    const date = new Date(now.getTime() - (days - 1 - index) * 86_400_000);
+    return { key: dayKey(date, timeZone), label: short.format(date).replace(".", ""), longLabel: long.format(date) };
+  });
+  const position = new Map(categories.map((day, index) => [day.key, index]));
+  const net = categories.map(() => 0);
+  const count = categories.map(() => 0);
+  for (const ticket of tickets) {
+    const index = position.get(dayKey(new Date(ticket.createdAt), timeZone));
+    if (index === undefined) continue;
+    const cents = amountToCents(ticket.total);
+    net[index] += ticket.kind === "REFUND" ? -cents : cents;
+    if (ticket.kind === "SALE") count[index] += 1;
+  }
+  return { categories, net: net.map(centsToNumber), count };
+}

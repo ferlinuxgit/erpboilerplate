@@ -137,3 +137,73 @@ export function validateStages(stages: ReadonlyArray<{ name: string; probability
   if (stages.some((stage) => !Number.isInteger(stage.probability) || stage.probability < 0 || stage.probability > 100)) return "La probabilidad va de 0 a 100.";
   return null;
 }
+
+export type ForecastMonth = { key: string; label: string; longLabel: string };
+
+const forecastShort = new Intl.DateTimeFormat("es-ES", { month: "short", timeZone: "UTC" });
+const forecastLong = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric", timeZone: "UTC" });
+
+/**
+ * Previsión de cierre por mes (los próximos `count` meses, empezando por el actual): importe total y
+ * ponderado por la probabilidad de su etapa. Las de fecha ya pasada cuentan en el mes actual (siguen
+ * abiertas: hay que cerrarlas o moverlas); las que no tienen fecha van aparte.
+ */
+export function forecastByMonth(
+  opportunities: ReadonlyArray<{ amount: number; probability: number; expectedCloseDate: Date | string | null }>,
+  now = new Date(),
+  count = 6,
+) {
+  const months: ForecastMonth[] = Array.from({ length: count }, (_, index) => {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + index, 1));
+    return {
+      key: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`,
+      label: `${forecastShort.format(start).replace(".", "")} ${String(start.getUTCFullYear()).slice(2)}`,
+      longLabel: forecastLong.format(start),
+    };
+  });
+  const total = months.map(() => 0);
+  const weighted = months.map(() => 0);
+  const noDate = { totalCents: 0, weightedCents: 0 };
+  let laterCents = 0;
+  for (const opportunity of opportunities) {
+    const amountCents = Math.round(opportunity.amount * 100);
+    const weightedCents = Math.round((amountCents * opportunity.probability) / 100);
+    if (!opportunity.expectedCloseDate) {
+      noDate.totalCents += amountCents;
+      noDate.weightedCents += weightedCents;
+      continue;
+    }
+    const date = new Date(opportunity.expectedCloseDate);
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    const index = key < months[0].key ? 0 : months.findIndex((month) => month.key === key);
+    if (index < 0) {
+      laterCents += amountCents;
+      continue;
+    }
+    total[index] += amountCents;
+    weighted[index] += weightedCents;
+  }
+  return {
+    months,
+    total: total.map((cents) => cents / 100),
+    weighted: weighted.map((cents) => cents / 100),
+    noDate: { total: noDate.totalCents / 100, weighted: noDate.weightedCents / 100 },
+    later: laterCents / 100,
+  };
+}
+
+/** Motivos de pérdida más frecuentes (sin motivo = «Sin indicar»). */
+export function lostReasons(rows: ReadonlyArray<{ lostReason: string | null; amount: number }>, limit = 5) {
+  const byReason = new Map<string, { count: number; amountCents: number }>();
+  for (const row of rows) {
+    const reason = row.lostReason?.trim() || "Sin indicar";
+    const current = byReason.get(reason) ?? { count: 0, amountCents: 0 };
+    current.count += 1;
+    current.amountCents += Math.round(row.amount * 100);
+    byReason.set(reason, current);
+  }
+  return [...byReason.entries()]
+    .map(([reason, value]) => ({ reason, count: value.count, amount: value.amountCents / 100 }))
+    .sort((a, b) => b.count - a.count || b.amount - a.amount)
+    .slice(0, limit);
+}

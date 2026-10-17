@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agendaBucket, DEFAULT_CRM_STAGES, pipelineSummary, stageTotals, validateStages, type PipelineStage } from "@/modules/crm/model";
+import { agendaBucket, DEFAULT_CRM_STAGES, forecastByMonth, lostReasons, pipelineSummary, stageTotals, validateStages, type PipelineStage } from "@/modules/crm/model";
 
 const stages: PipelineStage[] = [
   { id: "new", name: "Nuevo", probability: 10, kind: "OPEN", position: 0 },
@@ -56,5 +56,30 @@ describe("crm agenda", () => {
     expect(agendaBucket({ dueAt: "2026-10-16T22:30:00Z" }, now)).toBe("upcoming");
     expect(agendaBucket({ dueAt: null }, now)).toBe("unscheduled");
     expect(agendaBucket({ dueAt: "2026-10-01T10:00:00Z", completedAt: "2026-10-02T10:00:00Z" }, now)).toBe("done");
+  });
+});
+
+describe("crm forecast", () => {
+  const now = new Date("2026-10-16T10:00:00Z");
+  it("groups expected closes by month, overdue in the current month, undated apart", () => {
+    const forecast = forecastByMonth([
+      { amount: 1000, probability: 50, expectedCloseDate: "2026-10-30T12:00:00Z" },
+      { amount: 400, probability: 25, expectedCloseDate: "2026-09-01T12:00:00Z" },
+      { amount: 2000, probability: 75, expectedCloseDate: "2026-12-05T12:00:00Z" },
+      { amount: 300, probability: 10, expectedCloseDate: null },
+      { amount: 999, probability: 10, expectedCloseDate: "2027-09-01T12:00:00Z" },
+    ], now, 3);
+    expect(forecast.months.map((month) => month.key)).toEqual(["2026-10", "2026-11", "2026-12"]);
+    expect(forecast.total).toEqual([1400, 0, 2000]);
+    expect(forecast.weighted).toEqual([600, 0, 1500]);
+    expect(forecast.noDate).toEqual({ total: 300, weighted: 30 });
+    expect(forecast.later).toBe(999);
+  });
+
+  it("ranks lost reasons", () => {
+    expect(lostReasons([{ lostReason: "Precio", amount: 10 }, { lostReason: null, amount: 5 }, { lostReason: "Precio", amount: 20 }])).toEqual([
+      { reason: "Precio", count: 2, amount: 30 },
+      { reason: "Sin indicar", count: 1, amount: 5 },
+    ]);
   });
 });

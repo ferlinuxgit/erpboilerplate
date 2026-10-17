@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cartTotals, countDenominations, exceedsSimplifiedLimit, expectedCash, grossPrice, netFromGross, remainingQuantities, splitRefund, validatePayment, type CartLine } from "@/modules/pos/model";
+import { cartTotals, countDenominations, dailySales, exceedsSimplifiedLimit, expectedCash, grossPrice, netFromGross, remainingQuantities, splitRefund, validatePayment, type CartLine } from "@/modules/pos/model";
 
 const line = (patch: Partial<CartLine>): CartLine => ({ key: Math.random().toString(36), itemId: null, description: "x", quantity: 1, unitPrice: 1, taxRate: 21, ...patch });
 
@@ -79,5 +79,21 @@ describe("pos refunds", () => {
     const remaining = remainingQuantities([{ id: "a", quantity: 3 }, { id: "b", quantity: 1 }], [{ lineId: "a", quantity: 1 }, { lineId: "a", quantity: 1.5 }]);
     expect(remaining.get("a")).toBe(0.5);
     expect(remaining.get("b")).toBe(1);
+  });
+});
+
+describe("pos daily sales", () => {
+  it("nets refunds per day in the company time zone", () => {
+    const now = new Date("2026-10-16T10:00:00Z");
+    const result = dailySales([
+      { kind: "SALE", total: 10, createdAt: "2026-10-16T08:00:00Z" },
+      { kind: "REFUND", total: 2.5, createdAt: "2026-10-16T09:00:00Z" },
+      // 23:30 del día 15 en Madrid (21:30 UTC).
+      { kind: "SALE", total: 4.2, createdAt: "2026-10-15T21:30:00Z" },
+      { kind: "SALE", total: 99, createdAt: "2026-09-01T10:00:00Z" },
+    ], now, 3);
+    expect(result.categories.map((day) => day.key)).toEqual(["2026-10-14", "2026-10-15", "2026-10-16"]);
+    expect(result.net).toEqual([0, 4.2, 7.5]);
+    expect(result.count).toEqual([0, 1, 1]);
   });
 });

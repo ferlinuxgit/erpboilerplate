@@ -11,6 +11,7 @@ import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/c
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buildDashboardCockpitFromSummary, type DashboardCockpitSummary } from "@/lib/dashboard-cockpit";
 import { requireUserSession } from "@/lib/current-user";
+import { formatMoney } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { can } from "@/lib/rbac";
 import { roleLabels, statusLabel } from "@/lib/status-labels";
@@ -20,6 +21,7 @@ import { loadCockpitSummary, loadDashboardFinance, type DashboardFinance } from 
 import { parseFinancePeriod, type FinancePeriod } from "@/server/reporting/dashboard-model";
 import { countOverdueActivities } from "@/server/crm/service";
 import { getEnabledModules } from "@/server/modules/service";
+import { getPosToday } from "@/server/pos/service";
 
 export const metadata: Metadata = {
   title: "Panel",
@@ -91,7 +93,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   });
   const enabledModules = await getEnabledModules(companyId);
   const bankingEnabled = enabledModules.includes("banking");
-  const crmOverdue = enabledModules.includes("crm") && can(role, "crm.read") ? await countOverdueActivities(companyId, session.user.id) : 0;
+  const [crmOverdue, posToday] = await Promise.all([
+    enabledModules.includes("crm") && can(role, "crm.read") ? countOverdueActivities(companyId, session.user.id) : Promise.resolve(0),
+    enabledModules.includes("pos") && can(role, "pos.read") ? getPosToday(companyId) : Promise.resolve(null),
+  ]);
   const cockpit = buildDashboardCockpitFromSummary(summary, {
     currencyCode,
     businessType: setup?.businessType,
@@ -127,6 +132,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <InlineAlert title="Indicadores incompletos" tone="warning">
           No se pudieron cargar todos los indicadores del panel. Recarga la página en unos segundos; mientras tanto puedes seguir trabajando desde el menú.
         </InlineAlert>
+      ) : null}
+
+      {posToday && (posToday.tickets > 0 || posToday.openRegisters > 0) ? (
+        <Link className="flex flex-wrap items-center justify-between gap-2 border border-window-shadow bg-card px-3 py-2 text-sm hover:bg-window-highlight" data-testid="dashboard-pos-today" href="/pos?choose=1">
+          <span className="font-mono text-xs font-bold uppercase">TPV hoy</span>
+          <span><strong className="font-mono">{formatMoney(posToday.net, currencyCode)}</strong> en {posToday.tickets} {posToday.tickets === 1 ? "ticket" : "tickets"} · {posToday.openRegisters === 0 ? "cajas cerradas" : `${posToday.openRegisters} ${posToday.openRegisters === 1 ? "caja abierta" : "cajas abiertas"}`}</span>
+        </Link>
       ) : null}
 
       {crmOverdue > 0 ? (

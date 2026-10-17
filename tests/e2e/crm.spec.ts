@@ -102,6 +102,12 @@ test("CRM: activar, oportunidad con seguimiento, alta del contacto, presupuesto 
   await expect(page.getByTestId("crm-stage-1")).toContainText("Negociación");
   await expect(page.getByTestId("crm-stage-3")).toContainText("Cualificado");
 
+  // Informes: lo ganado en 90 días y la previsión de lo abierto.
+  await page.goto("/reporting");
+  await expect(page.getByTestId("reporting-crm")).toContainText("Ganado (90 días)");
+  await expect(page.getByTestId("reporting-crm")).toContainText("1500,00");
+  await expect(page.getByTestId("reporting-crm")).toContainText("Sin fecha de cierre");
+
   // La ficha del cliente muestra sus oportunidades.
   await page.goto(`/customers/${customerId}`);
   await expect(page.getByTestId("customer-crm-panel")).toContainText("Web corporativa");

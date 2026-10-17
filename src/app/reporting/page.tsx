@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
+import { CrmReportSection } from "@/components/reporting/crm-report-section";
+import { PosReportSection } from "@/components/reporting/pos-report-section";
 import { ReportingExportButton } from "@/components/reporting/reporting-export-button";
 import { AreaLink, AreaLinkGrid } from "@/components/ui/area-link";
 import { Button } from "@/components/ui/button";
@@ -9,6 +11,11 @@ import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/co
 import { Select } from "@/components/ui/select";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatMoney, formatPercent } from "@/lib/format";
+import { can } from "@/lib/rbac";
+import { isModuleVisible, moduleForPath } from "@/modules/registry";
+import { getCrmReport } from "@/server/crm/service";
+import { getEnabledModules } from "@/server/modules/service";
+import { getPosReport } from "@/server/pos/service";
 import { loadReportingKpis, type ReportingPeriod } from "@/server/reporting/service";
 
 const reportingSources = [
@@ -33,7 +40,16 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
   const requestedPeriod = Array.isArray(query?.period) ? query.period[0] : query?.period;
   const period: ReportingPeriod = requestedPeriod === "quarter" || requestedPeriod === "year" ? requestedPeriod : "month";
   // Same SQL aggregates and indicator definitions as the dashboard and the Excel export.
-  const { finance, kpis } = await loadReportingKpis(ctx.company.id, period, { countryCode: ctx.company.countryCode });
+  const [{ finance, kpis }, modules] = await Promise.all([
+    loadReportingKpis(ctx.company.id, period, { countryCode: ctx.company.countryCode }),
+    getEnabledModules(ctx.company.id),
+  ]);
+  const role = ctx.membership.role;
+  const [crmReport, posReport] = await Promise.all([
+    modules.includes("crm") && can(role, "crm.read") ? getCrmReport(ctx.company.id) : Promise.resolve(null),
+    modules.includes("pos") && can(role, "pos.read") ? getPosReport(ctx.company.id, { timeZone: ctx.company.timezone || "Europe/Madrid" }) : Promise.resolve(null),
+  ]);
+  const sources = reportingSources.filter((source) => isModuleVisible(moduleForPath(source.href)?.id, modules));
   const currencyCode = ctx.company.baseCurrencyCode;
   const money = (value: number) => formatMoney(value, currencyCode);
 
@@ -113,9 +129,12 @@ export default async function ReportingPage({ searchParams }: { searchParams?: P
         </PageSection>
       ) : null}
 
+      {crmReport ? <CrmReportSection currencyCode={currencyCode} report={crmReport} /> : null}
+      {posReport ? <PosReportSection currencyCode={currencyCode} report={posReport} /> : null}
+
       <PageSection title="Revisar el origen de los datos" description="Si un indicador no cuadra, revisa el módulo del que sale antes de compartir el informe.">
         <AreaLinkGrid testId="reporting-source-links">
-          {reportingSources.map((source) => (
+          {sources.map((source) => (
             <AreaLink description={source.description} href={source.href} key={source.href} title={source.label} titleAs="span" />
           ))}
         </AreaLinkGrid>

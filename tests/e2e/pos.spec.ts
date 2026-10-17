@@ -148,6 +148,13 @@ test("TPV: venta con cambio, ticket simplificado, devoluciones parciales, tarjet
   await expect(page.getByText(/ingreso de caja en el banco/).first()).toBeVisible();
   await expect(page.getByText(/diferencia de caja \(faltante\)/).first()).toBeVisible();
 
+  // Panel de inicio e Informes: ventas netas de hoy (607,00 €) con 3 tickets.
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("dashboard-pos-today")).toContainText("607,00");
+  await expect(page.getByTestId("dashboard-pos-today")).toContainText("3 tickets");
+  await page.goto("/reporting");
+  await expect(page.getByTestId("reporting-pos")).toContainText("607,00");
+
   // Las dos facturas (ticket y rectificativa) están en Facturas.
   await page.goto("/invoices");
   await expect(page.getByText("T000001").first()).toBeVisible();

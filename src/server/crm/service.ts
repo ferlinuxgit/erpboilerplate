@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, ne, or,
 import { crmActivity, crmOpportunity, crmStage, customer, membership, salesQuote, user } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
-import { DEFAULT_CRM_STAGES, pipelineSummary, stageTotals, validateStages, type CrmActivityType, type CrmStageKind } from "@/modules/crm/model";
+import { DEFAULT_CRM_STAGES, forecastByMonth, lostReasons, pipelineSummary, stageTotals, validateStages, type CrmActivityType, type CrmStageKind } from "@/modules/crm/model";
 import { recordAudit } from "@/server/audit";
 import { createCustomerWithPartner } from "@/server/customers/service";
 
@@ -667,4 +667,42 @@ export async function listCustomerOptions(companyId: string) {
     .where(and(eq(customer.companyId, companyId), eq(customer.status, "ACTIVE")))
     .orderBy(asc(customer.name))
     .limit(2000);
+}
+
+/** Informe del CRM: previsión de cierre por mes, embudo abierto por etapa y lo cerrado en 90 días. */
+export async function getCrmReport(companyId: string, now = new Date()) {
+  const stages = await ensureStages(companyId);
+  const since = new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+  const [open, closed] = await Promise.all([
+    listOpportunities(companyId, { status: "OPEN", limit: 2000 }),
+    listOpportunities(companyId, { status: "ALL", closedSince: since, limit: 2000 }).then((rows) => rows.filter((row) => row.status !== "OPEN")),
+  ]);
+  const probability = new Map(stages.map((stage) => [stage.id, stage.probability]));
+  const won = closed.filter((row) => row.status === "WON");
+  const lost = closed.filter((row) => row.status === "LOST");
+  const sumAmount = (rows: OpportunityRow[]) => rows.reduce((total, row) => total + Math.round(row.amount * 100), 0) / 100;
+  const bySource = new Map<string, { count: number; amountCents: number }>();
+  for (const row of won) {
+    const source = row.source ?? "";
+    const current = bySource.get(source) ?? { count: 0, amountCents: 0 };
+    current.count += 1;
+    current.amountCents += Math.round(row.amount * 100);
+    bySource.set(source, current);
+  }
+  return {
+    forecast: forecastByMonth(open.map((row) => ({ amount: row.amount, probability: probability.get(row.stageId) ?? 0, expectedCloseDate: row.expectedCloseDate })), now),
+    stages: stages.filter((stage) => stage.kind === "OPEN").map((stage) => {
+      const rows = open.filter((row) => row.stageId === stage.id);
+      return { id: stage.id, name: stage.name, probability: stage.probability, count: rows.length, amount: sumAmount(rows), weighted: Math.round(sumAmount(rows) * stage.probability) / 100 };
+    }),
+    closed: {
+      wonCount: won.length,
+      wonAmount: sumAmount(won),
+      lostCount: lost.length,
+      lostAmount: sumAmount(lost),
+      winRate: won.length + lost.length > 0 ? Math.round((won.length / (won.length + lost.length)) * 100) : null,
+      lostReasons: lostReasons(lost),
+      wonBySource: [...bySource.entries()].map(([source, value]) => ({ source, count: value.count, amount: value.amountCents / 100 })).sort((a, b) => b.amount - a.amount),
+    },
+  };
 }

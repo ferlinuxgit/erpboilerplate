@@ -25,7 +25,7 @@ import {
 import { db, type DbClient } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { HttpError } from "@/lib/http";
-import { cartTotals, exceedsSimplifiedLimit, expectedCash, remainingQuantities, splitRefund, validatePayment, type RefundMethod } from "@/modules/pos/model";
+import { cartTotals, dailySales, exceedsSimplifiedLimit, expectedCash, remainingQuantities, splitRefund, validatePayment, type RefundMethod } from "@/modules/pos/model";
 import { createAutomaticEntry, resolveBankLedgerAccountId } from "@/server/accounting/auto-post";
 import { CASH_ACCOUNT_CODE, ensureSubaccount } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
@@ -1053,4 +1053,45 @@ export async function getTicketPrint(companyId: string, invoiceId: string) {
     originalNumber: original?.number ?? null,
     verifactu: verifactuInfo ? { svg: await getInvoiceVerifactuQrSvg(verifactuInfo), legends: verifactuInfo.legends } : null,
   };
+}
+
+/** Informe del TPV: ventas netas por día, por caja y por forma de cobro en los últimos `days` días. */
+export async function getPosReport(companyId: string, options: { days?: number; timeZone?: string; now?: Date } = {}) {
+  const days = options.days ?? 30;
+  const now = options.now ?? new Date();
+  const since = new Date(now.getTime() - (days + 1) * 86_400_000);
+  const rows = await db
+    .select({ kind: posTicket.kind, totalAmount: posTicket.totalAmount, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, createdAt: posTicket.createdAt, registerName: posRegister.name })
+    .from(posTicket)
+    .innerJoin(posSession, eq(posSession.id, posTicket.sessionId))
+    .innerJoin(posRegister, eq(posRegister.id, posSession.registerId))
+    .where(and(eq(posTicket.companyId, companyId), sql`${posTicket.createdAt} >= ${since}`));
+  const series = dailySales(rows.map((row) => ({ kind: row.kind, total: num(row.totalAmount), createdAt: row.createdAt })), now, days, options.timeZone);
+  const inRange = new Set(series.categories.map((day) => day.key));
+  const dayOf = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: options.timeZone ?? "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  const tickets = rows.filter((row) => inRange.has(dayOf(row.createdAt)));
+  const signed = (row: (typeof rows)[number], key: "totalAmount" | "cashAmount" | "cardAmount") => (row.kind === "REFUND" ? -1 : 1) * amountToCents(num(row[key]));
+  const sales = tickets.filter((row) => row.kind === "SALE");
+  const byRegister = new Map<string, number>();
+  for (const row of tickets) byRegister.set(row.registerName, (byRegister.get(row.registerName) ?? 0) + signed(row, "totalAmount"));
+  const salesCents = sales.reduce((total, row) => total + amountToCents(num(row.totalAmount)), 0);
+  return {
+    ...series,
+    netTotal: centsToNumber(tickets.reduce((total, row) => total + signed(row, "totalAmount"), 0)),
+    cash: centsToNumber(tickets.reduce((total, row) => total + signed(row, "cashAmount"), 0)),
+    card: centsToNumber(tickets.reduce((total, row) => total + signed(row, "cardAmount"), 0)),
+    ticketCount: sales.length,
+    refundCount: tickets.length - sales.length,
+    averageTicket: sales.length > 0 ? centsToNumber(Math.round(salesCents / sales.length)) : 0,
+    byRegister: [...byRegister.entries()].map(([name, cents]) => ({ name, net: centsToNumber(cents) })).sort((a, b) => b.net - a.net),
+  };
+}
+
+/** Panel de inicio: ventas netas de hoy, tickets y cajas abiertas. */
+export async function getPosToday(companyId: string, timeZone?: string) {
+  const [report, [open]] = await Promise.all([
+    getPosReport(companyId, { days: 1, timeZone }),
+    db.select({ count: sql<number>`count(*)::int` }).from(posSession).where(and(eq(posSession.companyId, companyId), eq(posSession.status, "OPEN"))),
+  ]);
+  return { net: report.netTotal, tickets: report.ticketCount, openRegisters: open?.count ?? 0 };
 }
