@@ -241,7 +241,7 @@ Documentación existente:
 Gaps de despliegue:
 
 1. Falta `.env.example` aunque README lo exige.
-2. Falta guía de DB local para desarrollo (`docker compose`, Postgres local, Supabase/Neon, nombre DB, SSL esperado).
+2. Falta guía de DB local para desarrollo (`docker compose`, Postgres local, nombre DB, SSL esperado).
 3. No hay `Dockerfile`, `docker-compose.yml`, `render.yaml`, `fly.toml`, `railway.json` ni `vercel.json` detectados.
 4. CI no instala browsers Playwright ni ejecuta `npm run test:e2e`.
 5. CI ejecuta `npm run build` sin declarar variables de entorno; en entorno limpio fallará como se observó localmente.

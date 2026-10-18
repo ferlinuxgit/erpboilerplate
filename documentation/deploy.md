@@ -5,7 +5,7 @@
 Variables obligatorias para local/CI/build/runtime:
 
 - `DATABASE_URL`: requerida por Drizzle y por rutas/páginas App Router que importan DB. `npm run build` ejecuta `scripts/check-build-env.mjs` como preflight, carga `.env*` y falla antes de la recolección de páginas si falta. Usa una URL de base de datos real del entorno; no commits credenciales.
-  Para conexiones TLS remotas con el comportamiento estricto actual de `pg`, usa `sslmode=verify-full` explícitamente en lugar de `sslmode=require`.
+  En producción es la URL interna del PostgreSQL del propio proyecto de Coolify (host = UUID de la base, sin TLS). Si alguna vez apuntas a un Postgres remoto con TLS, usa `sslmode=verify-full` explícitamente en lugar de `sslmode=require`.
 - `JWT_SECRET`: secreto de firma de sesión, con al menos 32 caracteres.
 - `APP_URL`: URL canónica HTTPS de la app.
 
@@ -121,7 +121,7 @@ Antes de cada deploy con migraciones, toma un backup de la base:
 pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL" > backup-$(date +%Y%m%d-%H%M%S).dump
 ```
 
-(o un snapshot/branch del proveedor, p. ej. Neon). Guarda el fichero fuera del servidor de la app y nunca en el repositorio.
+(o las copias programadas de la base en Coolify: Databases → erp-postgres → Backups, a ser posible a S3). Guarda el fichero fuera del servidor de la app y nunca en el repositorio.
 
 Rollback de la app (sin cambios de esquema incompatibles): en Coolify vuelve a desplegar la imagen/commit anterior ("Redeploy" de un deployment previo) o `git revert` del commit y push a `main`. Comprueba `GET /api/health` y `GET /api/readyz`.
 

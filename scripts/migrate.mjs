@@ -8,8 +8,8 @@
 //   con `drizzle-kit migrate`.
 // - Todo va en UNA transacción con un bloqueo transaccional (pg_advisory_xact_lock): si arrancan
 //   varias réplicas a la vez solo una aplica las migraciones y el resto espera y no hace nada.
-//   El bloqueo transaccional funciona también a través de poolers en modo transacción (Neon,
-//   PgBouncer), donde un bloqueo de sesión no es fiable. Si algo falla, no se aplica nada.
+//   El bloqueo transaccional funciona también a través de poolers en modo transacción
+//   (PgBouncer), donde un bloqueo de sesión no es fiable. Si algo falla, no se aplica nada.
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

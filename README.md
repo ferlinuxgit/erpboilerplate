@@ -83,7 +83,7 @@ npm run test:e2e
 
 ## Produccion
 
-Para un despliegue real en Coolify/Neon, usa este flujo:
+Para un despliegue real en Coolify (app + PostgreSQL del mismo proyecto), usa este flujo:
 
 ```bash
 npm run release:verify
