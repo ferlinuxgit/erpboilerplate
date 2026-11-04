@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { GestorPackageDownload } from "@/components/accounting/gestor-package-download";
 import { HelpTerm } from "@/components/help/help-term";
@@ -29,6 +30,10 @@ export default async function GestorPackagePage({ searchParams }: { searchParams
         title="Paquete para el gestor"
         description="Todo lo que suele pedir tu gestor o asesor, en un único ZIP: libros contables, libros registro de IVA y modelos del periodo."
       />
+      <InlineAlert tone="info">
+        ¿Prefieres que tu asesor lo descargue cuando lo necesite?{" "}
+        <Link className="font-bold underline underline-offset-2" href="/settings/asesor">Dale acceso con contraseña</Link> a su portal: facturas emitidas y recibidas, libros, modelos y listados de cada periodo.
+      </InlineAlert>
       {!year ? (
         <InlineAlert tone="warning">No hay ejercicios contables todavía.</InlineAlert>
       ) : (

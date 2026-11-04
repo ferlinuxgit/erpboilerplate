@@ -177,6 +177,16 @@ export const settingsSections: SettingsSection[] = [
     ],
   },
   {
+    id: "advisor",
+    label: "Asesor",
+    description: "Acceso con contraseña para tu gestoría: descarga facturas, gastos, libros y modelos.",
+    href: "/settings/asesor",
+    permission: "team.read",
+    items: [
+      { label: "Acceso del asesor", description: "Crea una contraseña para tu gestor o asesor y decide qué puede descargar.", href: "/settings/asesor", keywords: "asesor gestor gestoria asesoria contable portal acceso contraseña descargar facturas gastos libros modelos trimestre" },
+    ],
+  },
+  {
     id: "security",
     label: "Seguridad",
     description: "Política de acceso del espacio de trabajo.",

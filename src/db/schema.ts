@@ -2486,3 +2486,51 @@ export const posMenuItem = pgTable("pos_menu_item", {
   soldOutDate: text("soldOutDate"),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [index("pos_menu_item_company_idx").on(table.companyId, table.sectionId)]);
+
+/**
+ * Acceso del asesor (gestoría) a una empresa: credenciales propias (email + contraseña), sin cuenta
+ * de usuario ni asiento en el equipo. Solo entra en el portal `/asesor`, en lectura y descarga, y
+ * solo a las secciones de `scopes`. Revocar o cambiar la contraseña invalida sus sesiones.
+ */
+export const advisorAccess = pgTable("advisor_access", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // Persona de contacto y despacho (gestoría).
+  name: text("name").notNull(),
+  firm: text("firm"),
+  // Email de acceso, en minúsculas. Una gestoría puede tener acceso a varias empresas con el mismo email.
+  email: text("email").notNull(),
+  passwordHash: text("passwordHash").notNull(),
+  // Secciones visibles (ver `src/lib/advisor-scopes.ts`).
+  scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
+  // Las sesiones anteriores a esta fecha dejan de valer (cambio de contraseña o de secciones).
+  credentialsChangedAt: timestamp("credentialsChangedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  expiresAt: timestamp("expiresAt", { withTimezone: true, mode: "date" }),
+  revokedAt: timestamp("revokedAt", { withTimezone: true, mode: "date" }),
+  lastLoginAt: timestamp("lastLoginAt", { withTimezone: true, mode: "date" }),
+  lastLoginIp: text("lastLoginIp"),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("advisor_access_company_email_unique").on(table.companyId, table.email),
+  index("advisor_access_email_idx").on(table.email),
+]);
+
+/**
+ * Sesión del portal del asesor (cookie propia, distinta de la del ERP). `accessIds` son los accesos
+ * cuya contraseña coincidió al entrar (una gestoría con varias empresas); `activeAccessId`, la empresa
+ * que está viendo.
+ */
+export const advisorSession = pgTable("advisor_session", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tokenHash: text("tokenHash").notNull().unique(),
+  email: text("email").notNull(),
+  accessIds: jsonb("accessIds").$type<string[]>().notNull(),
+  activeAccessId: text("activeAccessId").notNull().references(() => advisorAccess.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expiresAt", { withTimezone: true, mode: "date" }).notNull(),
+  ipAddress: text("ipAddress"),
+  userAgent: text("userAgent"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [index("advisor_session_expires_idx").on(table.expiresAt)]);

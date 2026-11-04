@@ -18,6 +18,8 @@ export type ExpenseExportFilters = {
   to: string | null;
   q: string;
   status: string | null;
+  /** Solo estas facturas (selección del portal del asesor); el resto de filtros se sigue aplicando. */
+  ids?: string[];
 };
 
 function formatDay(value: string) {
@@ -39,7 +41,8 @@ export function expenseExportPeriodLabel(filters: Pick<ExpenseExportFilters, "fr
 export async function generateExpenseExport(input: {
   companyId: string;
   tenantId: string;
-  actorUserId: string;
+  /** `null`: lo audita quien llama (portal del asesor, que no es un usuario del ERP). */
+  actorUserId: string | null;
   filters: ExpenseExportFilters;
   includeDocuments: boolean;
 }) {
@@ -49,7 +52,10 @@ export async function generateExpenseExport(input: {
     base: [eq(supplierInvoice.companyId, input.companyId), ne(supplierInvoice.status, "VOID")],
     search: { q: input.filters.q, columns: [supplierInvoice.number, supplierInvoice.supplierDocumentNumber, partner.name, purchaseOrder.number] },
     dateRange: { column: supplierInvoice.issueDate, from: input.filters.from, to: input.filters.to },
-    filters: [input.filters.status ? sql`${paymentStatus} = ${input.filters.status}` : undefined],
+    filters: [
+      input.filters.status ? sql`${paymentStatus} = ${input.filters.status}` : undefined,
+      input.filters.ids ? inArray(supplierInvoice.id, input.filters.ids.length > 0 ? input.filters.ids : [""]) : undefined,
+    ],
   });
 
   const [[companyRow], headers] = await Promise.all([
@@ -180,7 +186,7 @@ export async function generateExpenseExport(input: {
     { includeDocuments: input.includeDocuments },
   );
 
-  await recordAudit({
+  if (input.actorUserId) await recordAudit({
     tenantId: input.tenantId,
     companyId: input.companyId,
     actorUserId: input.actorUserId,

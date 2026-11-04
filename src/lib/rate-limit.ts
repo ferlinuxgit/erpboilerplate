@@ -41,6 +41,9 @@ export const RATE_LIMIT_RULES = {
   api: { id: "api", limit: 300, windowMs: MINUTE },
   login: { id: "auth-login", limit: 10, windowMs: MINUTE },
   loginEmail: { id: "auth-login-email", limit: 5, windowMs: 15 * MINUTE },
+  // Portal del asesor: mismo criterio que el acceso al ERP (por IP en el proxy y por email).
+  advisorLogin: { id: "advisor-login", limit: 10, windowMs: MINUTE },
+  advisorLoginEmail: { id: "advisor-login-email", limit: 5, windowMs: 15 * MINUTE },
   register: { id: "auth-register", limit: 10, windowMs: MINUTE },
   verifyTwoFactor: { id: "auth-2fa", limit: 10, windowMs: MINUTE },
   verifyEmail: { id: "auth-verify-email", limit: 10, windowMs: MINUTE },
@@ -82,6 +85,7 @@ function resolveBaseRateLimitRule(pathname: string, method: string): RateLimitRu
   if (RATE_LIMIT_EXEMPT_PATHS.has(pathname) || RATE_LIMIT_EXEMPT_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return null;
   if (method === "POST") {
     if (pathname === "/api/auth/login") return RATE_LIMIT_RULES.login;
+    if (pathname === "/api/advisor/login") return RATE_LIMIT_RULES.advisorLogin;
     if (pathname === "/api/auth/register") return RATE_LIMIT_RULES.register;
     if (pathname === "/api/auth/verify-two-factor") return RATE_LIMIT_RULES.verifyTwoFactor;
     if (pathname === "/api/auth/verify-email") return RATE_LIMIT_RULES.verifyEmail;

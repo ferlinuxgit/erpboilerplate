@@ -393,6 +393,13 @@
       "when": 1792266588755,
       "tag": "0055_waitlist_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1793783289018,
+      "tag": "0056_advisor_portal",
+      "breakpoints": true
     }
   ]
 }

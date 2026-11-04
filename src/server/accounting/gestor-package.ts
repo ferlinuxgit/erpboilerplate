@@ -6,7 +6,7 @@ import { isSpanishFiscalModelCode, parseSpanishFiscalPeriod } from "@/lib/fiscal
 import { journalEntryOriginLabel } from "@/lib/status-labels";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { listFiscalYears } from "@/server/accounting/fiscal-years";
-import { buildGestorPackageZip, gestorPackageFileName, type GestorJournalLine } from "@/server/accounting/gestor-package-model";
+import { buildGestorPackageZip, gestorPackageFileName, type GestorJournalLine, type GestorPackageData } from "@/server/accounting/gestor-package-model";
 import { toCents } from "@/server/accounting/money";
 import { loadStatementAccountRows } from "@/server/accounting/statements";
 import { buildFinancialStatements, resolveStatementPeriod } from "@/server/accounting/statements-model";
@@ -53,17 +53,10 @@ async function loadJournalLines(companyId: string, from: Date, toExclusive: Date
 }
 
 /**
- * Genera el ZIP del paquete para el gestor del periodo pedido (ejercicio + periodo) y lo audita.
- * Incluye los PDF de los modelos fiscales cuyo periodo cae dentro del rango.
+ * Datos del paquete para el gestor (libros, IVA y PDF de los modelos) del periodo pedido
+ * (ejercicio + periodo). Lo usan el ZIP del paquete y las descargas sueltas del portal del asesor.
  */
-export async function generateGestorPackage(input: {
-  companyId: string;
-  tenantId: string;
-  actorUserId: string;
-  countryCode: string;
-  fiscalYearId: string;
-  periodKey: string | null;
-}) {
+export async function loadGestorPackageData(input: { companyId: string; countryCode: string; fiscalYearId: string; periodKey: string | null; includeModelPdfs?: boolean }) {
   const years = await listFiscalYears(input.companyId);
   const year = years.find((candidate) => candidate.id === input.fiscalYearId);
   if (!year) throw new AccountingRuleError(404, "FISCAL_YEAR_NOT_FOUND", "Ejercicio no encontrado.");
@@ -75,7 +68,7 @@ export async function generateGestorPackage(input: {
     loadJournalLines(input.companyId, period.from, period.toExclusive),
     loadStatementAccountRows(input.companyId, { yearStart: year.startsAt, from: period.from, toExclusive: period.toExclusive }),
     loadVatRegisters(input.companyId, period.from, period.toExclusive),
-    listFiscalReports(input.companyId),
+    input.includeModelPdfs === false ? Promise.resolve([]) : listFiscalReports(input.companyId),
   ]);
   const statements = buildFinancialStatements(statementRows, input.countryCode);
   const companyName = companyRow?.name ?? "Empresa";
@@ -94,8 +87,7 @@ export async function generateGestorPackage(input: {
     modelPdfs.push({ fileName: `modelo-${report.code}-${report.period}.pdf`, bytes: new Uint8Array(pdf) });
   }
 
-  const generatedAt = new Date();
-  const zip = await buildGestorPackageZip({
+  const data: GestorPackageData = {
     companyName,
     companyTaxId: companyRow?.vatNumber ?? null,
     periodLabel: period.label,
@@ -107,8 +99,25 @@ export async function generateGestorPackage(input: {
     vatIssued: vat.issued,
     vatReceived: vat.received,
     modelPdfs,
-    generatedAt,
-  });
+    generatedAt: new Date(),
+  };
+  return { data, year, period };
+}
+
+/**
+ * Genera el ZIP del paquete para el gestor del periodo pedido (ejercicio + periodo) y lo audita.
+ * Incluye los PDF de los modelos fiscales cuyo periodo cae dentro del rango.
+ */
+export async function generateGestorPackage(input: {
+  companyId: string;
+  tenantId: string;
+  actorUserId: string;
+  countryCode: string;
+  fiscalYearId: string;
+  periodKey: string | null;
+}) {
+  const { data, year, period } = await loadGestorPackageData(input);
+  const zip = await buildGestorPackageZip(data);
 
   await recordAudit({
     tenantId: input.tenantId,
@@ -117,8 +126,8 @@ export async function generateGestorPackage(input: {
     action: "fiscal.gestorPackage",
     entityName: "fiscalYear",
     entityId: year.id,
-    payload: { period: period.key, from: period.from, to, files: zip.fileNames },
+    payload: { period: period.key, from: period.from, to: data.to, files: zip.fileNames },
   });
 
-  return { bytes: zip.bytes, fileName: gestorPackageFileName(companyName, period.label) };
+  return { bytes: zip.bytes, fileName: gestorPackageFileName(data.companyName, period.label) };
 }

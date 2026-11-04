@@ -22,6 +22,8 @@ const CSRF_EXEMPT_PATHS = new Set([
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
   "/api/auth/resend-verification",
+  // Acceso al portal del asesor (antes de tener sesión).
+  "/api/advisor/login",
   "/api/billing/webhook",
   // Server-to-server cron trigger: authenticated by the CRON_SECRET header, never by cookies.
   "/api/recurring/run",

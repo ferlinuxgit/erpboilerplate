@@ -167,6 +167,15 @@ export const auditActionLabels: Record<string, string> = {
   "fiscal.reopen": "Modelo fiscal reabierto",
   "fiscal.file": "Modelo marcado como presentado",
   "fiscal.gestorPackage": "Paquete para el gestor descargado",
+  // Portal del asesor
+  "advisor.create": "Acceso de asesor creado",
+  "advisor.update": "Acceso de asesor modificado",
+  "advisor.resetPassword": "Contraseña del asesor cambiada",
+  "advisor.revoke": "Acceso de asesor revocado",
+  "advisor.reactivate": "Acceso de asesor reactivado",
+  "advisor.delete": "Acceso de asesor eliminado",
+  "advisor.login": "El asesor entró en el portal",
+  "advisor.download": "El asesor descargó documentación",
   // Tesorería
   "treasury.account.create": "Cuenta bancaria creada",
   "treasury.account.update": "Cuenta bancaria modificada",
@@ -207,6 +216,7 @@ export const auditActionLabels: Record<string, string> = {
 
 /** Etiquetas de `audit_log.entityName` (nombre de tabla en camelCase; incluye alias históricos). */
 export const auditEntityLabels: Record<string, string> = {
+  advisorAccess: "Acceso del asesor",
   accountChart: "Cuenta contable",
   apiKey: "Clave API",
   bankAccount: "Cuenta bancaria",
