@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { patchJson, postJson } from "./helpers/api-client";
 import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-session";
+import { setLineTaxes } from "./helpers/line-taxes";
 
 test("crear customer y factura con dos líneas persiste totales y líneas", async ({ page }) => {
   // Full lifecycle (draft → edit → issue → rectify → pay) on a cold dev server takes ~40s.
@@ -75,7 +76,9 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
-  await page.getByTestId("invoice-line-1-taxes").selectOption({ label: "IVA general 21%" });
+  // La línea propone el IVA por defecto sin tocar nada (y se guarda, ver los totales del servidor).
+  await expect(page.getByTestId("invoice-line-1-taxes")).toContainText("IVA general 21%");
+  await setLineTaxes(page, 1, { vat: "IVA general 21%" });
 
   await page.getByTestId("invoice-line-1-unit-price").press("Enter");
   await expect(page.getByTestId("invoice-line-2-description")).toBeFocused();
@@ -83,8 +86,8 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByTestId("invoice-line-2-quantity").fill("1.5");
   await page.getByTestId("invoice-line-2-unit-price").fill("80");
   // Las líneas nuevas proponen el IVA por defecto (21 %): se cambia por el reducido.
-  await expect(page.getByTestId("invoice-line-2-taxes")).toHaveValue(/.+/);
-  await page.getByTestId("invoice-line-2-taxes").selectOption({ label: "IVA reducido 10%" });
+  await expect(page.getByTestId("invoice-line-2-taxes")).toContainText("IVA general 21%");
+  await setLineTaxes(page, 2, { vat: "IVA reducido 10%" });
 
   await page.getByRole("button", { name: "Duplicar línea 2" }).click();
   await expect(page.getByTestId("invoice-line-3-description")).toHaveValue("Soporte");
@@ -314,9 +317,9 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-line-1-description").fill("Servicio inline");
   await page.getByTestId("invoice-line-1-quantity").fill("1");
   await page.getByTestId("invoice-line-1-unit-price").fill("100");
-  await page.getByTestId("invoice-line-1-taxes").selectOption({ label: "IVA general 21%" });
-  // Retención en su propio desplegable: 100 € + 21 % − 15 % = 106 €.
-  await page.getByTestId("invoice-line-1-retention").selectOption({ label: "Retención IRPF 15%" });
+  // IVA y retención en el diálogo de la línea: 100 € + 21 % − 15 % = 106 €.
+  await setLineTaxes(page, 1, { vat: "IVA general 21%", retention: "Retención IRPF 15%" });
+  await expect(page.getByTestId("invoice-line-1-taxes")).toContainText("IVA general 21% · Retención IRPF 15%");
   await expect(page.getByTestId("invoice-grand-total")).toHaveText("Total: 106,00 €");
 
   const invoiceResponsePromise = page.waitForResponse(

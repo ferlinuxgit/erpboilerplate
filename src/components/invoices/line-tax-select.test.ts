@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { lineTaxSelects, taxIdsFromSelects, type LineTaxSelectOption } from "@/components/invoices/line-tax-select";
+import { lineTaxSelects, lineTaxSummary, taxIdsFromSelects, type LineTaxSelectOption } from "@/components/invoices/line-tax-select";
 
 const taxes: LineTaxSelectOption[] = [
   { id: "iva21", name: "IVA", rate: 21, kind: "VAT", operation: "ADD" },
@@ -36,5 +36,11 @@ describe("selectores de impuestos de la línea", () => {
     const twoVat = lineTaxSelects(taxes, ["iva10", "iva21"]).added;
     expect(twoVat.value).toBe("iva10,iva21");
     expect(twoVat.choices.at(-1)?.label).toBe("IVA 21 % + IVA reducido 10%");
+  });
+
+  it("resume en el botón de la línea lo elegido", () => {
+    expect(lineTaxSummary(lineTaxSelects(taxes, ["iva21", "irpf15"]))).toBe("IVA 21 % · IRPF 15 %");
+    expect(lineTaxSummary(lineTaxSelects(taxes, ["iva21", "re52"]))).toBe("IVA 21 % + recargo 5,2 %");
+    expect(lineTaxSummary(lineTaxSelects(taxes, []))).toBe("Sin impuestos");
   });
 });

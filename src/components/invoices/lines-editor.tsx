@@ -14,7 +14,7 @@ import {
   vatRateLabel,
   vatRateOptions,
 } from "@/components/invoices/lines-editor-model";
-import { lineTaxSelects, taxIdsFromSelects } from "@/components/invoices/line-tax-select";
+import { LineTaxDialog } from "@/components/invoices/line-tax-dialog";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { FIELD_SCROLL_MARGIN } from "@/components/ui/form";
@@ -61,8 +61,8 @@ export type LineTaxOption = {
 
 /**
  * Cómo se eligen los impuestos de cada línea:
- * - `multi`: impuestos configurados en dos desplegables nativos, «IVA» (IVA, IVA + recargo…) y
- *   «Retención» (IRPF…); la línea guarda la lista de impuestos resultante.
+ * - `multi`: impuestos configurados; un botón por línea abre un diálogo con «IVA» (IVA, IVA +
+ *   recargo…) y «Retención» (IRPF…). La línea guarda la lista de impuestos resultante.
  * - `vat`: un único tipo de IVA en un desplegable.
  * - `fixed`: impuestos congelados de otro documento, solo lectura.
  * - `none`: sin columna de impuestos.
@@ -220,7 +220,6 @@ export function LinesEditor({
   const startColumns = extraColumns.filter((column) => column.position === "start");
   const endColumns = extraColumns.filter((column) => column.position === "end");
   const hasMenuActions = Boolean(onMove || onDuplicate);
-  const withWithholding = tax.kind === "multi" && lineTaxSelects(tax.taxes).hasWithholding;
 
   const columns: Column[] = [
     withItem ? { key: "item", header: "Artículo", track: TRACKS.item } : null,
@@ -358,7 +357,6 @@ export function LinesEditor({
               discountPct: lineFieldId(idPrefix, index, "discount"),
               taxRate: lineFieldId(idPrefix, index, "tax-rate"),
               taxes: lineFieldId(idPrefix, index, "taxes"),
-              retention: lineFieldId(idPrefix, index, "retention"),
             };
             const errorId = (id: string, key: string) => (errors[key] ? `${id}-error` : undefined);
             const describedBy = (...parts: Array<string | undefined>) => parts.filter(Boolean).join(" ") || undefined;
@@ -479,44 +477,19 @@ export function LinesEditor({
                     />
                   </LineField>
                 ) : null}
-                {tax.kind === "multi" ? (() => {
-                  const selects = lineTaxSelects(tax.taxes, row.selectedTaxIds);
-                  const change = (added: string, withheld: string) => row.onTaxIdsChange?.(taxIdsFromSelects(added, withheld));
-                  return (
-                    // IVA y retención juntos en la misma celda (uno debajo del otro): siempre a la vista,
-                    // también en pantallas medianas y en la tarjeta del móvil.
-                    <LineField error={errors.tax} errorId={errorId(ids.taxes, "tax")} htmlFor={ids.taxes} label="Impuestos" lineNumber={lineNumber} wide>
-                      <div className="flex flex-col gap-1">
-                        <Select
-                          aria-describedby={errorId(ids.taxes, "tax")}
-                          aria-invalid={Boolean(errors.tax) || undefined}
-                          aria-label={`IVA de la línea ${lineNumber}`}
-                          className="h-9"
-                          data-testid={ids.taxes}
-                          id={ids.taxes}
-                          onChange={(event) => change(event.target.value, selects.withheld.value)}
-                          onKeyDown={(event) => handleEnter(event, index, "tax")}
-                          value={selects.added.value}
-                        >
-                          {selects.added.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
-                        </Select>
-                        {withWithholding ? (
-                          <Select
-                            aria-label={`Retención de la línea ${lineNumber}`}
-                            className="h-9"
-                            data-testid={ids.retention}
-                            id={ids.retention}
-                            onChange={(event) => change(selects.added.value, event.target.value)}
-                            onKeyDown={(event) => handleEnter(event, index, "retention")}
-                            value={selects.withheld.value}
-                          >
-                            {selects.withheld.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
-                          </Select>
-                        ) : null}
-                      </div>
-                    </LineField>
-                  );
-                })() : null}
+                {tax.kind === "multi" ? (
+                  <LineField error={errors.tax} errorId={errorId(ids.taxes, "tax")} label="Impuestos" lineNumber={lineNumber} wide>
+                    <LineTaxDialog
+                      describedBy={errorId(ids.taxes, "tax")}
+                      id={ids.taxes}
+                      invalid={Boolean(errors.tax)}
+                      lineNumber={lineNumber}
+                      onChange={row.onTaxIdsChange}
+                      selectedTaxIds={row.selectedTaxIds}
+                      taxes={tax.taxes}
+                    />
+                  </LineField>
+                ) : null}
                 {tax.kind === "vat" ? (
                   <LineField error={errors.tax} errorId={errorId(ids.taxRate, "tax")} htmlFor={ids.taxRate} label="IVA" lineNumber={lineNumber}>
                     <Select

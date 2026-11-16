@@ -2,7 +2,7 @@
 
 import { CaretDown } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import type { UseFormRegisterReturn } from "react-hook-form";
+import { useController, type Control, type FieldValues, type Path, type UseFormRegisterReturn } from "react-hook-form";
 
 import { DismissibleDetails, LineErrorText, LinesEditor, PICKER_OPTION, PICKER_PANEL, PICKER_SUMMARY, type LinesEditorRow } from "@/components/invoices/lines-editor";
 import { formatMoney, formatPercent } from "@/lib/format";
@@ -113,10 +113,21 @@ export function InvoicePaymentMethodsField({
 }
 
 /**
+ * Mantiene registrado `lines.N.taxIds` aunque ningún input lo pinte (los impuestos se eligen en
+ * un diálogo): con `shouldUnregister` el formulario descarta los valores no registrados y las
+ * líneas perderían el IVA propuesto.
+ */
+function RegisteredTaxIds<T extends FieldValues>({ control, name }: { control: Control<T>; name: Path<T> }) {
+  useController({ control, name });
+  return null;
+}
+
+/**
  * Adaptador react-hook-form del editor de líneas único (`LinesEditor`): varios
  * impuestos por línea (`taxIds`, elegidos con dos desplegables) y bindings `register()` no controlados.
  */
-export function InvoiceLinesEditor({
+export function InvoiceLinesEditor<T extends FieldValues>({
+  control,
   errors,
   fields,
   getBindings,
@@ -128,6 +139,8 @@ export function InvoiceLinesEditor({
   taxes,
   totals,
 }: {
+  /** Control del formulario: registra los impuestos de cada línea (`lines.N.taxIds`). */
+  control: Control<T>;
   errors: LineError[];
   fields: Array<{ id: string }>;
   getBindings: (index: number) => LineBindings;
@@ -156,20 +169,23 @@ export function InvoiceLinesEditor({
     };
   });
   return (
-    <LinesEditor
-      addTestId="invoice-add-line"
-      idPrefix="invoice-line"
-      onAdd={onAdd}
-      onDuplicate={onDuplicate}
-      onMove={onMove}
-      onRemove={onRemove}
-      rows={rows}
-      tax={{ kind: "multi", taxes }}
-      title="Líneas de factura"
-      titleId="invoice-lines-title"
-      totalLabel="Total"
-      withDiscount
-    />
+    <>
+      {fields.map((field, index) => <RegisteredTaxIds control={control} key={`${field.id}-${index}`} name={`lines.${index}.taxIds` as Path<T>} />)}
+      <LinesEditor
+        addTestId="invoice-add-line"
+        idPrefix="invoice-line"
+        onAdd={onAdd}
+        onDuplicate={onDuplicate}
+        onMove={onMove}
+        onRemove={onRemove}
+        rows={rows}
+        tax={{ kind: "multi", taxes }}
+        title="Líneas de factura"
+        titleId="invoice-lines-title"
+        totalLabel="Total"
+        withDiscount
+      />
+    </>
   );
 }
 

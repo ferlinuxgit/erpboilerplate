@@ -465,6 +465,7 @@ export function CreateInvoiceForm({
       </div>
       <div className="md:col-span-3">
         <InvoiceLinesEditor
+          control={control}
           errors={fields.map((_, index) => {
             const lineError = errors.lines?.[index];
             return {

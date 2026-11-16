@@ -66,3 +66,10 @@ export function lineTaxSelects(taxes: readonly LineTaxSelectOption[], selectedId
 export function taxIdsFromSelects(addedValue: string, withheldValue: string) {
   return [...addedValue.split(","), ...withheldValue.split(",")].filter(Boolean);
 }
+
+/** Texto del botón de la línea: lo elegido en cada grupo («IVA 21 % · IRPF 15 %») o «Sin impuestos». */
+export function lineTaxSummary(selects: ReturnType<typeof lineTaxSelects>) {
+  const label = (group: { choices: TaxSelectChoice[]; value: string }) => (group.value ? group.choices.find((choice) => choice.value === group.value)?.label : undefined);
+  const parts = [label(selects.added), label(selects.withheld)].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Sin impuestos";
+}

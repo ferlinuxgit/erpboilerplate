@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 
 import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-session";
+import { setLineTaxes } from "./helpers/line-taxes";
 
 type ModuleSmokeCase = {
   path: string;
@@ -151,7 +152,7 @@ test("customers and invoices create flows work after prerequisite onboarding and
   await page.getByTestId("invoice-line-1-description").fill("Servicio smoke");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
   await page.getByTestId("invoice-line-1-unit-price").fill("50");
-  await page.getByTestId("invoice-line-1-taxes").selectOption({ label: "IVA general 21%" });
+  await setLineTaxes(page, 1, { vat: "IVA general 21%" });
 
   await expect(page.getByTestId("invoice-subtotal")).toContainText("100,00 €");
   await expect(page.getByTestId("invoice-tax-total")).toHaveText("Impuestos añadidos: 21,00 €");
