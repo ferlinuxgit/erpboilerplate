@@ -169,12 +169,11 @@ export const PICKER_OPTION = "flex cursor-pointer gap-2 rounded-control px-2 py-
 
 const TRACKS = {
   item: "minmax(10rem,.6fr)",
-  description: "minmax(10rem,1fr)",
+  description: "minmax(13rem,1fr)",
   quantity: "5.5rem",
   unitPrice: "7.5rem",
   discount: "5rem",
-  multi: "minmax(9rem,.6fr)",
-  retention: "minmax(8rem,.45fr)",
+  multi: "minmax(10rem,.7fr)",
   vat: "6.5rem",
   fixed: "minmax(8rem,.6fr)",
   total: "7.5rem",
@@ -230,8 +229,7 @@ export function LinesEditor({
     withQuantity ? { key: "quantity", header: "Cantidad", track: TRACKS.quantity, numeric: true } : null,
     { key: "unitPrice", header: unitPriceLabel, track: TRACKS.unitPrice, numeric: true },
     withDiscount ? { key: "discount", header: "Dto.", track: TRACKS.discount, numeric: true } : null,
-    tax.kind === "multi" ? { key: "tax", header: "IVA", track: TRACKS.multi } : null,
-    tax.kind === "multi" && withWithholding ? { key: "retention", header: "Retención", track: TRACKS.retention } : null,
+    tax.kind === "multi" ? { key: "tax", header: "Impuestos", track: TRACKS.multi } : null,
     tax.kind === "vat" ? { key: "tax", header: "IVA", track: TRACKS.vat } : null,
     tax.kind === "fixed" ? { key: "tax", header: "Impuestos", track: TRACKS.fixed } : null,
     ...endColumns.map((column) => ({ key: column.key, header: column.header ?? column.label, track: column.track, numeric: column.numeric })),
@@ -485,11 +483,14 @@ export function LinesEditor({
                   const selects = lineTaxSelects(tax.taxes, row.selectedTaxIds);
                   const change = (added: string, withheld: string) => row.onTaxIdsChange?.(taxIdsFromSelects(added, withheld));
                   return (
-                    <>
-                      <LineField error={errors.tax} errorId={errorId(ids.taxes, "tax")} htmlFor={ids.taxes} label="IVA" lineNumber={lineNumber}>
+                    // IVA y retención juntos en la misma celda (uno debajo del otro): siempre a la vista,
+                    // también en pantallas medianas y en la tarjeta del móvil.
+                    <LineField error={errors.tax} errorId={errorId(ids.taxes, "tax")} htmlFor={ids.taxes} label="Impuestos" lineNumber={lineNumber} wide>
+                      <div className="flex flex-col gap-1">
                         <Select
                           aria-describedby={errorId(ids.taxes, "tax")}
                           aria-invalid={Boolean(errors.tax) || undefined}
+                          aria-label={`IVA de la línea ${lineNumber}`}
                           className="h-9"
                           data-testid={ids.taxes}
                           id={ids.taxes}
@@ -499,10 +500,9 @@ export function LinesEditor({
                         >
                           {selects.added.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
                         </Select>
-                      </LineField>
-                      {withWithholding ? (
-                        <LineField htmlFor={ids.retention} label="Retención" lineNumber={lineNumber}>
+                        {withWithholding ? (
                           <Select
+                            aria-label={`Retención de la línea ${lineNumber}`}
                             className="h-9"
                             data-testid={ids.retention}
                             id={ids.retention}
@@ -512,9 +512,9 @@ export function LinesEditor({
                           >
                             {selects.withheld.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
                           </Select>
-                        </LineField>
-                      ) : null}
-                    </>
+                        ) : null}
+                      </div>
+                    </LineField>
                   );
                 })() : null}
                 {tax.kind === "vat" ? (
