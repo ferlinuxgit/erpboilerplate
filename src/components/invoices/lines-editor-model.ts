@@ -32,11 +32,6 @@ export function retentionRateLabel(rate: number) {
   return rate === 0 ? "Sin retención" : formatPercent(rate);
 }
 
-/** Nombre accesible del selector de impuestos: incluye los impuestos elegidos. */
-export function taxPickerLabel(lineNumber: number, selectedNames: string[]) {
-  return `Impuestos línea ${lineNumber}: ${selectedNames.length ? selectedNames.join(", ") : "sin impuestos"}`;
-}
-
 /** Copia de la lista con el elemento `from` en la posición `to` (fuera de rango: sin cambios). */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return [...items];

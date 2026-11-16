@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, CaretDown, Copy, DotsThree, Plus, Trash } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, Copy, DotsThree, Plus, Trash } from "@phosphor-icons/react";
 import * as React from "react";
 
 import {
@@ -11,17 +11,17 @@ import {
   lineFieldId,
   linesGridTemplate,
   linesSectionId,
-  taxPickerLabel,
   vatRateLabel,
   vatRateOptions,
 } from "@/components/invoices/lines-editor-model";
+import { lineTaxSelects, taxIdsFromSelects } from "@/components/invoices/line-tax-select";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { FIELD_SCROLL_MARGIN } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { MoneyInput, PercentInput, QuantityInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,20 +49,20 @@ import { cn } from "@/lib/utils";
 export type InputBinding = Omit<React.ComponentPropsWithRef<"input">, "value" | "defaultValue" | "type" | "id"> & { value?: string | number };
 /** Props que se esparcen sobre un desplegable (select nativo) de la línea. */
 export type SelectBinding = Omit<React.ComponentPropsWithRef<"select">, "id">;
-/** Props de cada casilla del selector de impuestos múltiple. */
-export type CheckboxBinding = Omit<React.ComponentPropsWithRef<"input">, "type" | "id">;
-
 export type LineTaxOption = {
   id: string;
   name: string;
   rate: number;
+  /** VAT, SURCHARGE, WITHHOLDING u OTHER. */
+  kind?: string;
   operation: "ADD" | "SUBTRACT";
   isActive?: boolean;
 };
 
 /**
  * Cómo se eligen los impuestos de cada línea:
- * - `multi`: varios impuestos configurados (casillas), p. ej. IVA + recargo + IRPF.
+ * - `multi`: impuestos configurados en dos desplegables nativos, «IVA» (IVA, IVA + recargo…) y
+ *   «Retención» (IRPF…); la línea guarda la lista de impuestos resultante.
  * - `vat`: un único tipo de IVA en un desplegable.
  * - `fixed`: impuestos congelados de otro documento, solo lectura.
  * - `none`: sin columna de impuestos.
@@ -86,10 +86,9 @@ export type LinesEditorRow = {
   discountPct?: InputBinding;
   /** Modo `vat`: valor en texto del tipo elegido ("21"). */
   taxRate?: SelectBinding;
-  /** Modo `multi`: binding de la casilla de cada impuesto. */
-  taxCheckbox?: (taxId: string) => CheckboxBinding;
-  /** Modo `multi`: impuestos marcados (para el resumen y el nombre accesible). */
+  /** Modo `multi`: impuestos de la línea y cómo cambiarlos. */
   selectedTaxIds?: readonly string[];
+  onTaxIdsChange?: (taxIds: string[]) => void;
   /** Modo `fixed`: descripción de los impuestos congelados. */
   taxText?: string;
   /** Importe de la línea y, si difiere y aporta información, su base. */
@@ -170,11 +169,12 @@ export const PICKER_OPTION = "flex cursor-pointer gap-2 rounded-control px-2 py-
 
 const TRACKS = {
   item: "minmax(10rem,.6fr)",
-  description: "minmax(13rem,1fr)",
+  description: "minmax(10rem,1fr)",
   quantity: "5.5rem",
   unitPrice: "7.5rem",
   discount: "5rem",
-  multi: "minmax(10rem,.7fr)",
+  multi: "minmax(9rem,.6fr)",
+  retention: "minmax(8rem,.45fr)",
   vat: "6.5rem",
   fixed: "minmax(8rem,.6fr)",
   total: "7.5rem",
@@ -221,6 +221,7 @@ export function LinesEditor({
   const startColumns = extraColumns.filter((column) => column.position === "start");
   const endColumns = extraColumns.filter((column) => column.position === "end");
   const hasMenuActions = Boolean(onMove || onDuplicate);
+  const withWithholding = tax.kind === "multi" && lineTaxSelects(tax.taxes).hasWithholding;
 
   const columns: Column[] = [
     withItem ? { key: "item", header: "Artículo", track: TRACKS.item } : null,
@@ -229,7 +230,8 @@ export function LinesEditor({
     withQuantity ? { key: "quantity", header: "Cantidad", track: TRACKS.quantity, numeric: true } : null,
     { key: "unitPrice", header: unitPriceLabel, track: TRACKS.unitPrice, numeric: true },
     withDiscount ? { key: "discount", header: "Dto.", track: TRACKS.discount, numeric: true } : null,
-    tax.kind === "multi" ? { key: "tax", header: "Impuestos", track: TRACKS.multi } : null,
+    tax.kind === "multi" ? { key: "tax", header: "IVA", track: TRACKS.multi } : null,
+    tax.kind === "multi" && withWithholding ? { key: "retention", header: "Retención", track: TRACKS.retention } : null,
     tax.kind === "vat" ? { key: "tax", header: "IVA", track: TRACKS.vat } : null,
     tax.kind === "fixed" ? { key: "tax", header: "Impuestos", track: TRACKS.fixed } : null,
     ...endColumns.map((column) => ({ key: column.key, header: column.header ?? column.label, track: column.track, numeric: column.numeric })),
@@ -358,6 +360,7 @@ export function LinesEditor({
               discountPct: lineFieldId(idPrefix, index, "discount"),
               taxRate: lineFieldId(idPrefix, index, "tax-rate"),
               taxes: lineFieldId(idPrefix, index, "taxes"),
+              retention: lineFieldId(idPrefix, index, "retention"),
             };
             const errorId = (id: string, key: string) => (errors[key] ? `${id}-error` : undefined);
             const describedBy = (...parts: Array<string | undefined>) => parts.filter(Boolean).join(" ") || undefined;
@@ -478,17 +481,42 @@ export function LinesEditor({
                     />
                   </LineField>
                 ) : null}
-                {tax.kind === "multi" ? (
-                  <LineField error={errors.tax} label="Impuestos" lineNumber={lineNumber}>
-                    <LineTaxPicker
-                      binding={row.taxCheckbox}
-                      lineNumber={lineNumber}
-                      selectedTaxes={tax.taxes.filter((option) => row.selectedTaxIds?.includes(option.id))}
-                      taxes={tax.taxes}
-                      testId={ids.taxes}
-                    />
-                  </LineField>
-                ) : null}
+                {tax.kind === "multi" ? (() => {
+                  const selects = lineTaxSelects(tax.taxes, row.selectedTaxIds);
+                  const change = (added: string, withheld: string) => row.onTaxIdsChange?.(taxIdsFromSelects(added, withheld));
+                  return (
+                    <>
+                      <LineField error={errors.tax} errorId={errorId(ids.taxes, "tax")} htmlFor={ids.taxes} label="IVA" lineNumber={lineNumber}>
+                        <Select
+                          aria-describedby={errorId(ids.taxes, "tax")}
+                          aria-invalid={Boolean(errors.tax) || undefined}
+                          className="h-9"
+                          data-testid={ids.taxes}
+                          id={ids.taxes}
+                          onChange={(event) => change(event.target.value, selects.withheld.value)}
+                          onKeyDown={(event) => handleEnter(event, index, "tax")}
+                          value={selects.added.value}
+                        >
+                          {selects.added.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+                        </Select>
+                      </LineField>
+                      {withWithholding ? (
+                        <LineField htmlFor={ids.retention} label="Retención" lineNumber={lineNumber}>
+                          <Select
+                            className="h-9"
+                            data-testid={ids.retention}
+                            id={ids.retention}
+                            onChange={(event) => change(selects.added.value, event.target.value)}
+                            onKeyDown={(event) => handleEnter(event, index, "retention")}
+                            value={selects.withheld.value}
+                          >
+                            {selects.withheld.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+                          </Select>
+                        </LineField>
+                      ) : null}
+                    </>
+                  );
+                })() : null}
                 {tax.kind === "vat" ? (
                   <LineField error={errors.tax} errorId={errorId(ids.taxRate, "tax")} htmlFor={ids.taxRate} label="IVA" lineNumber={lineNumber}>
                     <Select
@@ -700,43 +728,6 @@ function focusFirstVisible(ids: string[]) {
       return;
     }
   }
-}
-
-/** Desplegable de impuestos de una línea (casillas): se cierra al pulsar fuera o con Escape. */
-function LineTaxPicker({
-  binding,
-  lineNumber,
-  selectedTaxes,
-  taxes,
-  testId,
-}: {
-  binding?: (taxId: string) => CheckboxBinding;
-  lineNumber: number;
-  selectedTaxes: readonly LineTaxOption[];
-  taxes: readonly LineTaxOption[];
-  testId: string;
-}) {
-  const signedRate = (option: LineTaxOption) => `${option.operation === "SUBTRACT" ? "−" : ""}${formatPercent(option.rate)}`;
-  return (
-    <DismissibleDetails data-testid={testId}>
-      <summary aria-label={taxPickerLabel(lineNumber, selectedTaxes.map((option) => `${option.name} ${signedRate(option)}`))} className={PICKER_SUMMARY}>
-        <span className="truncate">{selectedTaxes.length ? selectedTaxes.map((option) => option.name).join(" · ") : "Sin impuestos"}</span>
-        <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className={cn(PICKER_PANEL, "max-h-64")}>
-        {taxes.map((option) => (
-          <label className={cn(PICKER_OPTION, "items-center", option.isActive === false && "opacity-60")} key={option.id}>
-            <input className="size-4 shrink-0 accent-primary" type="checkbox" value={option.id} {...binding?.(option.id)} />
-            <span className="flex min-w-0 flex-1 justify-between gap-2">
-              <span className="truncate">{option.name}{option.isActive === false ? " (archivado)" : ""}</span>
-              <span className="shrink-0 font-mono text-muted-foreground">{option.operation === "SUBTRACT" ? "−" : "+"}{formatPercent(option.rate)}</span>
-            </span>
-          </label>
-        ))}
-        {taxes.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay impuestos configurados. Créalos en Configuración › Fiscalidad.</p> : null}
-      </div>
-    </DismissibleDetails>
-  );
 }
 
 /**

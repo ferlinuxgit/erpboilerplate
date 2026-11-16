@@ -55,7 +55,8 @@ type LineBindings = {
   unitPrice: UseFormRegisterReturn;
   /** Descuento % de la línea (opcional). */
   discountPct?: UseFormRegisterReturn;
-  taxIds: () => UseFormRegisterReturn;
+  /** Impuestos de la línea (los dos desplegables «IVA» y «Retención» la cambian entera). */
+  setTaxIds: (taxIds: string[]) => void;
 };
 
 type LineError = {
@@ -113,7 +114,7 @@ export function InvoicePaymentMethodsField({
 
 /**
  * Adaptador react-hook-form del editor de líneas único (`LinesEditor`): varios
- * impuestos por línea (`taxIds`) y bindings `register()` no controlados.
+ * impuestos por línea (`taxIds`, elegidos con dos desplegables) y bindings `register()` no controlados.
  */
 export function InvoiceLinesEditor({
   errors,
@@ -148,8 +149,8 @@ export function InvoiceLinesEditor({
       quantity: bindings.quantity,
       unitPrice: bindings.unitPrice,
       discountPct: bindings.discountPct,
-      taxCheckbox: () => bindings.taxIds(),
       selectedTaxIds: lines[index]?.taxIds ?? [],
+      onTaxIdsChange: bindings.setTaxIds,
       total: { amount: lineTotal?.lineTotal ?? 0, base: lineTotal?.taxes.length ? lineTotal.subtotal : null },
       errors: { ...lineError, tax: lineError.taxIds },
     };

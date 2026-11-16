@@ -481,7 +481,7 @@ export function CreateInvoiceForm({
             quantity: register(`lines.${index}.quantity`, decimalRegisterOptions),
             unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
             discountPct: register(`lines.${index}.discountPct`, discountRegisterOptions),
-            taxIds: () => register(`lines.${index}.taxIds`),
+            setTaxIds: (taxIds) => setValue(`lines.${index}.taxIds`, taxIds, { shouldDirty: true, shouldValidate: true }),
           })}
           lines={watchedLines ?? []}
           onAdd={addLine}

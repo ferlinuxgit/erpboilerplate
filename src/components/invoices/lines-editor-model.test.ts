@@ -11,7 +11,6 @@ import {
   moveItem,
   retentionRateLabel,
   retentionRateOptions,
-  taxPickerLabel,
   vatRateLabel,
   vatRateOptions,
 } from "@/components/invoices/lines-editor-model";
@@ -39,11 +38,6 @@ describe("lines editor model", () => {
     expect(vatRateLabel(21)).toMatch(/^IVA 21/);
     expect(retentionRateLabel(0)).toBe("Sin retención");
     expect(retentionRateOptions(19, 2)).toEqual([0, 2, 7, 15, 19]);
-  });
-
-  it("nombra el selector de impuestos con los elegidos", () => {
-    expect(taxPickerLabel(2, [])).toBe("Impuestos línea 2: sin impuestos");
-    expect(taxPickerLabel(1, ["IVA 21 %", "IRPF −15 %"])).toBe("Impuestos línea 1: IVA 21 %, IRPF −15 %");
   });
 
   it("mueve elementos sin mutar la lista y deja igual los movimientos fuera de rango", () => {
