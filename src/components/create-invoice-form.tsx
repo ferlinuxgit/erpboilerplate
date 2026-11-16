@@ -183,7 +183,6 @@ export function CreateInvoiceForm({
   });
   const { fields, append, insert, move, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
-  const selectedPaymentMethodIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
   const selectedCustomerId = useWatch({ control, name: "customerId" });
   const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
   const watchedIssueDate = useWatch({ control, name: "issueDate" });
@@ -498,10 +497,10 @@ export function CreateInvoiceForm({
       <div className="grid gap-3 md:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
         <div className="grid content-start gap-3 rounded-surface border border-window-dark-shadow bg-card p-3 sm:grid-cols-2">
           <InvoicePaymentMethodsField
+            control={control}
             error={errors.paymentMethodIds?.message}
-            getBinding={() => register("paymentMethodIds")}
             methods={paymentMethods}
-            selectedIds={selectedPaymentMethodIds}
+            name="paymentMethodIds"
           />
           <InvoiceVatTreatmentField
             binding={register("vatTreatment", { onChange: () => setVatTreatmentTouched(true) })}

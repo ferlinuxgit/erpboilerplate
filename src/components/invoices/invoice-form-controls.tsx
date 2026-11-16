@@ -1,10 +1,12 @@
 "use client";
 
-import { CaretDown } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { PencilSimple } from "@phosphor-icons/react";
+import { useState, type ReactNode } from "react";
 import { useController, type Control, type FieldValues, type Path, type UseFormRegisterReturn } from "react-hook-form";
 
-import { DismissibleDetails, LineErrorText, LinesEditor, PICKER_OPTION, PICKER_PANEL, PICKER_SUMMARY, type LinesEditorRow } from "@/components/invoices/lines-editor";
+import { LineErrorText, LinesEditor, type LinesEditorRow } from "@/components/invoices/lines-editor";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { formatMoney, formatPercent } from "@/lib/format";
 import type { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
@@ -67,47 +69,91 @@ type LineError = {
   taxIds?: string;
 };
 
-export function InvoicePaymentMethodsField({
+/**
+ * Formas de pago de la factura: un botón con las elegidas que abre un diálogo con una casilla por
+ * forma de pago; se aplica al pulsar «Aplicar». El campo se registra con `useController` (no
+ * depende de que las casillas estén montadas).
+ */
+export function InvoicePaymentMethodsField<T extends FieldValues>({
+  control,
   error,
-  getBinding,
   methods,
-  selectedIds,
+  name,
 }: {
+  control: Control<T>;
   error?: string;
-  getBinding: () => UseFormRegisterReturn;
   methods: InvoicePaymentMethodOption[];
-  selectedIds: string[];
+  name: Path<T>;
 }) {
+  const { field } = useController({ control, name });
+  const selectedIds: string[] = Array.isArray(field.value) ? field.value : [];
   const selected = methods.filter((method) => selectedIds.includes(method.id));
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string[]>([]);
+  const summary = selected.length > 0 ? selected.map((method) => method.name).join(" · ") : "Seleccionar formas de pago";
+
+  const openDialog = () => {
+    setDraft(selectedIds);
+    setOpen(true);
+  };
+  const toggle = (id: string, checked: boolean) => setDraft((current) => (checked ? [...current, id] : current.filter((value) => value !== id)));
+  const apply = () => {
+    // En el orden de la lista (el de la configuración), no en el de los clics.
+    field.onChange(methods.filter((method) => draft.includes(method.id)).map((method) => method.id));
+    field.onBlur();
+    setOpen(false);
+  };
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="font-mono text-xs font-bold">Formas de pago</p>
+        <p className="font-mono text-xs font-bold" id="invoice-payment-methods-label">Formas de pago</p>
         <span className="text-xs text-muted-foreground">{selected.length === 0 ? "Ninguna seleccionada" : `${selected.length} seleccionada${selected.length === 1 ? "" : "s"}`}</span>
       </div>
-      <DismissibleDetails data-testid="invoice-payment-methods-picker">
-        <summary className={PICKER_SUMMARY}>
-          <span className="min-w-0 truncate">
-            {selected.length > 0 ? selected.map((method) => method.name).join(" · ") : "Seleccionar formas de pago"}
-          </span>
-          <CaretDown className="shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden="true" />
-        </summary>
-        <div className={cn(PICKER_PANEL, "max-h-72")}>
-          {methods.map((method) => (
-            <label className={cn(PICKER_OPTION, "items-start")} key={method.id}>
-              <input className="mt-0.5 size-4 shrink-0 accent-primary" type="checkbox" value={method.id} {...getBinding()} />
-              <span className="min-w-0">
-                <span className="block font-bold">{method.name}{method.isDefault ? " · Predeterminada" : ""}</span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
-                  {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}
+      <Button
+        aria-describedby={error ? "invoice-payment-methods-error" : undefined}
+        aria-invalid={Boolean(error) || undefined}
+        aria-label={`Formas de pago: ${selected.length > 0 ? summary : "ninguna"}. Cambiar`}
+        className="h-9 w-full min-w-0 justify-between gap-2 px-2 font-mono text-xs font-normal"
+        data-testid="invoice-payment-methods-picker"
+        onClick={openDialog}
+        type="button"
+        variant="outline"
+      >
+        <span className="truncate">{summary}</span>
+        <PencilSimple aria-hidden="true" className="shrink-0" />
+      </Button>
+      <Dialog description="Marca las que quieras mostrar en la factura." onClose={() => setOpen(false)} open={open} size="sm" title="Formas de pago">
+        <fieldset className="min-w-0 space-y-1">
+          <legend className="sr-only">Formas de pago de la factura</legend>
+          {methods.map((method) => {
+            const checked = draft.includes(method.id);
+            return (
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2 rounded-control border px-2 py-2 pointer-coarse:min-h-11",
+                  checked ? "border-primary bg-window-panel" : "border-window-shadow hover:bg-window-panel",
+                )}
+                key={method.id}
+              >
+                <input checked={checked} className="mt-0.5 size-4 shrink-0 accent-primary" onChange={(event) => toggle(method.id, event.target.checked)} type="checkbox" value={method.id} />
+                <span className="min-w-0">
+                  <span className="block font-mono text-sm font-bold">{method.name}{method.isDefault ? " · Predeterminada" : ""}</span>
+                  <span className="block truncate font-mono text-xs text-muted-foreground">
+                    {paymentMethodTypeLabels[method.type]}{method.bankAccountNumber ? ` · ${method.bankAccountNumber}` : ""}
+                  </span>
                 </span>
-              </span>
-            </label>
-          ))}
+              </label>
+            );
+          })}
           {methods.length === 0 ? <p className="p-2 text-xs text-muted-foreground">No hay formas de pago configuradas. Créalas en Configuración › Cobros y pagos.</p> : null}
-        </div>
-      </DismissibleDetails>
-      <LineErrorText>{error}</LineErrorText>
+        </fieldset>
+        <DialogFooter>
+          <Button onClick={() => setOpen(false)} type="button" variant="outline">Cancelar</Button>
+          <Button data-testid="invoice-payment-methods-apply" onClick={apply} type="button">Aplicar</Button>
+        </DialogFooter>
+      </Dialog>
+      <LineErrorText id="invoice-payment-methods-error">{error}</LineErrorText>
     </div>
   );
 }

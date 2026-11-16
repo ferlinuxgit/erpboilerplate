@@ -160,13 +160,6 @@ export type LinesEditorProps = {
   listTestId?: string;
 };
 
-/** Estilos compartidos de los desplegables con casillas (impuestos, formas de pago). */
-export const PICKER_SUMMARY =
-  "flex h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-control border border-window-dark-shadow bg-window-highlight px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-focus pointer-coarse:h-10 [&::-webkit-details-marker]:hidden";
-// En el flujo del documento (no flotante): nunca se sale de pantallas estrechas.
-export const PICKER_PANEL = "mt-1 w-full min-w-0 max-w-full overflow-y-auto rounded-surface border border-window-dark-shadow bg-popover p-1.5 shadow-drop-sm";
-export const PICKER_OPTION = "flex cursor-pointer gap-2 rounded-control px-2 py-2 font-mono text-xs hover:bg-window-panel pointer-coarse:min-h-10";
-
 const TRACKS = {
   item: "minmax(10rem,.6fr)",
   description: "minmax(13rem,1fr)",
@@ -701,47 +694,4 @@ function focusFirstVisible(ids: string[]) {
       return;
     }
   }
-}
-
-/**
- * `<details>` desplegable que se cierra al pulsar fuera, con Escape (devolviendo
- * el foco al `summary`) o cuando el foco sale de él.
- */
-export function DismissibleDetails({ className, onKeyDown, onToggle, ...props }: React.ComponentProps<"details">) {
-  const ref = React.useRef<HTMLDetailsElement>(null);
-  const [open, setOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: PointerEvent) => {
-      const details = ref.current;
-      if (details && !details.contains(event.target as Node)) details.open = false;
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    return () => document.removeEventListener("pointerdown", closeOutside);
-  }, [open]);
-
-  return (
-    <details
-      className={cn("group relative min-w-0", className)}
-      onBlur={(event) => {
-        const next = event.relatedTarget as Node | null;
-        if (next && !event.currentTarget.contains(next)) event.currentTarget.open = false;
-      }}
-      onKeyDown={(event) => {
-        onKeyDown?.(event);
-        if (event.key !== "Escape" || !event.currentTarget.open) return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.currentTarget.open = false;
-        event.currentTarget.querySelector("summary")?.focus();
-      }}
-      onToggle={(event) => {
-        setOpen(event.currentTarget.open);
-        onToggle?.(event);
-      }}
-      ref={ref}
-      {...props}
-    />
-  );
 }

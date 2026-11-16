@@ -68,10 +68,14 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await page.getByLabel("Nombre, email o teléfono").fill(customerName);
   await page.getByRole("button", { name: new RegExp(customerName) }).click();
   await page.getByTestId("invoice-issue-date-input").fill("2026-05-09");
-  const createPaymentMethods = page.getByTestId("invoice-payment-methods-picker");
-  await createPaymentMethods.locator("summary").click();
+  // Formas de pago en su diálogo: la predeterminada viene marcada; se añade otra y se aplica.
+  await expect(page.getByTestId("invoice-payment-methods-picker")).toContainText("Transferencia factura");
+  await page.getByTestId("invoice-payment-methods-picker").click();
+  const createPaymentMethods = page.getByRole("dialog", { name: "Formas de pago" });
   await expect(createPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
   await createPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).check();
+  await createPaymentMethods.getByRole("button", { name: "Aplicar" }).click();
+  await expect(createPaymentMethods).toBeHidden();
 
   await page.getByTestId("invoice-line-1-description").fill("Consultoría");
   await page.getByTestId("invoice-line-1-quantity").fill("2");
@@ -171,11 +175,13 @@ test("crear customer y factura con dos líneas persiste totales y líneas", asyn
   await expect(page.getByTestId("invoice-edit-issue-date-input")).toHaveValue("2026-05-09");
   // Vencimiento propuesto automáticamente: emisión + 30 días (plazo de la empresa).
   await expect(page.getByTestId("invoice-edit-due-date-input")).toHaveValue("2026-06-08");
-  const editPaymentMethods = page.getByTestId("invoice-payment-methods-picker");
-  await editPaymentMethods.locator("summary").click();
+  await page.getByTestId("invoice-payment-methods-picker").click();
+  const editPaymentMethods = page.getByRole("dialog", { name: "Formas de pago" });
   await expect(editPaymentMethods.locator(`input[value="${linkedPaymentMethod!.id}"]`)).toBeChecked();
   await expect(editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`)).toBeChecked();
   await editPaymentMethods.locator(`input[value="${secondaryPaymentMethod.id}"]`).uncheck();
+  await editPaymentMethods.getByRole("button", { name: "Aplicar" }).click();
+  await expect(editPaymentMethods).toBeHidden();
   await page.getByRole("button", { name: "Cambiar cliente" }).click();
   await page.getByLabel("CIF/NIF/VAT").fill("B87654321");
   await page.getByRole("button", { name: /Cliente corregido/ }).click();
@@ -334,6 +340,21 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);
   await expect(page.getByText("106,00 €").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: createdInvoice.number })).toBeVisible();
+
+  // Factura emitida: las formas de pago se siguen cambiando en su diálogo y se guardan.
+  const issuedId = new URL(page.url()).pathname.split("/").pop()!;
+  const before = (await (await page.request.get(`/api/invoices/${issuedId}`)).json()) as { paymentMethods: Array<{ id: string | null }> };
+  await page.goto(`/invoices/${issuedId}/edit`);
+  await page.getByTestId("invoice-payment-methods-picker").click();
+  const issuedPaymentMethods = page.getByRole("dialog", { name: "Formas de pago" });
+  const firstMethod = issuedPaymentMethods.getByRole("checkbox").first();
+  const wasChecked = await firstMethod.isChecked();
+  await firstMethod.setChecked(!wasChecked);
+  await issuedPaymentMethods.getByRole("button", { name: "Aplicar" }).click();
+  await page.getByTestId("invoice-issued-edit-submit").click();
+  await expect(page).toHaveURL(new RegExp(`/invoices/${issuedId}$`));
+  const after = (await (await page.request.get(`/api/invoices/${issuedId}`)).json()) as { paymentMethods: Array<{ id: string | null }> };
+  expect(after.paymentMethods.length).toBe(before.paymentMethods.length + (wasChecked ? -1 : 1));
 
   await page.goto("/invoices");
   const invoiceRow = page.locator("tr", { hasText: createdInvoice.number });

@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 
@@ -41,7 +41,6 @@ export function IssuedInvoiceEditForm({
     resolver: zodResolver(issuedInvoiceEditSchema),
     defaultValues: { notes: defaultNotes ?? "", paymentMethodIds: defaultPaymentMethodIds },
   });
-  const selectedIds = useWatch({ control, name: "paymentMethodIds" }) ?? [];
 
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
@@ -65,10 +64,10 @@ export function IssuedInvoiceEditForm({
   return (
     <form className="grid gap-3 sm:grid-cols-2" data-testid="invoice-issued-edit-form" noValidate onSubmit={onSubmit}>
       <InvoicePaymentMethodsField
+        control={control}
         error={errors.paymentMethodIds?.message}
-        getBinding={() => register("paymentMethodIds")}
         methods={paymentMethods}
-        selectedIds={selectedIds}
+        name="paymentMethodIds"
       />
       <AccessibleField error={errors.notes?.message} helperText="Observaciones visibles en la ficha de la factura." id="invoice-issued-notes" label="Notas">
         <Input id="invoice-issued-notes" {...register("notes")} />
