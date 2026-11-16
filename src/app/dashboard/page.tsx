@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import Link from "next/link";
 import { ArrowRight, CheckCircle, Circle } from "@phosphor-icons/react/dist/ssr";
 
@@ -87,7 +88,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const period = parseFinancePeriod((await searchParams).period);
   const { dashboardDataError, summary, finance, setup } = await loadDashboardData(companyId, {
     period,
-    countryCode: tenantContext.company.countryCode,
+    // Territorio fiscal (ES-CN en Canarias…): decide qué plazos de impuestos se muestran.
+    countryCode: await getCompanyTaxTerritory(companyId),
     fiscalYearId: tenantContext.fiscalYear.id,
     includeFinance: can(role, "reporting.read"),
   });

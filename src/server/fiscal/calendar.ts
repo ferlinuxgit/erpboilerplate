@@ -38,6 +38,8 @@ export type FiscalCalendarInput = {
   periodicity: "monthly" | "quarterly";
   taxpayerType: TaxpayerType;
   fiscalRegime: string;
+  /** false en Canarias, Ceuta y Melilla: sin modelos de IVA (303, 390, 349). */
+  vatReturns?: boolean;
   reports: Array<{ id: string; code: string; period: string; status: FiscalReportStatus; summary?: { amountDue: number | null } | null }>;
   now?: Date;
 };
@@ -62,7 +64,8 @@ function quarterPeriodsDueIn(year: number) {
 
 export function buildFiscalCalendar(input: FiscalCalendarInput): FiscalCalendarEntry[] {
   const now = input.now ?? new Date();
-  const vatExempt = input.fiscalRegime === "recargo_equivalencia" || input.fiscalRegime === "exempt";
+  const vatReturns = input.vatReturns ?? true;
+  const vatExempt = !vatReturns || input.fiscalRegime === "recargo_equivalencia" || input.fiscalRegime === "exempt";
   const vatPeriods = vatPeriodsDueIn(input.year, input.periodicity);
   const planned: Array<{ code: SpanishFiscalModelCode; period: string; requirement: FiscalCalendarRequirement; reason: string }> = [];
 
@@ -70,7 +73,7 @@ export function buildFiscalCalendar(input: FiscalCalendarInput): FiscalCalendarE
     if (!vatExempt) planned.push({ code: "303", period, requirement: "required", reason: "IVA del periodo; se presenta aunque salga a cero." });
     planned.push({ code: "111", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["111"] });
     planned.push({ code: "115", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["115"] });
-    planned.push({ code: "349", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["349"] });
+    if (vatReturns) planned.push({ code: "349", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["349"] });
   }
   if (input.taxpayerType === "individual") {
     for (const period of quarterPeriodsDueIn(input.year)) {

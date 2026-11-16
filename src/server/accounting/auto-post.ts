@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { usesPgcChart } from "@/lib/country-packs/profile";
+import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { standardVatRate } from "@/lib/country-packs/vat-rates";
 import { accountChart, bankAccount, company, companySettings, item, journalEntry, journalLine, partner, paymentMethod, supplierInvoice } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
@@ -58,6 +59,8 @@ export type AccountRole =
 
 export type PostingSettings = {
   countryCode: string;
+  /** Territorio fiscal (ES-CN en Canarias…): decide el tipo general para autorepercutir. */
+  taxTerritory?: string;
   prorrataPct: number;
   businessType: string;
   /** Código base de cada rol (PGC); se apunta siempre en su subcuenta canónica (477 → 47700000). */
@@ -135,12 +138,12 @@ async function fetchPostingSettings(companyId: string, client: DbClient): Promis
       .where(eq(companySettings.companyId, companyId))
       .limit(1),
     client
-      .select({ countryCode: company.countryCode })
+      .select({ countryCode: company.countryCode, postalCode: company.postalCode, province: company.province })
       .from(company)
       .where(eq(company.id, companyId))
       .limit(1),
   ]);
-  return resolvePostingSettings(settings, companyRow?.countryCode);
+  return { ...resolvePostingSettings(settings, companyRow?.countryCode), taxTerritory: taxTerritoryOf(companyRow) ?? undefined };
 }
 
 /**
@@ -766,7 +769,7 @@ export async function postSupplierInvoice(
     totalAmount: input.totalAmount,
     prorrataPct: input.prorrataPct ?? settings.prorrataPct,
     vatTreatment,
-    selfAssessmentRate: standardVatRate(settings.countryCode),
+    selfAssessmentRate: standardVatRate(settings.taxTerritory ?? settings.countryCode),
   });
   await createAutomaticEntry({
     ...input,

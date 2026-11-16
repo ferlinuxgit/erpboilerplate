@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { isEuCountry } from "@/lib/countries";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { customerUpdateFormSchema, type CustomerUpdateFormInput } from "@/server/customers/schemas";
 
 export type EditCustomerDefaults = {
@@ -151,7 +152,7 @@ export function EditCustomerForm({
           <option value="INACTIVE">Inactivo</option>
         </Select>
       </AccessibleField>
-      {isEuCountry(countryCode) && countryCode !== homeCountryCode ? (
+      {getCountryFiscalProfile(homeCountryCode).features.vies && isEuCountry(countryCode) && countryCode !== getCountryFiscalProfile(homeCountryCode).countryCode ? (
         <div className="md:col-span-6">
           <ViesCheck customerId={id} initial={vies ?? null} />
         </div>

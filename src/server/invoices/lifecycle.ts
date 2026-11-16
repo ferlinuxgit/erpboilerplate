@@ -84,10 +84,32 @@ const genericVatTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, strin
   NOT_SUBJECT: "Operación no sujeta a impuestos en el país del emisor.",
 };
 
-/** Mención legal de la factura según el tratamiento de IVA y el país de la empresa emisora. */
+/** Canarias: Ley 20/1991 del IGIC (exenciones interiores art. 10, exportaciones art. 11, localización art. 17, sujeto pasivo art. 19). */
+const igicTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, string>> = {
+  EXPORT: "Operación exenta del IGIC (art. 11 Ley 20/1991).",
+  EXEMPT: "Operación exenta del IGIC (art. 10 Ley 20/1991).",
+  REVERSE_CHARGE: "Inversión del sujeto pasivo (art. 19.1.2º Ley 20/1991 del IGIC).",
+  NOT_SUBJECT: "Operación no sujeta al IGIC por reglas de localización (art. 17 Ley 20/1991).",
+};
+
+/** Ceuta y Melilla: Ley 8/1991 del IPSI. */
+const ipsiTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, string>> = {
+  EXPORT: "Operación exenta del IPSI (Ley 8/1991).",
+  EXEMPT: "Operación exenta del IPSI (Ley 8/1991).",
+  REVERSE_CHARGE: "Inversión del sujeto pasivo (Ley 8/1991 del IPSI).",
+  NOT_SUBJECT: "Operación no sujeta al IPSI por reglas de localización (Ley 8/1991).",
+};
+
+/** Mención legal de la factura según el tratamiento y el país o territorio de la empresa emisora. */
 export function vatTreatmentLegalNote(treatment: SalesVatTreatmentCode, homeCountry?: string | null): string | null {
   const home = normalizeHomeCountry(homeCountry);
-  const notes = home === "ES" ? vatTreatmentLegalNotes : isEuCountry(home) ? euVatTreatmentLegalNotes : genericVatTreatmentLegalNotes;
+  const notes = home === "ES"
+    ? vatTreatmentLegalNotes
+    : home === "ES-CN"
+      ? igicTreatmentLegalNotes
+      : home === "ES-CE" || home === "ES-ML"
+        ? ipsiTreatmentLegalNotes
+        : isEuCountry(home) ? euVatTreatmentLegalNotes : genericVatTreatmentLegalNotes;
   return notes[treatment] ?? null;
 }
 

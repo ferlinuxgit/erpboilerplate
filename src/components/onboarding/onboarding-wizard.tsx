@@ -16,6 +16,7 @@ import { getCsrfHeader } from "@/lib/csrf-client";
 import { countriesForSelect } from "@/lib/countries";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { countryFromTaxId } from "@/lib/country-packs/tax-id";
+import { spanishTerritoryOf } from "@/lib/country-packs/territory";
 import { onboardingFieldsSchemaFor, onboardingInviteSchema, onboardingStepFields, type OnboardingFields, type OnboardingStepKey } from "@/lib/onboarding";
 import { roleDescriptions, type AppRole } from "@/lib/rbac";
 import { roleLabels } from "@/lib/status-labels";
@@ -142,6 +143,9 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
   const [countryTouched, setCountryTouched] = useState(false);
   const fiscalProfile = getCountryFiscalProfile(values.countryCode);
   const isSpain = fiscalProfile.features.nationalTaxIdValidation === "es";
+  // Canarias, Ceuta y Melilla se deducen del código postal: IGIC / IPSI en lugar de IVA.
+  const addressTerritoryCode = isSpain ? spanishTerritoryOf({ postalCode: values.postalCode, province: values.province }) : null;
+  const addressTerritory = addressTerritoryCode ? getCountryFiscalProfile(addressTerritoryCode) : null;
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstRender = useRef(true);
   const currentStep = steps[stepIndex];
@@ -460,7 +464,14 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
             <AccessibleField className="md:col-span-6" error={errors.fiscalAddress} id="fiscalAddress" label="Dirección fiscal" required>
               <Input autoComplete="street-address" autoFocus placeholder="Calle Mayor 1, 2º B" {...inputProps("fiscalAddress")} />
             </AccessibleField>
-            <AccessibleField className="md:col-span-2" error={errors.postalCode} id="postalCode" label="Código postal" required>
+            <AccessibleField
+              className="md:col-span-2"
+              error={errors.postalCode}
+              helperText={addressTerritory ? `${addressTerritory.territoryName}: tus facturas llevarán ${addressTerritory.taxLabel} en lugar de IVA.` : undefined}
+              id="postalCode"
+              label="Código postal"
+              required
+            >
               <Input autoComplete="postal-code" inputMode={isSpain ? "numeric" : "text"} maxLength={isSpain ? 5 : 12} placeholder={isSpain ? "28013" : ""} {...inputProps("postalCode")} />
             </AccessibleField>
             <AccessibleField className="md:col-span-2" error={errors.city} id="city" label="Ciudad" required>

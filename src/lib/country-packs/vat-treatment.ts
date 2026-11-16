@@ -17,27 +17,38 @@
  * - Compras: proveedor de otro país de la UE → adquisición intracomunitaria (autorepercusión);
  *   proveedor de fuera → servicios con inversión del sujeto pasivo, bienes como importación (el
  *   IVA se liquida en aduana).
+ * - Canarias, Ceuta y Melilla son territorios fiscales propios (IGIC / IPSI, fuera del IVA y del
+ *   espacio IVA de la UE): entre ellos, la península y el resto de países se aplican las mismas
+ *   reglas que con un país de fuera de la UE (art. 21 y 69 Ley 37/1992; arts. 11 y 17 Ley 20/1991).
+ *   El territorio se deduce del código postal o la provincia (ver `territory.ts`).
  */
 
 import { isEuCountry, normalizeCountryCode } from "@/lib/countries";
+import { isSpanishSpecialTerritory, taxTerritoryOf } from "@/lib/country-packs/territory";
 
 export type SalesVatTreatment = "DOMESTIC" | "INTRA_EU" | "INTRA_EU_SERVICES" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
 export type SupplierVatTreatment = "DOMESTIC" | "INTRA_EU" | "REVERSE_CHARGE" | "IMPORT" | "NOT_SUBJECT";
 
 export type VatTreatmentContext = {
-  /** País de la empresa que factura (por defecto, España). */
+  /** País o territorio fiscal de la empresa (ES, ES-CN…; por defecto, España peninsular). */
   homeCountry?: string | null;
   /** Qué vende la empresa: "products", "services" o "both" (ajustes de empresa). */
   businessType?: string | null;
 };
 
+/** Territorio fiscal de la empresa: país o ES-CN / ES-CE / ES-ML. */
 export function normalizeHomeCountry(value: string | null | undefined) {
+  const raw = (value ?? "").trim().toUpperCase();
+  if (isSpanishSpecialTerritory(raw)) return raw;
   return normalizeCountryCode(value) || "ES";
 }
 
-/** País de la contraparte; vacío = mismo país que la empresa. */
-function counterpartyCountry(value: string | null | undefined, home: string) {
-  return normalizeCountryCode(value) || home;
+type Counterparty = { countryCode?: string | null; postalCode?: string | null; province?: string | null };
+
+/** Territorio de la contraparte; sin país = mismo territorio que la empresa. */
+function counterpartyTerritory(party: Counterparty | null | undefined, home: string) {
+  if (!normalizeCountryCode(party?.countryCode) && !isSpanishSpecialTerritory(party?.countryCode)) return home;
+  return taxTerritoryOf(party) ?? home;
 }
 
 function hasTaxId(value: string | null | undefined) {
@@ -47,16 +58,16 @@ function hasTaxId(value: string | null | undefined) {
 /** ¿Operación entre dos países distintos de la UE? */
 export function isIntraCommunity(homeCountry: string | null | undefined, otherCountry: string | null | undefined) {
   const home = normalizeHomeCountry(homeCountry);
-  const other = counterpartyCountry(otherCountry, home);
+  const other = counterpartyTerritory({ countryCode: otherCountry }, home);
   return other !== home && isEuCountry(home) && isEuCountry(other);
 }
 
 export function suggestSalesVatTreatment(
-  customer: { countryCode?: string | null; taxId?: string | null } | null | undefined,
+  customer: (Counterparty & { taxId?: string | null }) | null | undefined,
   context: VatTreatmentContext = {},
 ): SalesVatTreatment {
   const home = normalizeHomeCountry(context.homeCountry);
-  const country = counterpartyCountry(customer?.countryCode, home);
+  const country = counterpartyTerritory(customer, home);
   if (country === home) return "DOMESTIC";
   const services = context.businessType === "services";
   const business = hasTaxId(customer?.taxId);
@@ -69,11 +80,11 @@ export function suggestSalesVatTreatment(
 }
 
 export function suggestSupplierVatTreatment(
-  supplier: { countryCode?: string | null; supplierKind?: string | null } | null | undefined,
+  supplier: (Counterparty & { supplierKind?: string | null }) | null | undefined,
   context: VatTreatmentContext = {},
 ): SupplierVatTreatment {
   const home = normalizeHomeCountry(context.homeCountry);
-  const country = counterpartyCountry(supplier?.countryCode, home);
+  const country = counterpartyTerritory(supplier, home);
   if (country === home) return "DOMESTIC";
   if (isEuCountry(home) && isEuCountry(country)) return "INTRA_EU";
   return supplier?.supplierKind === "SERVICES" ? "REVERSE_CHARGE" : "IMPORT";

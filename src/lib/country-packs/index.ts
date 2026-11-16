@@ -11,5 +11,5 @@ export type CountryPack = CountryFiscalProfile & { template: CompanyTemplate };
 
 export function getCountryPack(countryCode: string | null | undefined): CountryPack {
   const profile = getCountryFiscalProfile(countryCode);
-  return { ...profile, template: getCompanyTemplate(profile.countryCode) };
+  return { ...profile, template: getCompanyTemplate(profile.territory) };
 }

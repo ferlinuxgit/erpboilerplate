@@ -47,4 +47,10 @@ describe("calendario fiscal", () => {
     expect(monthly.filter((entry) => entry.code === "303")).toHaveLength(12);
     expect(monthly.find((entry) => entry.code === "303" && entry.period === "2025-12")?.dueDate.slice(0, 10)).toBe("2026-01-30");
   });
+
+  it("en Canarias, Ceuta y Melilla no hay modelos de IVA (303, 390, 349)", () => {
+    const entries = buildFiscalCalendar({ year: 2026, periodicity: "quarterly", taxpayerType: "individual", fiscalRegime: "general", vatReturns: false, reports: [], now: new Date(Date.UTC(2026, 0, 10)) });
+    const codes = new Set(entries.map((entry) => entry.code));
+    expect([...codes].sort()).toEqual(["111", "115", "130", "347"]);
+  });
 });

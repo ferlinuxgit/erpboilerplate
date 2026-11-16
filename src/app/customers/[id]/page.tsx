@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -15,6 +16,7 @@ import { ViesCheck } from "@/components/customers/vies-check";
 import { findPartnerSubaccount } from "@/server/accounting/subaccounts";
 import { companySettings, customer, deliveryNote, invoice, partner, salesOrder, salesQuote } from "@/db/schema";
 import { countryName, isEuCountry } from "@/lib/countries";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { getCustomerBalance } from "@/server/customers/service";
 import { isCustomerDunningOptedOut } from "@/server/dunning/service";
 import { effectivePaymentTermsDays } from "@/server/invoices/due-dates";
@@ -69,7 +71,9 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
   const ledgerAccount = record.partnerId ? await findPartnerSubaccount(ctx.company.id, record.partnerId, ["430"]) : null;
   const termsDays = effectivePaymentTermsDays(record.paymentTermsDays, settings?.paymentTermsDays);
   const vatTreatmentLabel = salesVatTreatmentOptions.find((option) => option.value === record.defaultVatTreatment)?.label ?? `Automático (${countryName(record.countryCode ?? ctx.company.countryCode)})`;
-  const showVies = isEuCountry(record.countryCode) && record.countryCode !== ctx.company.countryCode;
+  // VIES: clientes de otro país de la UE, solo si la empresa está en el espacio IVA de la UE (no Canarias, Ceuta ni Melilla).
+  const homeProfile = getCountryFiscalProfile(await getCompanyTaxTerritory(ctx.company.id));
+  const showVies = homeProfile.features.vies && isEuCountry(record.countryCode) && record.countryCode !== homeProfile.countryCode;
   const timeline: ActivityTimelineItem[] = [
     ...invoices.map((row) => ({ id: `invoice-${row.id}`, title: `Factura ${row.number}`, description: `${formatMoney(row.totalAmount, currencyCode)} · ${statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}`, date: row.createdAt, href: `/invoices/${row.id}`, tone: row.paymentStatus === "PAID" ? "success" as const : "warning" as const })),
     ...quotes.map((row) => ({ id: `quote-${row.id}`, title: `Presupuesto ${row.number}`, description: `${formatMoney(row.totalAmount, currencyCode)} · ${statusLabel(salesDocumentStatusLabels, row.status)}`, date: row.createdAt, href: `/sales/quotes/${row.id}` })),

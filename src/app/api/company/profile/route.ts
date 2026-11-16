@@ -10,7 +10,7 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { normalizeTaxIdForCountry } from "@/lib/country-packs/tax-id";
 import { recordAudit } from "@/server/audit";
-import { changeCompanyCountry } from "@/server/company/country";
+import { changeCompanyCountry, currentCompanyTerritory, syncCompanyTaxTerritory } from "@/server/company/country";
 import { companyProfileSchema } from "@/server/schemas/forms";
 
 type CompanyProfilePayload = z.infer<typeof companyProfileSchema>;
@@ -83,18 +83,19 @@ export async function PUT(request: Request) {
     const updated = await db.transaction(async (tx) => {
       // Cambio de país: la empresa adopta el paquete fiscal del nuevo (impuestos y plantilla).
       // La moneda y la zona horaria las decide el formulario, que ya propone las del país.
+      const actor = { tenantId: auth.ctx.tenant.id, companyId: auth.ctx.company.id, fiscalYearId: auth.ctx.fiscalYear.id, actorUserId: auth.userId };
       if (values.countryCode !== auth.ctx.company.countryCode) {
-        await changeCompanyCountry(
-          { tenantId: auth.ctx.tenant.id, companyId: auth.ctx.company.id, fiscalYearId: auth.ctx.fiscalYear.id, actorUserId: auth.userId, countryCode: values.countryCode },
-          tx,
-        );
+        await changeCompanyCountry({ ...actor, countryCode: values.countryCode }, tx);
       }
+      const previousTerritory = await currentCompanyTerritory(actor, tx);
       const [row] = await tx
         .update(company)
         .set({ ...values, updatedAt: new Date() })
         .where(and(eq(company.id, auth.ctx.company.id), eq(company.tenantId, auth.ctx.tenant.id)))
         .returning();
       if (!row) return null;
+      // Traslado a / desde Canarias, Ceuta o Melilla: adopta IGIC / IPSI / IVA según el nuevo domicilio.
+      await syncCompanyTaxTerritory({ ...actor, previousTerritory }, tx);
 
       await recordAudit(
         {

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { getCountryPack } from "@/lib/country-packs";
 import { getCountryFiscalProfile, isFullComplianceCountry, usesPgcChart } from "@/lib/country-packs/profile";
 import { countryFromTaxId, describeTaxIdProblemForCountry, spanishTaxpayerTypeFromTaxId } from "@/lib/country-packs/tax-id";
-import { COUNTRY_VAT_RATES, countryVatRates } from "@/lib/country-packs/vat-rates";
+import { taxTerritoryOf } from "@/lib/country-packs/territory";
+import { allVatRates, COUNTRY_VAT_RATES, countryVatRates, standardVatRate } from "@/lib/country-packs/vat-rates";
 import { isIntraCommunity, suggestSalesVatTreatment, suggestSupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
 import { EU_MEMBER_CODES } from "@/lib/countries";
 
@@ -55,7 +56,7 @@ describe("tabla de tipos de IVA", () => {
     for (const [code, rates] of Object.entries(COUNTRY_VAT_RATES)) {
       expect(rates.standard, code).toBeGreaterThanOrEqual(0);
       expect(rates.standard, code).toBeLessThan(30);
-      if (rates.system === "VAT") expect(rates.standard, code).toBeGreaterThan(0);
+      if (rates.system === "VAT") expect(rates.standard > 0 || (rates.allRates?.length ?? 0) > 0, code).toBe(true);
     }
     expect(countryVatRates("ES")).toMatchObject({ standard: 21, reduced: [10], superReduced: 4 });
   });
@@ -120,5 +121,70 @@ describe("identificador fiscal", () => {
     expect(describeTaxIdProblemForCountry("XAXX010101000", "MX")).toBeNull();
     expect(describeTaxIdProblemForCountry("", "FR")).toMatch(/NIF-IVA/);
     expect(describeTaxIdProblemForCountry("ab", "US")).toMatch(/entre 4 y 20/);
+  });
+});
+
+describe("Canarias, Ceuta y Melilla", () => {
+  it("deduce el territorio del código postal o la provincia", () => {
+    expect(taxTerritoryOf({ countryCode: "ES", postalCode: "38001" })).toBe("ES-CN");
+    expect(taxTerritoryOf({ countryCode: "ES", postalCode: "35002" })).toBe("ES-CN");
+    expect(taxTerritoryOf({ countryCode: "ES", postalCode: "51001" })).toBe("ES-CE");
+    expect(taxTerritoryOf({ countryCode: "ES", postalCode: "52001" })).toBe("ES-ML");
+    expect(taxTerritoryOf({ countryCode: "ES", province: "Santa Cruz de Tenerife" })).toBe("ES-CN");
+    expect(taxTerritoryOf({ countryCode: "ES", province: "Las Palmas" })).toBe("ES-CN");
+    // Baleares y la península: IVA.
+    expect(taxTerritoryOf({ countryCode: "ES", postalCode: "07001", province: "Illes Balears" })).toBe("ES");
+    expect(taxTerritoryOf({ countryCode: "ES", postalCode: "28013" })).toBe("ES");
+    expect(taxTerritoryOf({ countryCode: "FR", postalCode: "35000" })).toBe("FR");
+    expect(taxTerritoryOf({ countryCode: "ES-CN" })).toBe("ES-CN");
+    expect(taxTerritoryOf({ countryCode: "" })).toBeNull();
+  });
+
+  it("perfil: España con su impuesto, sin modelos de IVA, recargo ni VIES", () => {
+    const canarias = getCountryFiscalProfile("ES-CN");
+    expect(canarias).toMatchObject({ countryCode: "ES", territory: "ES-CN", territoryName: "Canarias", taxLabel: "IGIC", isEu: false, level: "full", timezone: "Atlantic/Canary" });
+    expect(canarias.features).toMatchObject({ taxReports: "es-aeat", vatReturns: false, eInvoicing: "verifactu", equivalenceSurcharge: false, incomeTaxWithholding: true, vies: false });
+    expect(getCountryFiscalProfile("ES-ML")).toMatchObject({ taxLabel: "IPSI", territoryName: "Melilla" });
+    expect(getCountryFiscalProfile("ES").features.vatReturns).toBe(true);
+  });
+
+  it("plantillas con IGIC / IPSI y las retenciones de IRPF, sin recargo", () => {
+    const canarias = getCountryPack("ES-CN").template;
+    expect(canarias.accounts.length).toBe(getCountryPack("ES").template.accounts.length);
+    expect(canarias.taxes.map((entry) => [entry.name, entry.isDefault ?? false])).toEqual([
+      ["IGIC especial incrementado 15%", false],
+      ["IGIC incrementado 9,5%", false],
+      ["IGIC general 7%", true],
+      ["IGIC reducido 3%", false],
+      ["IGIC tipo cero 0%", false],
+      ["Retención IRPF 15%", false],
+      ["Retención IRPF 7%", false],
+      ["Retención alquiler 19%", false],
+    ]);
+    const ceuta = getCountryPack("ES-CE").template;
+    expect(ceuta.taxes.filter((entry) => entry.kind === "VAT").every((entry) => entry.name.startsWith("IPSI") && !entry.isDefault)).toBe(true);
+    expect(ceuta.taxes.some((entry) => entry.kind === "SURCHARGE")).toBe(false);
+  });
+
+  it("entre península y Canarias / Ceuta / Melilla: exportación, no sujeta o importación", () => {
+    // Desde la península a Canarias.
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "38001", taxId: "B12345674" })).toBe("EXPORT");
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "38001", taxId: "B12345674" }, { businessType: "services" })).toBe("NOT_SUBJECT");
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "38001", taxId: null }, { businessType: "services" })).toBe("DOMESTIC");
+    // Desde Canarias: la península y la UE son exportación (Canarias no está en el espacio IVA).
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "38200", taxId: "B12345674" }, { homeCountry: "ES-CN" })).toBe("DOMESTIC");
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "28013", taxId: "B12345674" }, { homeCountry: "ES-CN" })).toBe("EXPORT");
+    expect(suggestSalesVatTreatment({ countryCode: "FR", taxId: "FR40303265045" }, { homeCountry: "ES-CN" })).toBe("EXPORT");
+    // Compras.
+    expect(suggestSupplierVatTreatment({ countryCode: "ES", postalCode: "51001", supplierKind: "GOODS" })).toBe("IMPORT");
+    expect(suggestSupplierVatTreatment({ countryCode: "ES", postalCode: "35001", supplierKind: "SERVICES" })).toBe("REVERSE_CHARGE");
+    expect(suggestSupplierVatTreatment({ countryCode: "ES", postalCode: "28013", supplierKind: "GOODS" }, { homeCountry: "ES-CN" })).toBe("IMPORT");
+    expect(suggestSupplierVatTreatment({ countryCode: "DE", supplierKind: "GOODS" }, { homeCountry: "ES-ML" })).toBe("IMPORT");
+  });
+
+  it("autorepercusión con el tipo general del territorio", () => {
+    expect(standardVatRate("ES-CN")).toBe(7);
+    expect(standardVatRate("ES-CE")).toBe(0);
+    expect(allVatRates("ES-CN")).toEqual([15, 9.5, 7, 3, 0]);
   });
 });

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import Link from "next/link";
 
 import { CreateExpenseInvoiceForm } from "@/components/expenses/create-expense-invoice-form";
@@ -57,7 +58,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
         ) : (
           <CreateExpenseInvoiceForm
             baseCurrencyCode={ctx.company.baseCurrencyCode}
-            homeCountryCode={ctx.company.countryCode}
+            homeCountryCode={await getCompanyTaxTerritory(ctx.company.id)}
             expenseAccounts={expenseAccounts}
             goodsReceipts={relations.receipts}
             initialSupplierId={initialSupplierId}

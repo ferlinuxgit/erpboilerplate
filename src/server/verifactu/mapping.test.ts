@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
-import { buildBreakdown, mapInvoiceToAlta } from "@/server/verifactu/mapping";
+import { buildBreakdown, mapInvoiceToAlta, verifactuTaxCodeFor } from "@/server/verifactu/mapping";
 
 const vat21 = { name: "IVA 21%", rate: 21, kind: "VAT", operation: "ADD" as const };
 const re52 = { name: "RE 5,2%", rate: 5.2, kind: "SURCHARGE", operation: "ADD" as const };
@@ -98,5 +98,24 @@ describe("VeriFactu mapping", () => {
 
     const r5WithoutSimplified = mapInvoiceToAlta({ invoiceType: "CREDIT_NOTE", rectificationReason: "R5", vatTreatment: "DOMESTIC", customer: { name: "Cliente", taxId: "B87654321", countryCode: "ES" }, totals: creditTotals, description: "x", original });
     expect(r5WithoutSimplified.invoiceTypeCode).toBe("R4");
+  });
+});
+
+describe("territorios con IGIC / IPSI", () => {
+  const totals = { subtotal: 100, taxBuckets: [{ key: "ADD|VAT|7", name: "IGIC general 7%", kind: "VAT", rate: 7, operation: "ADD" as const, baseAmount: 100, amount: 7 }] };
+
+  it("elige la clave del impuesto por el territorio del emisor", () => {
+    expect(verifactuTaxCodeFor("ES")).toBe("01");
+    expect(verifactuTaxCodeFor("ES-CN")).toBe("03");
+    expect(verifactuTaxCodeFor("ES-CE")).toBe("02");
+    expect(verifactuTaxCodeFor("ES-ML")).toBe("02");
+  });
+
+  it("IGIC conserva la clave de régimen; IPSI no la informa", () => {
+    expect(buildBreakdown("DOMESTIC", totals, "03").lines[0]).toEqual({ Impuesto: "03", ClaveRegimen: "01", CalificacionOperacion: "S1", TipoImpositivo: "7.00", BaseImponibleOimporteNoSujeto: "100.00", CuotaRepercutida: "7.00" });
+    const ipsi = buildBreakdown("DOMESTIC", totals, "02").lines[0];
+    expect(ipsi).toMatchObject({ Impuesto: "02", CalificacionOperacion: "S1" });
+    expect(ipsi).not.toHaveProperty("ClaveRegimen");
+    expect(buildBreakdown("EXPORT", { subtotal: 50, taxBuckets: [] }, "03").lines[0]).toMatchObject({ Impuesto: "03", ClaveRegimen: "02", OperacionExenta: "E2" });
   });
 });

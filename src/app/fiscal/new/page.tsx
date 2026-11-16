@@ -1,4 +1,6 @@
 import { CreateFiscalReportForm } from "@/components/fiscal/create-fiscal-report-form";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { spanishFiscalModelsFor } from "@/lib/fiscal-spain";
 import { getFiscalSettings } from "@/server/fiscal/settings";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -9,10 +11,11 @@ import { canFromDb } from "@/lib/rbac-server";
 export default async function NewFiscalReportPage({ searchParams }: { searchParams: Promise<{ code?: string; period?: string }> }) {
   const ctx = await requireContext("fiscal.write");
   requireCountryFeaturePage(ctx.company.countryCode, "taxReports");
-  const [canWrite, settings, query] = await Promise.all([
+  const [canWrite, settings, query, territory] = await Promise.all([
     canFromDb(ctx.membership.role, "fiscal.write"),
     getFiscalSettings(ctx.company.id),
     searchParams,
+    getCompanyTaxTerritory(ctx.company.id),
   ]);
 
   return (
@@ -30,7 +33,7 @@ export default async function NewFiscalReportPage({ searchParams }: { searchPara
           <CreateFiscalReportForm
             initialCode={query.code}
             initialPeriod={query.period}
-            models={spanishFiscalModelsFor(settings.taxpayerType)}
+            models={spanishFiscalModelsFor(settings.taxpayerType, { vatReturns: getCountryFiscalProfile(territory).features.vatReturns })}
             periodicity={settings.taxPeriodicity}
           />
         ) : (

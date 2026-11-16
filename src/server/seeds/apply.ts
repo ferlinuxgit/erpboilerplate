@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { accountChart, company, companySettings, documentSeries, fiscalYear, journal, tax } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
+import { isSpanishSpecialTerritory, taxTerritoryOf, territoryCountry } from "@/lib/country-packs/territory";
 import { getCompanyTemplate, type CompanyTemplate, type CompanyTemplateAccount } from "@/lib/company-templates";
 import { canonicalSubaccountCode, natureForAccountType, normalizeSubaccountLength } from "@/server/accounting/subaccounts-model";
 import { recordAudit } from "@/server/audit";
@@ -23,12 +24,15 @@ type ApplyCompanyTemplateInput = ApplyEsSeedsInput & {
 };
 
 export async function applyCompanyTemplate(input: ApplyCompanyTemplateInput) {
-  const template = getCompanyTemplate(input.countryCode);
-  if (!template) {
-    throw new Error("No hay una plantilla automatica disponible para este pais.");
-  }
-
   const client = input.client ?? db;
+  // España: Canarias, Ceuta y Melilla tienen su propia plantilla (IGIC / IPSI) según el domicilio.
+  let territory = input.countryCode;
+  if (!isSpanishSpecialTerritory(territory) && (territoryCountry(territory) || "ES") === "ES") {
+    const [address] = await client.select({ postalCode: company.postalCode, province: company.province }).from(company).where(eq(company.id, input.companyId)).limit(1);
+    territory = taxTerritoryOf({ countryCode: "ES", ...address }) ?? "ES";
+  }
+  const template = getCompanyTemplate(territory);
+
   const activeFiscalYear = input.activeFiscalYearId
     ? { id: input.activeFiscalYearId }
     : (

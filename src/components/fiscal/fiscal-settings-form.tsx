@@ -38,6 +38,8 @@ type FiscalSettingsFormProps = {
    * autónomo/sociedad y SII son conceptos del IVA español).
    */
   spanishRegimes?: boolean;
+  /** Régimen de IVA, prorrata y SII: false en Canarias, Ceuta y Melilla (IGIC / IPSI). Por defecto, igual que `spanishRegimes`. */
+  vatRegimes?: boolean;
   /** Nombre local del impuesto ("IVA", "TVA"…). */
   taxLabel?: string;
 };
@@ -48,7 +50,8 @@ async function readError(response: Response, fallback: string) {
 }
 
 /** Perfil fiscal: tipo de contribuyente, régimen, periodicidad, prorrata y SII. */
-export function FiscalSettingsForm({ initialValues, spanishRegimes = true, taxLabel = "IVA" }: FiscalSettingsFormProps) {
+export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRegimes, taxLabel = "IVA" }: FiscalSettingsFormProps) {
+  const showVatRegimes = vatRegimes ?? spanishRegimes;
   const router = useRouter();
   const [values, setValues] = useState(initialValues);
   const [loading, setLoading] = useState(false);
@@ -115,7 +118,7 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, taxLa
         </AccessibleField>
         ) : null}
 
-        {spanishRegimes ? (
+        {showVatRegimes ? (
         <AccessibleField id="fiscal-regime" label="Régimen de IVA" helperText="Si no sabes cuál es, casi seguro es el general.">
           <Select value={values.fiscalRegime} onChange={(event) => setValue("fiscalRegime", event.target.value as FiscalSettingsFormValues["fiscalRegime"])}>
             <option value="general">General</option>
@@ -129,7 +132,7 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, taxLa
         <AccessibleField
           id="fiscal-periodicity"
           label={`Periodicidad del ${taxLabel}`}
-          helperText={spanishRegimes
+          helperText={showVatRegimes
             ? "Mensual solo si facturas más de 6 millones al año o estás en el SII o en devolución mensual."
             : "Cada cuánto declaras el impuesto en tu país: agrupa el resumen de impuestos por ese periodo."}
         >
@@ -139,7 +142,7 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, taxLa
           </Select>
         </AccessibleField>
 
-        {spanishRegimes ? (
+        {showVatRegimes ? (
         <>
         <AccessibleField id="fiscal-prorrata" label="Prorrata deducible (%)" helperText={<>100 % salvo que tengas actividades exentas de IVA (formación, sanidad…). <HelpTerm term="prorrata">¿Qué es la prorrata?</HelpTerm></>}>
           <PercentInput value={values.prorrataPct} onValueChange={(value) => setValue("prorrataPct", value ?? Number.NaN)} />

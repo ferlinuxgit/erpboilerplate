@@ -1,5 +1,7 @@
 import { and, eq, gt, sql } from "drizzle-orm";
 
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { accountChart, companySettings, customer, invoice, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import {
@@ -114,6 +116,8 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
   const periodicity = settings?.taxPeriodicity === "monthly" ? "monthly" : "quarterly";
   const taxpayerType = normalizeTaxpayerType(settings?.taxpayerType);
   const regime = settings?.fiscalRegime ?? "general";
+  // Canarias, Ceuta y Melilla: sin modelos de IVA (IGIC / IPSI se resumen aparte).
+  const vatReturns = getCountryFiscalProfile(await getCompanyTaxTerritory(companyId)).features.vatReturns;
 
   const vatPeriod = nextFilingPeriod("303", periodicity, now);
   const vatRange = parseSpanishFiscalPeriod(vatPeriod, "303");
@@ -121,7 +125,7 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
 
   const entries: Array<{ code: SpanishFiscalModelCode; period: string; requirement: FiscalObligation["requirement"]; reason: string }> = [];
   const vatExempt = regime === "recargo_equivalencia" || regime === "exempt";
-  entries.push({
+  if (vatReturns) entries.push({
     code: "303",
     period: vatPeriod,
     requirement: vatExempt ? "not-needed" : "required",
@@ -139,7 +143,7 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
     requirement: (activity?.rentWithholding ?? 0) > 0 ? "required" : "not-needed",
     reason: (activity?.rentWithholding ?? 0) > 0 ? "Pagas un alquiler con retención." : "No hay alquileres con retención en el periodo.",
   });
-  entries.push({
+  if (vatReturns) entries.push({
     code: "349",
     period: vatPeriod,
     requirement: activity?.intraEu ? "required" : "not-needed",
@@ -156,7 +160,7 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
   const month = now.getUTCMonth() + 1;
   if (month <= 2) {
     const previousYear = String(now.getUTCFullYear() - 1);
-    if (month === 1 && !vatExempt) entries.push({ code: "390", period: previousYear, requirement: "required", reason: "Resumen anual del IVA del año pasado." });
+    if (month === 1 && !vatExempt && vatReturns) entries.push({ code: "390", period: previousYear, requirement: "required", reason: "Resumen anual del IVA del año pasado." });
     entries.push({ code: "347", period: previousYear, requirement: "required", reason: "Obligatorio si algún cliente o proveedor superó 3.005,06 € en el año." });
   }
 

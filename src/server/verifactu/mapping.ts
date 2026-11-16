@@ -21,7 +21,8 @@ export type VerifactuInvoiceTypeCode = "F1" | "F2" | "F3" | "R1" | "R2" | "R3" |
 
 export type VerifactuBreakdownLine = {
   Impuesto: string;
-  ClaveRegimen: string;
+  /** Solo con IVA (01) o IGIC (03); no se informa con IPSI (02). */
+  ClaveRegimen?: string;
   CalificacionOperacion?: string;
   OperacionExenta?: string;
   TipoImpositivo?: string;
@@ -55,8 +56,27 @@ export type VerifactuAltaContent = {
 
 export type SalesTreatment = "DOMESTIC" | "INTRA_EU" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
 
+/** Clave del impuesto (L1): 01 IVA, 02 IPSI (Ceuta y Melilla), 03 IGIC (Canarias). */
+export type VerifactuTaxCode = "01" | "02" | "03";
+
+/** Impuesto del registro según el territorio del emisor (ES-CN → IGIC, ES-CE / ES-ML → IPSI). */
+export function verifactuTaxCodeFor(territory: string | null | undefined): VerifactuTaxCode {
+  if (territory === "ES-CN") return "03";
+  if (territory === "ES-CE" || territory === "ES-ML") return "02";
+  return "01";
+}
+
+/** Aplica la clave del impuesto a una línea de desglose (sin ClaveRegimen en el IPSI). */
+function withTaxCode(line: VerifactuBreakdownLine, taxCode: VerifactuTaxCode): VerifactuBreakdownLine {
+  if (taxCode === "01") return line;
+  const { ClaveRegimen, ...rest } = line;
+  return taxCode === "02" ? { ...rest, Impuesto: taxCode } : { ...rest, Impuesto: taxCode, ClaveRegimen };
+}
+
 export type MapInvoiceInput = {
   invoiceType: "INVOICE" | "CREDIT_NOTE" | string;
+  /** Clave del impuesto según el territorio del emisor (por defecto 01, IVA). */
+  taxCode?: VerifactuTaxCode;
   rectificationReason: string | null;
   vatTreatment: SalesTreatment;
   customer: { name: string; taxId: string | null; countryCode: string | null } | null;
@@ -105,7 +125,7 @@ function exemptLine(treatment: SalesTreatment, baseCents: number): VerifactuBrea
 }
 
 /** Desglose (DetalleDesglose) y totales CuotaTotal / ImporteTotal a partir del desglose por tipo de la factura. */
-export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInput["totals"]) {
+export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInput["totals"], taxCode: VerifactuTaxCode = "01") {
   const subtotalCents = cents(totals.subtotal);
   const vatBuckets = totals.taxBuckets.filter((bucket) => bucket.operation === "ADD" && (bucket.kind ?? "VAT").toUpperCase() === "VAT");
   const surchargeBuckets = totals.taxBuckets.filter((bucket) => bucket.operation === "ADD" && (bucket.kind ?? "").toUpperCase() === "SURCHARGE");
@@ -148,7 +168,7 @@ export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInpu
   if (uncoveredCents !== 0 || lines.length === 0) lines.push(exemptLine(treatment, uncoveredCents));
 
   return {
-    lines,
+    lines: lines.map((line) => withTaxCode(line, taxCode)),
     taxAmount: fromCents(quotaCents),
     totalAmount: fromCents(subtotalCents + quotaCents),
   };
@@ -156,7 +176,7 @@ export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInpu
 
 export function mapInvoiceToAlta(input: MapInvoiceInput): VerifactuAltaContent {
   const recipient = recipientFor(input.customer);
-  const breakdown = buildBreakdown(input.vatTreatment, input.totals);
+  const breakdown = buildBreakdown(input.vatTreatment, input.totals, input.taxCode ?? "01");
   const isCreditNote = input.invoiceType === "CREDIT_NOTE";
 
   let invoiceTypeCode: VerifactuInvoiceTypeCode;

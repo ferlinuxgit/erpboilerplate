@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { accountChart, companySettings, documentSeries, journal, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
 import { taxSignatureKey } from "@/server/taxes/duplicates";
 
@@ -48,8 +49,10 @@ export async function getCompanyDefaultsStatus(input: {
   fiscalYearId: string;
   countryCode: string;
 }): Promise<CompanyDefaultsStatus> {
-  // Todos los países tienen plantilla: la propia (España) o la genérica con sus tipos de IVA.
-  const template = getCompanyTemplate(input.countryCode);
+  // Todos los países tienen plantilla: la propia (España, y en Canarias / Ceuta / Melilla la de su
+  // territorio, con IGIC / IPSI) o la genérica con sus tipos de IVA.
+  const territory = input.countryCode.toUpperCase() === "ES" ? await getCompanyTaxTerritory(input.companyId) : input.countryCode;
+  const template = getCompanyTemplate(territory);
 
   const accountCodes = template.accounts.map((account) => account.code);
   const journalCodes = template.journals.map((entry) => entry.code);

@@ -15,6 +15,7 @@
  */
 
 import { countryName, isEuCountry, normalizeCountryCode } from "@/lib/countries";
+import { isSpanishSpecialTerritory, spanishTerritoryNames, territoryCountry } from "@/lib/country-packs/territory";
 import { countryVatRates, type ConsumptionTaxSystem } from "@/lib/country-packs/vat-rates";
 
 export type ComplianceLevel = "full" | "basic";
@@ -22,6 +23,11 @@ export type ComplianceLevel = "full" | "basic";
 export type CountryFeatures = {
   /** Modelos oficiales de la administración tributaria (303, 111, 347…). null = resumen genérico. */
   taxReports: "es-aeat" | null;
+  /**
+   * Declaraciones del impuesto indirecto que genera la aplicación (IVA: 303, 390 y 349). false en
+   * Canarias, Ceuta y Melilla (IGIC / IPSI): el impuesto se resume por periodo en Fiscalidad.
+   */
+  vatReturns: boolean;
   /** Sistema de facturación verificable / factura electrónica obligatoria. */
   eInvoicing: "verifactu" | null;
   /** Régimen de recargo de equivalencia (comercio minorista). */
@@ -39,6 +45,10 @@ export type CountryFeatures = {
 export type CountryFiscalProfile = {
   countryCode: string;
   countryName: string;
+  /** Territorio fiscal: el país o ES-CN / ES-CE / ES-ML (ver `territory.ts`). */
+  territory: string;
+  /** Nombre del territorio ("Canarias") o del país. */
+  territoryName: string;
   level: ComplianceLevel;
   /** Moneda, zona horaria e idioma por defecto de la empresa. */
   currency: string;
@@ -48,6 +58,7 @@ export type CountryFiscalProfile = {
   taxLabel: string;
   /** Nombre del identificador fiscal en formularios ("NIF", "NIF-IVA"…). */
   taxIdLabel: string;
+  /** Dentro del espacio IVA de la UE (operaciones intracomunitarias y VIES). Canarias, Ceuta y Melilla no. */
   isEu: boolean;
   /**
    * Estructura del plan contable. "PGC": cuentas numeradas por grupos (1 financiación … 6 gastos,
@@ -61,6 +72,7 @@ export type CountryFiscalProfile = {
 
 const basicFeatures = (isEu: boolean): CountryFeatures => ({
   taxReports: null,
+  vatReturns: false,
   eInvoicing: null,
   equivalenceSurcharge: false,
   incomeTaxWithholding: false,
@@ -77,6 +89,7 @@ const fullPacks: Record<string, Pick<CountryFiscalProfile, "currency" | "timezon
     taxIdLabel: "NIF",
     features: {
       taxReports: "es-aeat",
+      vatReturns: true,
       eInvoicing: "verifactu",
       equivalenceSurcharge: true,
       incomeTaxWithholding: true,
@@ -150,27 +163,42 @@ function normalizePackCountry(countryCode: string | null | undefined) {
 }
 
 /**
- * Perfil fiscal del país (cualquier país del mundo tiene uno: completo o básico). Código puro y
- * ligero: se puede usar en componentes cliente. La plantilla contable está en `getCountryPack`.
+ * Canarias, Ceuta y Melilla: misma España (NIF, IRPF, modelos estatales, VERI*FACTU) con su
+ * impuesto indirecto (IGIC / IPSI), sin recargo de equivalencia, sin prorrata de IVA, sin
+ * modelos de IVA y fuera del espacio IVA de la UE (sin operaciones intracomunitarias ni VIES).
+ */
+function spanishTerritoryFeatures(base: CountryFeatures): CountryFeatures {
+  return { ...base, vatReturns: false, equivalenceSurcharge: false, vatProration: false, vies: false };
+}
+
+/**
+ * Perfil fiscal del país o territorio (cualquier país del mundo tiene uno: completo o básico).
+ * Acepta un código de país (ES) o de territorio (ES-CN). Código puro y ligero: se puede usar en
+ * componentes cliente. La plantilla contable está en `getCountryPack`.
  */
 export function getCountryFiscalProfile(countryCode: string | null | undefined): CountryFiscalProfile {
-  const code = normalizePackCountry(countryCode);
-  const rates = countryVatRates(code);
+  const raw = (countryCode ?? "").trim().toUpperCase();
+  const territory = isSpanishSpecialTerritory(raw) ? raw : null;
+  const code = territory ? territoryCountry(territory) : normalizePackCountry(countryCode);
+  const rates = countryVatRates(territory ?? code);
   const full = fullPacks[code];
-  const isEu = isEuCountry(code);
+  const isEu = !territory && isEuCountry(code);
   const defaults = countryDefaults[code] ?? { currency: isEu ? "EUR" : "USD", timezone: "UTC" };
+  const features = full?.features ?? basicFeatures(isEu);
   return {
     countryCode: code,
     countryName: countryName(code),
+    territory: territory ?? code,
+    territoryName: territory ? spanishTerritoryNames[territory] : countryName(code),
     level: full ? "full" : "basic",
     currency: full?.currency ?? defaults.currency,
-    timezone: full?.timezone ?? defaults.timezone,
+    timezone: territory === "ES-CN" ? "Atlantic/Canary" : full?.timezone ?? defaults.timezone,
     taxSystem: rates?.system ?? "NONE",
     taxLabel: rates?.label ?? "Impuesto",
     taxIdLabel: full?.taxIdLabel ?? (isEu ? "NIF-IVA" : "Identificador fiscal"),
     isEu,
     chartFamily: "PGC",
-    features: full?.features ?? basicFeatures(isEu),
+    features: territory ? spanishTerritoryFeatures(features) : features,
   };
 }
 

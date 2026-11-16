@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gte, inArray, lt, lte, notInArray, or, sql } from "drizzle-orm";
 
+import { SPANISH_VAT_MODEL_CODES, type SpanishFiscalModelCode } from "@/lib/fiscal-spain";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import {
   accountChart,
@@ -412,6 +413,7 @@ async function financialActivity(companyId: string) {
 
 export async function loadDashboardFinance(companyId: string, options: { period: FinancePeriod; now?: Date; countryCode?: string }) {
   const now = options.now ?? new Date();
+  const vatReturns = getCountryFiscalProfile(options.countryCode).features.vatReturns;
   const ranges = financePeriodRanges(options.period, now);
   const months = lastMonths(now, 12);
 
@@ -456,9 +458,10 @@ export async function loadDashboardFinance(companyId: string, options: { period:
     months: months.map((month) => ({ key: month.key, label: month.label, longLabel: month.longLabel })),
     monthly,
     unreconciledMovements: unreconciled,
-    fiscalDeadlines: reports ? upcomingFiscalDeadlines({ now, reports }) : [],
+    // Canarias, Ceuta y Melilla: sin plazos de IVA (303 / 390); el 347 sí aplica.
+    fiscalDeadlines: reports ? upcomingFiscalDeadlines({ now, reports }).filter((deadline) => vatReturns || !SPANISH_VAT_MODEL_CODES.has(deadline.code as SpanishFiscalModelCode)) : [],
     // Siempre hay un próximo plazo (303 del trimestre en curso): visible desde el primer día.
-    nextFiscalDeadline: reports ? nextQuarterlyVatDeadline({ now, reports }) : null,
+    nextFiscalDeadline: reports && vatReturns ? nextQuarterlyVatDeadline({ now, reports }) : null,
   };
 }
 

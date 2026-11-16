@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import Link from "next/link";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -40,6 +42,7 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
     periodicity: settings.taxPeriodicity,
     taxpayerType: settings.taxpayerType,
     fiscalRegime: settings.fiscalRegime,
+    vatReturns: getCountryFiscalProfile(await getCompanyTaxTerritory(ctx.company.id)).features.vatReturns,
     reports,
   });
   const overdue = entries.filter((entry) => entry.state === "overdue");

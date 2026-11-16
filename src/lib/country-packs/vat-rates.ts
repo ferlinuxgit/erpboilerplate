@@ -21,6 +21,15 @@ export type CountryVatRates = {
   standard: number;
   reduced?: readonly number[];
   superReduced?: number;
+  /** Tipos incrementados (IGIC: 9,5 % y 15 %). */
+  increased?: readonly number[];
+  /** Tipo cero explícito (IGIC). */
+  zeroRated?: boolean;
+  /**
+   * Sin tipo por defecto: el tipo depende de la actividad (IPSI de Ceuta y Melilla). Se crean
+   * todos los tipos y la línea se factura con el que corresponda.
+   */
+  allRates?: readonly number[];
 };
 
 export const VAT_RATES_REVIEWED_AT = "2026-11";
@@ -54,6 +63,11 @@ export const COUNTRY_VAT_RATES: Readonly<Record<string, CountryVatRates>> = {
   SE: { system: "VAT", label: "Moms", standard: 25, reduced: [12, 6] },
   SI: { system: "VAT", label: "DDV", standard: 22, reduced: [9.5, 5] },
   SK: { system: "VAT", label: "DPH", standard: 23, reduced: [19, 5] },
+
+  // Territorios españoles fuera del IVA (códigos ISO 3166-2)
+  "ES-CN": { system: "VAT", label: "IGIC", standard: 7, reduced: [3], increased: [9.5, 15], zeroRated: true },
+  "ES-CE": { system: "VAT", label: "IPSI", standard: 0, allRates: [10, 8, 6, 4, 3, 2, 1, 0.5] },
+  "ES-ML": { system: "VAT", label: "IPSI", standard: 0, allRates: [10, 8, 6, 4, 2, 1, 0.5] },
 
   // Resto de Europa
   AD: { system: "VAT", label: "IGI", standard: 4.5, reduced: [2.5, 1] },
@@ -122,6 +136,21 @@ export const COUNTRY_VAT_RATES: Readonly<Record<string, CountryVatRates>> = {
 export function standardVatRate(countryCode: string | null | undefined): number {
   const rates = countryVatRates(countryCode || "ES");
   return rates?.system === "VAT" ? rates.standard : 0;
+}
+
+/** Todos los tipos del impuesto del territorio, de mayor a menor (sin duplicados). */
+export function allVatRates(countryCode: string | null | undefined): number[] {
+  const rates = countryVatRates(countryCode || "ES");
+  if (!rates || rates.system !== "VAT") return [];
+  const values = [
+    ...(rates.allRates ?? []),
+    ...(rates.standard > 0 ? [rates.standard] : []),
+    ...(rates.increased ?? []),
+    ...(rates.reduced ?? []),
+    ...(rates.superReduced ? [rates.superReduced] : []),
+    ...(rates.zeroRated ? [0] : []),
+  ];
+  return [...new Set(values)].sort((left, right) => right - left);
 }
 
 export function countryVatRates(countryCode: string | null | undefined): CountryVatRates | null {

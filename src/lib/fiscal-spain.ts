@@ -29,9 +29,16 @@ export function normalizeTaxpayerType(value: string | null | undefined): Taxpaye
   return value === "individual" ? "individual" : "company";
 }
 
-/** Modelos visibles según el tipo de contribuyente (el 130 solo aplica a autónomos). */
-export function spanishFiscalModelsFor(taxpayerType: TaxpayerType) {
-  return spanishFiscalModels.filter((model) => !model.individualsOnly || taxpayerType === "individual");
+/** Modelos del IVA: no existen en Canarias (IGIC), Ceuta ni Melilla (IPSI). */
+export const SPANISH_VAT_MODEL_CODES: ReadonlySet<SpanishFiscalModelCode> = new Set<SpanishFiscalModelCode>(["303", "390", "349"]);
+
+/**
+ * Modelos visibles según el tipo de contribuyente (el 130 solo aplica a autónomos) y el territorio
+ * (`vatReturns: false` en Canarias, Ceuta y Melilla: sin 303, 390 ni 349).
+ */
+export function spanishFiscalModelsFor(taxpayerType: TaxpayerType, options: { vatReturns?: boolean } = {}) {
+  const vatReturns = options.vatReturns ?? true;
+  return spanishFiscalModels.filter((model) => (!model.individualsOnly || taxpayerType === "individual") && (vatReturns || !SPANISH_VAT_MODEL_CODES.has(model.code)));
 }
 
 export type FiscalPeriodRange = {

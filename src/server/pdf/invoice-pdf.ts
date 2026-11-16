@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 
+import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { company, companySettings, customer, invoice, invoicePaymentMethod, partner, type InvoicePartySnapshot } from "@/db/schema";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
@@ -161,7 +162,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   };
 
   const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode, issuer.countryCode);
-  const legalNotes = [vatTreatmentLegalNote(vatTreatment, issuer.countryCode)].filter((note): note is string => Boolean(note));
+  const legalNotes = [vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer))].filter((note): note is string => Boolean(note));
 
   const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
     ? rectificationReasonLabels[row.rectificationReason as RectificationReason]

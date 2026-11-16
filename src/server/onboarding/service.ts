@@ -10,7 +10,7 @@ import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { normalizeTaxIdForCountry, spanishTaxpayerTypeFromTaxId } from "@/lib/country-packs/tax-id";
 import { DEFAULT_COMPANY_NAME } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
-import { changeCompanyCountry } from "@/server/company/country";
+import { changeCompanyCountry, currentCompanyTerritory, syncCompanyTaxTerritory } from "@/server/company/country";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
 import { createBankAccount } from "@/server/treasury/service";
 
@@ -158,6 +158,7 @@ export async function saveOnboardingStep(actorInput: OnboardingActor, payload: O
 
   const result = await db.transaction(async (tx) => {
     await ensureSettingsRow(tx, actor.companyId, actor.countryCode);
+    const previousTerritory = await currentCompanyTerritory(actor, tx);
 
     const legalName = cleanText(payload.legalName);
     const companyValues = {
@@ -170,6 +171,10 @@ export async function saveOnboardingStep(actorInput: OnboardingActor, payload: O
     };
     if (Object.keys(companyValues).length > 0) {
       await tx.update(company).set({ ...companyValues, updatedAt: new Date() }).where(and(eq(company.id, actor.companyId), eq(company.tenantId, actor.tenantId)));
+    }
+    // Domicilio en Canarias, Ceuta o Melilla: IGIC / IPSI en lugar de IVA, sin preguntar nada.
+    if (payload.postalCode !== undefined || payload.province !== undefined) {
+      await syncCompanyTaxTerritory({ ...actor, previousTerritory }, tx);
     }
 
     // El espacio de trabajo adopta el nombre de la empresa mientras conserve el provisional.

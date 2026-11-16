@@ -26,7 +26,7 @@ vi.mock("@/lib/db", async () => {
 import * as schema from "@/db/schema";
 import { accountChart, company, companySettings, fiscalYear, invoice, journalEntry, journalLine, tax, tenant, user } from "@/db/schema";
 import { postSalesInvoice, postSupplierInvoice } from "@/server/accounting/auto-post";
-import { changeCompanyCountry } from "@/server/company/country";
+import { changeCompanyCountry, currentCompanyTerritory, syncCompanyTaxTerritory } from "@/server/company/country";
 import { getCompanyDefaultsStatus } from "@/server/company/defaults";
 import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
 import { createCustomerWithPartner } from "@/server/customers/service";
@@ -161,5 +161,47 @@ describe("cambio de país", () => {
     const customer = await createCustomerWithPartner(state.db, companyId, partyInput("Cliente", "B12345674", "ES"));
     await state.db.insert(invoice).values({ id: "locked-inv", companyId, customerId: customer.id, number: "FA-1", issueDate: new Date(), totalAmount: "10.00", status: "SENT", issuedAt: new Date() });
     await expect(changeCompanyCountry({ tenantId: TENANT, companyId, fiscalYearId: `${companyId}-fy`, actorUserId: USER, countryCode: "FR" })).rejects.toThrow("facturas emitidas");
+  });
+});
+
+describe("Canarias, Ceuta y Melilla", () => {
+  it("una empresa con domicilio en Tenerife recibe el IGIC al aplicar la plantilla de España", async () => {
+    const companyId = "es-tenerife";
+    await createCompany(companyId, "ES");
+    await state.db.update(company).set({ postalCode: "38001", province: "Santa Cruz de Tenerife" }).where(eq(company.id, companyId));
+    await applyCompanyTemplate({ tenantId: TENANT, companyId, actorUserId: USER, activeFiscalYearId: `${companyId}-fy`, countryCode: "ES" });
+    const taxes = await activeTaxes(companyId);
+    expect(taxes.filter((entry) => entry.kind === "VAT").map((entry) => entry.name).sort()).toEqual(["IGIC especial incrementado 15%", "IGIC general 7%", "IGIC incrementado 9,5%", "IGIC reducido 3%", "IGIC tipo cero 0%"]);
+    expect(taxes.find((entry) => entry.isDefault)?.name).toBe("IGIC general 7%");
+    expect(taxes.some((entry) => entry.kind === "SURCHARGE")).toBe(false);
+    expect(taxes.filter((entry) => entry.kind === "WITHHOLDING")).toHaveLength(3);
+    const context = await getCompanyFiscalContext(companyId);
+    expect(context.homeCountry).toBe("ES-CN");
+    expect(context.profile.features.vatReturns).toBe(false);
+    const status = await getCompanyDefaultsStatus({ companyId, fiscalYearId: `${companyId}-fy`, countryCode: "ES" });
+    expect(status.ready).toBe(true);
+    expect(status.groups.find((group) => group.key === "taxes")?.missingCount).toBe(0);
+  });
+
+  it("traslado de Madrid a Ceuta: el IVA pasa a IPSI (mismo tipo renombrado) y se desactiva el resto", async () => {
+    const companyId = "es-to-ceuta";
+    await createCompany(companyId, "ES");
+    await state.db.update(company).set({ postalCode: "28013", province: "Madrid" }).where(eq(company.id, companyId));
+    await applyCompanyTemplate({ tenantId: TENANT, companyId, actorUserId: USER, activeFiscalYearId: `${companyId}-fy`, countryCode: "ES" });
+    const actorInput = { tenantId: TENANT, companyId, fiscalYearId: `${companyId}-fy`, actorUserId: USER };
+    expect(await currentCompanyTerritory(actorInput)).toBe("ES");
+
+    await state.db.update(company).set({ postalCode: "51001", province: "Ceuta" }).where(eq(company.id, companyId));
+    const changed = await state.db.transaction((tx: never) => syncCompanyTaxTerritory({ ...actorInput, previousTerritory: "ES" }, tx));
+    expect(changed).toBe(true);
+    const taxes = await activeTaxes(companyId);
+    const indirect = taxes.filter((entry) => entry.kind === "VAT");
+    expect(indirect.every((entry) => entry.name.startsWith("IPSI"))).toBe(true);
+    expect(indirect.map((entry) => Number(entry.rate)).sort((a, b) => b - a)).toEqual([10, 8, 6, 4, 3, 2, 1, 0.5]);
+    // IPSI: el tipo depende de la actividad, no hay uno por defecto.
+    expect(indirect.some((entry) => entry.isDefault)).toBe(false);
+    expect(taxes.some((entry) => entry.kind === "SURCHARGE")).toBe(false);
+    // Sin cambios si el territorio es el mismo.
+    expect(await syncCompanyTaxTerritory({ ...actorInput, previousTerritory: "ES-CE" })).toBe(false);
   });
 });

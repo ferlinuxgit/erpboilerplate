@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { CreateCustomerForm } from "@/components/create-customer-form";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
@@ -27,7 +28,7 @@ export default async function NewCustomerPage() {
 
       <PageSection title="Datos del cliente" description="Informa identidad fiscal, domicilio y contacto. El número de cliente se asignará automáticamente.">
         {canCreateCustomer ? (
-          <CreateCustomerForm defaultCountryCode={tenantContext.company.countryCode} redirectHref="/customers" />
+          <CreateCustomerForm defaultCountryCode={tenantContext.company.countryCode} homeTerritory={await getCompanyTaxTerritory(tenantContext.company.id)} redirectHref="/customers" />
         ) : (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite crear clientes." />
         )}

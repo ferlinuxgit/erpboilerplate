@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireContext } from "@/lib/current-context";
-import { spanishFiscalModelCodes } from "@/lib/fiscal-spain";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+import { SPANISH_VAT_MODEL_CODES, spanishFiscalModelCodes } from "@/lib/fiscal-spain";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { assertCountryFeature } from "@/server/fiscal/country-guard";
 import { createFiscalReport, listFiscalReports } from "@/server/fiscal/service";
 
@@ -31,6 +33,9 @@ export async function POST(request: Request) {
 
   try {
     assertCountryFeature(ctx.company.countryCode, "taxReports");
+    if (SPANISH_VAT_MODEL_CODES.has(payload.data.code) && !getCountryFiscalProfile(await getCompanyTaxTerritory(ctx.company.id)).features.vatReturns) {
+      return NextResponse.json({ message: `El modelo ${payload.data.code} es del IVA: en Canarias, Ceuta y Melilla se declara el IGIC o el IPSI.` }, { status: 422 });
+    }
     const created = await createFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, payload.data);
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

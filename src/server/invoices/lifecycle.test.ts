@@ -78,5 +78,7 @@ describe("mención legal según el país del emisor", () => {
     expect(vatTreatmentLegalNote("INTRA_EU", "PT")).toContain("art. 138 Directiva 2006/112/CE");
     expect(vatTreatmentLegalNote("EXPORT", "MX")).toBe("Exportación exenta de impuestos.");
     expect(vatTreatmentLegalNote("DOMESTIC", "FR")).toBeNull();
+    expect(vatTreatmentLegalNote("EXPORT", "ES-CN")).toContain("Ley 20/1991");
+    expect(vatTreatmentLegalNote("NOT_SUBJECT", "ES-ML")).toContain("IPSI");
   });
 });

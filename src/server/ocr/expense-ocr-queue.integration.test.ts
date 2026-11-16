@@ -54,7 +54,7 @@ import * as schema from "@/db/schema";
 import { company, expenseOcrJob, tenant, user } from "@/db/schema";
 import { createExpenseOcrJob, drainExpenseOcrQueue } from "@/server/ocr/expense-ocr";
 
-const statuses = async () => (await state.db.select({ status: expenseOcrJob.status }).from(expenseOcrJob)).map((row: { status: string }) => row.status).sort();
+const statuses = async (): Promise<string[]> => (await state.db.select({ status: expenseOcrJob.status }).from(expenseOcrJob)).map((row: { status: string }) => row.status).sort();
 const until = async (check: () => Promise<boolean> | boolean) => {
   for (let attempt = 0; attempt < 200 && !(await check()); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
 };

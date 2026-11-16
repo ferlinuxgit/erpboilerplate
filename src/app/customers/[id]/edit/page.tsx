@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -79,7 +80,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
       />
       <PageSection title="Datos del cliente" description="Actualiza identidad fiscal, contacto y condiciones de facturación.">
         <EditCustomerForm
-          homeCountryCode={ctx.company.countryCode}
+          homeCountryCode={await getCompanyTaxTerritory(ctx.company.id)}
           id={data.id}
           defaults={{
             name: data.name,

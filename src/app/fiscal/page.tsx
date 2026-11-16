@@ -10,6 +10,7 @@ import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getCountryFiscalProfile, type CountryFiscalProfile } from "@/lib/country-packs/profile";
 import { requireContext } from "@/lib/current-context";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { can } from "@/lib/rbac";
 import { canFromDb } from "@/lib/rbac-server";
 import { getFiscalYearLifecycle } from "@/server/accounting/fiscal-years";
@@ -25,19 +26,32 @@ export default async function FiscalPage({ searchParams }: { searchParams: Promi
     const query = await searchParams;
     return <GenericFiscalPage companyId={ctx.company.id} country={country} currencyCode={ctx.company.baseCurrencyCode} period={Array.isArray(query.period) ? query.period[0] : query.period} />;
   }
-  const [reports, canWrite, lifecycle, settings] = await Promise.all([
+  const [reports, canWrite, lifecycle, settings, territory, query] = await Promise.all([
     listFiscalReportsWithSummary(ctx.company.id),
     canFromDb(ctx.membership.role, "fiscal.write"),
     getFiscalYearLifecycle(ctx.company.id, ctx.fiscalYear.id),
     getFiscalSettings(ctx.company.id),
+    getCompanyTaxTerritory(ctx.company.id),
+    searchParams,
   ]);
   const obligations = await getCurrentFiscalObligations(ctx.company.id, reports);
+  // Canarias (IGIC), Ceuta y Melilla (IPSI): modelos estatales + resumen de su impuesto indirecto.
+  const territoryProfile = getCountryFiscalProfile(territory);
+  const indirectSummary = territoryProfile.features.vatReturns
+    ? null
+    : await (async () => {
+        const periods = recentTaxSummaryPeriods(new Date(), settings.taxPeriodicity);
+        const selected = parseTaxSummaryPeriod(Array.isArray(query.period) ? query.period[0] : query.period) ?? periods[0];
+        return { periods, summary: await calculateTaxSummary(ctx.company.id, selected, territory) };
+      })();
   return (
     <PageShell>
       <PageHeader
         eyebrow="Operación"
-        title="Fiscalidad España"
-        description="Qué tienes que presentar y cuándo, con los importes calculados desde tus facturas. Modelos 303, 390, 347, 349, 111, 115 y 130, y registro VERI*FACTU."
+        title={territoryProfile.features.vatReturns ? "Fiscalidad España" : `Fiscalidad ${territoryProfile.territoryName}`}
+        description={territoryProfile.features.vatReturns
+          ? "Qué tienes que presentar y cuándo, con los importes calculados desde tus facturas. Modelos 303, 390, 347, 349, 111, 115 y 130, y registro VERI*FACTU."
+          : `Qué tienes que presentar y cuándo: modelos estatales 111, 115, 130 y 347, registro VERI*FACTU y el resumen de tu ${territoryProfile.taxLabel} por periodo.`}
         backHref="/dashboard"
         backLabel="Volver al panel"
         meta={
@@ -72,6 +86,16 @@ export default async function FiscalPage({ searchParams }: { searchParams: Promi
       />
       {lifecycle ? (
         <FiscalYearLifecyclePanel canWrite={can(ctx.membership.role, "accounting.write")} lifecycle={{ ...lifecycle, companyId: ctx.company.id }} variant="alert" />
+      ) : null}
+      {indirectSummary ? (
+        <PageSection
+          title={`Resumen de ${territoryProfile.taxLabel}`}
+          description={territoryProfile.taxLabel === "IGIC"
+            ? "IGIC repercutido menos deducible del periodo, para el modelo 420 de la Agencia Tributaria Canaria (los modelos del IGIC aún no se generan aquí)."
+            : `IPSI del periodo, para la autoliquidación ante la ciudad de ${territoryProfile.territoryName} (aún no se genera aquí).`}
+        >
+          <GenericTaxSummary country={territoryProfile} currencyCode={ctx.company.baseCurrencyCode} periods={indirectSummary.periods} summary={indirectSummary.summary} />
+        </PageSection>
       ) : null}
       <PageSection
         title="Qué tengo que presentar"

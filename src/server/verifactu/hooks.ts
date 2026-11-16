@@ -3,11 +3,12 @@ import { and, desc, eq } from "drizzle-orm";
 import { verifactuRecord, type InvoicePartySnapshot } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
+import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import type { InvoiceTotals } from "@/lib/invoice-totals";
 import { appendAltaRecord, appendAnulacionRecord, type VerifactuRecordRow } from "@/server/verifactu/chain";
 import { getVerifactuSystemInfo } from "@/server/verifactu/config";
 import { formatAeatDate, isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/format";
-import { mapInvoiceToAlta, type SalesTreatment } from "@/server/verifactu/mapping";
+import { mapInvoiceToAlta, verifactuTaxCodeFor, type SalesTreatment } from "@/server/verifactu/mapping";
 import { getVerifactuSettings, recordModeFor } from "@/server/verifactu/settings";
 
 /**
@@ -79,6 +80,8 @@ export async function registerIssuedInvoiceRecord(tx: DbClient, input: IssuedInv
   }
 
   const content = mapInvoiceToAlta({
+    // Canarias (IGIC, 03), Ceuta y Melilla (IPSI, 02): según el domicilio fiscal del emisor.
+    taxCode: verifactuTaxCodeFor(taxTerritoryOf(input.issuer)),
     invoiceType: input.invoiceType,
     rectificationReason: input.rectificationReason,
     vatTreatment: input.vatTreatment,

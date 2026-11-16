@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import Link from "next/link";
 import { and, asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
@@ -172,7 +173,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   };
   const vatTreatment = isSalesVatTreatment(data.vatTreatment) ? data.vatTreatment : defaultSalesVatTreatment(party.countryCode, tenantContext.company.countryCode);
   const vatTreatmentLabel = salesVatTreatmentOptions.find((option) => option.value === vatTreatment)?.label ?? vatTreatment;
-  const legalNote = vatTreatmentLegalNote(vatTreatment, tenantContext.company.countryCode);
+  const legalNote = vatTreatmentLegalNote(vatTreatment, await getCompanyTaxTerritory(tenantContext.company.id));
   const displayedPaymentMethods = selectedPaymentMethods.length > 0
     ? selectedPaymentMethods
     : data.paymentMethodName
