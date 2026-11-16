@@ -24,6 +24,7 @@
     "accounting:reclassify": "tsx scripts/accounting-reclassify.ts",
     "accounting:bank-subaccounts": "tsx scripts/accounting-bank-subaccounts.ts",
     "taxes:dedupe": "tsx scripts/taxes-dedupe.ts",
+    "api:catalog": "node scripts/generate-api-catalog.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:verify": "node scripts/verify-clean-db-migrations.mjs",

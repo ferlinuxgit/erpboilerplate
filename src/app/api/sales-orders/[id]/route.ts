@@ -6,7 +6,9 @@ import { customer, salesOrder, salesOrderLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { HttpError, handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
 import { authenticateApiActor, hasApiActorPermission, isAuthError } from "@/lib/integration-auth";
+import { requireContext } from "@/lib/current-context";
 import { recordAudit } from "@/server/audit";
+import { getSalesOrderPdfData, withoutLogo } from "@/server/pdf/sales-document-pdf";
 import { rejectForeignItems } from "@/server/inventory/ownership";
 import { cancelSalesOrder, orderChangeBlocker } from "@/server/sales/service";
 import { computeDocumentTotals } from "@/server/taxation/engine";
@@ -109,5 +111,21 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     return NextResponse.json(cancelled);
   } catch (error) {
     return handleRouteError(error, "salesOrder.cancel", "No se pudo anular el pedido.");
+  }
+}
+
+/**
+ * Detalle del documento (pedido de venta): emisor, cliente, líneas y totales (los mismos datos
+ * que su PDF), para integraciones y el servidor MCP.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ctx = await requireContext("invoice.read");
+    const { id } = await params;
+    const data = await getSalesOrderPdfData(ctx.company.id, id);
+    if (!data) return NextResponse.json({ message: "Pedido de venta no encontrado." }, { status: 404 });
+    return NextResponse.json(withoutLogo(data.input));
+  } catch (error) {
+    return handleRouteError(error, "getSalesOrderPdfData.get");
   }
 }

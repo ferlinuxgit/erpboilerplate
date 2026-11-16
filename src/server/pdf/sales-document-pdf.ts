@@ -194,3 +194,8 @@ export async function getDeliveryNotePdfData(companyId: string, id: string) {
   };
   return { filename: `albaran-${row.number.replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`, input };
 }
+
+/** Datos de un documento para la API (sin el logotipo en data URL, que solo sirve al PDF). */
+export function withoutLogo<T extends object>(input: T): T {
+  return Object.fromEntries(Object.entries(input).filter(([key]) => !/logo/i.test(key))) as T;
+}

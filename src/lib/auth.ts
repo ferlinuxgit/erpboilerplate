@@ -20,10 +20,26 @@ export type JwtUser = {
   email: string;
 };
 
+/**
+ * Autorización delegada a una aplicación (conector OAuth de Claude / ChatGPT o token personal
+ * MCP): la sesión actúa como el usuario, pero fijada a una empresa y con un nivel de acceso.
+ */
+export type AuthGrant = {
+  /** Identificador de la autorización (todas sus sesiones lo comparten; se revoca entero). */
+  id: string;
+  tenantId: string;
+  companyId: string;
+  /** "read": solo consultas (GET); "write": cualquier acción que permita el rol del usuario. */
+  scope: "read" | "write";
+  /** Nombre de la aplicación conectada (se muestra en Ajustes). */
+  clientName: string;
+};
+
 export type JwtSession = {
   user: JwtUser;
   expiresAt: Date;
   issuedAt: Date;
+  grant?: AuthGrant;
 };
 
 type JwtPayload = {
@@ -32,6 +48,8 @@ type JwtPayload = {
   email: string;
   iat: number;
   exp: number;
+  /** Autorización delegada (ver `AuthGrant`). */
+  grt?: { id: string; tid: string; cid: string; scp: "read" | "write"; cli: string };
 };
 
 function getJwtSecret() {
@@ -67,7 +85,7 @@ function safeEqual(a: string, b: string) {
   return aBuffer.length === bBuffer.length && timingSafeEqual(aBuffer, bBuffer);
 }
 
-export function createAuthToken(user: JwtUser, maxAgeSeconds = AUTH_TOKEN_MAX_AGE_SECONDS) {
+export function createAuthToken(user: JwtUser, maxAgeSeconds = AUTH_TOKEN_MAX_AGE_SECONDS, grant?: AuthGrant) {
   const now = Math.floor(Date.now() / 1000);
   const payload: JwtPayload = {
     sub: user.id,
@@ -75,6 +93,7 @@ export function createAuthToken(user: JwtUser, maxAgeSeconds = AUTH_TOKEN_MAX_AG
     email: user.email,
     iat: now,
     exp: now + maxAgeSeconds,
+    ...(grant ? { grt: { id: grant.id, tid: grant.tenantId, cid: grant.companyId, scp: grant.scope, cli: grant.clientName } } : {}),
   };
 
   const header = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
@@ -119,6 +138,9 @@ export function verifyAuthToken(token: string | undefined | null): JwtSession | 
       },
       expiresAt: new Date(payload.exp * 1000),
       issuedAt: new Date((payload.iat ?? 0) * 1000),
+      ...(payload.grt?.id && payload.grt.tid && payload.grt.cid
+        ? { grant: { id: payload.grt.id, tenantId: payload.grt.tid, companyId: payload.grt.cid, scope: payload.grt.scp === "write" ? "write" as const : "read" as const, clientName: payload.grt.cli ?? "Aplicación" } }
+        : {}),
     };
   } catch {
     return null;
@@ -169,6 +191,30 @@ export function verifySignedActionToken(purpose: SignedActionPurpose, token: str
     if (typeof payload.sub !== "string" || !payload.sub || typeof payload.exp !== "number") return null;
     if (payload.exp <= Math.floor(now / 1000)) return null;
     return { subject: payload.sub, expiresAt: new Date(payload.exp * 1000) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Datos firmados (HMAC con `JWT_SECRET`) y con caducidad opcional, para estado que no se guarda en
+ * base de datos (OAuth: cliente registrado, código de autorización, token de refresco). `purpose`
+ * separa los usos: un token de un propósito nunca vale para otro.
+ */
+export function createSignedPayload(purpose: string, payload: Record<string, unknown>, maxAgeSeconds?: number, now = Date.now()) {
+  const body = base64UrlEncode(JSON.stringify({ ...payload, ...(maxAgeSeconds ? { exp: Math.floor(now / 1000) + maxAgeSeconds } : {}) }));
+  return `${body}.${signInput(`${purpose}:${body}`)}`;
+}
+
+export function verifySignedPayload<T extends Record<string, unknown>>(purpose: string, token: string | null | undefined, now = Date.now()): T | null {
+  if (!token || token.length > 8192) return null;
+  const [body, signature, extra] = token.split(".");
+  if (!body || !signature || extra !== undefined) return null;
+  if (!safeEqual(signature, signInput(`${purpose}:${body}`))) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(body)) as T & { exp?: unknown };
+    if (typeof payload.exp === "number" && payload.exp <= Math.floor(now / 1000)) return null;
+    return payload;
   } catch {
     return null;
   }

@@ -1,0 +1,3542 @@
+[
+ {
+  "method": "POST",
+  "path": "/api/accounting/close-year",
+  "area": "accounting",
+  "summary": "Cierra el ejercicio indicado (o el activo): asiento de regularización (6/7 → 129), asiento de cierre de cuentas de balance y, si el ejercicio siguiente ya existe, su asiento de apertura. Antes revisa la lista de comprobaciones: un descuadre impide cerrar y los avisos pendientes (303, borradores, 555) exigen un motivo, que se audita.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z\n  .object({\n    fiscalYearId: z.string().trim().min(1).optional(),\n    /** Motivo para cerrar con comprobaciones pendientes (queda en la auditoría). */\n    overrideReason: z.string().trim().max(500).optional(),\n  })\n  .nullable()"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounting/default-accounts",
+  "area": "accounting",
+  "summary": "Cuentas de la contabilidad automática. Solo antes del primer asiento.",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({ customer: code, supplier: code, sales: code, purchase: code, bank: code })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/fiscal-years/{id}/close-checklist",
+  "area": "accounting",
+  "summary": "Comprobaciones previas al cierre del ejercicio (303 del último periodo, borradores, 555, descuadre…).",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounting/fiscal-years/{id}/reopen",
+  "area": "accounting",
+  "summary": "Reabre un ejercicio cerrado (solo el propietario): anula con asientos inversos la apertura del ejercicio siguiente y el cierre/regularización del ejercicio, y lo deja abierto. Queda auditado.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  confirm: z.literal(true),\n  reason: z.string().trim().min(5).max(500),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/fiscal-years",
+  "area": "accounting",
+  "summary": "Ejercicios de la empresa y estado del ejercicio activo (para el aviso de apertura).",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounting/fiscal-years",
+  "area": "accounting",
+  "summary": "Abre el ejercicio siguiente al indicado (o al activo). Idempotente. Tras abrirlo, la UI cambia el contexto activo con PATCH /api/context/active.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({ fromFiscalYearId: z.string().trim().min(1).optional() }).nullable()"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/gestor-package",
+  "area": "accounting",
+  "summary": "Paquete para el gestor (ZIP): libro diario con líneas, mayor, sumas y saldos, libros registro de IVA y PDF de los modelos del periodo. `?year=<id del ejercicio>&period=year|q1…q4|m01…m12`.",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "year",
+   "period"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/masters",
+  "area": "accounting",
+  "summary": "",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounting/masters",
+  "area": "accounting",
+  "summary": "",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  accounts: z.array(accountSchema).optional(),\n  journals: z.array(journalSchema).optional(),\n})\n\nconst accountSchema = z.object({\n  code: z.string().trim().min(1),\n  name: z.string().trim().min(1),\n  type: z.enum([\"ASSET\", \"LIABILITY\", \"EQUITY\", \"REVENUE\", \"EXPENSE\", \"MIXED\"]),\n  parentCode: z.string().trim().nullable().optional(),\n  level: z.number().int().positive().optional(),\n  isPostable: z.boolean().optional(),\n  isActive: z.boolean().optional(),\n  source: z.string().trim().optional(),\n  templateVersion: z.string().trim().nullable().optional(),\n})\n\nconst journalSchema = z.object({\n  code: z.string().trim().min(1),\n  name: z.string().trim().min(1),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting",
+  "area": "accounting",
+  "summary": "",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/statements",
+  "area": "accounting",
+  "summary": "Estados financieros: balance de situación, cuenta de pérdidas y ganancias y balance de sumas y saldos. Consulta: `fiscalYearId` (por defecto el activo) y opcionalmente `from` / `to` (AAAA-MM-DD, ambos incluidos) dentro del ejercicio.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/accounting/subaccount-length",
+  "area": "accounting",
+  "summary": "Longitud de las subcuentas (8–12). Solo se puede cambiar mientras la empresa no tenga asientos.",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts/{id}/block",
+  "area": "accounts",
+  "summary": "Bloquea (`{ \"blocked\": true }`) o desbloquea una subcuenta.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/{id}",
+  "area": "accounts",
+  "summary": "",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/accounts/{id}",
+  "area": "accounts",
+  "summary": "",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounts/{id}",
+  "area": "accounts",
+  "summary": "",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/{id}/summary",
+  "area": "accounts",
+  "summary": "Ficha de la cuenta: sumas del periodo, evolución mensual frente al ejercicio anterior y últimos apuntes.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/export",
+  "area": "accounts",
+  "summary": "Plan contable hasta el nivel elegido (`?level=`), con el periodo y los filtros de la pantalla.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/next-code",
+  "area": "accounts",
+  "summary": "Siguiente subcuenta libre bajo una cuenta (`?parent=430` → 43000013).",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "parent"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts",
+  "area": "accounts",
+  "summary": "",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounts",
+  "area": "accounts",
+  "summary": "",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounts/tree",
+  "area": "accounts",
+  "summary": "Árbol del plan contable con sumas del periodo. - `?level=1|2|3|4|sub`: despliega hasta ese nivel (por defecto 2). - `?parent=430`: solo los hijos directos (despliegue perezoso). - `?q=`: coincidencias (código, atajo 43.1, nombre, tercero o NIF) con sus grupos. - `?reveal=43000001`: además, la rama hasta esa cuenta. - `?fy=&from=&to=&f=movements,nonzero,partners,blocked`: periodo y filtros.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/advisor-access/{id}",
+  "area": "advisor-access",
+  "summary": "Revocar, reactivar, regenerar la contraseña o cambiar datos y secciones de un acceso.",
+  "permissions": [
+   "team.write"
+  ],
+  "body": "const updateAdvisorAccessSchema = z.discriminatedUnion(\"action\", [\n  z.object({ action: z.literal(\"revoke\") }),\n  z.object({ action: z.literal(\"reactivate\") }),\n  z.object({ action: z.literal(\"reset-password\"), password }),\n  z.object({ action: z.literal(\"update\"), name: z.string().trim().min(1).max(120), firm: optionalText(120), scopes: z.array(z.string()).max(20), expiresAt }),\n])"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/advisor-access/{id}",
+  "area": "advisor-access",
+  "summary": "Revocar, reactivar, regenerar la contraseña o cambiar datos y secciones de un acceso.",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/advisor-access",
+  "area": "advisor-access",
+  "summary": "Crea un acceso para el asesor. Devuelve la contraseña en claro una sola vez.",
+  "permissions": [
+   "team.write"
+  ],
+  "body": "const createAdvisorAccessSchema = z.object({\n  name: z.string().trim().min(1, \"Indica el nombre del asesor.\").max(120),\n  firm: optionalText(120),\n  email: z.string().trim().email(\"Indica un email válido.\").max(254),\n  password,\n  scopes: z.array(z.string()).max(20),\n  expiresAt,\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/books/{book}",
+  "area": "advisor",
+  "summary": "Libros del periodo: diario, mayor, sumas y saldos, registros de IVA o el paquete completo.",
+  "permissions": [],
+  "query": [
+   "year",
+   "period"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/advisor/company",
+  "area": "advisor",
+  "summary": "Cambia la empresa que ve el asesor (gestorías con varias empresas y la misma contraseña).",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/data/{dataset}",
+  "area": "advisor",
+  "summary": "Listados del periodo en Excel: clientes, proveedores, cobros, pagos, bancos y cierres de caja.",
+  "permissions": [],
+  "query": [
+   "year",
+   "period"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/expenses/{id}/document",
+  "area": "advisor",
+  "summary": "Documento original de una factura recibida (`?n=` si tiene varios; `?view=1` para abrirlo).",
+  "permissions": [],
+  "query": [
+   "n",
+   "view"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/expenses/export",
+  "area": "advisor",
+  "summary": "Facturas recibidas del periodo. GET: todo el filtro (`q`); POST: las seleccionadas (`ids`). `format=zip` incluye los documentos originales; `format=xlsx` (por defecto), solo el listado.",
+  "permissions": [],
+  "query": [
+   "year",
+   "period",
+   "q",
+   "format"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/advisor/expenses/export",
+  "area": "advisor",
+  "summary": "Facturas recibidas del periodo. GET: todo el filtro (`q`); POST: las seleccionadas (`ids`). `format=zip` incluye los documentos originales; `format=xlsx` (por defecto), solo el listado.",
+  "permissions": [],
+  "body": "const selectionSchema = z.object({ year: z.string().max(64).optional(), period: z.string().max(8).optional(), ids: z.array(z.string()), format: z.enum([\"zip\", \"xlsx\"]).default(\"zip\") })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/fiscal-reports/{id}/pdf",
+  "area": "advisor",
+  "summary": "PDF de un modelo fiscal preparado (mismas casillas que en la ficha del modelo).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/advisor/login",
+  "area": "advisor",
+  "summary": "Acceso al portal del asesor con email y contraseña (credenciales creadas por la empresa).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/advisor/logout",
+  "area": "advisor",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/package",
+  "area": "advisor",
+  "summary": "Toda la documentación del periodo en un ZIP (según las secciones del acceso).",
+  "permissions": [],
+  "query": [
+   "year",
+   "period"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/sales/{id}/pdf",
+  "area": "advisor",
+  "summary": "PDF de una factura emitida (la copia conservada al emitirla). `?view=1` la abre en el navegador.",
+  "permissions": [],
+  "query": [
+   "view"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/advisor/sales/export",
+  "area": "advisor",
+  "summary": "Facturas emitidas del periodo. GET: todo el filtro (`q`); POST: las seleccionadas (`ids`). `format=zip` incluye los PDF; `format=xlsx` (por defecto), solo el listado.",
+  "permissions": [],
+  "query": [
+   "year",
+   "period",
+   "q",
+   "format"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/advisor/sales/export",
+  "area": "advisor",
+  "summary": "Facturas emitidas del periodo. GET: todo el filtro (`q`); POST: las seleccionadas (`ids`). `format=zip` incluye los PDF; `format=xlsx` (por defecto), solo el listado.",
+  "permissions": [],
+  "body": "const selectionSchema = z.object({ year: z.string().max(64).optional(), period: z.string().max(8).optional(), ids: z.array(z.string()), format: z.enum([\"zip\", \"xlsx\"]).default(\"zip\") })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/api-keys/{id}",
+  "area": "api-keys",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/api-keys/{id}",
+  "area": "api-keys",
+  "summary": "",
+  "permissions": [
+   "apiKey.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/api-keys",
+  "area": "api-keys",
+  "summary": "",
+  "permissions": [
+   "apiKey.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/api-keys",
+  "area": "api-keys",
+  "summary": "",
+  "permissions": [
+   "apiKey.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/forgot-password",
+  "area": "auth",
+  "summary": "Misma respuesta exista o no la cuenta: no permite averiguar qué emails están registrados.",
+  "permissions": [],
+  "body": "const payloadSchema = z.object({ email: z.string().trim().email() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/login",
+  "area": "auth",
+  "summary": "",
+  "permissions": [],
+  "body": "const authSignInSchema = z.object({\n  email: z.string().trim().email(\"Debes indicar un email válido.\"),\n  password: z.string().min(8, \"La contraseña debe tener al menos 8 caracteres.\"),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/logout",
+  "area": "auth",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/register",
+  "area": "auth",
+  "summary": "",
+  "permissions": [],
+  "body": "const authSignUpSchema = authSignInSchema.extend({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n})\n\nconst authSignInSchema = z.object({\n  email: z.string().trim().email(\"Debes indicar un email válido.\"),\n  password: z.string().min(8, \"La contraseña debe tener al menos 8 caracteres.\"),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/resend-verification",
+  "area": "auth",
+  "summary": "",
+  "permissions": [],
+  "body": "const payloadSchema = z.object({ email: z.string().trim().email(), next: z.unknown().optional() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/reset-password",
+  "area": "auth",
+  "summary": "",
+  "permissions": [],
+  "body": "const payloadSchema = z.object({\n  token: z.string().trim().min(20).max(1024),\n  password: z.string().min(8, \"La contraseña debe tener al menos 8 caracteres.\").max(256),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/verify-email",
+  "area": "auth",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/verify-two-factor",
+  "area": "auth",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/bank-accounts/{id}",
+  "area": "bank-accounts",
+  "summary": "",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/bank-accounts/{id}",
+  "area": "bank-accounts",
+  "summary": "",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/bank-accounts/{id}",
+  "area": "bank-accounts",
+  "summary": "",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/bank-accounts",
+  "area": "bank-accounts",
+  "summary": "",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/bank-accounts",
+  "area": "bank-accounts",
+  "summary": "",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/bank-connections/{id}",
+  "area": "bank-connections",
+  "summary": "Sincronizar ahora, renovar el permiso o enlazar una cuenta del banco con una cuenta del ERP.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const actionSchema = z.discriminatedUnion(\"action\", [\n  z.object({ action: z.literal(\"sync\") }),\n  z.object({ action: z.literal(\"renew\") }),\n  z.object({ action: z.literal(\"link\"), accountId: z.string().trim().min(1), bankAccountId: z.string().trim().min(1).nullable() }),\n])"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/bank-connections/{id}",
+  "area": "bank-connections",
+  "summary": "Retira el permiso en el proveedor y deja de sincronizar (los movimientos ya importados se quedan).",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/bank-connections/institutions",
+  "area": "bank-connections",
+  "summary": "Bancos españoles disponibles para la conexión PSD2 (solo nombre, id y logo).",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/bank-connections",
+  "area": "bank-connections",
+  "summary": "",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/bank-connections",
+  "area": "bank-connections",
+  "summary": "Inicia una conexión PSD2: devuelve el enlace del banco donde el usuario da su permiso.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const payloadSchema = z.object({ institutionId: z.string().trim().min(1).max(120) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/bank-transactions/{id}",
+  "area": "bank-transactions",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/bank-transactions/{id}",
+  "area": "bank-transactions",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/bank-transactions/{id}",
+  "area": "bank-transactions",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/bank-transactions",
+  "area": "bank-transactions",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/bank-transactions",
+  "area": "bank-transactions",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/billing/checkout",
+  "area": "billing",
+  "summary": "",
+  "permissions": [
+   "billing.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/billing/portal",
+  "area": "billing",
+  "summary": "El cliente de Stripe se toma SIEMPRE del tenant persistido; se ignora el cuerpo.",
+  "permissions": [
+   "billing.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/billing/webhook",
+  "area": "billing",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/company-settings",
+  "area": "company-settings",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/company-settings",
+  "area": "company-settings",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({\n  logoUrl: z.string().trim().optional().or(z.literal(\"\")),\n  paymentTermsDays: z.number().int().min(0).max(365),\n  fiscalRegime: z.enum([\"general\", \"recargo_equivalencia\", \"cash_accounting\", \"exempt\"]).default(\"general\"),\n  taxPeriodicity: z.enum([\"monthly\", \"quarterly\"]).default(\"quarterly\"),\n  siiEnabled: z.boolean().default(false),\n  // Se acepta por compatibilidad pero se ignora: el modo VERI*FACTU se cambia en /api/verifactu/settings\n  // (exige NIF válido, deja evento en el registro y no se puede desactivar una vez activo).\n  verifactuMode: z.enum([\"pending\", \"verifactu\", \"non_verifactu\"]).optional(),\n  // Sociedad (IS) o autónomo (IRPF, modelo 130). Si no se envía, no se modifica.\n  taxpayerType: z.enum([\"company\", \"individual\"]).optional(),\n  prorrataPct: z.number().min(0).max(100).default(100),\n  defaultCustomerAccountCode: z.string().trim().min(1),\n  defaultSupplierAccountCode: z.string().trim().min(1),\n  defaultSalesAccountCode: z.string().trim().min(1),\n  defaultPurchaseAccountCode: z.string().trim().min(1),\n  defaultBankAccountCode: z.string().trim().min(1),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/company/defaults",
+  "area": "company",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/company/defaults",
+  "area": "company",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/company/payment-terms",
+  "area": "company",
+  "summary": "Plazo de pago por defecto (días) para clientes sin plazo propio.",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/company/pdf-settings",
+  "area": "company",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/company/pdf-settings",
+  "area": "company",
+  "summary": "",
+  "permissions": [],
+  "body": "const pdfSettingsSchema = z.object({\n  showLogo: z.boolean(),\n  showEmail: z.boolean(),\n  showPhone: z.boolean(),\n  showWebsite: z.boolean(),\n  showCustomerNumber: z.boolean(),\n  showPaymentMethod: z.boolean(),\n  showTaxBreakdown: z.boolean(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/company/profile",
+  "area": "company",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/company/profile",
+  "area": "company",
+  "summary": "",
+  "permissions": [],
+  "body": "const companyProfileSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre comercial debe tener al menos 2 caracteres.\"),\n  legalName: z.string().trim().optional().or(z.literal(\"\")),\n  vatNumber: z.string().trim().optional().or(z.literal(\"\")),\n  fiscalAddress: z.string().trim().optional().or(z.literal(\"\")),\n  fiscalAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().optional().or(z.literal(\"\")),\n  city: z.string().trim().optional().or(z.literal(\"\")),\n  province: z.string().trim().optional().or(z.literal(\"\")),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  timezone: z.string().trim().min(1, \"Debes indicar la zona horaria.\"),\n  baseCurrencyCode: z.string().trim().length(3, \"La moneda debe ser un código ISO de 3 letras.\"),\n  email: z.string().trim().email(\"Debes indicar un email válido.\").optional().or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n  website: z.string().trim().url(\"Debes indicar una URL válida.\").optional().or(z.literal(\"\")),\n  logoDataUrl: z\n    .string()\n    .trim()\n    .max(350_000, \"El logotipo no puede superar 250 KB.\")\n    .regex(/^data:image\\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/, \"El logotipo debe ser una imagen PNG o JPG.\")\n    .optional()\n    .or(z.literal(\"\")),\n  invoiceFooter: z.string().trim().max(500, \"El pie de factura no puede superar 500 caracteres.\").optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const vatProblem = value.vatNumber?.trim() ? describeTaxIdProblemForCountry(value.vatNumber, value.countryCode) : null;\n  if (vatProblem) {\n    ctx.addIssue({ code: \"custom\", message: vatProblem, path: [\"vatNumber\"] });\n  }\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/context/active",
+  "area": "context",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/context/active",
+  "area": "context",
+  "summary": "",
+  "permissions": [],
+  "body": "const payloadSchema = z\n  .object({\n    tenantId: z.string().trim().min(1).optional(),\n    companyId: z.string().trim().min(1).optional(),\n    fiscalYearId: z.string().trim().min(1).optional(),\n  })\n  .refine((value) => Boolean(value.tenantId) || (Boolean(value.companyId) && Boolean(value.fiscalYearId)), {\n    message: \"Indica el espacio o la empresa y el ejercicio.\",\n  })\n  .refine((value) => Boolean(value.companyId) === Boolean(value.fiscalYearId), {\n    message: \"Empresa y ejercicio deben indicarse juntos.\",\n  })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/crm/activities/{id}",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.write"
+  ],
+  "body": "const activityUpdateSchema = activitySchema.partial()\n\nconst activitySchema = z.object({\n  type: z.enum(CRM_ACTIVITY_TYPES),\n  subject: z.string().trim().min(2, \"Describe la actividad.\").max(300),\n  notes: optionalText(5000),\n  dueAt: isoDate.nullable().optional(),\n  opportunityId: z.string().trim().nullable().optional(),\n  customerId: z.string().trim().nullable().optional(),\n  assignedUserId: z.string().trim().nullable().optional(),\n  completed: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/crm/activities/{id}",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/crm/activities",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/crm/activities",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.write"
+  ],
+  "body": "const activitySchema = z.object({\n  type: z.enum(CRM_ACTIVITY_TYPES),\n  subject: z.string().trim().min(2, \"Describe la actividad.\").max(300),\n  notes: optionalText(5000),\n  dueAt: isoDate.nullable().optional(),\n  opportunityId: z.string().trim().nullable().optional(),\n  customerId: z.string().trim().nullable().optional(),\n  assignedUserId: z.string().trim().nullable().optional(),\n  completed: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/crm/opportunities/{id}/convert-customer",
+  "area": "crm",
+  "summary": "Da de alta como cliente al contacto (prospecto) de la oportunidad.",
+  "permissions": [
+   "crm.write",
+   "customer.create"
+  ],
+  "body": "const createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/crm/opportunities/{id}/move",
+  "area": "crm",
+  "summary": "Mueve la oportunidad a otra etapa/posición del embudo (arrastrar o «Mover a…»).",
+  "permissions": [
+   "crm.write"
+  ],
+  "body": "const moveSchema = z.object({\n  stageId: z.string().trim().min(1),\n  index: z.number().int().min(0).optional(),\n  lostReason: optionalText(500),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/crm/opportunities/{id}",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/crm/opportunities/{id}",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.write"
+  ],
+  "body": "const opportunityUpdateSchema = opportunitySchema.partial()\n\nconst opportunitySchema = z.object({\n  title: z.string().trim().min(2, \"Pon un título a la oportunidad.\").max(200),\n  customerId: z.string().trim().nullable().optional(),\n  contactName: optionalText(200),\n  contactEmail: z.string().trim().email(\"El email del contacto no es válido.\").nullable().optional().or(z.literal(\"\")),\n  contactPhone: optionalText(60),\n  stageId: z.string().trim().nullable().optional(),\n  amount: z.number().min(0, \"El importe no puede ser negativo.\").max(999_999_999),\n  expectedCloseDate: isoDate.nullable().optional(),\n  ownerUserId: z.string().trim().nullable().optional(),\n  source: optionalText(60),\n  notes: optionalText(5000),\n  lostReason: optionalText(500),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/crm/opportunities/{id}",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/crm/opportunities",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/crm/opportunities",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.write"
+  ],
+  "body": "const opportunitySchema = z.object({\n  title: z.string().trim().min(2, \"Pon un título a la oportunidad.\").max(200),\n  customerId: z.string().trim().nullable().optional(),\n  contactName: optionalText(200),\n  contactEmail: z.string().trim().email(\"El email del contacto no es válido.\").nullable().optional().or(z.literal(\"\")),\n  contactPhone: optionalText(60),\n  stageId: z.string().trim().nullable().optional(),\n  amount: z.number().min(0, \"El importe no puede ser negativo.\").max(999_999_999),\n  expectedCloseDate: isoDate.nullable().optional(),\n  ownerUserId: z.string().trim().nullable().optional(),\n  source: optionalText(60),\n  notes: optionalText(5000),\n  lostReason: optionalText(500),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/crm/stages",
+  "area": "crm",
+  "summary": "",
+  "permissions": [
+   "crm.read"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/crm/stages",
+  "area": "crm",
+  "summary": "Guarda el embudo completo (orden, nombres, probabilidad y tipo de cada etapa).",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const stagesSchema = z.object({\n  stages: z.array(z.object({\n    id: z.string().trim().optional(),\n    name: z.string().trim().min(1).max(60),\n    probability: z.number().int().min(0).max(100),\n    kind: z.enum(CRM_STAGE_KINDS),\n  })).min(3).max(20),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/customers/{id}/deactivate",
+  "area": "customers",
+  "summary": "Marca un cliente como Inactivo (alternativa a eliminar un cliente con documentos).",
+  "permissions": [
+   "customer.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/customers/{id}",
+  "area": "customers",
+  "summary": "",
+  "permissions": [
+   "customer.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/customers/{id}",
+  "area": "customers",
+  "summary": "",
+  "permissions": [
+   "customer.create"
+  ],
+  "body": "const customerUpdateFormSchema = createCustomerSchema\n  .safeExtend({ ...customerBillingSchema.shape, status: customerStatusSchema.optional() })\n  .superRefine(refineCountry)\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})\n\nconst customerBillingSchema = z.object({\n  paymentTermsDays: z\n    .number({ error: \"Indica los días de pago (0 = al contado).\" })\n    .int(\"Los días de pago deben ser un número entero.\")\n    .min(0, \"Los días de pago no pueden ser negativos.\")\n    .max(365, \"Los días de pago no pueden superar 365.\")\n    .nullable()\n    .optional(),\n  defaultRetentionRate: z\n    .number({ error: \"La retención debe ser un porcentaje.\" })\n    .min(0, \"La retención no puede ser negativa.\")\n    .max(50, \"La retención no puede superar el 50 %.\")\n    .nullable()\n    .optional(),\n  defaultVatTreatment: z.enum(vatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" }).nullable().optional().or(z.literal(\"\")),\n  invoiceEmail: z.string().trim().email(\"Indica un correo válido para enviar las facturas.\").optional().or(z.literal(\"\")),\n  iban: z\n    .string()\n    .trim()\n    .optional()\n    .or(z.literal(\"\"))\n    .refine((value) => !value || isValidIban(value), \"El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332).\"),\n  equivalenceSurcharge: z.boolean().optional(),\n})\n\nconst customerStatusSchema = z.enum([\"ACTIVE\", \"INACTIVE\"])"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/customers/{id}",
+  "area": "customers",
+  "summary": "",
+  "permissions": [
+   "customer.create"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/customers/{id}/vies",
+  "area": "customers",
+  "summary": "Comprueba el NIF-IVA del cliente en VIES y guarda el resultado en su ficha (estado + fecha). Si VIES no está disponible responde 200 con status UNAVAILABLE: no bloquea al usuario.",
+  "permissions": [
+   "customer.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/customers",
+  "area": "customers",
+  "summary": "",
+  "permissions": [
+   "customer.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/customers",
+  "area": "customers",
+  "summary": "",
+  "permissions": [
+   "customer.create"
+  ],
+  "body": "const customerFormSchema = createCustomerSchema.safeExtend(customerBillingSchema.shape).superRefine(refineCountry)\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})\n\nconst customerBillingSchema = z.object({\n  paymentTermsDays: z\n    .number({ error: \"Indica los días de pago (0 = al contado).\" })\n    .int(\"Los días de pago deben ser un número entero.\")\n    .min(0, \"Los días de pago no pueden ser negativos.\")\n    .max(365, \"Los días de pago no pueden superar 365.\")\n    .nullable()\n    .optional(),\n  defaultRetentionRate: z\n    .number({ error: \"La retención debe ser un porcentaje.\" })\n    .min(0, \"La retención no puede ser negativa.\")\n    .max(50, \"La retención no puede superar el 50 %.\")\n    .nullable()\n    .optional(),\n  defaultVatTreatment: z.enum(vatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" }).nullable().optional().or(z.literal(\"\")),\n  invoiceEmail: z.string().trim().email(\"Indica un correo válido para enviar las facturas.\").optional().or(z.literal(\"\")),\n  iban: z\n    .string()\n    .trim()\n    .optional()\n    .or(z.literal(\"\"))\n    .refine((value) => !value || isValidIban(value), \"El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332).\"),\n  equivalenceSurcharge: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/delivery-notes/{id}/pdf",
+  "area": "delivery-notes",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/delivery-notes/{id}",
+  "area": "delivery-notes",
+  "summary": "Detalle del albarán: emisor, cliente y líneas (los mismos datos que su PDF).",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/delivery-notes/{id}/to-invoice",
+  "area": "delivery-notes",
+  "summary": "Albarán → factura emitida por el flujo único de emisión (número, VERI*FACTU, vencimiento…).",
+  "permissions": [
+   "invoice.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/delivery-notes",
+  "area": "delivery-notes",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/delivery-notes",
+  "area": "delivery-notes",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/document-series",
+  "area": "document-series",
+  "summary": "Series de numeración de la empresa. `?fiscalYear=active` devuelve solo las del ejercicio activo (por tipo, la de por defecto primero).",
+  "permissions": [
+   "series.read"
+  ],
+  "query": [
+   "fiscalYear"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/document-series",
+  "area": "document-series",
+  "summary": "Crea una serie en el ejercicio activo. Con `code` crea una serie adicional (tickets, exportación…); sin él (formato antiguo) crea la serie general del tipo si todavía no existe.",
+  "permissions": [
+   "series.write"
+  ],
+  "body": "const createPayloadSchema = z.object({\n  type: z.enum(documentTypes),\n  code: z.string().trim().min(1, \"Indica un código corto (por ejemplo, T).\").max(10, \"El código no puede superar 10 caracteres.\"),\n  name: nameSchema,\n  prefix: prefixSchema,\n  format: formatSchema.optional(),\n  nextNumber: z.number().int().positive().optional(),\n  isDefault: z.boolean().optional(),\n  ...gapSchema,\n})\n\nconst nameSchema = z.string().trim().min(1, \"Indica el nombre de la serie (por ejemplo, Tickets).\").max(60, \"El nombre no puede superar 60 caracteres.\")\n\nconst prefixSchema = z.string().trim().min(1, \"Indica el prefijo (por ejemplo, FA).\").max(20, \"El prefijo no puede superar 20 caracteres.\")\n\nconst formatSchema = z.string().trim().min(1, \"Indica el formato.\").max(80, \"El formato no puede superar 80 caracteres.\")\n\nconst gapSchema = {\n  /** Confirmación explícita para saltar números (deja huecos): exige motivo y queda auditado. */\n  confirmGap: z.boolean().optional(),\n  gapReason: z.string().trim().max(500).optional(),\n}\n\nconst legacyPayloadSchema = z.object({\n  type: z.enum(documentTypes),\n  prefix: prefixSchema,\n  format: formatSchema.optional(),\n  nextNumber: z.number().int().positive().optional(),\n  ...gapSchema,\n})\n\nconst prefixSchema = z.string().trim().min(1, \"Indica el prefijo (por ejemplo, FA).\").max(20, \"El prefijo no puede superar 20 caracteres.\")\n\nconst formatSchema = z.string().trim().min(1, \"Indica el formato.\").max(80, \"El formato no puede superar 80 caracteres.\")\n\nconst gapSchema = {\n  /** Confirmación explícita para saltar números (deja huecos): exige motivo y queda auditado. */\n  confirmGap: z.boolean().optional(),\n  gapReason: z.string().trim().max(500).optional(),\n}"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/document-series",
+  "area": "document-series",
+  "summary": "Con `id`: edita esa serie (nombre, prefijo, formato, siguiente número, por defecto, activa). Sin `id` (formato antiguo): actualiza o crea la serie por defecto del tipo en el ejercicio activo. El número siguiente nunca retrocede; saltar exige confirmación.",
+  "permissions": [
+   "series.write"
+  ],
+  "body": "const updatePayloadSchema = z.object({\n  id: z.string().trim().min(1),\n  name: nameSchema.optional(),\n  prefix: prefixSchema.optional(),\n  format: formatSchema.optional(),\n  nextNumber: z.number().int().positive().optional(),\n  isDefault: z.boolean().optional(),\n  isActive: z.boolean().optional(),\n  ...gapSchema,\n})\n\nconst nameSchema = z.string().trim().min(1, \"Indica el nombre de la serie (por ejemplo, Tickets).\").max(60, \"El nombre no puede superar 60 caracteres.\")\n\nconst prefixSchema = z.string().trim().min(1, \"Indica el prefijo (por ejemplo, FA).\").max(20, \"El prefijo no puede superar 20 caracteres.\")\n\nconst formatSchema = z.string().trim().min(1, \"Indica el formato.\").max(80, \"El formato no puede superar 80 caracteres.\")\n\nconst gapSchema = {\n  /** Confirmación explícita para saltar números (deja huecos): exige motivo y queda auditado. */\n  confirmGap: z.boolean().optional(),\n  gapReason: z.string().trim().max(500).optional(),\n}\n\nconst legacyPayloadSchema = z.object({\n  type: z.enum(documentTypes),\n  prefix: prefixSchema,\n  format: formatSchema.optional(),\n  nextNumber: z.number().int().positive().optional(),\n  ...gapSchema,\n})\n\nconst prefixSchema = z.string().trim().min(1, \"Indica el prefijo (por ejemplo, FA).\").max(20, \"El prefijo no puede superar 20 caracteres.\")\n\nconst formatSchema = z.string().trim().min(1, \"Indica el formato.\").max(80, \"El formato no puede superar 80 caracteres.\")\n\nconst gapSchema = {\n  /** Confirmación explícita para saltar números (deja huecos): exige motivo y queda auditado. */\n  confirmGap: z.boolean().optional(),\n  gapReason: z.string().trim().max(500).optional(),\n}"
+ },
+ {
+  "method": "POST",
+  "path": "/api/dunning/opt-out",
+  "area": "dunning",
+  "summary": "Excluye (o vuelve a incluir) a un cliente de los recordatorios de cobro.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const dunningOptOutSchema = z.object({\n  customerId: z.string().trim().min(1),\n  optOut: z.boolean(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/dunning/remind",
+  "area": "dunning",
+  "summary": "Recordatorio de cobro. Con `invoiceIds` envía en bloque (siguiente nivel de cada factura, omite excluidos y no vencidas); con `invoiceId` envía uno con el texto editado en el diálogo.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const bulkSchema = z.object({\n  invoiceIds: z.array(z.string().trim().min(1)).min(1, \"Selecciona al menos una factura.\").max(200, \"Como máximo 200 facturas por envío.\"),\n})\n\nconst sendReminderSchema = sendInvoiceEmailSchema.extend({\n  reminderLevel: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().nullable(),\n})\n\nconst sendInvoiceEmailSchema = z.object({\n  invoiceId: z.string().trim().min(1, \"Indica la factura.\"),\n  to: emailList,\n  cc: emailList,\n  subject: z.string().trim().max(250, \"El asunto no puede superar 250 caracteres.\").optional().nullable(),\n  body: z.string().max(20_000, \"El mensaje es demasiado largo.\").optional().nullable(),\n  copyToSelf: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/exchange-rates",
+  "area": "exchange-rates",
+  "summary": "GET ?from=USD&to=EUR&date=2026-10-04 → cambio de referencia del BCE de ese día.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/{id}/document",
+  "area": "expenses",
+  "summary": "Adjunta (o repone, si se perdió) el documento de una factura de proveedor ya registrada.",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/expenses/{id}/hard-delete",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.write",
+   "purchase.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/{id}",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.read",
+   "purchase.read"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/expenses/{id}",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.write",
+   "purchase.write"
+  ],
+  "body": "const voidSchema = z.object({\n  reason: z.string().trim().optional().or(z.literal(\"\")),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/ai-analysis",
+  "area": "expenses",
+  "summary": "Sube una factura para leerla con OpenAI. Solo guarda el original y responde al momento (202); la lectura (10-45 s) sigue en segundo plano, en cola. Si el servidor se reinicia a mitad (p. ej. un despliegue), el worker de OCR retoma el trabajo cuando vence su reserva: nada se pierde.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/attachments",
+  "area": "expenses",
+  "summary": "Sube el justificante de una factura introducida a mano. Se guarda en el mismo almacén privado que los documentos del OCR (local o S3), sin analizarlo, y se asocia a la factura al registrarla (`ocrJobId`), lo que además detecta si ese archivo ya se contabilizó.",
+  "permissions": [
+   "expense.write",
+   "purchase.write"
+  ],
+  "multipart": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/documents/restore",
+  "area": "expenses",
+  "summary": "Recuperación en bloque: recibe un archivo (el cliente envía uno por petición) y, si es idéntico al original de alguna factura registrada cuyo documento se perdió, lo repone en su sitio.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/duplicate-check",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.write",
+   "purchase.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional(),\n  supplierTaxId: z.string().trim().optional(),\n  supplierName: z.string().trim().optional(),\n  supplierCountryCode: z.string().trim().length(2).optional(),\n  supplierDocumentNumber: z.string().trim().optional(),\n  issueDate: z.string().datetime().optional(),\n  totalAmount: z.number().nonnegative().optional(),\n  ocrJobId: z.string().trim().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/export",
+  "area": "expenses",
+  "summary": "Exportación de facturas de proveedor para el asesor, con los filtros del listado (`from`, `to`, `q`, `status`). `documents=1` devuelve un ZIP con el Excel y los documentos originales; si no, solo el Excel.",
+  "permissions": [
+   "expense.read"
+  ],
+  "query": [
+   "documents",
+   "page",
+   "pageSize",
+   "q",
+   "sort",
+   "dir"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/mail-inbox/check",
+  "area": "expenses",
+  "summary": "«Comprobar ahora»: importa ya los correos nuevos (si no, el worker lo hace cada pocos minutos).",
+  "permissions": [
+   "expense.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/mail-inbox",
+  "area": "expenses",
+  "summary": "Buzón de correo al que se reenvían las facturas recibidas. La contraseña nunca se devuelve.",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/expenses/mail-inbox",
+  "area": "expenses",
+  "summary": "Buzón de correo al que se reenvían las facturas recibidas. La contraseña nunca se devuelve.",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const mailInboxPayloadSchema = z.object({\n  enabled: z.boolean(),\n  host: z.string().trim().max(255),\n  port: z.coerce.number().int(),\n  secure: z.boolean(),\n  username: z.string().trim().max(320),\n  password: z.string().max(500).optional().or(z.literal(\"\")),\n  mailbox: z.string().trim().max(255).default(\"INBOX\"),\n  processedMailbox: z.string().trim().max(255).optional().or(z.literal(\"\")),\n  allowedSenders: z.string().max(4000),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/expenses/mail-inbox",
+  "area": "expenses",
+  "summary": "Buzón de correo al que se reenvían las facturas recibidas. La contraseña nunca se devuelve.",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/mail-inbox/test",
+  "area": "expenses",
+  "summary": "Prueba la conexión IMAP con los datos del formulario (sin guardarlos).",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/ocr/{id}/file",
+  "area": "expenses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/ocr/{id}",
+  "area": "expenses",
+  "summary": "Descarta un documento de la bandeja pendiente (solo si todavía no es una factura).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/ocr/{id}",
+  "area": "expenses",
+  "summary": "Descarta un documento de la bandeja pendiente (solo si todavía no es una factura).",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/expenses/ocr/{id}",
+  "area": "expenses",
+  "summary": "Descarta un documento de la bandeja pendiente (solo si todavía no es una factura).",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/ocr/batches/{id}",
+  "area": "expenses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/ocr/batches",
+  "area": "expenses",
+  "summary": "Bandeja pendiente: lotes recientes y documentos todavía sin registrar de la empresa activa.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/ocr/batches",
+  "area": "expenses",
+  "summary": "Bandeja pendiente: lotes recientes y documentos todavía sin registrar de la empresa activa.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/ocr",
+  "area": "expenses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses/ocr",
+  "area": "expenses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses/ocr/settings",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/expenses/ocr/settings",
+  "area": "expenses",
+  "summary": "Solo administración puede permitir o prohibir el envío de facturas a la IA externa.",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({ externalAiEnabled: z.boolean() })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/expenses",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.read",
+   "purchase.read"
+  ],
+  "query": [
+   "export",
+   "page",
+   "pageSize",
+   "q",
+   "sort",
+   "dir"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/expenses",
+  "area": "expenses",
+  "summary": "",
+  "permissions": [
+   "expense.write",
+   "purchase.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierName: z.string().trim().optional().or(z.literal(\"\")),\n  supplierTaxId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierEmail: z.string().trim().email().optional().or(z.literal(\"\")),\n  supplierPhone: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddress: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPostalCode: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCity: z.string().trim().optional().or(z.literal(\"\")),\n  supplierProvince: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCountryCode: z.string().trim().length(2).optional().or(z.literal(\"\")),\n  purchaseOrderId: z.string().trim().optional().or(z.literal(\"\")),\n  goodsReceiptId: z.string().trim().optional().or(z.literal(\"\")),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  ocrJobId: z.string().trim().optional().or(z.literal(\"\")),\n  currencyCode: z.string().trim().length(3).optional(),\n  idempotencyKey: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  vatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).optional(),\n  attachments: z\n    .array(\n      z.object({\n        fileName: z.string().trim().min(1),\n        fileUrl: z.string().trim().refine(isSafeAttachmentUrl, \"La URL del adjunto debe ser https://, http:// o una ruta interna.\"),\n        storageKey: z.string().trim().optional().or(z.literal(\"\")),\n        contentType: z.string().trim().optional().or(z.literal(\"\")),\n        sizeBytes: z.number().nonnegative().optional(),\n      }),\n    )\n    .optional(),\n  lines: z\n    .array(\n      z.object({\n        expenseAccountId: z.string().trim().optional().or(z.literal(\"\")),\n        description: z.string().trim().min(1),\n        quantity: z.number().positive(),\n        unitPrice: z.number().nonnegative(),\n        taxRate: z.number().min(0).max(100).default(21),\n        taxDeductiblePct: z.number().min(0).max(100).default(100),\n        retentionRate …"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/fiscal-profile/aiem",
+  "area": "fiscal-profile",
+  "summary": "AIEM (Canarias): al activarlo se crean sus tipos (5, 10, 15 y 25 %, art. 3 Ley 4/2014) como impuestos que suman en la factura, para las entregas de mercancías sujetas; al desactivarlo se desactivan (no se borran: siguen en las facturas emitidas). El modelo 450 aparece solo si está activo.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({ enabled: z.boolean() })"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/fiscal-profile",
+  "area": "fiscal-profile",
+  "summary": "Perfil fiscal (cómo tributa la empresa). Solo toca sus propios campos y exige `fiscal.write`, así que el gestor con rol de contable puede mantenerlo sin permisos de administración.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  taxpayerType: z.enum([\"company\", \"individual\"]),\n  fiscalRegime: z.enum([\"general\", \"recargo_equivalencia\", \"cash_accounting\", \"exempt\", \"comerciante_minorista\", \"pequeno_empresario\"]),\n  taxPeriodicity: z.enum([\"monthly\", \"quarterly\"]),\n  siiEnabled: z.boolean(),\n  prorrataPct: z.number().min(0).max(100),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal-reports/{id}/export",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "query": [
+   "format"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/fiscal-reports/{id}/file",
+  "area": "fiscal-reports",
+  "summary": "Marca el modelo como presentado en la AEAT (fecha + justificante + NRC opcional).",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  filedAt: z.string().trim().regex(/^\\d{4}-\\d{2}-\\d{2}$/),\n  receiptNumber: z.string().trim().min(1).max(60),\n  nrc: z.string().trim().max(60).optional().nullable(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal-reports/{id}/pdf",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal-reports/{id}",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/fiscal-reports/{id}",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  code: z.enum(spanishFiscalModelCodes),\n  period: z.string().trim().min(4).max(7),\n  status: z.enum([\"DRAFT\", \"READY\", \"FILED\"]),\n  reopenReason: z.string().trim().min(3).max(500).optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/fiscal-reports/{id}",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal-reports",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/fiscal-reports",
+  "area": "fiscal-reports",
+  "summary": "",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  code: z.enum(spanishFiscalModelCodes),\n  period: z.string().trim().min(4).max(7),\n  // \"Presentado\" no se elige al crear: se marca después con fecha y justificante (POST /[id]/file).\n  status: z.enum([\"DRAFT\", \"READY\"]).default(\"DRAFT\"),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal/obligations",
+  "area": "fiscal",
+  "summary": "Qué tiene que presentar la empresa ahora y cuándo (modelos 303, 111, 130, 420…), con su estado y el importe calculado si ya existe el borrador. Vacío en países sin modelos oficiales.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal/summary",
+  "area": "fiscal",
+  "summary": "Cálculo fiscal al vuelo, sin guardar nada: - España (y Canarias/Ceuta/Melilla): `code` (303, 390, 347, 111, 115, 349, 130, 420, 425, 450) y `period` (2026-Q1, 2026-04 o 2026) → casillas, importe a ingresar y comprobaciones. - Otros países: `period` (2026-Q1 o 2026-04) → impuesto repercutido − deducible del periodo.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/goods-receipts",
+  "area": "goods-receipts",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/goods-receipts",
+  "area": "goods-receipts",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/health",
+  "area": "health",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory/alerts",
+  "area": "inventory",
+  "summary": "",
+  "permissions": [
+   "stock.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/inventory/count",
+  "area": "inventory",
+  "summary": "Registra una hoja de recuento: todos los ajustes en una operación auditada.",
+  "permissions": [
+   "stock.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  warehouseId: z.string().trim().min(1, \"Elige el almacén.\"),\n  countedAt: z.string().trim().min(1, \"Indica la fecha del recuento.\"),\n  notes: z.string().trim().max(500).optional().or(z.literal(\"\")),\n  lines: z\n    .array(z.object({\n      itemId: z.string().trim().min(1),\n      countedQuantity: z.number().min(0, \"Lo contado no puede ser negativo.\"),\n      expectedQuantity: z.number(),\n    }))\n    .min(1, \"Introduce al menos una cantidad contada.\")\n    .max(2000),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/inventory",
+  "area": "inventory",
+  "summary": "Snapshot de stock de la empresa activa. El antiguo `POST /api/inventory` (creaba un artículo por llamada, sin control de stock negativo ni auditoría) se ha eliminado: usa `POST /api/stock-movements`, que valida propiedad de artículo/almacén y stock disponible.",
+  "permissions": [
+   "stock.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invitations/{id}/accept",
+  "area": "invitations",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/invitations/{id}/resend",
+  "area": "invitations",
+  "summary": "Renueva la caducidad y vuelve a enviar el correo (el enlace no cambia).",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/invitations/{id}",
+  "area": "invitations",
+  "summary": "",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/invitations",
+  "area": "invitations",
+  "summary": "",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invitations",
+  "area": "invitations",
+  "summary": "",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoice-emails/bulk",
+  "area": "invoice-emails",
+  "summary": "Envío en bloque: cada factura al email de su cliente con la plantilla de la empresa.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const bulkInvoiceEmailSchema = z.object({\n  invoiceIds: z.array(z.string().trim().min(1)).min(1, \"Selecciona al menos una factura.\").max(100, \"Como máximo 100 facturas por envío.\"),\n  copyToSelf: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoice-emails",
+  "area": "invoice-emails",
+  "summary": "Propuesta del diálogo (destinatario y plantilla rellenada) e historial de envíos de una factura.",
+  "permissions": [
+   "invoice.read"
+  ],
+  "query": [
+   "invoiceId",
+   "kind",
+   "level"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoice-emails",
+  "area": "invoice-emails",
+  "summary": "Envía una factura emitida por email con el PDF adjunto.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const sendInvoiceEmailSchema = z.object({\n  invoiceId: z.string().trim().min(1, \"Indica la factura.\"),\n  to: emailList,\n  cc: emailList,\n  subject: z.string().trim().max(250, \"El asunto no puede superar 250 caracteres.\").optional().nullable(),\n  body: z.string().max(20_000, \"El mensaje es demasiado largo.\").optional().nullable(),\n  copyToSelf: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoice-emails/settings",
+  "area": "invoice-emails",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/invoice-emails/settings",
+  "area": "invoice-emails",
+  "summary": "Plantillas de email y calendario de recordatorios automáticos de la empresa.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const invoiceEmailSettingsSchema = z.object({\n  templates: z.object({\n    invoice: templateSchema.optional(),\n    reminder1: templateSchema.optional(),\n    reminder2: templateSchema.optional(),\n    reminder3: templateSchema.optional(),\n  }),\n  copyToSelfDefault: z.boolean(),\n  dunning: z.object({\n    enabled: z.boolean(),\n    firstDelayDays: z.number().int().min(0, \"Entre 0 y 365 días.\").max(365, \"Entre 0 y 365 días.\"),\n    intervalDays: z.number().int().min(1, \"Entre 1 y 365 días.\").max(365, \"Entre 1 y 365 días.\"),\n    maxReminders: z.number().int().min(1, \"Entre 1 y 3 recordatorios.\").max(3, \"Entre 1 y 3 recordatorios.\"),\n  }),\n})\n\nconst templateSchema = z.object({\n  subject: z.string().max(250, \"El asunto no puede superar 250 caracteres.\"),\n  body: z.string().max(20_000, \"El mensaje es demasiado largo.\"),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoice-payments",
+  "area": "invoice-payments",
+  "summary": "Movimiento bancario del que nace el cobro: se concilia en la misma operación.",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoice-payments",
+  "area": "invoice-payments",
+  "summary": "Movimiento bancario del que nace el cobro: se concilia en la misma operación.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  invoiceId: z.string().trim().min(1),\n  amountApplied: z.number().positive(),\n  postedAt: z.string().trim().min(1),\n  paymentMethodId: z.string().trim().min(1),\n  /** Movimiento bancario del que nace el cobro: se concilia en la misma operación. */\n  bankTransactionId: z.string().trim().min(1).optional(),\n})"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/invoices/{id}/credit-note",
+  "area": "invoices",
+  "summary": "Edita un borrador de rectificativa `id` (y lo emite si `issue: true`).",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const createCreditNoteSchema = z.object({\n  reason: z.enum(RECTIFICATION_REASONS as [string, ...string[]], { error: \"Indica la causa de la rectificación (R1–R5).\" }),\n  type: z.enum(RECTIFICATION_TYPES as [string, ...string[]]).default(\"DIFFERENCES\"),\n  /** FULL: anula íntegramente la original. PARTIAL: solo las líneas indicadas (importes a abonar). */\n  scope: z.enum([\"FULL\", \"PARTIAL\"]).default(\"FULL\"),\n  description: z.string().trim().min(3, \"Explica brevemente el motivo de la rectificación.\").max(500, \"El motivo no puede superar 500 caracteres.\"),\n  issueDate: z.string().trim().optional().or(z.literal(\"\")),\n  /**\n   * PARTIAL + DIFFERENCES: importes (positivos) que se abonan.\n   * SUBSTITUTION: líneas correctas que sustituyen a las de la factura original.\n   */\n  lines: z.array(creditNoteLineSchema).max(200).optional(),\n  /** Serie de rectificativas elegida (si la empresa tiene varias). Vacío = la serie por defecto. */\n  seriesId: seriesIdSchema,\n  /** false guarda la rectificativa como borrador. */\n  issue: z.boolean().optional(),\n}).superRefine((value, ctx) => {\n  if ((value.scope === \"PARTIAL\" || value.type === \"SUBSTITUTION\") && (!value.lines || value.lines.length === 0)) {\n    ctx.addIssue({ code: \"custom\", message: \"Indica al menos una línea para la rectificación.\", path: [\"lines\"] });\n  }\n})\n\nconst creditNoteLineSchema = z.object({\n  itemId: z.string().trim().optional().nullable(),\n  description: z.string().trim().min(1, \"La línea debe tener descripción.\"),\n  quantity: z.number().positive(\"La cantidad debe ser mayor que 0.\"),\n  unitPrice: z.number().nonnegative(\"El importe no puede ser negativo.\"),\n  discountPct: z.number().min(0).max(100).optional(),\n  taxIds: z.array(z.uuid(\"El impuesto seleccionado no es válido.\")).max(12).optional(),\n  /** Líneas antiguas sin impuestos configurados: tipo de IVA y retención de la línea original. */\n  taxRate: z.number().min(0).max(100).optional(),\n  retentionRate: z.number().min(0).max(100).optional(),\n})\n\nconst seriesIdSchema = z.string().trim().max(80, \"La serie seleccionada no es válida.\").nullable().optional()"
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoices/{id}/credit-notes",
+  "area": "invoices",
+  "summary": "Crea (y por defecto emite) una factura rectificativa de la factura `id`.",
+  "permissions": [
+   "invoice.create"
+  ],
+  "body": "const createCreditNoteSchema = z.object({\n  reason: z.enum(RECTIFICATION_REASONS as [string, ...string[]], { error: \"Indica la causa de la rectificación (R1–R5).\" }),\n  type: z.enum(RECTIFICATION_TYPES as [string, ...string[]]).default(\"DIFFERENCES\"),\n  /** FULL: anula íntegramente la original. PARTIAL: solo las líneas indicadas (importes a abonar). */\n  scope: z.enum([\"FULL\", \"PARTIAL\"]).default(\"FULL\"),\n  description: z.string().trim().min(3, \"Explica brevemente el motivo de la rectificación.\").max(500, \"El motivo no puede superar 500 caracteres.\"),\n  issueDate: z.string().trim().optional().or(z.literal(\"\")),\n  /**\n   * PARTIAL + DIFFERENCES: importes (positivos) que se abonan.\n   * SUBSTITUTION: líneas correctas que sustituyen a las de la factura original.\n   */\n  lines: z.array(creditNoteLineSchema).max(200).optional(),\n  /** Serie de rectificativas elegida (si la empresa tiene varias). Vacío = la serie por defecto. */\n  seriesId: seriesIdSchema,\n  /** false guarda la rectificativa como borrador. */\n  issue: z.boolean().optional(),\n}).superRefine((value, ctx) => {\n  if ((value.scope === \"PARTIAL\" || value.type === \"SUBSTITUTION\") && (!value.lines || value.lines.length === 0)) {\n    ctx.addIssue({ code: \"custom\", message: \"Indica al menos una línea para la rectificación.\", path: [\"lines\"] });\n  }\n})\n\nconst creditNoteLineSchema = z.object({\n  itemId: z.string().trim().optional().nullable(),\n  description: z.string().trim().min(1, \"La línea debe tener descripción.\"),\n  quantity: z.number().positive(\"La cantidad debe ser mayor que 0.\"),\n  unitPrice: z.number().nonnegative(\"El importe no puede ser negativo.\"),\n  discountPct: z.number().min(0).max(100).optional(),\n  taxIds: z.array(z.uuid(\"El impuesto seleccionado no es válido.\")).max(12).optional(),\n  /** Líneas antiguas sin impuestos configurados: tipo de IVA y retención de la línea original. */\n  taxRate: z.number().min(0).max(100).optional(),\n  retentionRate: z.number().min(0).max(100).optional(),\n})\n\nconst seriesIdSchema = z.string().trim().max(80, \"La serie seleccionada no es válida.\").nullable().optional()"
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoices/{id}/duplicate",
+  "area": "invoices",
+  "summary": "Duplica la factura como un borrador nuevo con fecha de hoy (útil para facturas recurrentes).",
+  "permissions": [
+   "invoice.create"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoices/{id}/issue",
+  "area": "invoices",
+  "summary": "Emite un borrador: número definitivo, snapshot fiscal, asiento y auditoría.",
+  "permissions": [
+   "invoice.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoices/{id}/pdf",
+  "area": "invoices",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoices/{id}",
+  "area": "invoices",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/invoices/{id}",
+  "area": "invoices",
+  "summary": "Borrador: actualiza cualquier campo (y opcionalmente lo emite con `issue: true`). Emitida: solo notas y formas de pago; el resto responde 409 explicando cómo rectificar.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const updateDraftInvoiceSchema = z.object({\n  customerId: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().trim().min(1, \"Debes indicar una fecha de emisión.\").optional(),\n  dueDate: z.string().trim().optional().or(z.literal(\"\")),\n  paymentMethodId: z.string().trim().optional().or(z.literal(\"\")),\n  paymentMethodIds: paymentMethodIdsSchema.optional(),\n  /** Legado: el estado ya no se edita (se emite con la acción Emitir). */\n  status: invoiceStatusSchema.optional(),\n  notes: z.string().trim().max(2000, \"Las notas no pueden superar 2.000 caracteres.\").optional().or(z.literal(\"\")),\n  vatTreatment: salesVatTreatmentSchema.optional().nullable(),\n  seriesId: seriesIdSchema,\n  totalAmount: z.number().optional(),\n  lines: z.array(invoiceLineSchema).min(1, \"Debes añadir al menos una línea.\").optional(),\n  /** Tras guardar, emitir la factura en la misma operación. */\n  issue: z.boolean().optional(),\n})\n\nconst paymentMethodIdsSchema = z.array(paymentMethodReferenceSchema).max(12, \"No puedes seleccionar más de 12 formas de pago.\")\n\nconst invoiceStatusSchema = z.enum([\"DRAFT\", \"SENT\", \"PAID\", \"OVERDUE\", \"VOID\"])\n\nconst salesVatTreatmentSchema = z.enum(salesVatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" })\n\nconst seriesIdSchema = z.string().trim().max(80, \"La serie seleccionada no es válida.\").nullable().optional()\n\nconst invoiceLineSchema = invoiceLineFormSchema"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/invoices/{id}",
+  "area": "invoices",
+  "summary": "Anula un borrador. Las facturas emitidas se corrigen con una rectificativa (409).",
+  "permissions": [
+   "invoice.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoices",
+  "area": "invoices",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ],
+  "query": [
+   "export",
+   "pending",
+   "page",
+   "pageSize",
+   "q",
+   "sort",
+   "dir"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoices",
+  "area": "invoices",
+  "summary": "Crea una factura. `mode: \"draft\"` guarda un borrador editable (número provisional, sin asiento); sin `mode` o con `mode: \"issue\"` se emite directamente (compatibilidad con integraciones).",
+  "permissions": [
+   "invoice.create"
+  ],
+  "body": "const createInvoiceSchema = z.object({\n  customerId: z.string().trim().optional().or(z.literal(\"\")),\n  paymentMethodId: z.string().trim().optional().or(z.literal(\"\")),\n  paymentMethodIds: paymentMethodIdsSchema.optional(),\n  newCustomer: createCustomerSchema.optional(),\n  issueDate: z.string().trim().min(1, \"Debes indicar una fecha de emisión.\"),\n  dueDate: z.string().trim().optional().or(z.literal(\"\")),\n  /** Informativo: el servidor recalcula siempre el total desde las líneas. */\n  totalAmount: z.number().optional(),\n  notes: z.string().trim().max(2000, \"Las notas no pueden superar 2.000 caracteres.\").optional().or(z.literal(\"\")),\n  vatTreatment: salesVatTreatmentSchema.optional().nullable(),\n  seriesId: seriesIdSchema,\n  lines: z.array(invoiceLineSchema).min(1, \"Debes añadir al menos una línea.\"),\n  /** \"draft\" guarda un borrador editable; \"issue\" (por defecto, compatible con integraciones) emite. */\n  mode: z.enum([\"draft\", \"issue\"]).optional(),\n  returnPdf: z.boolean().optional(),\n}).superRefine((value, ctx) => {\n  if (!value.customerId?.trim() && !value.newCustomer) {\n    ctx.addIssue({\n      code: \"custom\",\n      message: \"Debes seleccionar un cliente o crear uno nuevo.\",\n      path: [\"customerId\"],\n    });\n  }\n})\n\nconst paymentMethodIdsSchema = z.array(paymentMethodReferenceSchema).max(12, \"No puedes seleccionar más de 12 formas de pago.\")\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem,  …"
+ },
+ {
+  "method": "GET",
+  "path": "/api/item-categories",
+  "area": "item-categories",
+  "summary": "",
+  "permissions": [
+   "stock.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/item-categories",
+  "area": "item-categories",
+  "summary": "",
+  "permissions": [
+   "stock.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  code: z.string().trim().min(1),\n  name: z.string().trim().min(1),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/items/{id}",
+  "area": "items",
+  "summary": "",
+  "permissions": [
+   "stock.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/items/{id}",
+  "area": "items",
+  "summary": "",
+  "permissions": [
+   "stock.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  name: z.string().trim().min(1),\n  sku: z.string().trim().min(1),\n  isService: z.boolean(),\n  salePrice: z.coerce.number().nonnegative(),\n  costPrice: z.coerce.number().nonnegative(),\n  minimumStock: z.coerce.number().nonnegative(),\n  // Sin indicar: no se cambian. null: se quitan.\n  categoryId: z.string().trim().nullable().optional(),\n  defaultTaxId: z.string().trim().nullable().optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/items/{id}",
+  "area": "items",
+  "summary": "",
+  "permissions": [
+   "stock.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/items",
+  "area": "items",
+  "summary": "",
+  "permissions": [
+   "stock.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/items",
+  "area": "items",
+  "summary": "",
+  "permissions": [
+   "stock.write"
+  ],
+  "body": "const itemPayloadSchema = z.object({\n  name: z.string().trim().min(1, \"El nombre es obligatorio.\"),\n  sku: z.string().trim().min(1, \"El SKU es obligatorio.\"),\n  isService: z.boolean().default(false),\n  salePrice: z.coerce.number().nonnegative().default(0),\n  costPrice: z.coerce.number().nonnegative().default(0),\n  minimumStock: z.coerce.number().nonnegative().default(0),\n  categoryId: z.string().trim().nullable().optional(),\n  defaultTaxId: z.string().trim().nullable().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/journal-entries/{id}",
+  "area": "journal-entries",
+  "summary": "",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/journal-entries/{id}",
+  "area": "journal-entries",
+  "summary": "",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/journal-entries/{id}",
+  "area": "journal-entries",
+  "summary": "",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/journal-entries",
+  "area": "journal-entries",
+  "summary": "Libro diario de la empresa. Con `?export=all` devuelve todos los asientos que cumplen la búsqueda, filtros y orden de la lista (`?q=&from=&to=&sort=&dir=`), para exportarlos completos.",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "export",
+   "page",
+   "pageSize",
+   "q",
+   "sort",
+   "dir"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/journal-entries",
+  "area": "journal-entries",
+  "summary": "Libro diario de la empresa. Con `?export=all` devuelve todos los asientos que cumplen la búsqueda, filtros y orden de la lista (`?q=&from=&to=&sort=&dir=`), para exportarlos completos.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/mcp",
+  "area": "mcp",
+  "summary": "Servidor MCP (Streamable HTTP, sin estado) para Claude, ChatGPT y cualquier cliente MCP. Autenticación: Bearer de una conexión OAuth o de un token personal (Ajustes › Conectar con IA). Sin token responde 401 con el puntero a los metadatos OAuth, y el cliente conecta solo.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/mcp",
+  "area": "mcp",
+  "summary": "Sin flujo SSE del servidor: este MCP solo responde a peticiones.",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/mcp",
+  "area": "mcp",
+  "summary": "Servidor MCP (Streamable HTTP, sin estado) para Claude, ChatGPT y cualquier cliente MCP. Autenticación: Bearer de una conexión OAuth o de un token personal (Ajustes › Conectar con IA). Sin token responde 401 con el puntero a los metadatos OAuth, y el cliente conecta solo.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/modules",
+  "area": "modules",
+  "summary": "Módulos opcionales de la empresa activa y si están activados.",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/modules",
+  "area": "modules",
+  "summary": "Activa o desactiva un módulo (no borra datos).",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({ moduleId: z.enum(MODULE_IDS), enabled: z.boolean() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/oauth/authorize",
+  "area": "oauth",
+  "summary": "Decisión del consentimiento (sesión del navegador + CSRF): devuelve la URL de retorno con el código.",
+  "permissions": [],
+  "body": "const payloadSchema = z.object({\n  params: z.string().max(8000),\n  decision: z.enum([\"allow\", \"deny\"]),\n  tenantId: z.string().optional(),\n  companyId: z.string().optional(),\n  scope: z.enum([\"read\", \"write\"]),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/oauth/grants",
+  "area": "oauth",
+  "summary": "Conexiones activas del usuario (Claude, ChatGPT, tokens personales).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/oauth/grants",
+  "area": "oauth",
+  "summary": "Token personal (90 días) para clientes MCP sin OAuth: Claude Code, Cursor, scripts…",
+  "permissions": [],
+  "body": "const createSchema = z.object({\n  name: z.string().trim().min(1).max(60),\n  scope: z.enum([\"read\", \"write\"]),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/oauth/grants",
+  "area": "oauth",
+  "summary": "Desconectar una aplicación: borra todas las sesiones de su autorización (y su refresco deja de valer).",
+  "permissions": [],
+  "query": [
+   "id"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/oauth/register",
+  "area": "oauth",
+  "summary": "RFC 7591: registro dinámico de clientes (Claude, ChatGPT…). Clientes públicos con PKCE.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/oauth/revoke",
+  "area": "oauth",
+  "summary": "RFC 7009: revocar un token de acceso o de refresco revoca toda la conexión. Siempre 200.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/oauth/token",
+  "area": "oauth",
+  "summary": "Endpoint de token: authorization_code (con PKCE) y refresh_token (con rotación).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/onboarding/dismiss",
+  "area": "onboarding",
+  "summary": "\"Hacerlo más tarde\": deja de redirigir al asistente tras iniciar sesión.",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/onboarding",
+  "area": "onboarding",
+  "summary": "Guarda un paso del asistente (o un dato suelto, como qué vende la empresa).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/onboarding/seed",
+  "area": "onboarding",
+  "summary": "Finaliza la puesta en marcha: guarda los datos, aplica la plantilla contable, la serie y la cuenta bancaria, y crea la invitación (con enlace copiable aunque no haya correo).",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/openapi",
+  "area": "openapi",
+  "summary": "Especificación OpenAPI 3.1 de toda la API (pública: describe rutas, no datos).",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/payment-methods/{id}",
+  "area": "payment-methods",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const paymentMethodPayloadSchema = z.object({\n  code: z.string().trim().min(1, \"El código es obligatorio.\").max(80, \"El código es demasiado largo.\"),\n  name: z.string().trim().min(1, \"El nombre es obligatorio.\").max(160, \"El nombre es demasiado largo.\"),\n  type: z.enum([\"BANK_TRANSFER\", \"CARD\", \"CASH\", \"DIRECT_DEBIT\"]),\n  bankAccountId: z.string().trim().optional().nullable().or(z.literal(\"\")),\n  bankAccountNumber: z.string().trim().max(80, \"El número de cuenta es demasiado largo.\").optional().nullable(),\n  isDefault: z.boolean().default(false),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/payment-methods/{id}",
+  "area": "payment-methods",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payment-methods",
+  "area": "payment-methods",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payment-methods",
+  "area": "payment-methods",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const paymentMethodPayloadSchema = z.object({\n  code: z.string().trim().min(1, \"El código es obligatorio.\").max(80, \"El código es demasiado largo.\"),\n  name: z.string().trim().min(1, \"El nombre es obligatorio.\").max(160, \"El nombre es demasiado largo.\"),\n  type: z.enum([\"BANK_TRANSFER\", \"CARD\", \"CASH\", \"DIRECT_DEBIT\"]),\n  bankAccountId: z.string().trim().optional().nullable().or(z.literal(\"\")),\n  bankAccountNumber: z.string().trim().max(80, \"El número de cuenta es demasiado largo.\").optional().nullable(),\n  isDefault: z.boolean().default(false),\n})"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/bookings/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const staffBookingUpdateSchema = z.object(bookingFields)"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/bookings/{id}/seat",
+  "area": "pos",
+  "summary": "Sentar a la reserva: abre la cuenta de su mesa con sus comensales.",
+  "permissions": [],
+  "body": "const seatSchema = z.object({ registerId: z.string().trim().nullable().optional(), waiterUserId: z.string().trim().nullable().optional() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/bookings/{id}/status",
+  "area": "pos",
+  "summary": "Confirmar, cancelar, marcar «no vino», terminar o recuperar una reserva.",
+  "permissions": [],
+  "body": "const statusSchema = z.object({ action: z.enum([\"CONFIRM\", \"CANCEL\", \"NO_SHOW\", \"COMPLETE\", \"RESTORE\"]), reason: optionalText(200), notifyCustomer: z.boolean().optional(), refundDeposit: z.boolean().optional() })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/bookings/availability",
+  "area": "pos",
+  "summary": "Horas libres para el formulario del personal (?date, ?party, ?ignore=<reserva que se edita>).",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/bookings/closures/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/bookings/closures",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const closureSchema = z.object({ date, reason: optionalText(120) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/bookings",
+  "area": "pos",
+  "summary": "Reservas de un día (?date=AAAA-MM-DD).",
+  "permissions": [],
+  "query": [
+   "date"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/bookings",
+  "area": "pos",
+  "summary": "Reserva tomada por el personal (teléfono, sin reserva…).",
+  "permissions": [],
+  "body": "const staffBookingSchema = z.object({ ...bookingFields, source: z.enum(BOOKING_SOURCES).default(\"PHONE\") })"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/bookings/settings",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const settingsSchema = z.object({\n  enabled: z.boolean(),\n  slug: z.string().trim().min(3, \"La dirección debe tener al menos 3 caracteres.\").max(48),\n  registerId: z.string().trim().nullable(),\n  slotMinutes: z.number().int().min(5).max(120),\n  durationMinutes: z.number().int().min(15).max(600),\n  minPartySize: z.number().int().min(1).max(100),\n  maxPartySize: z.number().int().min(1).max(100),\n  leadMinutes: z.number().int().min(0).max(10_080),\n  maxDaysAhead: z.number().int().min(1).max(365),\n  autoConfirm: z.boolean(),\n  cancellationHours: z.number().int().min(0).max(168),\n  allowCombining: z.boolean(),\n  welcomeMessage: optionalText(1000),\n  notifyEmail: z.union([email, z.literal(\"\")]).nullable().optional().transform((value) => value || null),\n  sendReminders: z.boolean(),\n  depositEnabled: z.boolean().default(false),\n  depositProvider: z.enum([\"STRIPE\", \"REDSYS\"]).nullable().default(null),\n  depositPerPerson: z.number().min(0).max(1000).default(0),\n  depositMinParty: z.number().int().min(1).max(100).default(1),\n  depositRefundable: z.boolean().default(true),\n  hours: z.array(z.object({ weekday: z.number().int().min(0).max(6), opensAt: time, lastStart: time })).max(50),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/bookings/waitlist/{id}",
+  "area": "pos",
+  "summary": "Avisado, sentado/reservado, quitar o volver a esperar.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/bookings/waitlist",
+  "area": "pos",
+  "summary": "Grupo esperando en la puerta.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/customers",
+  "area": "pos",
+  "summary": "Clientes para hacer factura completa desde el TPV (nombre o NIF).",
+  "permissions": [],
+  "query": [
+   "q"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/areas/{id}/layout",
+  "area": "pos",
+  "summary": "Guarda el plano de la sala (posición, tamaño y forma de sus mesas).",
+  "permissions": [],
+  "body": "const layoutSchema = z.object({\n  tables: z.array(z.object({ id, posX: z.number().int().min(0).max(100), posY: z.number().int().min(0).max(100), width: z.number().int().min(1).max(24), height: z.number().int().min(1).max(16), shape: z.enum([\"SQUARE\", \"ROUND\", \"RECT\"]) })).max(300),\n})"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/hospitality/areas/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const areaUpdateSchema = z.object({ name: z.string().trim().min(1).max(40).optional(), position: z.number().int().min(0).max(1000).optional(), bookable: z.boolean().optional() })"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/hospitality/areas/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/areas",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/areas",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const areaSchema = z.object({ name: z.string().trim().min(1, \"Pon nombre a la sala.\").max(40) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/floor",
+  "area": "pos",
+  "summary": "Plano: salas, mesas y cuenta abierta de cada una (se consulta cada pocos segundos).",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/integrations/{provider}",
+  "area": "pos",
+  "summary": "Guardar Stripe, Redsys o WhatsApp (los secretos vacíos no cambian).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/integrations/{provider}",
+  "area": "pos",
+  "summary": "Probar la conexión con lo guardado.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/kitchen",
+  "area": "pos",
+  "summary": "Comandas pendientes de cocina o barra (pantalla de la estación); `served=1`: las retiradas hace poco.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/kitchen/status",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const kitchenStatusSchema = z.object({ lineIds: z.array(id).min(1).max(200), status: z.enum([\"SENT\", \"READY\", \"SERVED\"]) })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/hospitality/lines/{lineId}",
+  "area": "pos",
+  "summary": "Unidades o nota de una línea (si ya está en cocina, solo anular con motivo).",
+  "permissions": [],
+  "body": "const updateLineSchema = z.object({\n  quantity: z.number().min(0).max(10_000).optional(),\n  note: z.string().trim().max(200).nullable().optional(),\n  cancelReason: z.string().trim().max(200).nullable().optional(),\n  course: z.number().int().min(1).max(4).optional(),\n  // PIN del encargado que autoriza anular algo ya enviado (si la empresa lo exige) y camarero que lo pide.\n  approvalPin: z.string().trim().max(6).nullable().optional(),\n  waiterUserId: id.nullable().optional(),\n})"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/modifiers/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const modifierGroupSchema = z.object({\n  name: z.string().trim().min(1, \"Pon nombre al grupo.\").max(60),\n  minSelect: z.number().int().min(0).max(20),\n  maxSelect: z.number().int().min(1).max(20),\n  options: z.array(z.object({ name: z.string().trim().min(1, \"Las opciones necesitan nombre.\").max(60), price: z.number().min(0).max(10_000) })).min(1, \"Añade al menos una opción.\").max(40),\n  itemIds: z.array(id).max(1000),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/hospitality/modifiers/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/modifiers",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const modifierGroupSchema = z.object({\n  name: z.string().trim().min(1, \"Pon nombre al grupo.\").max(60),\n  minSelect: z.number().int().min(0).max(20),\n  maxSelect: z.number().int().min(1).max(20),\n  options: z.array(z.object({ name: z.string().trim().min(1, \"Las opciones necesitan nombre.\").max(60), price: z.number().min(0).max(10_000) })).min(1, \"Añade al menos una opción.\").max(40),\n  itemIds: z.array(id).max(1000),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/bill",
+  "area": "pos",
+  "summary": "Pide la cuenta (pre-cuenta).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/cancel",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const cancelSchema = z.object({ reason: z.string().trim().max(200).default(\"\"), approvalPin: z.string().trim().max(6).nullable().optional() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/fire",
+  "area": "pos",
+  "summary": "«Marchar»: cocina empieza el siguiente tiempo en espera.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/lines",
+  "area": "pos",
+  "summary": "Añade una ronda de productos a la cuenta.",
+  "permissions": [],
+  "body": "const addLinesSchema = z.object({\n  waiterUserId: z.string().trim().nullable().optional(),\n  lines: z.array(z.object({\n    itemId: z.string().trim().nullable().optional(),\n    description: z.string().trim().min(1).max(300),\n    quantity: z.number().positive().max(10_000),\n    unitPrice: amount,\n    taxRate: z.number().min(0).max(100),\n    taxId: z.string().trim().nullable().optional(),\n    note: z.string().trim().max(200).nullable().optional(),\n    course: z.number().int().min(0).max(4).nullable().optional(),\n    modifierOptionIds: z.array(id).max(50).optional(),\n    setMenuPicks: z.array(z.object({ courseId: id, itemId: id })).max(10).optional(),\n  })).min(1).max(100),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/merge",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const mergeSchema = z.object({ targetOrderId: id })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/move",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const moveSchema = z.object({ tableId: id })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/pay",
+  "area": "pos",
+  "summary": "Cobra la cuenta entera o una parte (por productos o a partes iguales): un ticket por cobro.",
+  "permissions": [],
+  "body": "const paySchema = z.object({\n  clientRequestId: z.string().trim().min(8).max(80),\n  part: z.discriminatedUnion(\"mode\", [\n    z.object({ mode: z.literal(\"all\") }),\n    z.object({ mode: z.literal(\"lines\"), lines: z.array(z.object({ lineId: id, quantity: z.number().positive() })).min(1).max(100) }),\n    z.object({ mode: z.literal(\"equal\"), parts: z.number().int().min(2).max(50) }),\n  ]),\n  payment: z.object({ cash: amount, card: amount, cashReceived: amount.nullable().optional() }),\n  customerId: z.string().trim().nullable().optional(),\n  tipAmount: z.number().min(0).max(10_000).optional(),\n  waiterUserId: z.string().trim().nullable().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/orders/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/hospitality/orders/{id}",
+  "area": "pos",
+  "summary": "Comensales, camarero o nombre de la cuenta.",
+  "permissions": [],
+  "body": "const updateOrderSchema = z.object({\n  guests: z.number().int().min(1).max(200).optional(),\n  waiterUserId: z.string().trim().nullable().optional(),\n  label: z.string().trim().max(60).nullable().optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/send",
+  "area": "pos",
+  "summary": "Envía lo pendiente a cocina y barra (una comanda por estación).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders/{id}/transfer",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const transferSchema = z.object({ tableId: id, lines: z.array(z.object({ lineId: id, quantity: z.number().positive() })).min(1).max(100) })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/orders",
+  "area": "pos",
+  "summary": "Abre la cuenta de una mesa (o devuelve la abierta) o una cuenta sin mesa.",
+  "permissions": [],
+  "body": "const openOrderSchema = z.object({\n  registerId: id,\n  tableId: z.string().trim().nullable().optional(),\n  label: z.string().trim().max(60).nullable().optional(),\n  guests: z.number().int().min(1).max(200).optional(),\n  waiterUserId: z.string().trim().nullable().optional(),\n  training: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/requests/{id}",
+  "area": "pos",
+  "summary": "Atender una petición de una mesa (pedido, llamada o cuenta).",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/set-menus/{itemId}",
+  "area": "pos",
+  "summary": "Tiempos y platos a elegir de un menú de precio cerrado.",
+  "permissions": [],
+  "body": "const setMenuSchema = z.object({\n  courses: z.array(z.object({\n    name: z.string().trim().min(1, \"Pon nombre al tiempo (Primero, Segundo…).\").max(40),\n    course: z.number().int().min(0).max(4),\n    choices: z.array(z.object({ itemId: id, supplement: z.number().min(0).max(10_000) })).min(1).max(60),\n  })).min(1).max(8),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/hospitality/set-menus/{itemId}",
+  "area": "pos",
+  "summary": "Tiempos y platos a elegir de un menú de precio cerrado.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/settings",
+  "area": "pos",
+  "summary": "Reglas de la sala (autorización del encargado).",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/settings",
+  "area": "pos",
+  "summary": "Reglas de la sala (autorización del encargado).",
+  "permissions": [],
+  "body": "const hospitalitySettingsSchema = z.object({ managerApproval: z.boolean() })"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/staff/{userId}",
+  "area": "pos",
+  "summary": "Pone o quita el PIN de camarero de una persona del equipo.",
+  "permissions": [],
+  "body": "const pinSchema = z.object({ pin: z.string().trim().regex(/^(\\d{4,6})?$/, \"El PIN tiene de 4 a 6 cifras.\").nullable() })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/hospitality/staff/{userId}",
+  "area": "pos",
+  "summary": "Marca o desmarca a alguien como encargado.",
+  "permissions": [],
+  "body": "const staffRoleSchema = z.object({ isManager: z.boolean() })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/staff",
+  "area": "pos",
+  "summary": "Equipo y quién tiene PIN de camarero.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/staff/verify",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const verifySchema = z.object({ pin: z.string().trim().max(6) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/hospitality/stations",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/stations",
+  "area": "pos",
+  "summary": "A qué estación (cocina, barra o ninguna) va cada categoría de productos.",
+  "permissions": [],
+  "body": "const stationsSchema = z.object({ entries: z.array(z.object({ categoryId: id, station: z.enum([\"KITCHEN\", \"BAR\", \"NONE\"]) })).max(500) })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/hospitality/tables/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const tableUpdateSchema = z.object({ name: z.string().trim().min(1).max(30).optional(), seats: z.number().int().min(1).max(50).optional(), isActive: z.boolean().optional(), areaId: z.string().trim().optional(), shape: z.enum([\"SQUARE\", \"ROUND\", \"RECT\"]).optional(), bookable: z.boolean().optional() })"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/hospitality/tables/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/hospitality/tables",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const tablesSchema = z.object({ areaId: id, prefix: z.string().trim().max(20).default(\"Mesa\"), from: z.number().int().min(0).max(9999), to: z.number().int().min(0).max(9999), seats: z.number().int().min(1).max(50).default(4) })"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/hospitality/training",
+  "area": "pos",
+  "summary": "Borra las cuentas de práctica del modo formación.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/menu/import",
+  "area": "pos",
+  "summary": "Crea las secciones a partir de las categorías de artículos y añade sus artículos a la carta.",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/menu/items/{itemId}/image",
+  "area": "pos",
+  "summary": "Foto del plato (ya comprimida en el navegador) o null para quitarla.",
+  "permissions": [],
+  "body": "const imageSchema = z.object({ image: z.string().max(700_000).nullable() })"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/menu/items/{itemId}",
+  "area": "pos",
+  "summary": "Ficha de carta de un artículo (sección, textos, alérgenos, etiquetas).",
+  "permissions": [],
+  "body": "const menuItemSchema = z.object({\n  sectionId: z.string().trim().min(1).nullable(),\n  visible: z.boolean(),\n  displayName: text(80),\n  nameEn: text(80),\n  description: text(400),\n  descriptionEn: text(400),\n  allergens: z.array(z.string()).max(14),\n  traces: z.array(z.string()).max(14).default([]),\n  tags: z.array(z.string()).max(20),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/menu/items/{itemId}/sold-out",
+  "area": "pos",
+  "summary": "Agotado hoy: cualquier camarero puede marcarlo desde la sala.",
+  "permissions": [],
+  "body": "const soldOutSchema = z.object({ soldOut: z.boolean() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/menu/items/{itemId}/visible",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const visibleSchema = z.object({ visible: z.boolean() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/menu/sections/{id}/move",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const moveSchema = z.object({ direction: z.enum([\"up\", \"down\"]) })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/menu/sections/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const sectionSchema = z.object({\n  name: z.string().trim().min(1, \"Pon un nombre a la sección.\").max(60),\n  nameEn: text(60),\n  description: text(300),\n  descriptionEn: text(300),\n  weekdays: z.array(z.number().int().min(0).max(6)).max(7).default([]),\n  fromTime: optionalTime,\n  toTime: optionalTime,\n  fixedPrice: z.number().min(0).max(100_000).nullable().optional().transform((value) => value ?? null),\n  isActive: z.boolean().default(true),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/menu/sections/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/menu/sections",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const sectionSchema = z.object({\n  name: z.string().trim().min(1, \"Pon un nombre a la sección.\").max(60),\n  nameEn: text(60),\n  description: text(300),\n  descriptionEn: text(300),\n  weekdays: z.array(z.number().int().min(0).max(6)).max(7).default([]),\n  fromTime: optionalTime,\n  toTime: optionalTime,\n  fixedPrice: z.number().min(0).max(100_000).nullable().optional().transform((value) => value ?? null),\n  isActive: z.boolean().default(true),\n})"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/menu/settings",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const menuSettingsSchema = z.object({\n  enabled: z.boolean(),\n  slug: z.string().trim().min(3, \"La dirección debe tener al menos 3 caracteres.\").max(48),\n  intro: text(600),\n  introEn: text(600),\n  showBookingLink: z.boolean(),\n  tableService: z.boolean().default(false),\n  tableOrdering: z.boolean().default(false),\n  directToKitchen: z.boolean().default(false),\n})"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/recipes/{itemId}",
+  "area": "pos",
+  "summary": "Escandallo de un plato: ingredientes y cantidad por ración.",
+  "permissions": [],
+  "body": "const recipeSchema = z.object({\n  lines: z.array(z.object({ ingredientItemId: z.string().trim().min(1), quantity: z.number().positive(\"Las cantidades deben ser mayores que cero.\").max(100_000) })).min(1, \"Añade al menos un ingrediente.\").max(80),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/recipes/{itemId}",
+  "area": "pos",
+  "summary": "Escandallo de un plato: ingredientes y cantidad por ración.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/registers/{id}/open",
+  "area": "pos",
+  "summary": "Abre la caja con el fondo inicial de efectivo.",
+  "permissions": [],
+  "body": "const openSchema = z.object({ openingCash: amount })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/registers/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const registerSchema = z.object({\n  name: z.string().trim().min(2, \"Pon un nombre a la caja (p. ej. «Mostrador»).\").max(60),\n  seriesCode: z.string().trim().min(1).max(10).default(\"T\"),\n  seriesPrefix: z.string().trim().min(1, \"Indica el prefijo de los tickets.\").max(12).default(\"T\"),\n  warehouseId: z.string().trim().nullable().optional(),\n  cardBankAccountId: z.string().trim().nullable().optional(),\n  simplifiedLimit: z.number().min(0).max(3000, \"El límite de la factura simplificada no puede superar 3.000 €.\").default(400),\n  isActive: z.boolean().optional(),\n  mode: z.enum([\"COUNTER\", \"TABLES\"]).optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/registers",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/registers",
+  "area": "pos",
+  "summary": "",
+  "permissions": [],
+  "body": "const registerSchema = z.object({\n  name: z.string().trim().min(2, \"Pon un nombre a la caja (p. ej. «Mostrador»).\").max(60),\n  seriesCode: z.string().trim().min(1).max(10).default(\"T\"),\n  seriesPrefix: z.string().trim().min(1, \"Indica el prefijo de los tickets.\").max(12).default(\"T\"),\n  warehouseId: z.string().trim().nullable().optional(),\n  cardBankAccountId: z.string().trim().nullable().optional(),\n  simplifiedLimit: z.number().min(0).max(3000, \"El límite de la factura simplificada no puede superar 3.000 €.\").default(400),\n  isActive: z.boolean().optional(),\n  mode: z.enum([\"COUNTER\", \"TABLES\"]).optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/sales",
+  "area": "pos",
+  "summary": "Cobra un ticket: factura emitida, cobros, stock y ticket en la sesión abierta.",
+  "permissions": [],
+  "body": "const saleSchema = z.object({\n  registerId: z.string().trim().min(1),\n  clientRequestId: z.string().trim().min(8).max(80),\n  customerId: z.string().trim().nullable().optional(),\n  lines: z.array(z.object({\n    itemId: z.string().trim().nullable().optional(),\n    description: z.string().trim().min(1).max(300),\n    quantity: z.number().positive().max(100_000),\n    unitPrice: amount,\n    taxRate: z.number().min(0).max(100),\n    taxId: z.string().trim().nullable().optional(),\n  })).min(1, \"El ticket está vacío.\").max(300),\n  payment: z.object({ cash: amount, card: amount, cashReceived: amount.nullable().optional() }),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/sessions/{id}/close",
+  "area": "pos",
+  "summary": "Cierra la caja con el efectivo contado (arqueo e informe Z).",
+  "permissions": [],
+  "body": "const closeSchema = z.object({ countedCash: amount, notes: z.string().trim().max(1000).nullable().optional(), postDifference: z.boolean().optional() })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/sessions/{id}/movements",
+  "area": "pos",
+  "summary": "Entrada o salida de efectivo del cajón (cambio, retirada…).",
+  "permissions": [],
+  "body": "const movementSchema = z.object({\n  type: z.enum([\"IN\", \"OUT\"]),\n  amount: z.number().positive().max(999_999_999),\n  reason: z.string().trim().min(2, \"Indica el motivo.\").max(200),\n  // Traspaso con este banco (se contabiliza); sin él, solo cuenta en el arqueo.\n  bankAccountId: z.string().trim().nullable().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/sessions/{id}",
+  "area": "pos",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/setup-hospitality",
+  "area": "pos",
+  "summary": "Asistente de puesta en marcha: caja en modo Mesas, salas y mesas de una vez.",
+  "permissions": [],
+  "body": "const setupSchema = z.object({\n  registerId: z.string().trim().min(1).nullable().optional(),\n  registerName: z.string().trim().max(60).nullable().optional(),\n  areas: z.array(z.object({ name: z.string().trim().max(40), tables: z.number().int().min(0).max(100), seats: z.number().int().min(1).max(50) })).min(1).max(10),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/tickets/{id}/refund",
+  "area": "pos",
+  "summary": "Devolución (completa o de algunas líneas) de un ticket: rectificativa, devolución del cobro y entrada de stock.",
+  "permissions": [],
+  "body": "const refundSchema = z.object({\n  registerId: z.string().trim().min(1),\n  clientRequestId: z.string().trim().min(8).max(80),\n  reason: z.string().trim().max(300).nullable().optional(),\n  method: z.enum([\"cash\", \"card\"]).optional(),\n  // Sin líneas: se devuelve todo lo que quede del ticket.\n  lines: z.array(z.object({ lineId: z.string().trim().min(1), quantity: z.number().positive() })).max(300).optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/tickets/{id}",
+  "area": "pos",
+  "summary": "Ticket para devolverlo: líneas, unidades que quedan por devolver y cómo se cobró.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/pos/tickets",
+  "area": "pos",
+  "summary": "Busca tickets por número (devoluciones de otros días).",
+  "permissions": [],
+  "query": [
+   "q"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/bookings/{slug}/availability",
+  "area": "public",
+  "summary": "Horas disponibles de un día para un grupo (?date, ?party).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/bookings/{slug}",
+  "area": "public",
+  "summary": "Reserva desde el formulario público (sin sesión).",
+  "permissions": [],
+  "body": "const publicBookingSchema = z.object({\n  date,\n  time,\n  partySize: z.number().int().min(1).max(100),\n  name: z.string().trim().min(2, \"Escribe tu nombre.\").max(80),\n  phone: z.string().trim().min(6, \"Escribe un teléfono de contacto.\").max(30).regex(/^[+\\d][\\d\\s().-]{5,}$/, \"Teléfono no válido.\"),\n  email,\n  notes: optionalText(500),\n  consent: z.literal(true, { error: \"Debes aceptar el tratamiento de tus datos para reservar.\" }),\n  whatsappOptIn: z.boolean().optional(),\n  // Trampa para bots: un campo oculto que una persona nunca rellena.\n  website: z.string().max(0, \"No se pudo enviar la reserva.\").optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/bookings/{slug}/waitlist",
+  "area": "public",
+  "summary": "Apuntarse a la lista de espera de un día completo (sin sesión).",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/bookings/manage/{token}/calendar",
+  "area": "public",
+  "summary": "La reserva como evento de calendario (.ics).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/bookings/manage/{token}/cancel",
+  "area": "public",
+  "summary": "El cliente cancela su reserva desde su enlace privado.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/bookings/manage/{token}/pay",
+  "area": "public",
+  "summary": "Volver a intentar el pago de la fianza (si se cerró la página de pago o falló la tarjeta).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/bookings/waitlist/{token}/cancel",
+  "area": "public",
+  "summary": "Salir de la lista de espera desde el enlace del email.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/menu/{slug}/requests",
+  "area": "public",
+  "summary": "Desde la mesa (QR): pedir, llamar al camarero o pedir la cuenta. Sin sesión.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/menu/image/{id}",
+  "area": "public",
+  "summary": "Foto de un plato. La URL lleva la versión (?v=), así que se puede cachear mucho tiempo.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/menu/requests/{id}",
+  "area": "public",
+  "summary": "El cliente consulta en qué queda su pedido (?token=).",
+  "permissions": [],
+  "query": [
+   "token"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/payments/redsys/{companyId}",
+  "area": "public",
+  "summary": "Notificación de Redsys (servidor a servidor): resultado del pago de la fianza, firmado.",
+  "permissions": [],
+  "multipart": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/public/payments/stripe/{companyId}",
+  "area": "public",
+  "summary": "Webhook de Stripe del restaurante (firmado con su secreto): fianza pagada.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/purchases/{id}/pdf",
+  "area": "purchases",
+  "summary": "",
+  "permissions": [
+   "purchase.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/purchases/{id}",
+  "area": "purchases",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/purchases/{id}",
+  "area": "purchases",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/purchases/{id}",
+  "area": "purchases",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/purchases",
+  "area": "purchases",
+  "summary": "Compatibilidad: nombre exacto de un proveedor ya existente.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/purchases",
+  "area": "purchases",
+  "summary": "Compatibilidad: nombre exacto de un proveedor ya existente.",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/readyz",
+  "area": "readyz",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/recurring/{id}",
+  "area": "recurring",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/recurring/{id}",
+  "area": "recurring",
+  "summary": "Edita la plantilla completa.",
+  "permissions": [],
+  "body": "const recurringTemplateSchema = z.object({\n  kind: z.enum(RECURRING_KINDS),\n  name: z.string().trim().min(1, \"Ponle un nombre para reconocerla (p. ej. «Cuota mensual de mantenimiento»).\").max(120),\n  customerId: z.string().trim().max(80).optional().nullable(),\n  supplierPartnerId: z.string().trim().max(80).optional().nullable(),\n  frequency: z.enum(RECURRING_FREQUENCIES, { error: \"Elige cada cuánto se repite.\" }),\n  everyMonths: z.number().int().min(1, \"Entre 1 y 60 meses.\").max(60, \"Entre 1 y 60 meses.\").optional().nullable(),\n  startDate: dateSchema,\n  lastDayOfMonth: z.boolean().optional(),\n  endDate: dateSchema.optional().nullable().or(z.literal(\"\")),\n  maxOccurrences: z.number().int().min(1, \"Al menos 1 emisión.\").max(600).optional().nullable(),\n  issueMode: z.enum([\"DRAFT\", \"ISSUE\", \"ISSUE_AND_EMAIL\", \"POST\"]),\n  confirmAutomatic: z.boolean().optional(),\n  lines: z.array(recurringLineSchema).min(1, \"Añade al menos una línea.\").max(50, \"Como máximo 50 líneas.\"),\n  notes: z.string().trim().max(2000, \"Las notas no pueden superar 2.000 caracteres.\").optional().nullable(),\n  sourceInvoiceId: z.string().trim().max(80).optional().nullable(),\n  /** Solo facturas: serie de numeración (vacío = la serie por defecto) y tratamiento de IVA. */\n  seriesId: z.string().trim().max(80).optional().nullable(),\n  vatTreatment: salesVatTreatmentSchema.optional().nullable(),\n}).superRefine((value, ctx) => {\n  if (value.kind === \"SALES_INVOICE\" && !value.customerId) ctx.addIssue({ code: \"custom\", path: [\"customerId\"], message: \"Elige el cliente.\" });\n  if (value.kind === \"EXPENSE\" && !value.supplierPartnerId) ctx.addIssue({ code: \"custom\", path: [\"supplierPartnerId\"], message: \"Elige el proveedor.\" });\n  if (value.kind === \"SALES_INVOICE\" && !(INVOICE_ISSUE_MODES as readonly string[]).includes(value.issueMode)) {\n    ctx.addIssue({ code: \"custom\", path: [\"issueMode\"], message: \"Modo de emisión no válido para facturas.\" });\n  }\n  if (value.kind === \"EXPENSE\" && !(EXPENSE_ISSUE_MODES as readonly string[]).includes(value.issueMode)) {\n    ctx.addIssue({ code: \"custom\", path: [\"issueMode\"], message: \"Modo no válido para gastos.\" });\n  }\n  if (value.kind === \"EXPENSE\" && value.lines.some((line) => !line.expenseAccountId)) {\n    ctx.addIssue({ code: \"custom\", path: [\"lines\"], message: \"Elige la cuenta de gasto de cada línea.\" });\n  }\n  if (value.frequency === \"EVERY_N_MONTHS\" && !va …"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/recurring/{id}",
+  "area": "recurring",
+  "summary": "Pausa o reanuda.",
+  "permissions": [],
+  "body": "const recurringStatusSchema = z.object({ status: z.enum([\"ACTIVE\", \"PAUSED\"]) })"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/recurring/{id}",
+  "area": "recurring",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/recurring",
+  "area": "recurring",
+  "summary": "",
+  "permissions": [],
+  "query": [
+   "kind"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/recurring",
+  "area": "recurring",
+  "summary": "Crea una plantilla recurrente de factura o de gasto.",
+  "permissions": [],
+  "body": "const recurringTemplateSchema = z.object({\n  kind: z.enum(RECURRING_KINDS),\n  name: z.string().trim().min(1, \"Ponle un nombre para reconocerla (p. ej. «Cuota mensual de mantenimiento»).\").max(120),\n  customerId: z.string().trim().max(80).optional().nullable(),\n  supplierPartnerId: z.string().trim().max(80).optional().nullable(),\n  frequency: z.enum(RECURRING_FREQUENCIES, { error: \"Elige cada cuánto se repite.\" }),\n  everyMonths: z.number().int().min(1, \"Entre 1 y 60 meses.\").max(60, \"Entre 1 y 60 meses.\").optional().nullable(),\n  startDate: dateSchema,\n  lastDayOfMonth: z.boolean().optional(),\n  endDate: dateSchema.optional().nullable().or(z.literal(\"\")),\n  maxOccurrences: z.number().int().min(1, \"Al menos 1 emisión.\").max(600).optional().nullable(),\n  issueMode: z.enum([\"DRAFT\", \"ISSUE\", \"ISSUE_AND_EMAIL\", \"POST\"]),\n  confirmAutomatic: z.boolean().optional(),\n  lines: z.array(recurringLineSchema).min(1, \"Añade al menos una línea.\").max(50, \"Como máximo 50 líneas.\"),\n  notes: z.string().trim().max(2000, \"Las notas no pueden superar 2.000 caracteres.\").optional().nullable(),\n  sourceInvoiceId: z.string().trim().max(80).optional().nullable(),\n  /** Solo facturas: serie de numeración (vacío = la serie por defecto) y tratamiento de IVA. */\n  seriesId: z.string().trim().max(80).optional().nullable(),\n  vatTreatment: salesVatTreatmentSchema.optional().nullable(),\n}).superRefine((value, ctx) => {\n  if (value.kind === \"SALES_INVOICE\" && !value.customerId) ctx.addIssue({ code: \"custom\", path: [\"customerId\"], message: \"Elige el cliente.\" });\n  if (value.kind === \"EXPENSE\" && !value.supplierPartnerId) ctx.addIssue({ code: \"custom\", path: [\"supplierPartnerId\"], message: \"Elige el proveedor.\" });\n  if (value.kind === \"SALES_INVOICE\" && !(INVOICE_ISSUE_MODES as readonly string[]).includes(value.issueMode)) {\n    ctx.addIssue({ code: \"custom\", path: [\"issueMode\"], message: \"Modo de emisión no válido para facturas.\" });\n  }\n  if (value.kind === \"EXPENSE\" && !(EXPENSE_ISSUE_MODES as readonly string[]).includes(value.issueMode)) {\n    ctx.addIssue({ code: \"custom\", path: [\"issueMode\"], message: \"Modo no válido para gastos.\" });\n  }\n  if (value.kind === \"EXPENSE\" && value.lines.some((line) => !line.expenseAccountId)) {\n    ctx.addIssue({ code: \"custom\", path: [\"lines\"], message: \"Elige la cuenta de gasto de cada línea.\" });\n  }\n  if (value.frequency === \"EVERY_N_MONTHS\" && !va …"
+ },
+ {
+  "method": "GET",
+  "path": "/api/recurring/run",
+  "area": "recurring",
+  "summary": "Cron para plataformas sin procesos permanentes: genera recurrencias vencidas y envía los recordatorios automáticos. Protegido con CRON_SECRET (`x-cron-secret` o `Authorization: Bearer`). Acepta GET (formato de Vercel Cron) y POST. Es idempotente: se puede llamar cada pocos minutos.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/recurring/run",
+  "area": "recurring",
+  "summary": "Cron para plataformas sin procesos permanentes: genera recurrencias vencidas y envía los recordatorios automáticos. Protegido con CRON_SECRET (`x-cron-secret` o `Authorization: Bearer`). Acepta GET (formato de Vercel Cron) y POST. Es idempotente: se puede llamar cada pocos minutos.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/recurring/runs/{id}",
+  "area": "recurring",
+  "summary": "Registra un gasto recurrente pendiente de revisar (con importes ajustados si hace falta).",
+  "permissions": [],
+  "body": "const confirmSchema = z.object({\n  unitPrices: z.array(z.number().min(0, \"El importe no puede ser negativo.\").max(100_000_000)).max(50).optional(),\n  supplierDocumentNumber: z.string().trim().max(80).optional().nullable(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/recurring/runs/{id}",
+  "area": "recurring",
+  "summary": "Descarta un gasto pendiente (ese mes no hubo cargo).",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/reporting/dashboard",
+  "area": "reporting",
+  "summary": "Panel financiero (el del inicio): ventas y gastos del periodo, impuesto estimado del trimestre, pendiente de cobro y de pago, saldos bancarios, evolución mensual y próximos plazos fiscales. Consulta: `period` = month (por defecto), quarter o year.",
+  "permissions": [
+   "reporting.read"
+  ],
+  "query": [
+   "period"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/reporting/export",
+  "area": "reporting",
+  "summary": "",
+  "permissions": [
+   "reporting.read"
+  ],
+  "query": [
+   "period"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/reporting/kpis",
+  "area": "reporting",
+  "summary": "Indicadores del periodo (los de la pantalla Informes): ventas, gastos, cobros, márgenes, comparados con el periodo anterior. Consulta: `period` = month (por defecto), quarter o year.",
+  "permissions": [
+   "reporting.read"
+  ],
+  "query": [
+   "period"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/sales-orders/{id}/pdf",
+  "area": "sales-orders",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sales-orders/{id}",
+  "area": "sales-orders",
+  "summary": "Edita un pedido mientras no tenga albaranes ni factura.",
+  "permissions": [
+   "invoice.create"
+  ],
+  "body": "const payloadSchema = z.object({\n  customerId: z.string().trim().min(1, \"Elige el cliente del pedido.\"),\n  issueDate: z.string().trim().min(1, \"Indica la fecha del pedido.\"),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  lines: z.array(lineSchema).min(1, \"Añade al menos una línea.\"),\n})\n\nconst lineSchema = z.object({\n  description: z.string().trim().min(1, \"Cada línea necesita un concepto.\"),\n  itemId: z.string().trim().optional().or(z.literal(\"\")),\n  quantity: z.number().positive(\"La cantidad debe ser mayor que 0.\"),\n  unitPrice: z.number().nonnegative(\"El precio no puede ser negativo.\"),\n  taxRate: z.number().nonnegative().optional(),\n  retentionRate: z.number().nonnegative().optional(),\n  discountPct: z.number().min(0).max(100).optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/sales-orders/{id}",
+  "area": "sales-orders",
+  "summary": "Anula un pedido sin albaranes ni factura.",
+  "permissions": [
+   "invoice.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/sales-orders/{id}",
+  "area": "sales-orders",
+  "summary": "Detalle del documento (pedido de venta): emisor, cliente, líneas y totales (los mismos datos que su PDF), para integraciones y el servidor MCP.",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-orders/{id}/to-delivery",
+  "area": "sales-orders",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-orders/{id}/to-invoice",
+  "area": "sales-orders",
+  "summary": "Pedido sin albaranes → factura en borrador (para revisarla y emitirla).",
+  "permissions": [
+   "invoice.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/sales-orders",
+  "area": "sales-orders",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-orders",
+  "area": "sales-orders",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/sales-quotes/{id}/pdf",
+  "area": "sales-quotes",
+  "summary": "",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sales-quotes/{id}",
+  "area": "sales-quotes",
+  "summary": "",
+  "permissions": [
+   "invoice.create"
+  ],
+  "body": "const payloadSchema = z.object({\n  customerId: z.string().trim().min(1),\n  number: z.string().trim().min(1),\n  issueDate: z.string().trim().min(1),\n  validUntil: z.string().trim().optional().or(z.literal(\"\")),\n  lines: z.array(lineSchema).min(1),\n})\n\nconst lineSchema = z.object({\n  description: z.string().trim().min(1),\n  itemId: z.string().trim().optional().or(z.literal(\"\")),\n  quantity: z.number().positive(),\n  unitPrice: z.number().nonnegative(),\n  taxRate: z.number().nonnegative().optional(),\n  retentionRate: z.number().nonnegative().optional(),\n  discountPct: z.number().nonnegative().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sales-quotes/{id}",
+  "area": "sales-quotes",
+  "summary": "Detalle del documento (presupuesto): emisor, cliente, líneas y totales (los mismos datos que su PDF), para integraciones y el servidor MCP.",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-quotes/{id}/status",
+  "area": "sales-quotes",
+  "summary": "Cambia el estado de un presupuesto: Enviado, Aceptado, Rechazado o Anulado.",
+  "permissions": [
+   "invoice.create"
+  ],
+  "body": "const payloadSchema = z.object({ status: z.enum([\"SENT\", \"CONFIRMED\", \"REJECTED\", \"VOID\"], { error: \"Estado de presupuesto no válido.\" }) })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-quotes/{id}/to-invoice",
+  "area": "sales-quotes",
+  "summary": "Presupuesto → factura en borrador (para revisarla y emitirla).",
+  "permissions": [
+   "invoice.create"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-quotes/{id}/to-order",
+  "area": "sales-quotes",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/sales-quotes",
+  "area": "sales-quotes",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/sales-quotes",
+  "area": "sales-quotes",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/search",
+  "area": "search",
+  "summary": "Every column matched with a single escaped ILIKE pattern (company filter first, so the company indexes apply).",
+  "permissions": [
+   "invoice.read",
+   "customer.read",
+   "supplier.read",
+   "expense.read",
+   "stock.read",
+   "purchase.read",
+   "treasury.read",
+   "accounting.read"
+  ],
+  "query": [
+   "q"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/security-policy",
+  "area": "security-policy",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/security-policy",
+  "area": "security-policy",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/creditor-id",
+  "area": "sepa",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/sepa/creditor-id",
+  "area": "sepa",
+  "summary": "Identificador de acreedor SEPA de la empresa (necesario para las remesas de recibos).",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({ creditorId: z.string().trim().max(40).nullable() })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/direct-debits/{id}",
+  "area": "sepa",
+  "summary": "Detalle de la remesa de cobros; con `?download=xml` devuelve el fichero para la banca online.",
+  "permissions": [
+   "treasury.read"
+  ],
+  "query": [
+   "download"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sepa/direct-debits/{id}",
+  "area": "sepa",
+  "summary": "Detalle de la remesa de cobros; con `?download=xml` devuelve el fichero para la banca online.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const actionSchema = z.object({ action: z.enum([\"collect\", \"uncollect\", \"cancel\"]) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/direct-debits/items/{itemId}",
+  "area": "sepa",
+  "summary": "Cargos pendientes del banco que pueden ser la devolución de este recibo.",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sepa/direct-debits/items/{itemId}",
+  "area": "sepa",
+  "summary": "Devolución de un recibo (y, opcionalmente, conciliación del cargo con su comisión).",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const actionSchema = z.discriminatedUnion(\"action\", [\n  z.object({\n    action: z.literal(\"return\"),\n    returnedAt: z.string().trim().regex(/^\\d{4}-\\d{2}-\\d{2}$/),\n    reason: z.string().trim().max(250).nullable().optional(),\n    bankTransactionId: z.string().trim().min(1).nullable().optional(),\n    feeAccountId: z.string().trim().min(1).nullable().optional(),\n  }),\n  z.object({\n    action: z.literal(\"link\"),\n    bankTransactionId: z.string().trim().min(1),\n    feeAccountId: z.string().trim().min(1).nullable().optional(),\n  }),\n])"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/direct-debits",
+  "area": "sepa",
+  "summary": "",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sepa/direct-debits",
+  "area": "sepa",
+  "summary": "Genera el fichero de adeudos SEPA (pain.008.001.02) y guarda la remesa pendiente de cobro.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  bankAccountId: z.string().trim().min(1),\n  collectionDate: z.string().trim().regex(/^\\d{4}-\\d{2}-\\d{2}$/),\n  items: z.array(z.object({\n    invoiceId: z.string().trim().min(1),\n    amount: z.number().positive(),\n  })).min(1).max(500),\n})"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sepa/mandates/{id}",
+  "area": "sepa",
+  "summary": "",
+  "permissions": [
+   "customer.create"
+  ],
+  "body": "const actionSchema = z.object({ action: z.literal(\"revoke\"), customerId: z.string().trim().min(1) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/mandates",
+  "area": "sepa",
+  "summary": "",
+  "permissions": [
+   "customer.read"
+  ],
+  "query": [
+   "customerId"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sepa/mandates",
+  "area": "sepa",
+  "summary": "Alta de un mandato SEPA firmado por el cliente.",
+  "permissions": [
+   "customer.create"
+  ],
+  "body": "const payloadSchema = z.object({\n  customerId: z.string().trim().min(1),\n  mandateReference: z.string().trim().max(35).nullable().optional(),\n  signatureDate: z.string().trim().regex(/^\\d{4}-\\d{2}-\\d{2}$/),\n  iban: z.string().trim().min(15).max(42),\n  bic: z.string().trim().max(11).nullable().optional(),\n  mandateType: z.enum([\"RECURRENT\", \"ONE_OFF\"]),\n  notes: z.string().trim().max(500).nullable().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/remittances/{id}",
+  "area": "sepa",
+  "summary": "Detalle de la remesa; con `?download=xml` devuelve el fichero para subirlo a la banca online.",
+  "permissions": [
+   "treasury.read"
+  ],
+  "query": [
+   "download"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sepa/remittances/{id}",
+  "area": "sepa",
+  "summary": "Detalle de la remesa; con `?download=xml` devuelve el fichero para subirlo a la banca online.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const actionSchema = z.object({ action: z.enum([\"confirm\", \"unconfirm\", \"cancel\"]) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sepa/remittances",
+  "area": "sepa",
+  "summary": "",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sepa/remittances",
+  "area": "sepa",
+  "summary": "Genera el fichero SEPA (pain.001.001.03) y guarda la remesa pendiente de confirmar.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  bankAccountId: z.string().trim().min(1),\n  executionDate: z.string().trim().regex(/^\\d{4}-\\d{2}-\\d{2}$/),\n  items: z.array(z.object({\n    supplierInvoiceId: z.string().trim().min(1),\n    amount: z.number().positive(),\n    iban: z.string().trim().min(15).max(42),\n    bic: z.string().trim().max(11).nullable().optional(),\n  })).min(1).max(500),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/stock-movements",
+  "area": "stock-movements",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/stock-movements",
+  "area": "stock-movements",
+  "summary": "",
+  "permissions": [
+   "stock.read",
+   "stock.write"
+  ],
+  "query": [
+   "itemId",
+   "warehouseId",
+   "movementType"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/storage/presign",
+  "area": "storage",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({\n  fileName: z.string().trim().min(1).max(180),\n  contentType: z.enum(contentTypes, { message: \"Tipo de archivo no permitido. Usa PDF, JPG, PNG, WEBP o CSV.\" }),\n  size: z\n    .number({ message: \"Indica el tamaño del archivo.\" })\n    .int()\n    .positive(\"El archivo está vacío.\")\n    .max(MAX_UPLOAD_BYTES, \"El archivo supera el tamaño máximo de 15 MB.\"),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/supplier-invoices",
+  "area": "supplier-invoices",
+  "summary": "Compatibilidad: una sola recepción.",
+  "permissions": [
+   "purchase.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/supplier-invoices",
+  "area": "supplier-invoices",
+  "summary": "Compatibilidad: una sola recepción.",
+  "permissions": [
+   "purchase.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().min(1),\n  purchaseOrderId: z.string().trim().min(1),\n  /** Recepciones del pedido que cubre la factura (una o varias). */\n  goodsReceiptIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),\n  /** Compatibilidad: una sola recepción. */\n  goodsReceiptId: z.string().trim().min(1).optional(),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime().optional(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  lines: z\n    .array(\n      z.object({\n        itemId: z.string().trim().optional().or(z.literal(\"\")),\n        purchaseOrderLineId: z.string().trim().optional().or(z.literal(\"\")),\n        goodsReceiptLineId: z.string().trim().optional().or(z.literal(\"\")),\n        expenseAccountId: z.string().trim().optional().or(z.literal(\"\")),\n        description: z.string().trim().min(1),\n        quantity: z.number().positive(),\n        unitPrice: z.number().nonnegative(),\n        taxRate: z.number().min(0).max(100).default(21),\n        taxDeductiblePct: z.number().min(0).max(100).default(100),\n        retentionRate: z.number().min(0).max(100).default(0),\n      }),\n    )\n    .min(1),\n}).refine((value) => Boolean(value.goodsReceiptIds?.length || value.goodsReceiptId), {\n  message: \"Elige al menos una recepción.\",\n  path: [\"goodsReceiptIds\"],\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/supplier-payments/options",
+  "area": "supplier-payments",
+  "summary": "Opciones para registrar un pago a proveedor (formas de pago, cuentas bancarias y la forma de pago habitual del proveedor). Accesible a quien puede pagar, sin exigir permisos de administración o tesorería.",
+  "permissions": [
+   "purchase.write",
+   "expense.write"
+  ],
+  "query": [
+   "supplierId",
+   "invoiceId"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/supplier-payments",
+  "area": "supplier-payments",
+  "summary": "Movimiento bancario del que nace el pago: se concilia en la misma operación.",
+  "permissions": [
+   "purchase.read",
+   "expense.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/supplier-payments",
+  "area": "supplier-payments",
+  "summary": "Movimiento bancario del que nace el pago: se concilia en la misma operación.",
+  "permissions": [
+   "purchase.write",
+   "expense.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  supplierInvoiceId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  amountApplied: z.number().positive(),\n  postedAt: z.string().trim().min(1),\n  paymentMethodId: z.string().trim().optional().or(z.literal(\"\")),\n  bankAccountId: z.string().trim().optional().or(z.literal(\"\")),\n  reference: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  notes: z.string().trim().max(1000).optional().or(z.literal(\"\")),\n  /** Movimiento bancario del que nace el pago: se concilia en la misma operación. */\n  bankTransactionId: z.string().trim().min(1).optional(),\n}).refine((value) => Boolean(value.supplierInvoiceId || value.supplierPartnerId), {\n  message: \"Debes indicar un proveedor o una factura.\",\n  path: [\"supplierPartnerId\"],\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/suppliers/{id}",
+  "area": "suppliers",
+  "summary": "",
+  "permissions": [
+   "supplier.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/suppliers/{id}",
+  "area": "suppliers",
+  "summary": "",
+  "permissions": [
+   "supplier.create"
+  ],
+  "body": "const updateSupplierSchema = createSupplierSchema.extend({\n  status: customerStatusSchema.optional(),\n})\n\nconst createSupplierSchema = createCustomerSchema.extend({\n  paymentTermsDays: z.number().int(\"Los días de pago deben ser enteros.\").min(0, \"Los días de pago no pueden ser negativos.\").max(365, \"Los días de pago no pueden superar 365.\").default(30),\n  paymentMethodId: z.string().trim().optional().or(z.literal(\"\")),\n  // Obsoleto: la subcuenta del proveedor (400/410 + número) la crea y mantiene el sistema. Se ignora.\n  defaultAccountId: z.string().trim().optional().or(z.literal(\"\")),\n  // Tipo de proveedor: mercaderías (400) o servicios/acreedores (410). Ausente = no se toca.\n  supplierKind: z.enum([\"GOODS\", \"SERVICES\"]).nullable().optional(),\n  currencyCode: z.string().trim().length(3, \"La moneda debe ser un código ISO de 3 letras.\").default(\"EUR\"),\n  // Valores habituales de sus facturas (se proponen al registrarlas, siempre editables).\n  defaultExpenseAccountId: z.string().trim().optional().or(z.literal(\"\")),\n  defaultRetentionRate: z.number().min(0, \"La retención no puede ser negativa.\").max(100, \"La retención no puede superar el 100 %.\").nullable().optional(),\n  defaultTaxDeductiblePct: z.number().min(0, \"El porcentaje deducible no puede ser negativo.\").max(100, \"El porcentaje deducible no puede superar el 100 %.\").nullable().optional(),\n  defaultVatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).nullable().optional().or(z.literal(\"\")),\n})\n\nconst customerStatusSchema = z.enum([\"ACTIVE\", \"INACTIVE\"])"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/suppliers/{id}",
+  "area": "suppliers",
+  "summary": "",
+  "permissions": [
+   "supplier.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/suppliers",
+  "area": "suppliers",
+  "summary": "",
+  "permissions": [
+   "supplier.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/suppliers",
+  "area": "suppliers",
+  "summary": "",
+  "permissions": [
+   "supplier.create"
+  ],
+  "body": "const createSupplierSchema = createCustomerSchema.extend({\n  paymentTermsDays: z.number().int(\"Los días de pago deben ser enteros.\").min(0, \"Los días de pago no pueden ser negativos.\").max(365, \"Los días de pago no pueden superar 365.\").default(30),\n  paymentMethodId: z.string().trim().optional().or(z.literal(\"\")),\n  // Obsoleto: la subcuenta del proveedor (400/410 + número) la crea y mantiene el sistema. Se ignora.\n  defaultAccountId: z.string().trim().optional().or(z.literal(\"\")),\n  // Tipo de proveedor: mercaderías (400) o servicios/acreedores (410). Ausente = no se toca.\n  supplierKind: z.enum([\"GOODS\", \"SERVICES\"]).nullable().optional(),\n  currencyCode: z.string().trim().length(3, \"La moneda debe ser un código ISO de 3 letras.\").default(\"EUR\"),\n  // Valores habituales de sus facturas (se proponen al registrarlas, siempre editables).\n  defaultExpenseAccountId: z.string().trim().optional().or(z.literal(\"\")),\n  defaultRetentionRate: z.number().min(0, \"La retención no puede ser negativa.\").max(100, \"La retención no puede superar el 100 %.\").nullable().optional(),\n  defaultTaxDeductiblePct: z.number().min(0, \"El porcentaje deducible no puede ser negativo.\").max(100, \"El porcentaje deducible no puede superar el 100 %.\").nullable().optional(),\n  defaultVatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).nullable().optional().or(z.literal(\"\")),\n})\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code …"
+ },
+ {
+  "method": "GET",
+  "path": "/api/tax-retentions",
+  "area": "tax-retentions",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/tax-retentions",
+  "area": "tax-retentions",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({\n  name: z.string().trim().min(1),\n  rate: z.number().positive(),\n})"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/taxes/{id}",
+  "area": "taxes",
+  "summary": "",
+  "permissions": [],
+  "body": "const taxPatchSchema = z.object({\n  name: taxNameSchema.optional(),\n  rate: taxRateSchema.optional(),\n  kind: taxKindSchema.optional(),\n  operation: taxOperationSchema.optional(),\n  isDefault: z.boolean().optional(),\n  isActive: z.boolean().optional(),\n}).refine(\n  (value) => Object.keys(value).length > 0,\n  \"Debes indicar al menos un campo para actualizar.\",\n)\n\nconst taxNameSchema = z.string().trim().min(1, \"El nombre es obligatorio.\").max(120, \"El nombre es demasiado largo.\")\n\nconst taxRateSchema = z.number().min(0, \"El porcentaje no puede ser negativo.\").max(100, \"El porcentaje no puede superar el 100%.\")\n\nconst taxKindSchema = z.enum([\"VAT\", \"SURCHARGE\", \"WITHHOLDING\", \"OTHER\"])\n\nconst taxOperationSchema = z.enum([\"ADD\", \"SUBTRACT\"])\n\nconst taxKindSchema = z.enum([\"VAT\", \"SURCHARGE\", \"WITHHOLDING\", \"OTHER\"])"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/taxes/{id}",
+  "area": "taxes",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/taxes",
+  "area": "taxes",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "query": [
+   "includeInactive"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/taxes",
+  "area": "taxes",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const taxMutationSchema = z.object({\n  name: taxNameSchema,\n  rate: taxRateSchema,\n  kind: taxKindSchema.default(\"VAT\"),\n  operation: taxOperationSchema.optional(),\n  isDefault: z.boolean().default(false),\n  isActive: z.boolean().default(true),\n})\n\nconst taxNameSchema = z.string().trim().min(1, \"El nombre es obligatorio.\").max(120, \"El nombre es demasiado largo.\")\n\nconst taxRateSchema = z.number().min(0, \"El porcentaje no puede ser negativo.\").max(100, \"El porcentaje no puede superar el 100%.\")\n\nconst taxKindSchema = z.enum([\"VAT\", \"SURCHARGE\", \"WITHHOLDING\", \"OTHER\"])\n\nconst taxOperationSchema = z.enum([\"ADD\", \"SUBTRACT\"])"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/team-members/{id}",
+  "area": "team-members",
+  "summary": "",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/team-members/{id}",
+  "area": "team-members",
+  "summary": "",
+  "permissions": [
+   "team.write"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/tenant",
+  "area": "tenant",
+  "summary": "Renombra el espacio de trabajo activo (aparece en invitaciones y en el selector de espacios).",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const payloadSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\").max(80, \"El nombre no puede superar 80 caracteres.\"),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/timesheets/clock",
+  "area": "timesheets",
+  "summary": "Fichar la propia jornada desde la app.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/timesheets/entries/{id}/void",
+  "area": "timesheets",
+  "summary": "Anular una marca errónea (se conserva con el motivo).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/timesheets/entries",
+  "area": "timesheets",
+  "summary": "Corrección de un responsable (olvido de fichar, error de hora).",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/timesheets/export",
+  "area": "timesheets",
+  "summary": "CSV del mes (?month=AAAA-MM, ?userId=…): la propia jornada o, con permiso, la del equipo.",
+  "permissions": [
+   "timesheet.read",
+   "timesheet.own"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/timesheets/kiosk",
+  "area": "timesheets",
+  "summary": "Tablet del local: identificarse con el PIN y fichar.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/import-csv",
+  "area": "treasury",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/import/preview",
+  "area": "treasury",
+  "summary": "Vista previa del extracto: formato detectado, primeras filas, mapeo propuesto y filas descartadas.",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/import",
+  "area": "treasury",
+  "summary": "Importa el extracto con el mapeo confirmado y devuelve el informe (importados, omitidos y motivos).",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/treasury/reconcile",
+  "area": "treasury",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/reconcile",
+  "area": "treasury",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/treasury/reconcile",
+  "area": "treasury",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/reconciliation/accept-safe",
+  "area": "treasury",
+  "summary": "\"Aceptar todas las seguras\": aplica solo las propuestas de confianza alta y sin rival.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  bankAccountId: z.string().trim().min(1).optional(),\n  transactionIds: z.array(z.string().trim().min(1)).max(200).optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/reconciliation/apply",
+  "area": "treasury",
+  "summary": "Aplica una propuesta o un reparto manual a un movimiento pendiente.",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  transactionId: z.string().trim().min(1),\n  allocations: z.array(allocationSchema).min(1).max(50),\n  ruleId: z.string().trim().min(1).nullable().optional(),\n  remember: z.object({\n    conceptContains: z.string().trim().min(3).max(120),\n    name: z.string().trim().max(120).optional(),\n    direction: z.enum([\"ANY\", \"IN\", \"OUT\"]).optional(),\n    minAmount: z.number().nonnegative().nullable().optional(),\n    maxAmount: z.number().nonnegative().nullable().optional(),\n    accountId: z.string().trim().min(1).nullable().optional(),\n    partnerId: z.string().trim().min(1).nullable().optional(),\n    autoApply: z.boolean().optional(),\n  }).nullable().optional(),\n})\n\nconst allocationSchema = z.object({\n  type: z.enum([\"CUSTOMER_INVOICE\", \"SUPPLIER_INVOICE\", \"CUSTOMER_PAYMENT\", \"SUPPLIER_PAYMENT\", \"ACCOUNT\"]),\n  targetId: z.string().trim().min(1),\n  amount: z.number().finite(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/reconciliation/undo",
+  "area": "treasury",
+  "summary": "Deshace la conciliación de uno o varios movimientos (cada uno en su propia transacción).",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const payloadSchema = z.object({ transactionIds: z.array(z.string().trim().min(1)).min(1).max(200) })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/treasury/rules/{id}",
+  "area": "treasury",
+  "summary": "",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const rulePayloadSchema = z.object({\n  name: z.string().trim().max(120).nullable().optional(),\n  conceptContains: z.string().trim().min(3, \"Indica al menos 3 letras del concepto.\").max(120),\n  direction: z.enum([\"ANY\", \"IN\", \"OUT\"]).optional(),\n  minAmount: z.number().nonnegative().nullable().optional(),\n  maxAmount: z.number().nonnegative().nullable().optional(),\n  accountId: z.string().trim().min(1).nullable().optional(),\n  partnerId: z.string().trim().min(1).nullable().optional(),\n  autoApply: z.boolean().optional(),\n  isActive: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/treasury/rules/{id}",
+  "area": "treasury",
+  "summary": "",
+  "permissions": [
+   "treasury.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/treasury/rules",
+  "area": "treasury",
+  "summary": "",
+  "permissions": [
+   "treasury.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/treasury/rules",
+  "area": "treasury",
+  "summary": "",
+  "permissions": [
+   "treasury.write"
+  ],
+  "body": "const rulePayloadSchema = z.object({\n  name: z.string().trim().max(120).nullable().optional(),\n  conceptContains: z.string().trim().min(3, \"Indica al menos 3 letras del concepto.\").max(120),\n  direction: z.enum([\"ANY\", \"IN\", \"OUT\"]).optional(),\n  minAmount: z.number().nonnegative().nullable().optional(),\n  maxAmount: z.number().nonnegative().nullable().optional(),\n  accountId: z.string().trim().min(1).nullable().optional(),\n  partnerId: z.string().trim().min(1).nullable().optional(),\n  autoApply: z.boolean().optional(),\n  isActive: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/unit-of-measure",
+  "area": "unit-of-measure",
+  "summary": "",
+  "permissions": [
+   "stock.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/unit-of-measure",
+  "area": "unit-of-measure",
+  "summary": "",
+  "permissions": [
+   "stock.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  code: z.string().trim().min(1),\n  name: z.string().trim().min(1),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifactu/export",
+  "area": "verifactu",
+  "summary": "Descarga de los registros de facturación (?format=csv | xml).",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "query": [
+   "format"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifactu",
+  "area": "verifactu",
+  "summary": "Estado VeriFactu de la empresa activa: modo, envío, contadores, últimos registros y eventos.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/verifactu/send",
+  "area": "verifactu",
+  "summary": "\"Enviar ahora\": procesa los registros pendientes de la empresa activa si el envío está configurado.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/verifactu/settings",
+  "area": "verifactu",
+  "summary": "Activa o cambia el modo VERI*FACTU (exige NIF de empresa válido).",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  mode: z.enum([\"pending\", \"verifactu\", \"non_verifactu\"]),\n  since: z.string().trim().regex(/^\\d{4}-\\d{2}-\\d{2}$/).nullable().optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/verifactu/verify",
+  "area": "verifactu",
+  "summary": "\"Verificar integridad\": recalcula todas las huellas y enlaces y lo anota en el registro de eventos.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/warehouses/{id}",
+  "area": "warehouses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/warehouses/{id}",
+  "area": "warehouses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/warehouses/{id}",
+  "area": "warehouses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "GET",
+  "path": "/api/warehouses",
+  "area": "warehouses",
+  "summary": "",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/warehouses",
+  "area": "warehouses",
+  "summary": "",
+  "permissions": []
+ }
+]

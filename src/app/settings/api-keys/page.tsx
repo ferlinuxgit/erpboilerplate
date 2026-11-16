@@ -1,9 +1,10 @@
 import { eq, sql } from "drizzle-orm";
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { ApiDocumentationPanel } from "@/components/settings/api-documentation-panel";
 import { ApiKeyManager } from "@/components/settings/api-key-manager";
-import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { apiKey } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
@@ -27,6 +28,11 @@ export default async function ApiKeysPage() {
         description={`Documentación y credenciales técnicas del espacio ${ctx.tenant.name} para conectar otros programas.`}
         meta={<StatusBadge tone={canManage ? "success" : "warning"}>{canManage ? "Gestión habilitada" : "Solo lectura"}</StatusBadge>}
       />
+      <InlineAlert title="¿Quieres usar toda la API o conectar un asistente de IA?" tone="info">
+        Las claves de esta página dan acceso a clientes, proveedores, facturas y pedidos. Para cualquier acción de la aplicación usa la
+        conexión OAuth o un token personal desde <Link className="underline" href="/settings/ai">Conectar con IA</Link>; la especificación
+        completa está en <a className="underline" href="/api/openapi">/api/openapi</a>.
+      </InlineAlert>
       <PageSection title="Documentación de endpoints" description="Contratos disponibles para clientes, facturas y generación de PDF.">
         <ApiDocumentationPanel tokens={keys} />
       </PageSection>

@@ -1,9 +1,11 @@
-import { and, asc, eq, exists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, sql, type SQL } from "drizzle-orm";
 import { cache } from "react";
 
 import { company, fiscalYear, membership, tenant } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getActiveContextCookies, getActiveTenantCookie } from "@/lib/active-context";
+import { ForbiddenError } from "@/lib/http";
+import { getRequestGrant } from "@/lib/request-grant";
 import type { AppRole } from "@/lib/rbac";
 import { enforceModuleForRequest } from "@/server/modules/guard";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
@@ -120,6 +122,12 @@ async function ensureUserTenantUncached(user: { id: string; name: string }): Pro
   } finally {
     tenantProvisioningByUserId.delete(provisioningKey);
   }
+  // Conector de IA / token personal: solo la empresa autorizada. Si el usuario ya no es miembro
+  // de ese espacio o la empresa no existe, la conexión deja de servir (nunca cae en otra empresa).
+  const grant = await getRequestGrant();
+  if (grant && (context.tenant.id !== grant.tenantId || context.company.id !== grant.companyId)) {
+    throw new ForbiddenError("Esta conexión ya no tiene acceso a la empresa autorizada. Vuelve a conectarla.");
+  }
   return withModuleGuard(context);
 }
 
@@ -138,19 +146,35 @@ async function resolveActiveContext(fallback: UserTenantContext): Promise<UserTe
   }
   if (!activeCookies.companyId) return fallback;
 
-  const [active] = await db
-    .select({
-      companyId: company.id,
-      companyName: company.name,
-      countryCode: company.countryCode,
-      baseCurrencyCode: company.baseCurrencyCode,
-      fiscalYearId: fiscalYear.id,
-      fiscalYearCode: fiscalYear.code,
-    })
+  const activeColumns = {
+    companyId: company.id,
+    companyName: company.name,
+    countryCode: company.countryCode,
+    baseCurrencyCode: company.baseCurrencyCode,
+    fiscalYearId: fiscalYear.id,
+    fiscalYearCode: fiscalYear.code,
+    startsAt: fiscalYear.startsAt,
+    endsAt: fiscalYear.endsAt,
+  };
+  const [selected] = await db
+    .select(activeColumns)
     .from(company)
     .innerJoin(fiscalYear, and(eq(fiscalYear.companyId, company.id), activeCookies.fiscalYearId ? eq(fiscalYear.id, activeCookies.fiscalYearId) : eq(fiscalYear.id, fallback.fiscalYear.id)))
     .where(and(eq(company.id, activeCookies.companyId), eq(company.tenantId, fallback.tenant.id)))
     .limit(1);
+  let active = selected;
+  if (!active && (await getRequestGrant())) {
+    // Conector de IA: sin cookie de ejercicio, el ejercicio en curso de la empresa autorizada
+    // (o el más reciente).
+    const years = await db
+      .select(activeColumns)
+      .from(company)
+      .innerJoin(fiscalYear, eq(fiscalYear.companyId, company.id))
+      .where(and(eq(company.id, activeCookies.companyId), eq(company.tenantId, fallback.tenant.id)))
+      .orderBy(desc(fiscalYear.startsAt));
+    const now = Date.now();
+    active = years.find((year) => year.startsAt.getTime() <= now && year.endsAt.getTime() >= now) ?? years[0];
+  }
   if (!active) return fallback;
 
   return {

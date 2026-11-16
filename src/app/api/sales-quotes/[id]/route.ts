@@ -10,6 +10,7 @@ import { HttpError, handleRouteError, invalidJsonResponse, readJsonBody } from "
 import { can } from "@/lib/rbac";
 import { settle } from "@/lib/settle";
 import { recordAudit } from "@/server/audit";
+import { getSalesQuotePdfData, withoutLogo } from "@/server/pdf/sales-document-pdf";
 import { computeDocumentTotals } from "@/server/taxation/engine";
 import { rejectForeignItems } from "@/server/inventory/ownership";
 
@@ -139,4 +140,20 @@ export async function PATCH(
   }));
   if (!result.ok) return handleRouteError(result.error, "salesQuote.update", "No se pudo actualizar el presupuesto.");
   return NextResponse.json({ id });
+}
+
+/**
+ * Detalle del documento (presupuesto): emisor, cliente, líneas y totales (los mismos datos
+ * que su PDF), para integraciones y el servidor MCP.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ctx = await requireContext("invoice.read");
+    const { id } = await params;
+    const data = await getSalesQuotePdfData(ctx.company.id, id);
+    if (!data) return NextResponse.json({ message: "Presupuesto no encontrado." }, { status: 404 });
+    return NextResponse.json(withoutLogo(data.input));
+  } catch (error) {
+    return handleRouteError(error, "getSalesQuotePdfData.get");
+  }
 }

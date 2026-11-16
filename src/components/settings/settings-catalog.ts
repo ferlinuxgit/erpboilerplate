@@ -196,6 +196,16 @@ export const settingsSections: SettingsSection[] = [
     ],
   },
   {
+    id: "ai",
+    label: "Conectar con IA",
+    description: "Usa tu ERP desde Claude, ChatGPT o cualquier asistente compatible con MCP, con tus mismos permisos.",
+    href: "/settings/ai",
+    items: [
+      { label: "Conectar con Claude o ChatGPT", description: "Añade el ERP como conector en un clic: consultas, informes, facturas y cualquier acción de la app.", href: "/settings/ai", keywords: "ia inteligencia artificial claude chatgpt openai anthropic mcp conector asistente gpt copilot cursor" },
+      { label: "Conexiones activas", description: "Revisa y desconecta las aplicaciones con acceso a tu cuenta.", href: "/settings/ai#conexiones", keywords: "conexiones revocar desconectar oauth token personal mcp" },
+    ],
+  },
+  {
     id: "api",
     label: "API",
     description: "Claves de acceso para integraciones.",

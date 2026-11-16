@@ -7,8 +7,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
-import { REQUEST_PATH_HEADER } from "@/lib/auth";
+import { bearerToken, hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
+import { REQUEST_PATH_HEADER, verifyAuthToken } from "@/lib/auth";
 import { getClientIp } from "@/lib/ip-policy";
 import { getRateLimiter, rateLimitKey, resolveRateLimitRule, tooManyRequestsResponse } from "@/lib/rate-limit";
 import { shouldUseSecureCookies } from "@/lib/secure-cookies";
@@ -29,6 +29,9 @@ const CSRF_EXEMPT_PATHS = new Set([
   "/api/recurring/run",
 ]);
 
+/** OAuth sin sesión del navegador: los llaman los servidores de Claude / ChatGPT. */
+const OAUTH_PUBLIC_PATHS = new Set(["/api/oauth/register", "/api/oauth/token", "/api/oauth/revoke", "/api/mcp"]);
+
 function withRequestId(response: NextResponse, requestId: string) {
   response.headers.set("x-request-id", requestId);
   return response;
@@ -45,10 +48,19 @@ export async function proxy(request: NextRequest) {
       if (!limitResult.success) return withRequestId(tooManyRequestsResponse(limitResult), requestId);
     }
 
-    const hasApiKeyAuthorization = hasApiKeyBearerAuthorization(request.headers.get("authorization"));
+    const authorization = request.headers.get("authorization");
+    const hasApiKeyAuthorization = hasApiKeyBearerAuthorization(authorization);
     const safeMethod = request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
+    // Token Bearer (API key, conector de IA o token personal): el navegador nunca lo envía solo,
+    // así que no hay CSRF posible. Un conector de solo lectura no puede modificar nada (salvo
+    // hablar con el propio servidor MCP, cuyas acciones vuelven a pasar por aquí).
+    const bearer = bearerToken(authorization);
+    const grant = bearer && !hasApiKeyAuthorization ? verifyAuthToken(bearer)?.grant ?? null : null;
+    if (grant?.scope === "read" && !safeMethod && pathname !== "/api/mcp" && !pathname.startsWith("/api/oauth/")) {
+      return withRequestId(NextResponse.json({ message: "Esta conexión es de solo lectura: no puede crear, modificar ni borrar datos." }, { status: 403 }), requestId);
+    }
     // /api/public/*: formularios públicos sin sesión (reservas), no hay credenciales que proteger con CSRF.
-    if (!safeMethod && !CSRF_EXEMPT_PATHS.has(pathname) && !pathname.startsWith("/api/public/") && !hasApiKeyAuthorization) {
+    if (!safeMethod && !CSRF_EXEMPT_PATHS.has(pathname) && !pathname.startsWith("/api/public/") && !hasApiKeyAuthorization && !grant && !OAUTH_PUBLIC_PATHS.has(pathname)) {
       const csrfToken = request.headers.get("x-csrf-token");
       const csrfCookie = request.cookies.get("csrf-token")?.value;
       if (!csrfToken || !csrfCookie || csrfToken !== csrfCookie) {
