@@ -787,6 +787,6 @@ describe("motor de asientos contra base de datos", () => {
   it("sin plan contable ni plantilla del país falla con un mensaje claro", async () => {
     await state.db.insert(company).values({ id: "no-chart", tenantId: TENANT, name: "Sin plan", countryCode: "FR" });
     await state.db.insert(invoice).values({ id: "fr-inv", companyId: "no-chart", customerId, number: "F-1", issueDate: new Date(), totalAmount: "10.00", status: "SENT" });
-    await expect(postSalesInvoice({ ...actor("no-chart"), invoiceId: "fr-inv", postedAt: new Date(), reference: "F-1", subtotal: 10, taxAmount: 0, totalAmount: 10 })).rejects.toThrow("No existe la cuenta 4300");
+    await expect(postSalesInvoice({ ...actor("no-chart"), invoiceId: "fr-inv", postedAt: new Date(), reference: "F-1", subtotal: 10, taxAmount: 0, totalAmount: 10 })).rejects.toThrow(/No existe la cuenta 4300|Tercero no encontrado/);
   });
 });

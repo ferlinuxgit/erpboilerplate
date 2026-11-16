@@ -33,6 +33,13 @@ export type FiscalSettingsFormValues = {
 
 type FiscalSettingsFormProps = {
   initialValues: FiscalSettingsFormValues;
+  /**
+   * Países sin cumplimiento completo: solo se pregunta la periodicidad (régimen, prorrata,
+   * autónomo/sociedad y SII son conceptos del IVA español).
+   */
+  spanishRegimes?: boolean;
+  /** Nombre local del impuesto ("IVA", "TVA"…). */
+  taxLabel?: string;
 };
 
 async function readError(response: Response, fallback: string) {
@@ -41,7 +48,7 @@ async function readError(response: Response, fallback: string) {
 }
 
 /** Perfil fiscal: tipo de contribuyente, régimen, periodicidad, prorrata y SII. */
-export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
+export function FiscalSettingsForm({ initialValues, spanishRegimes = true, taxLabel = "IVA" }: FiscalSettingsFormProps) {
   const router = useRouter();
   const [values, setValues] = useState(initialValues);
   const [loading, setLoading] = useState(false);
@@ -93,6 +100,7 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {spanishRegimes ? (
         <AccessibleField
           id="fiscal-taxpayer-type"
           label="Tipo de contribuyente"
@@ -105,7 +113,9 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
             <option value="individual">Autónomo (persona física)</option>
           </Select>
         </AccessibleField>
+        ) : null}
 
+        {spanishRegimes ? (
         <AccessibleField id="fiscal-regime" label="Régimen de IVA" helperText="Si no sabes cuál es, casi seguro es el general.">
           <Select value={values.fiscalRegime} onChange={(event) => setValue("fiscalRegime", event.target.value as FiscalSettingsFormValues["fiscalRegime"])}>
             <option value="general">General</option>
@@ -114,14 +124,23 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
             <option value="exempt">Exento de IVA</option>
           </Select>
         </AccessibleField>
+        ) : null}
 
-        <AccessibleField id="fiscal-periodicity" label="Periodicidad del IVA" helperText="Mensual solo si facturas más de 6 millones al año o estás en el SII o en devolución mensual.">
+        <AccessibleField
+          id="fiscal-periodicity"
+          label={`Periodicidad del ${taxLabel}`}
+          helperText={spanishRegimes
+            ? "Mensual solo si facturas más de 6 millones al año o estás en el SII o en devolución mensual."
+            : "Cada cuánto declaras el impuesto en tu país: agrupa el resumen de impuestos por ese periodo."}
+        >
           <Select value={values.taxPeriodicity} onChange={(event) => setValue("taxPeriodicity", event.target.value as FiscalSettingsFormValues["taxPeriodicity"])}>
             <option value="quarterly">Trimestral</option>
             <option value="monthly">Mensual</option>
           </Select>
         </AccessibleField>
 
+        {spanishRegimes ? (
+        <>
         <AccessibleField id="fiscal-prorrata" label="Prorrata deducible (%)" helperText={<>100 % salvo que tengas actividades exentas de IVA (formación, sanidad…). <HelpTerm term="prorrata">¿Qué es la prorrata?</HelpTerm></>}>
           <PercentInput value={values.prorrataPct} onValueChange={(value) => setValue("prorrataPct", value ?? Number.NaN)} />
         </AccessibleField>
@@ -130,6 +149,8 @@ export function FiscalSettingsForm({ initialValues }: FiscalSettingsFormProps) {
           <input checked={values.siiEnabled} id="fiscal-sii" onChange={(event) => setValue("siiEnabled", event.target.checked)} type="checkbox" />
           <span>Empresa obligada o adscrita al SII</span>
         </label>
+        </>
+        ) : null}
       </div>
       {error ? <InlineAlert className="mt-3" role="alert" tone="danger">{error}</InlineAlert> : null}
     </form>

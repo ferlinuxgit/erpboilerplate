@@ -17,6 +17,10 @@
  * su número no es provisional.
  */
 
+import { resolveSalesVatTreatment } from "@/lib/fiscal-spain";
+import { isEuCountry } from "@/lib/countries";
+import { normalizeHomeCountry, suggestSalesVatTreatment, type VatTreatmentContext } from "@/lib/country-packs/vat-treatment";
+
 export const DRAFT_NUMBER_PREFIX = "BORRADOR-";
 
 export type InvoiceLifecycle = "DRAFT" | "ISSUED" | "VOID";
@@ -62,22 +66,51 @@ export const vatTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, strin
   NOT_SUBJECT: "Operación no sujeta a IVA (arts. 69 y 70 Ley 37/1992 del IVA).",
 };
 
-const EU_COUNTRIES = new Set([
-  "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "GR", "HR", "HU", "IE",
-  "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK",
-]);
+/** Menciones legales para empresas de otros países de la UE (Directiva 2006/112/CE). */
+const euVatTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, string>> = {
+  INTRA_EU: "Entrega intracomunitaria de bienes exenta de IVA (art. 138 Directiva 2006/112/CE).",
+  INTRA_EU_SERVICES: "Inversión del sujeto pasivo / Reverse charge (arts. 44 y 196 Directiva 2006/112/CE).",
+  EXPORT: "Exportación exenta de IVA (art. 146 Directiva 2006/112/CE).",
+  EXEMPT: "Operación exenta de IVA.",
+  REVERSE_CHARGE: "Inversión del sujeto pasivo / Reverse charge (art. 199 Directiva 2006/112/CE).",
+  NOT_SUBJECT: "Operación no sujeta a IVA en el país del emisor.",
+};
 
-/** Tratamiento por defecto según el país del cliente (ES → nacional, UE → intracomunitaria, resto → exportación). */
-export function defaultSalesVatTreatment(countryCode: string | null | undefined): SalesVatTreatmentCode {
-  const country = (countryCode ?? "ES").trim().toUpperCase() || "ES";
-  if (country === "ES") return "DOMESTIC";
-  return EU_COUNTRIES.has(country) ? "INTRA_EU" : "EXPORT";
+/** Menciones legales para empresas de fuera de la UE. */
+const genericVatTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, string>> = {
+  EXPORT: "Exportación exenta de impuestos.",
+  EXEMPT: "Operación exenta de impuestos.",
+  REVERSE_CHARGE: "Inversión del sujeto pasivo / Reverse charge.",
+  NOT_SUBJECT: "Operación no sujeta a impuestos en el país del emisor.",
+};
+
+/** Mención legal de la factura según el tratamiento de IVA y el país de la empresa emisora. */
+export function vatTreatmentLegalNote(treatment: SalesVatTreatmentCode, homeCountry?: string | null): string | null {
+  const home = normalizeHomeCountry(homeCountry);
+  const notes = home === "ES" ? vatTreatmentLegalNotes : isEuCountry(home) ? euVatTreatmentLegalNotes : genericVatTreatmentLegalNotes;
+  return notes[treatment] ?? null;
 }
 
-/** Tratamiento por defecto de un cliente: el habitual de su ficha o, si no tiene, el de su país. */
-export function customerDefaultVatTreatment(customer: { countryCode?: string | null; defaultVatTreatment?: string | null } | null | undefined): SalesVatTreatmentCode {
+/**
+ * Tratamiento por defecto según el país del cliente respecto al de la empresa (mismo país →
+ * nacional, UE → intracomunitaria, resto → exportación). Sin NIF del cliente: ver
+ * `customerDefaultVatTreatment`, que sí distingue empresa y consumidor final.
+ */
+export function defaultSalesVatTreatment(countryCode: string | null | undefined, homeCountry?: string | null): SalesVatTreatmentCode {
+  return resolveSalesVatTreatment(null, countryCode, homeCountry);
+}
+
+/**
+ * Tratamiento por defecto de un cliente: el habitual de su ficha o, si no tiene, el que resulta de
+ * su país, de si tiene NIF (empresa o consumidor final) y de qué vende la empresa.
+ */
+export function customerDefaultVatTreatment(
+  customer: { countryCode?: string | null; taxId?: string | null; defaultVatTreatment?: string | null } | null | undefined,
+  context: VatTreatmentContext = {},
+): SalesVatTreatmentCode {
   if (customer && isSalesVatTreatment(customer.defaultVatTreatment)) return customer.defaultVatTreatment;
-  return defaultSalesVatTreatment(customer?.countryCode);
+  if (!customer) return "DOMESTIC";
+  return suggestSalesVatTreatment(customer, context);
 }
 
 /** Tratamientos intracomunitarios (el cliente necesita NIF-IVA válido en VIES). */

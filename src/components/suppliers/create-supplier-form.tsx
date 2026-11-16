@@ -24,6 +24,8 @@ type CreatedSupplier = { id: string; number: string; name: string; taxId: string
 
 type CreateSupplierFormProps = {
   redirectHref?: string;
+  /** País propuesto para el proveedor nuevo: el de la empresa. */
+  defaultCountryCode?: string;
   /** Alta rápida desde otro formulario: recibe el proveedor creado en lugar de navegar. */
   onCreated?: (supplier: CreatedSupplier) => void;
   /** Cuentas imputables para elegir la cuenta de gasto habitual. */
@@ -37,7 +39,7 @@ const paymentTermsRegisterOptions = {
   setValueAs: (value: unknown) => (typeof value === "number" ? value : value === "" || value === null || value === undefined ? Number.NaN : Number(value)),
 } as const;
 
-export function CreateSupplierForm({ expenseAccounts = [], onCreated, paymentMethods = [], redirectHref }: CreateSupplierFormProps = {}) {
+export function CreateSupplierForm({ defaultCountryCode = "ES", expenseAccounts = [], onCreated, paymentMethods = [], redirectHref }: CreateSupplierFormProps = {}) {
   type CreateSupplierPayload = z.input<typeof createSupplierSchema>;
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export function CreateSupplierForm({ expenseAccounts = [], onCreated, paymentMet
       postalCode: "",
       city: "",
       province: "",
-      countryCode: "ES",
+      countryCode: defaultCountryCode,
       email: "",
       phone: "",
       paymentTermsDays: 30,

@@ -49,6 +49,8 @@ export async function GET() {
       businessType: parseBusinessType(settings?.businessType),
       // Módulos activos de la empresa: el menú, las pestañas y la paleta ocultan el resto.
       modules,
+      // País de la empresa activa: decide qué pantallas fiscales se ven (modelos, VERI*FACTU…).
+      countryCode: ctx.company.countryCode,
       availableCompanies: ctx.availableCompanies,
       availableFiscalYears: ctx.availableFiscalYears,
       availableFiscalYearsByCompany: Object.fromEntries(ctx.availableCompanies.map((entry) => [entry.id, allFiscalYears.filter((year) => year.companyId === entry.id).map(({ id, code }) => ({ id, code }))])),

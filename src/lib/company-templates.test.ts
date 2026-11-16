@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { getCompanyTemplate } from "@/lib/company-templates";
+import { genericTemplateTaxes, getCompanyTemplate, hasCountrySpecificTemplate } from "@/lib/company-templates";
 
 describe("company templates", () => {
-  it("provides general templates for Spain and the United States", () => {
-    expect(getCompanyTemplate("ES")?.label).toBe("Espana - General");
-    expect(getCompanyTemplate("US")?.label).toBe("United States - General");
+  it("provides the Spanish template and a generic one for every other country", () => {
+    expect(getCompanyTemplate("ES").label).toBe("Espana - General");
+    expect(getCompanyTemplate("ES").id).toBe("ES_GENERAL");
+    expect(getCompanyTemplate("US").id).toBe("GENERIC");
+    expect(getCompanyTemplate("FR").label).toBe("General (Francia)");
+    expect(hasCountrySpecificTemplate("ES")).toBe(true);
+    expect(hasCountrySpecificTemplate("FR")).toBe(false);
   });
 
   it("loads the complete Spanish PGC catalog with official posting defaults", () => {
@@ -48,10 +52,22 @@ describe("company templates", () => {
     expect(accountsByCode.get("589")).toEqual(expect.objectContaining({ type: "LIABILITY" }));
   });
 
-  it("keeps United States fiscal posting accounts inside the US template", () => {
-    const template = getCompanyTemplate("US");
-    expect(template?.settings.defaultVatOutputAccountCode).toBe("2100");
-    expect(template?.settings.defaultVatInputAccountCode).toBe("1300");
-    expect(template?.accounts.map((account) => account.code)).toEqual(expect.arrayContaining(["1100", "2100", "4000"]));
+  it("builds the generic template with the country's VAT rates and the group-numbered chart", () => {
+    const france = getCompanyTemplate("FR");
+    expect(france.taxes.map((entry) => [entry.name, entry.rate, entry.isDefault ?? false])).toEqual([
+      ["TVA general 20%", "20.000", true],
+      ["TVA reducido 10%", "10.000", false],
+      ["TVA reducido 5,5%", "5.500", false],
+      ["TVA superreducido 2,1%", "2.100", false],
+    ]);
+    expect(france.taxes.every((entry) => entry.kind === "VAT")).toBe(true);
+    expect(france.settings.defaultVatOutputAccountCode).toBe("477");
+    expect(france.accounts.find((account) => account.code === "477")?.name).toBe("Impuesto repercutido (IVA/VAT)");
+    expect(france.accounts.length).toBe(getCompanyTemplate("ES").accounts.length);
+  });
+
+  it("invoices without tax where there is no national VAT", () => {
+    expect(genericTemplateTaxes("US")).toEqual([{ name: "Sin impuesto 0%", rate: "0.000", kind: "VAT", operation: "ADD", isDefault: true }]);
+    expect(genericTemplateTaxes("ZZ")[0]?.rate).toBe("0.000");
   });
 });

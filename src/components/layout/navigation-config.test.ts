@@ -181,14 +181,26 @@ describe("context tabs for the newer pages", () => {
   });
 
   it("never highlights two context tabs at once", () => {
-    for (const group of contextGroups) {
-      for (const link of group.links) {
-        for (const pathname of [link.href, `${link.href}/new`]) {
-          const matches = group.links.filter((candidate) => candidate.href === getActiveContextHref(pathname, group.links));
-          expect(matches.length, pathname).toBeLessThanOrEqual(1);
+    // Las pestañas alternativas por país (Modelos / Resumen de impuestos) nunca se ven a la vez.
+    for (const countryCode of ["ES", "FR"]) {
+      for (const group of contextGroups) {
+        const links = filterContextLinks(group, { countryCode });
+        for (const link of links) {
+          for (const pathname of [link.href, `${link.href}/new`]) {
+            const matches = links.filter((candidate) => candidate.href === getActiveContextHref(pathname, links));
+            expect(matches.length, `${countryCode} ${pathname}`).toBeLessThanOrEqual(1);
+          }
         }
       }
     }
+  });
+
+  it("shows the Spanish tax screens only to Spanish companies", () => {
+    const fiscal = getContextGroup("/fiscal");
+    expect(fiscal && filterContextLinks(fiscal, { countryCode: "ES" }).map((link) => link.label)).toEqual(["Modelos", "Calendario fiscal", "VERI*FACTU", "Configuración fiscal", "Glosario"]);
+    expect(fiscal && filterContextLinks(fiscal, { countryCode: "PT" }).map((link) => link.label)).toEqual(["Resumen de impuestos", "Configuración fiscal"]);
+    const reporting = filterNavigationGroups(navGroups, { countryCode: "MX", role: "OWNER" }).flatMap((group) => group.links.map((link) => link.href));
+    expect(reporting).toContain("/fiscal");
   });
 
   it("offers the stock count inside Inventario, which stays out of the menu of service businesses", () => {

@@ -3,6 +3,8 @@
  * facturar y qué vende. Sin dependencias de base de datos.
  */
 
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+
 export type CompanyInvoiceFields = {
   legalName?: string | null;
   vatNumber?: string | null;
@@ -10,6 +12,8 @@ export type CompanyInvoiceFields = {
   postalCode?: string | null;
   city?: string | null;
   province?: string | null;
+  /** País de la empresa: la provincia solo es obligatoria en España. Si falta, se aplican las reglas españolas. */
+  countryCode?: string | null;
 };
 
 /** Datos del emisor que exige una factura completa (art. 6 del Reglamento de facturación). */
@@ -23,7 +27,11 @@ export const requiredForInvoice = [
 ] as const satisfies ReadonlyArray<readonly [keyof CompanyInvoiceFields, string]>;
 
 export function companyInvoiceReadiness(values: CompanyInvoiceFields) {
-  const missing = requiredForInvoice.filter(([key]) => !values[key]?.trim()).map(([, label]) => label);
+  const spain = getCountryFiscalProfile(values.countryCode).features.nationalTaxIdValidation === "es";
+  const missing = requiredForInvoice
+    .filter(([key]) => spain || key !== "province")
+    .filter(([key]) => !values[key]?.trim())
+    .map(([, label]) => label);
   return { missing, ready: missing.length === 0 };
 }
 

@@ -4,9 +4,11 @@ import { FiscalYearLifecyclePanel } from "@/components/accounting/fiscal-year-li
 import { FiscalObligationsCard } from "@/components/fiscal/fiscal-obligations-card";
 import { FiscalPositionSummary } from "@/components/fiscal/fiscal-position-summary";
 import { FiscalReportsList } from "@/components/fiscal/fiscal-reports-list";
+import { GenericTaxSummary } from "@/components/fiscal/generic-tax-summary";
 import { buttonVariants } from "@/components/ui/button";
-import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { getCountryFiscalProfile, type CountryFiscalProfile } from "@/lib/country-packs/profile";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { canFromDb } from "@/lib/rbac-server";
@@ -14,9 +16,15 @@ import { getFiscalYearLifecycle } from "@/server/accounting/fiscal-years";
 import { getCurrentFiscalObligations } from "@/server/fiscal/obligations";
 import { listFiscalReportsWithSummary } from "@/server/fiscal/service";
 import { getFiscalSettings } from "@/server/fiscal/settings";
+import { calculateTaxSummary, parseTaxSummaryPeriod, recentTaxSummaryPeriods } from "@/server/fiscal/tax-summary";
 
-export default async function FiscalPage() {
+export default async function FiscalPage({ searchParams }: { searchParams: Promise<{ period?: string | string[] }> }) {
   const ctx = await requireContext("fiscal.read");
+  const country = getCountryFiscalProfile(ctx.company.countryCode);
+  if (!country.features.taxReports) {
+    const query = await searchParams;
+    return <GenericFiscalPage companyId={ctx.company.id} country={country} currencyCode={ctx.company.baseCurrencyCode} period={Array.isArray(query.period) ? query.period[0] : query.period} />;
+  }
   const [reports, canWrite, lifecycle, settings] = await Promise.all([
     listFiscalReportsWithSummary(ctx.company.id),
     canFromDb(ctx.membership.role, "fiscal.write"),
@@ -82,6 +90,46 @@ export default async function FiscalPage() {
         description="Borradores, preparados y declaraciones presentadas."
       >
         <FiscalReportsList canWrite={canWrite} reports={reports} />
+      </PageSection>
+    </PageShell>
+  );
+}
+
+/**
+ * Fiscalidad de países sin modelos oficiales todavía: resumen de impuestos por periodo, calculado
+ * desde las facturas emitidas y recibidas con las mismas reglas que el resto del sistema.
+ */
+async function GenericFiscalPage({ companyId, country, currencyCode, period }: { companyId: string; country: CountryFiscalProfile; currencyCode: string; period?: string }) {
+  const settings = await getFiscalSettings(companyId);
+  const periods = recentTaxSummaryPeriods(new Date(), settings.taxPeriodicity);
+  const selected = parseTaxSummaryPeriod(period) ?? periods[0];
+  const summary = await calculateTaxSummary(companyId, selected, country.countryCode);
+  return (
+    <PageShell>
+      <PageHeader
+        eyebrow="Operación"
+        title={`Impuestos · ${country.countryName}`}
+        description={`${country.taxLabel} repercutido en tus facturas menos el deducible de tus gastos, por periodo. Úsalo para presentar la declaración de ${country.countryName}.`}
+        backHref="/dashboard"
+        backLabel="Volver al panel"
+        actions={
+          <>
+            <Link className={buttonVariants({ variant: "outline" })} href="/accounting/gestor">
+              Paquete para el gestor
+            </Link>
+            <Link className={buttonVariants({ variant: "outline" })} href="/settings/fiscal">
+              Configuración
+            </Link>
+          </>
+        }
+      />
+      <InlineAlert title="Cumplimiento básico" tone="info">
+        Tus tipos de {country.taxLabel} y el tratamiento de cada factura se configuran solos según el país. Los modelos oficiales
+        {country.isEu ? ", la declaración recapitulativa de operaciones intracomunitarias" : ""} y la factura electrónica de {country.countryName} todavía no
+        se generan desde la aplicación.
+      </InlineAlert>
+      <PageSection title={`Resumen de ${country.taxLabel}`} description={summary.period.label}>
+        <GenericTaxSummary country={country} currencyCode={currencyCode} periods={periods} summary={summary} />
       </PageSection>
     </PageShell>
   );

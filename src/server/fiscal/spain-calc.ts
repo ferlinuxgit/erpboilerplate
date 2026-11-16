@@ -230,7 +230,8 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
 export type SupplierVatResult = ReturnType<typeof computeSupplierVat>;
 
 /** IVA soportado/deducible, autorepercusiones y retenciones practicadas de facturas recibidas. */
-export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: number) {
+/** `selfAssessmentRate`: tipo general del país para autorepercutir líneas sin cuota (España: 21 %). */
+export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: number, selfAssessmentRate = 21) {
   const input = new Map<number, CentsBucket>();
   const deductible = {
     domesticCurrent: emptyBaseTax(),
@@ -256,8 +257,8 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     const base = sign * toCents(line.subtotal);
     const charged = sign * toCents(line.taxAmount);
     const selfAssessedLine = isSelfAssessedTreatment(line.treatment);
-    const vat = selfAssessedLine ? sign * toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount))) : charged;
-    const rate = selfAssessedLine && charged === 0 ? 21 : rateKey(line.taxRate);
+    const vat = selfAssessedLine ? sign * toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount), selfAssessmentRate)) : charged;
+    const rate = selfAssessedLine && charged === 0 ? selfAssessmentRate : rateKey(line.taxRate);
     if (selfAssessedLine && charged === 0 && base !== 0 && sign === 1) defaultRateLines += 1;
     if (selfAssessedLine && sign === 1) {
       const selfAssessedInvoice = selfAssessedInvoices.get(line.invoiceId) ?? { totalCents: toCents(line.totalAmount), baseCents: 0, withholdingCents: 0 };

@@ -3,7 +3,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { accountChart, companySettings, documentSeries, journal, tax } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getCompanyTemplate, type CompanyTemplate } from "@/lib/company-templates";
-import { HttpError } from "@/lib/http";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
 import { taxSignatureKey } from "@/server/taxes/duplicates";
 
@@ -27,7 +26,7 @@ type DocumentSeriesType = (typeof documentSeries.$inferSelect)["type"];
 
 export type CompanyDefaultsStatus = {
   countryCode: string;
-  preset: CompanyTemplate["id"] | "UNSUPPORTED";
+  preset: CompanyTemplate["id"];
   label: string;
   ready: boolean;
   missingCount: number;
@@ -49,18 +48,8 @@ export async function getCompanyDefaultsStatus(input: {
   fiscalYearId: string;
   countryCode: string;
 }): Promise<CompanyDefaultsStatus> {
+  // Todos los países tienen plantilla: la propia (España) o la genérica con sus tipos de IVA.
   const template = getCompanyTemplate(input.countryCode);
-  if (!template) {
-    return {
-      countryCode: input.countryCode,
-      preset: "UNSUPPORTED",
-      label: "Sin plantilla automatica",
-      ready: true,
-      missingCount: 0,
-      totalCount: 0,
-      groups: [],
-    };
-  }
 
   const accountCodes = template.accounts.map((account) => account.code);
   const journalCodes = template.journals.map((entry) => entry.code);
@@ -126,7 +115,9 @@ export async function getCompanyDefaultsStatus(input: {
     buildGroup({
       key: "accounts",
       label: "Cuentas contables",
-      description: "Plan General Contable completo con cuentas postables y cuentas de agrupación.",
+      description: template.id === "ES_GENERAL"
+        ? "Plan General Contable completo con cuentas postables y cuentas de agrupación."
+        : "Plan contable general por grupos con cuentas postables y cuentas de agrupación.",
       items: template.accounts.map((account) => ({
         key: account.code,
         label: `${account.code} - ${account.name}`,
@@ -193,10 +184,6 @@ export async function applyCompanyDefaults(input: {
   countryCode: string;
   actorUserId: string;
 }) {
-  if (!getCompanyTemplate(input.countryCode)) {
-    throw new HttpError(400, "No hay una plantilla automatica disponible para este pais.");
-  }
-
   await applyCompanyTemplate({
     tenantId: input.tenantId,
     companyId: input.companyId,

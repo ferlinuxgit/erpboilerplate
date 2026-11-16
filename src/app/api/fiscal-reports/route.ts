@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireContext } from "@/lib/current-context";
 import { spanishFiscalModelCodes } from "@/lib/fiscal-spain";
 import { handleRouteError, invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { assertCountryFeature } from "@/server/fiscal/country-guard";
 import { createFiscalReport, listFiscalReports } from "@/server/fiscal/service";
 
 const payloadSchema = z.object({
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
   if (!payload.success) return NextResponse.json({ message: "Revisa el modelo y el periodo (p. ej. 2026-Q1, 2026-04 o 2026). Para marcarlo como presentado, créalo primero y usa «Marcar como presentado»." }, { status: 400 });
 
   try {
+    assertCountryFeature(ctx.company.countryCode, "taxReports");
     const created = await createFiscalReport(ctx.company.id, ctx.tenant.id, ctx.user.id, payload.data);
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

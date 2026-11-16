@@ -31,6 +31,8 @@ export type ActiveContextPayload = {
   businessType?: string;
   /** Módulos opcionales activos en la empresa (ver `src/modules/registry.ts`). */
   modules?: string[];
+  /** País de la empresa activa (ISO alfa-2). */
+  countryCode?: string;
   availableCompanies: CompanyOption[];
   availableFiscalYears: FiscalYearOption[];
   availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;

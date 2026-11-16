@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gte, inArray, lt, lte, notInArray, or, sql } from "drizzle-orm";
 
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import {
   accountChart,
   bankAccount,
@@ -423,7 +424,8 @@ export async function loadDashboardFinance(companyId: string, options: { period:
     bankBalances(companyId, months),
     monthlySalesAndExpenses(companyId, months, now),
     pendingBankMovements(companyId),
-    (options.countryCode ?? "ES") === "ES"
+    // Plazos de los modelos de la AEAT: solo países con modelos oficiales (España).
+    getCountryFiscalProfile(options.countryCode).features.taxReports === "es-aeat"
       ? db
           .select({ code: fiscalReport.code, period: fiscalReport.period, status: fiscalReport.status })
           .from(fiscalReport)

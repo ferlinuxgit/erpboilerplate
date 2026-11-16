@@ -1,5 +1,8 @@
 import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 
+import { usesPgcChart } from "@/lib/country-packs/profile";
+import { standardVatRate } from "@/lib/country-packs/vat-rates";
+import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
 import {
   accountChart,
   company,
@@ -197,12 +200,13 @@ export type SupplierInvoiceAmounts = {
  *   base − retención y la cuota (por línea, con la semántica de `reverseChargeTaxAmount`) coincide
  *   con la del asiento automático (477/472) y con el modelo 303.
  */
-export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[], vatTreatment: SupplierVatTreatment): SupplierInvoiceAmounts {
+/** `standardRate`: tipo general del IVA del país de la empresa (líneas sin tipo y autorepercusión). */
+export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[], vatTreatment: SupplierVatTreatment, standardRate = 21): SupplierInvoiceAmounts {
   const selfAssessed = isSelfAssessedTreatment(vatTreatment);
   // Operación no sujeta: no hay IVA que soportar ni deducir, aunque la línea traiga un tipo.
   const notSubject = vatTreatment === "NOT_SUBJECT";
   const rates = lines.map((line) => ({
-    taxRate: notSubject ? 0 : clampPct(line.taxRate, 21),
+    taxRate: notSubject ? 0 : clampPct(line.taxRate, standardRate),
     taxDeductiblePct: clampPct(line.taxDeductiblePct, 100),
     retentionRate: clampPct(line.retentionRate, 0),
   }));
@@ -232,7 +236,7 @@ export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[],
   }
 
   const selfAssessedTaxCents = lineAmounts.reduce(
-    (total, line) => total + amountToCents(reverseChargeTaxAmount(line.subtotalAmount, line.taxAmount)),
+    (total, line) => total + amountToCents(reverseChargeTaxAmount(line.subtotalAmount, line.taxAmount, standardRate)),
     0,
   );
   return {
@@ -351,7 +355,7 @@ async function getPostableAccountId(companyId: string, accountId: string, client
  */
 export function isPurchaseLineAccount(account: { code: string; type: string }, countryCode: string | null | undefined) {
   if (account.type === "EXPENSE") return true;
-  if ((countryCode ?? "ES").toUpperCase() === "ES") return account.code.startsWith("6") || account.code.startsWith("2");
+  if (usesPgcChart(countryCode ?? "ES")) return account.code.startsWith("6") || account.code.startsWith("2");
   return account.type === "ASSET" || account.type === "MIXED";
 }
 
@@ -596,7 +600,8 @@ async function createSupplierInvoiceHeader(input: {
     taxId: supplierRow?.taxId,
     countryCode: supplierRow?.countryCode,
   });
-  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment ?? supplierDefaults.defaultVatTreatment, supplierRow?.countryCode, supplierRow?.supplierKind);
+  const { homeCountry } = await getCompanyFiscalContext(input.companyId, input.client);
+  const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment ?? supplierDefaults.defaultVatTreatment, supplierRow?.countryCode, supplierRow?.supplierKind, homeCountry);
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim() || null;
   const supplierDocumentNumberNormalized = normalizeSupplierDocumentNumber(supplierDocumentNumber) || null;
   const [[ownedCompany], [settingsRow]] = await Promise.all([
@@ -649,7 +654,7 @@ async function createSupplierInvoiceHeader(input: {
     })
     .returning();
 
-  const totals = computeSupplierInvoiceAmounts(input.lines, vatTreatment);
+  const totals = computeSupplierInvoiceAmounts(input.lines, vatTreatment, standardVatRate(homeCountry));
   const lineValues = buildLineValues(header.id, input.lines, totals.lines, fallbackExpenseAccountId);
   await input.client.insert(supplierInvoiceLine).values(lineValues);
   const attachments = sanitizeAttachments(input.attachments);

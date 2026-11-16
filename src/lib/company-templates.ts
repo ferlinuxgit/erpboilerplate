@@ -1,3 +1,5 @@
+import { countryName } from "@/lib/countries";
+import { countryVatRates } from "@/lib/country-packs/vat-rates";
 import esPgc2024Accounts from "@/server/seeds/es/pgc-2024.json";
 
 export type TemplateAccountType = "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "MIXED";
@@ -52,7 +54,7 @@ export type CompanyTemplateSeries = {
 };
 
 export type CompanyTemplate = {
-  id: "ES_GENERAL" | "US_GENERAL";
+  id: "ES_GENERAL" | "GENERIC";
   countryCode: string;
   label: string;
   accounts: readonly CompanyTemplateAccount[];
@@ -134,48 +136,110 @@ export const companyTemplates = [
       defaultRetentionAccountCode: "4751",
     },
   },
-  {
-    id: "US_GENERAL",
-    countryCode: "US",
-    label: "United States - General",
-    accounts: [
-      { code: "1000", name: "Cash and bank", type: "ASSET", role: "Bank and cash account for receipts, payments and reconciliation." },
-      { code: "1100", name: "Accounts receivable", type: "ASSET", role: "Customer balances from issued invoices." },
-      { code: "1200", name: "Inventory", type: "ASSET", role: "Stock held for resale or production." },
-      { code: "1300", name: "Input tax clearing", type: "ASSET", role: "Recoverable or clearing tax on purchases when applicable." },
-      { code: "2000", name: "Accounts payable", type: "LIABILITY", role: "Vendor and supplier balances." },
-      { code: "2100", name: "Sales tax payable", type: "LIABILITY", role: "Sales tax collected and payable to tax authorities." },
-      { code: "2200", name: "Withholding payable", type: "LIABILITY", role: "Withholdings payable when applicable." },
-      { code: "3000", name: "Owner equity", type: "EQUITY", role: "Owner equity and capital balances." },
-      { code: "4000", name: "Sales revenue", type: "REVENUE", role: "Revenue from customer invoices." },
-      { code: "5000", name: "Cost of goods sold", type: "EXPENSE", role: "Direct cost of goods or services sold." },
-      { code: "6100", name: "General expenses", type: "EXPENSE", role: "Operating expenses not assigned to a specific account." },
-      { code: "9990", name: "Current year earnings", type: "EQUITY", role: "Current year profit and loss closing account." },
-    ],
+] as const satisfies readonly CompanyTemplate[];
+
+/** Plantillas con plan contable, impuestos y ajustes propios de su país (cumplimiento completo). */
+export function hasCountrySpecificTemplate(countryCode: string | null | undefined) {
+  const code = normalizeTemplateCountry(countryCode);
+  return companyTemplates.some((template) => template.countryCode === code);
+}
+
+/**
+ * Plantilla de la empresa según su país. Nunca falta: los países sin plantilla propia reciben la
+ * genérica (mismo esquema contable por grupos, que es el que usan los asientos automáticos, y los
+ * tipos de IVA del país), así cualquier empresa puede facturar y contabilizar desde el primer día.
+ */
+export function getCompanyTemplate(countryCode: string | null | undefined): CompanyTemplate {
+  const code = normalizeTemplateCountry(countryCode);
+  return companyTemplates.find((template) => template.countryCode === code) ?? buildGenericTemplate(code);
+}
+
+function normalizeTemplateCountry(countryCode: string | null | undefined) {
+  const code = (countryCode ?? "").trim().toUpperCase();
+  if (code === "EL") return "GR";
+  return code || "ES";
+}
+
+/** Cuentas cuyo nombre en el PGC es propio de España: en la plantilla genérica se usan nombres neutros. */
+const genericAccountNames: Record<string, string> = {
+  "470": "Administración tributaria, deudora por diversos conceptos",
+  "4700": "Administración tributaria, deudora por impuestos indirectos",
+  "4708": "Administración tributaria, deudora por subvenciones concedidas",
+  "4709": "Administración tributaria, deudora por devolución de impuestos",
+  "472": "Impuesto soportado (IVA/VAT)",
+  "473": "Retenciones y pagos a cuenta",
+  "475": "Administración tributaria, acreedora por conceptos fiscales",
+  "4750": "Administración tributaria, acreedora por impuestos indirectos",
+  "4751": "Administración tributaria, acreedora por retenciones practicadas",
+  "4752": "Administración tributaria, acreedora por impuesto sobre beneficios",
+  "4758": "Administración tributaria, acreedora por subvenciones a reintegrar",
+  "477": "Impuesto repercutido (IVA/VAT)",
+  "570": "Caja, moneda local",
+  "572": "Bancos e instituciones de crédito c/c vista, moneda local",
+  "574": "Bancos e instituciones de crédito, cuentas de ahorro, moneda local",
+};
+
+const genericAccounts: readonly CompanyTemplateAccount[] = esPgcAccounts.map((account) => ({
+  ...account,
+  name: genericAccountNames[account.code] ?? account.name,
+  source: "GENERIC",
+  templateVersion: "GENERIC-2026",
+}));
+
+function formatRate(rate: number) {
+  return `${rate.toLocaleString("es-ES", { maximumFractionDigits: 3 })}%`;
+}
+
+function rateString(rate: number) {
+  return rate.toFixed(3);
+}
+
+/** Impuestos de la plantilla genérica a partir de la tabla de tipos del país. */
+export function genericTemplateTaxes(countryCode: string): CompanyTemplateTax[] {
+  const rates = countryVatRates(countryCode);
+  if (!rates || rates.system !== "VAT" || rates.standard <= 0) {
+    // Sin IVA nacional conocido (EE. UU., Brasil, países sin tabla): se factura sin impuesto y el
+    // usuario añade el suyo si lo necesita.
+    return [{ name: "Sin impuesto 0%", rate: rateString(0), kind: "VAT", operation: "ADD", isDefault: true }];
+  }
+  const taxes: CompanyTemplateTax[] = [
+    { name: `${rates.label} general ${formatRate(rates.standard)}`, rate: rateString(rates.standard), kind: "VAT", operation: "ADD", isDefault: true },
+  ];
+  for (const rate of rates.reduced ?? []) {
+    taxes.push({ name: `${rates.label} reducido ${formatRate(rate)}`, rate: rateString(rate), kind: "VAT", operation: "ADD" });
+  }
+  if (rates.superReduced) {
+    taxes.push({ name: `${rates.label} superreducido ${formatRate(rates.superReduced)}`, rate: rateString(rates.superReduced), kind: "VAT", operation: "ADD" });
+  }
+  return taxes;
+}
+
+export function buildGenericTemplate(countryCode: string): CompanyTemplate {
+  return {
+    id: "GENERIC",
+    countryCode,
+    label: `General (${countryName(countryCode)})`,
+    accounts: genericAccounts,
     journals: [
-      { code: "SAL", name: "Sales journal", role: "Entries generated by customer invoices." },
-      { code: "PUR", name: "Purchases journal", role: "Vendor bills and purchase operations." },
-      { code: "BNK", name: "Bank journal", role: "Receipts, payments and bank movements." },
-      { code: "GEN", name: "General journal", role: "Manual and general entries." },
-      { code: "CLS", name: "Closing journal", role: "Year-end closing entries." },
+      { code: "VEN", name: "Diario de ventas", role: "Asientos generados por facturas emitidas." },
+      { code: "COM", name: "Diario de compras", role: "Asientos de compras y facturas recibidas." },
+      { code: "BAN", name: "Diario de bancos", role: "Cobros, pagos y movimientos bancarios." },
+      { code: "GEN", name: "Diario general", role: "Asientos manuales y operaciones generales." },
+      { code: "CIE", name: "Diario de cierre", role: "Regularizacion y cierre fiscal." },
     ],
-    taxes: [{ name: "Sales tax 0%", rate: "0.000" }],
+    taxes: genericTemplateTaxes(countryCode),
     documentSeries: commonSeries,
     settings: {
       fiscalRegime: "general",
-      taxPeriodicity: "monthly",
-      defaultCustomerAccountCode: "1100",
-      defaultSupplierAccountCode: "2000",
-      defaultSalesAccountCode: "4000",
-      defaultPurchaseAccountCode: "5000",
-      defaultBankAccountCode: "1000",
-      defaultVatOutputAccountCode: "2100",
-      defaultVatInputAccountCode: "1300",
-      defaultRetentionAccountCode: "2200",
+      taxPeriodicity: "quarterly",
+      defaultCustomerAccountCode: "4300",
+      defaultSupplierAccountCode: "4100",
+      defaultSalesAccountCode: "700",
+      defaultPurchaseAccountCode: "600",
+      defaultBankAccountCode: "572",
+      defaultVatOutputAccountCode: "477",
+      defaultVatInputAccountCode: "472",
+      defaultRetentionAccountCode: "4751",
     },
-  },
-] as const satisfies readonly CompanyTemplate[];
-
-export function getCompanyTemplate(countryCode: string): CompanyTemplate | null {
-  return companyTemplates.find((template) => template.countryCode === countryCode.toUpperCase()) ?? null;
+  };
 }

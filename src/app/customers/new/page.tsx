@@ -27,7 +27,7 @@ export default async function NewCustomerPage() {
 
       <PageSection title="Datos del cliente" description="Informa identidad fiscal, domicilio y contacto. El número de cliente se asignará automáticamente.">
         {canCreateCustomer ? (
-          <CreateCustomerForm redirectHref="/customers" />
+          <CreateCustomerForm defaultCountryCode={tenantContext.company.countryCode} redirectHref="/customers" />
         ) : (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite crear clientes." />
         )}

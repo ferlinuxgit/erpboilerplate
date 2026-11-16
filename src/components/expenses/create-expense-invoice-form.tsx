@@ -63,6 +63,8 @@ const emptyNewSupplier: NewSupplierDraft = { name: "", taxId: "", countryCode: "
 
 type CreateExpenseInvoiceFormProps = {
   baseCurrencyCode: string;
+  /** País de la empresa: decide si un proveedor es nacional, de la UE o de fuera. */
+  homeCountryCode?: string;
   expenseAccounts: AccountOption[];
   goodsReceipts: GoodsReceiptRelation[];
   initialSupplierId?: string;
@@ -116,14 +118,14 @@ function lineTotals(line: ExpenseLineDraft) {
   return { subtotal, tax, retention, total: subtotal + tax - retention };
 }
 
-export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
   const initialSupplier = suppliers.find((supplier) => supplier.id === initialSupplierId);
   const [creationMode, setCreationMode] = useState<"manual" | null>(initialSupplier || !readingEnabled ? "manual" : null);
   const [supplierPartnerId, setSupplierPartnerId] = useState(initialSupplier?.id ?? "");
   const [newSupplier, setNewSupplier] = useState<NewSupplierDraft | null>(null);
   const [newSupplierDialogOpen, setNewSupplierDialogOpen] = useState(false);
-  const [newSupplierDraft, setNewSupplierDraft] = useState<NewSupplierDraft>(emptyNewSupplier);
+  const [newSupplierDraft, setNewSupplierDraft] = useState<NewSupplierDraft>({ ...emptyNewSupplier, countryCode: homeCountryCode });
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [supplierDocumentNumber, setSupplierDocumentNumber] = useState("");
@@ -148,7 +150,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
   const supplierCountryForVat = selectedSupplier ? selectedSupplier.countryCode : newSupplier?.countryCode;
   // Por defecto se deduce del país del proveedor (o su valor habitual); si el usuario lo cambia, prevalece su elección.
   // Fuera de la UE: servicios por inversión del sujeto pasivo, bienes como importación.
-  const vatTreatment = vatTreatmentOverride ?? resolveSupplierVatTreatment(null, supplierCountryForVat, selectedSupplier?.supplierKind);
+  const vatTreatment = vatTreatmentOverride ?? resolveSupplierVatTreatment(null, supplierCountryForVat, selectedSupplier?.supplierKind, homeCountryCode);
   const selfAssessedVat = isSelfAssessedTreatment(vatTreatment);
   const availablePurchaseOrders = purchaseOrders.filter((order) => !supplierPartnerId || order.supplierPartnerId === supplierPartnerId);
   const availableGoodsReceipts = goodsReceipts.filter((receipt) => (purchaseOrderId ? receipt.purchaseOrderId === purchaseOrderId : !supplierPartnerId || receipt.supplierPartnerId === supplierPartnerId));
@@ -214,7 +216,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseAccounts, go
 
   function openNewSupplierDialog(query: string) {
     const looksLikeTaxId = /^[A-Z0-9]{8,}$/i.test(query.replace(/[\s.-]/g, "")) && /\d/.test(query);
-    setNewSupplierDraft({ ...emptyNewSupplier, ...(newSupplier ?? {}), ...(query ? (looksLikeTaxId ? { taxId: query } : { name: query }) : {}) });
+    setNewSupplierDraft({ ...emptyNewSupplier, countryCode: homeCountryCode, ...(newSupplier ?? {}), ...(query ? (looksLikeTaxId ? { taxId: query } : { name: query }) : {}) });
     setNewSupplierDialogOpen(true);
   }
 

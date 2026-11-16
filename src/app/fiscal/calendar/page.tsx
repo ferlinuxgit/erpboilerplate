@@ -7,6 +7,7 @@ import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
+import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { buildFiscalCalendar, type FiscalCalendarEntry } from "@/server/fiscal/calendar";
@@ -27,6 +28,7 @@ const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", 
 
 export default async function FiscalCalendarPage({ searchParams }: { searchParams: Promise<{ year?: string | string[] }> }) {
   const ctx = await requireContext("fiscal.read");
+  requireCountryFeaturePage(ctx.company.countryCode, "taxReports");
   const query = await searchParams;
   const currentYear = new Date().getFullYear();
   const requested = Number(Array.isArray(query.year) ? query.year[0] : query.year);

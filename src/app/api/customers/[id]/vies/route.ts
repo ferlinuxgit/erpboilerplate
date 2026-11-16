@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!row) return NextResponse.json({ message: "Cliente no encontrado." }, { status: 404 });
     if (!row.taxId) return NextResponse.json({ message: "El cliente no tiene NIF-IVA en su ficha." }, { status: 422 });
 
-    const result = await checkVatNumber(row.countryCode ?? "ES", row.taxId);
+    const result = await checkVatNumber(row.countryCode ?? ctx.company.countryCode, row.taxId, { homeCountry: ctx.company.countryCode });
     // Un fallo temporal de VIES no sustituye una comprobación anterior (válida o no).
     if (result.status !== "UNAVAILABLE" || !row.viesStatus) {
       await db

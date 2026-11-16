@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defaultSalesVatTreatment,
+  vatTreatmentLegalNote,
   derivePaymentStatus,
   isDraftNumber,
   outstandingCents,
@@ -51,7 +52,31 @@ describe("servicios intracomunitarios", async () => {
 
   it("usa el tratamiento habitual del cliente antes que el de su país", () => {
     expect(customerDefaultVatTreatment({ countryCode: "FR", defaultVatTreatment: "INTRA_EU_SERVICES" })).toBe("INTRA_EU_SERVICES");
-    expect(customerDefaultVatTreatment({ countryCode: "FR", defaultVatTreatment: null })).toBe("INTRA_EU");
+    expect(customerDefaultVatTreatment({ countryCode: "FR", taxId: "FR40303265045", defaultVatTreatment: null })).toBe("INTRA_EU");
     expect(customerDefaultVatTreatment(null)).toBe("DOMESTIC");
+  });
+
+  it("deduce el tratamiento del país del cliente respecto al de la empresa", () => {
+    // Consumidor final de otro país de la UE (sin NIF-IVA): IVA del país de la empresa.
+    expect(customerDefaultVatTreatment({ countryCode: "FR", taxId: null })).toBe("DOMESTIC");
+    // Empresa de servicios: los clientes UE con NIF-IVA van por inversión del sujeto pasivo.
+    expect(customerDefaultVatTreatment({ countryCode: "DE", taxId: "DE123456789" }, { businessType: "services" })).toBe("INTRA_EU_SERVICES");
+    // Fuera de la UE: bienes → exportación; servicios a empresa → no sujeta.
+    expect(customerDefaultVatTreatment({ countryCode: "US", taxId: "12-3456789" })).toBe("EXPORT");
+    expect(customerDefaultVatTreatment({ countryCode: "US", taxId: "12-3456789" }, { businessType: "services" })).toBe("NOT_SUBJECT");
+    // Empresa portuguesa: un cliente portugués es nacional y uno español, intracomunitario.
+    expect(customerDefaultVatTreatment({ countryCode: "PT", taxId: "PT501964843" }, { homeCountry: "PT" })).toBe("DOMESTIC");
+    expect(customerDefaultVatTreatment({ countryCode: "ES", taxId: "B12345674" }, { homeCountry: "PT" })).toBe("INTRA_EU");
+    expect(defaultSalesVatTreatment("PT", "PT")).toBe("DOMESTIC");
+    expect(defaultSalesVatTreatment("PT")).toBe("INTRA_EU");
+  });
+});
+
+describe("mención legal según el país del emisor", () => {
+  it("cita la Ley del IVA en España, la Directiva en la UE y un texto neutro fuera", () => {
+    expect(vatTreatmentLegalNote("INTRA_EU", "ES")).toContain("Ley 37/1992");
+    expect(vatTreatmentLegalNote("INTRA_EU", "PT")).toContain("art. 138 Directiva 2006/112/CE");
+    expect(vatTreatmentLegalNote("EXPORT", "MX")).toBe("Exportación exenta de impuestos.");
+    expect(vatTreatmentLegalNote("DOMESTIC", "FR")).toBeNull();
   });
 });

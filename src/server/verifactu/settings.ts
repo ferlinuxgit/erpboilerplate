@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { company, companySettings } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { recordAudit } from "@/server/audit";
 import { appendEvent, type VerifactuMode } from "@/server/verifactu/chain";
 import { isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/format";
@@ -10,6 +11,8 @@ import { isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/f
 export type VerifactuModeSetting = "pending" | "verifactu" | "non_verifactu";
 
 export type VerifactuSettings = {
+  /** ¿El país de la empresa usa VERI*FACTU? Si no, el modo es siempre "pending" (sin registros). */
+  applies: boolean;
   mode: VerifactuModeSetting;
   since: Date | null;
   issuerTaxId: string | null;
@@ -35,13 +38,16 @@ export async function getVerifactuSettings(client: DbClient, companyId: string):
       vatNumber: company.vatNumber,
       name: company.name,
       legalName: company.legalName,
+      countryCode: company.countryCode,
     })
     .from(company)
     .leftJoin(companySettings, eq(companySettings.companyId, company.id))
     .where(eq(company.id, companyId))
     .limit(1);
+  const applies = getCountryFiscalProfile(row?.countryCode).features.eInvoicing === "verifactu";
   return {
-    mode: normalizeVerifactuModeSetting(row?.mode),
+    applies,
+    mode: applies ? normalizeVerifactuModeSetting(row?.mode) : "pending",
     since: row?.since ?? null,
     issuerTaxId: row?.vatNumber ? normalizeIssuerNif(row.vatNumber) : null,
     issuerName: row?.legalName?.trim() || row?.name || "",
@@ -63,6 +69,9 @@ export async function updateVerifactuSettings(
 ) {
   return db.transaction(async (tx) => {
     const current = await getVerifactuSettings(tx, actor.companyId);
+    if (!current.applies) {
+      throw new HttpError(422, "VERI*FACTU es el sistema de facturación verificable de España: no aplica al país de esta empresa.");
+    }
     if (input.mode !== "pending" && !isValidIssuerNifFormat(current.issuerTaxId)) {
       throw new HttpError(
         422,

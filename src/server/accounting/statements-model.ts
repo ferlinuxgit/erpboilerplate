@@ -12,6 +12,8 @@
  *   está en la 129.
  */
 
+import { usesPgcChart } from "@/lib/country-packs/profile";
+
 export type StatementAccountRow = {
   accountId: string;
   code: string;
@@ -115,12 +117,12 @@ const cents = (value: number) => Math.round(value) / 100;
 
 /** Cuentas de resultados: grupos 6 y 7 del PGC (o tipos REVENUE/EXPENSE en otros planes). */
 export function isIncomeStatementAccount(account: { code: string; type: string }, countryCode: string) {
-  if (countryCode === "ES") return account.code.startsWith("6") || account.code.startsWith("7");
+  if (usesPgcChart(countryCode)) return account.code.startsWith("6") || account.code.startsWith("7");
   return account.type === "REVENUE" || account.type === "EXPENSE";
 }
 
 function isRevenue(account: { code: string; type: string }, countryCode: string) {
-  if (countryCode === "ES") return account.code.startsWith("7");
+  if (usesPgcChart(countryCode)) return account.code.startsWith("7");
   return account.type === "REVENUE";
 }
 

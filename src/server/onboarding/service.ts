@@ -6,9 +6,11 @@ import { companyInvoiceReadiness, normalizeIban, parseBusinessType, type Busines
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import type { OnboardingStepPayload } from "@/lib/onboarding";
-import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+import { normalizeTaxIdForCountry, spanishTaxpayerTypeFromTaxId } from "@/lib/country-packs/tax-id";
 import { DEFAULT_COMPANY_NAME } from "@/lib/tenant";
 import { recordAudit } from "@/server/audit";
+import { changeCompanyCountry } from "@/server/company/country";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
 import { createBankAccount } from "@/server/treasury/service";
 
@@ -34,6 +36,7 @@ export async function getCompanySetupState(companyId: string, fiscalYearId: stri
         postalCode: company.postalCode,
         city: company.city,
         province: company.province,
+        countryCode: company.countryCode,
       })
       .from(company)
       .where(eq(company.id, companyId))
@@ -87,22 +90,18 @@ export async function getCompanyBusinessType(companyId: string): Promise<Busines
 async function ensureSettingsRow(tx: DbClient, companyId: string, countryCode: string) {
   const [existing] = await tx.select({ id: companySettings.id }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
   if (existing) return;
-  const template = getCompanyTemplate(countryCode)?.settings;
+  const template = getCompanyTemplate(countryCode).settings;
   await tx
     .insert(companySettings)
     .values({
       companyId,
-      ...(template
-        ? {
-            fiscalRegime: template.fiscalRegime,
-            taxPeriodicity: template.taxPeriodicity,
-            defaultCustomerAccountCode: template.defaultCustomerAccountCode,
-            defaultSupplierAccountCode: template.defaultSupplierAccountCode,
-            defaultSalesAccountCode: template.defaultSalesAccountCode,
-            defaultPurchaseAccountCode: template.defaultPurchaseAccountCode,
-            defaultBankAccountCode: template.defaultBankAccountCode,
-          }
-        : {}),
+      fiscalRegime: template.fiscalRegime,
+      taxPeriodicity: template.taxPeriodicity,
+      defaultCustomerAccountCode: template.defaultCustomerAccountCode,
+      defaultSupplierAccountCode: template.defaultSupplierAccountCode,
+      defaultSalesAccountCode: template.defaultSalesAccountCode,
+      defaultPurchaseAccountCode: template.defaultPurchaseAccountCode,
+      defaultBankAccountCode: template.defaultBankAccountCode,
     })
     .onConflictDoNothing();
 }
@@ -124,7 +123,6 @@ async function templateAlreadyApplied(companyId: string, fiscalYearId: string) {
 }
 
 async function ensureCompanyTemplate(actor: OnboardingActor, auditAction: string) {
-  if (!getCompanyTemplate(actor.countryCode)) return;
   if (await templateAlreadyApplied(actor.companyId, actor.fiscalYearId)) return;
   await applyCompanyTemplate({
     tenantId: actor.tenantId,
@@ -146,7 +144,14 @@ function cleanText(value: string | undefined) {
  * Guarda los datos de un paso del asistente (o del resumen de empresa). Solo toca los
  * campos enviados, así un paso a medias nunca borra lo guardado en otro.
  */
-export async function saveOnboardingStep(actor: OnboardingActor, payload: OnboardingStepPayload) {
+export async function saveOnboardingStep(actorInput: OnboardingActor, payload: OnboardingStepPayload) {
+  // El país va primero: decide moneda, plantilla, impuestos y cómo se valida el NIF.
+  let actor = actorInput;
+  if (payload.countryCode && payload.countryCode !== actor.countryCode) {
+    await db.transaction((tx) => changeCompanyCountry({ ...actor, countryCode: payload.countryCode! }, tx));
+    actor = { ...actor, countryCode: getCountryFiscalProfile(payload.countryCode).countryCode };
+  }
+  const profile = getCountryFiscalProfile(actor.countryCode);
   const invoicePrefix = payload.invoicePrefix?.trim().toUpperCase();
   // La serie de facturas se crea con la plantilla del país (plan contable, impuestos y series).
   if (invoicePrefix) await ensureCompanyTemplate(actor, "company.defaults.ensure");
@@ -157,7 +162,7 @@ export async function saveOnboardingStep(actor: OnboardingActor, payload: Onboar
     const legalName = cleanText(payload.legalName);
     const companyValues = {
       ...(legalName ? { legalName, name: legalName } : {}),
-      ...(payload.vatNumber !== undefined ? { vatNumber: payload.vatNumber.trim() ? normalizeSpanishTaxId(payload.vatNumber) : null } : {}),
+      ...(payload.vatNumber !== undefined ? { vatNumber: payload.vatNumber.trim() ? normalizeTaxIdForCountry(payload.vatNumber, actor.countryCode) : null } : {}),
       ...(payload.fiscalAddress !== undefined ? { fiscalAddress: cleanText(payload.fiscalAddress) } : {}),
       ...(payload.postalCode !== undefined ? { postalCode: cleanText(payload.postalCode) } : {}),
       ...(payload.city !== undefined ? { city: cleanText(payload.city) } : {}),
@@ -174,6 +179,13 @@ export async function saveOnboardingStep(actor: OnboardingActor, payload: Onboar
 
     if (payload.businessType) {
       await tx.update(companySettings).set({ businessType: payload.businessType, updatedAt: new Date() }).where(eq(companySettings.companyId, actor.companyId));
+    }
+
+    // España: autónomo o sociedad se deduce del NIF (DNI/NIE → autónomo, CIF → sociedad); decide
+    // si aplica el modelo 130. No se pregunta.
+    const taxpayerType = profile.features.nationalTaxIdValidation === "es" && payload.vatNumber ? spanishTaxpayerTypeFromTaxId(payload.vatNumber) : null;
+    if (taxpayerType) {
+      await tx.update(companySettings).set({ taxpayerType, updatedAt: new Date() }).where(eq(companySettings.companyId, actor.companyId));
     }
 
     let seriesPrefix: string | null = null;
@@ -201,7 +213,7 @@ export async function saveOnboardingStep(actor: OnboardingActor, payload: Onboar
         action: "onboarding.update",
         entityName: "company",
         entityId: actor.companyId,
-        payload: { ...companyValues, businessType: payload.businessType, invoicePrefix: seriesPrefix, iban: payload.iban ? "[iban]" : undefined },
+        payload: { ...companyValues, countryCode: actor.countryCode, taxpayerType, businessType: payload.businessType, invoicePrefix: seriesPrefix, iban: payload.iban ? "[iban]" : undefined },
       },
       tx,
     );
@@ -218,11 +230,16 @@ export async function saveOnboardingStep(actor: OnboardingActor, payload: Onboar
     }
   }
 
-  return { ...result, bankAccountCreated };
+  return { ...result, bankAccountCreated, countryCode: actor.countryCode };
 }
 
 /** Termina el asistente: plantilla contable completa y marca de completado. */
-export async function completeOnboarding(actor: OnboardingActor, payload: OnboardingStepPayload) {
+export async function completeOnboarding(actorInput: OnboardingActor, payload: OnboardingStepPayload) {
+  let actor = actorInput;
+  if (payload.countryCode && payload.countryCode !== actor.countryCode) {
+    await db.transaction((tx) => changeCompanyCountry({ ...actor, countryCode: payload.countryCode! }, tx));
+    actor = { ...actor, countryCode: getCountryFiscalProfile(payload.countryCode).countryCode };
+  }
   // Plantilla primero: así el prefijo elegido se aplica sobre la serie recién creada.
   await ensureCompanyTemplate(actor, "onboarding.seed.apply");
   const saved = await saveOnboardingStep(actor, payload);

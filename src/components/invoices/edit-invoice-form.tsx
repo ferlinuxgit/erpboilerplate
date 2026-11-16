@@ -32,6 +32,7 @@ import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
+import type { VatTreatmentContext } from "@/lib/country-packs/vat-treatment";
 import { customerDefaultVatTreatment, type SalesVatTreatmentCode } from "@/server/invoices/lifecycle";
 import { draftInvoiceFormSchema } from "@/server/invoices/schemas";
 import { createCustomerSchema } from "@/server/schemas/forms";
@@ -67,7 +68,10 @@ export function EditInvoiceForm({
   invoiceNumber,
   paymentMethods,
   taxes,
+  vatContext,
 }: {
+  /** País de la empresa y qué vende: deciden el tratamiento de IVA propuesto para cada cliente. */
+  vatContext?: VatTreatmentContext;
   id: string;
   invoiceNumber: string;
   canCreateCustomer: boolean;
@@ -92,7 +96,7 @@ export function EditInvoiceForm({
   const [customerSubmitError, setCustomerSubmitError] = useState<string | null>(null);
   // Un tratamiento guardado distinto del que corresponde al país del cliente se considera elegido a mano.
   const [vatTreatmentTouched, setVatTreatmentTouched] = useState(
-    Boolean(defaultVatTreatment) && defaultVatTreatment !== customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)),
+    Boolean(defaultVatTreatment) && defaultVatTreatment !== customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId), vatContext),
   );
   // Un vencimiento ya guardado se respeta; si está vacío se propone al cambiar fecha o cliente.
   const [dueDateTouched, setDueDateTouched] = useState(Boolean(defaultDueDate));
@@ -111,7 +115,7 @@ export function EditInvoiceForm({
     resolver: zodResolver(draftInvoiceFormSchema),
     defaultValues: {
       customerId: defaultCustomerId,
-      vatTreatment: defaultVatTreatment ?? customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId)),
+      vatTreatment: defaultVatTreatment ?? customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId), vatContext),
       issueDate: defaultIssueDate,
       dueDate: defaultDueDate,
       notes: defaultNotes ?? "",
@@ -119,7 +123,7 @@ export function EditInvoiceForm({
       totalAmount: defaultTotalAmount,
       lines: defaultLines.length > 0
         ? defaultLines
-        : [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(activeTaxes, customers.find((customer) => customer.id === defaultCustomerId)) }],
+        : [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(activeTaxes, customers.find((customer) => customer.id === defaultCustomerId), vatContext) }],
     },
   });
   const { fields, append, insert, move, remove } = useFieldArray({ control, name: "lines" });
@@ -136,7 +140,7 @@ export function EditInvoiceForm({
   const totals = calculateInvoiceTotals(calculatedLines);
   const paymentMethodError = firstFormErrorMessage(errors.paymentMethodIds);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
-  const defaultTaxIds = useMemo(() => customerLineTaxIds(activeTaxes, selectedCustomer), [activeTaxes, selectedCustomer]);
+  const defaultTaxIds = useMemo(() => customerLineTaxIds(activeTaxes, selectedCustomer, vatContext), [activeTaxes, selectedCustomer, vatContext]);
   const termsDays = effectivePaymentTermsDays(selectedCustomer?.paymentTermsDays, companyPaymentTermsDays);
   const termsSource = typeof selectedCustomer?.paymentTermsDays === "number" ? "customer" : "company";
   const emptyLine: EditableInvoiceLine = { description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: [...defaultTaxIds] };
@@ -155,7 +159,7 @@ export function EditInvoiceForm({
       postalCode: "",
       city: "",
       province: "",
-      countryCode: "ES",
+      countryCode: vatContext?.homeCountry ?? "ES",
       email: "",
       phone: "",
     },
@@ -172,8 +176,8 @@ export function EditInvoiceForm({
   // Mientras el usuario no fije el tratamiento de IVA, sigue al cliente (habitual o por país).
   useEffect(() => {
     if (vatTreatmentTouched || !selectedCustomer) return;
-    setValue("vatTreatment", customerDefaultVatTreatment(selectedCustomer));
-  }, [selectedCustomer, setValue, vatTreatmentTouched]);
+    setValue("vatTreatment", customerDefaultVatTreatment(selectedCustomer, vatContext));
+  }, [selectedCustomer, setValue, vatContext, vatTreatmentTouched]);
 
   const proposeDueDate = (issueDate: string | undefined, days: number) => {
     if (dueDateTouched || !issueDate) return;

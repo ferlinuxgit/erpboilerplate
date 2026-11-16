@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
-import { onboardingCompletePayloadSchema } from "@/lib/onboarding";
+import { onboardingCompletePayloadSchemaFor } from "@/lib/onboarding";
 import { assignableRoles } from "@/lib/rbac";
 import { completeOnboarding } from "@/server/onboarding/service";
 import { deliverInvitation, type InvitationDelivery } from "@/server/team/invitations";
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const { actor, ctx, user } = await requireOnboardingActor();
     const payload = await readJsonBody(request);
     if (!payload) return invalidJsonResponse();
-    const parsed = onboardingCompletePayloadSchema.safeParse(payload);
+    const parsed = onboardingCompletePayloadSchemaFor(actor.countryCode, payload).safeParse(payload);
     if (!parsed.success) return jsonError(400, parsed.error.issues[0]?.message ?? "Revisa los datos marcados.");
 
     const { invite, ...fields } = parsed.data;

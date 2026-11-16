@@ -39,10 +39,13 @@ export type EditCustomerDefaults = {
 export function EditCustomerForm({
   defaults,
   dunningOptOut,
+  homeCountryCode = "ES",
   id,
   vies,
 }: {
   id: string;
+  /** País de la empresa: VIES solo aplica a clientes de otro país de la UE. */
+  homeCountryCode?: string;
   defaults: EditCustomerDefaults;
   vies?: ViesSnapshot | null;
   /** Exclusión de recordatorios de cobro; `undefined` = el usuario no puede cambiarla (se oculta). */
@@ -148,12 +151,12 @@ export function EditCustomerForm({
           <option value="INACTIVE">Inactivo</option>
         </Select>
       </AccessibleField>
-      {isEuCountry(countryCode) && countryCode !== "ES" ? (
+      {isEuCountry(countryCode) && countryCode !== homeCountryCode ? (
         <div className="md:col-span-6">
           <ViesCheck customerId={id} initial={vies ?? null} />
         </div>
       ) : null}
-      <CustomerBillingFields errors={errors} register={register} />
+      <CustomerBillingFields errors={errors} homeCountryCode={homeCountryCode} register={register} />
       {dunningOptOut !== undefined ? (
         <div className="space-y-1 md:col-span-6" data-testid="customer-edit-dunning-opt-out">
           <label className="flex items-center gap-2 font-mono text-xs font-bold" htmlFor="customer-dunning-opt-out">

@@ -93,7 +93,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       .from(invoicePaymentMethod)
       .where(eq(invoicePaymentMethod.invoiceId, data.id))
       .orderBy(asc(invoicePaymentMethod.position)),
-    db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
+    db.select({ paymentTermsDays: companySettings.paymentTermsDays, businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
   ]);
   const lineTaxIds = new Map<string, string[]>();
   for (const row of lineTaxRows) {
@@ -198,6 +198,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
             id={data.id}
             canCreateCustomer={canManageCustomers(ctx.membership.role)}
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
+            vatContext={{ homeCountry: ctx.company.countryCode, businessType: settings?.businessType ?? "both" }}
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultCustomerId={data.customerId}
             invoiceNumber={data.number}

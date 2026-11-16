@@ -63,7 +63,9 @@ describe("fiscal year lifecycle rules", () => {
     expect(isProfitAndLossAccount({ code: "7000", type: "REVENUE" }, "ES")).toBe(true);
     expect(isProfitAndLossAccount({ code: "572", type: "ASSET" }, "ES")).toBe(false);
     expect(isProfitAndLossAccount({ code: "129", type: "EQUITY" }, "ES")).toBe(false);
-    expect(isProfitAndLossAccount({ code: "4000", type: "REVENUE" }, "US")).toBe(true);
+    // Cualquier país usa el plan por grupos (PGC o plantilla genérica): 4000 es un proveedor, no un ingreso.
+    expect(isProfitAndLossAccount({ code: "706", type: "REVENUE" }, "FR")).toBe(true);
+    expect(isProfitAndLossAccount({ code: "4000", type: "REVENUE" }, "US")).toBe(false);
   });
 
   it("regularizes expenses and income into 129 (profit on the credit side)", () => {

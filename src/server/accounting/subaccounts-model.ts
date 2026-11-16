@@ -10,6 +10,8 @@
  *   subcuenta genérica (43000000) de los apuntes sin tercero conocido.
  */
 
+import { usesPgcChart } from "@/lib/country-packs/profile";
+
 export const DEFAULT_SUBACCOUNT_LENGTH = 8;
 export const MIN_SUBACCOUNT_LENGTH = 8;
 export const MAX_SUBACCOUNT_LENGTH = 12;
@@ -108,7 +110,7 @@ export function partnerAccountPrefix(input: {
   customerCode?: string | null;
   supplierCode?: string | null;
 }) {
-  if (input.countryCode.toUpperCase() === "ES") {
+  if (usesPgcChart(input.countryCode)) {
     if (input.role === "customer") return "430";
     return input.supplierKind === "SERVICES" ? "410" : "400";
   }

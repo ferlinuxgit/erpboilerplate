@@ -286,7 +286,9 @@ describe("purchase line accounts", () => {
     expect(isPurchaseLineAccount({ code: "21700000", type: "ASSET" }, "ES")).toBe(true);
     expect(isPurchaseLineAccount({ code: "57200000", type: "ASSET" }, "ES")).toBe(false);
     expect(isPurchaseLineAccount({ code: "43000000", type: "ASSET" }, "ES")).toBe(false);
-    expect(isPurchaseLineAccount({ code: "2000", type: "LIABILITY" }, "US")).toBe(false);
+    // Otros países: plantilla genérica con la misma numeración por grupos.
+    expect(isPurchaseLineAccount({ code: "57200000", type: "ASSET" }, "US")).toBe(false);
+    expect(isPurchaseLineAccount({ code: "62800000", type: "EXPENSE" }, "FR")).toBe(true);
   });
 
   it("refuses to post an expense line to a bank account", async () => {

@@ -60,7 +60,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       bankAccountNumber: paymentMethod.bankAccountNumber,
       isDefault: paymentMethod.isDefault,
     }).from(paymentMethod).where(eq(paymentMethod.companyId, tenantContext.company.id)).orderBy(desc(paymentMethod.isDefault), asc(paymentMethod.name)),
-    db.select({ paymentTermsDays: companySettings.paymentTermsDays }).from(companySettings).where(eq(companySettings.companyId, tenantContext.company.id)).limit(1)]);
+    db.select({ paymentTermsDays: companySettings.paymentTermsDays, businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, tenantContext.company.id)).limit(1)]);
 
   return (
     <PageShell>
@@ -91,6 +91,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
           <CreateInvoiceForm
             canCreateCustomer={canCreateCustomer}
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
+            vatContext={{ homeCountry: tenantContext.company.countryCode, businessType: settings?.businessType ?? "both" }}
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}

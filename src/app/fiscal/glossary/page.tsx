@@ -4,6 +4,7 @@ import Link from "next/link";
 import { glossaryEntries, type GlossaryEntry } from "@/components/help/glossary";
 import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
+import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 
 export const metadata: Metadata = { title: "Ayuda: glosario fiscal y contable" };
 
@@ -13,7 +14,8 @@ const sections: Array<{ category: GlossaryEntry["category"]; title: string; desc
 ];
 
 export default async function GlossaryPage() {
-  await requireContext("fiscal.read");
+  const ctx = await requireContext("fiscal.read");
+  requireCountryFeaturePage(ctx.company.countryCode, "taxReports");
   const entries: readonly GlossaryEntry[] = glossaryEntries;
   return (
     <PageShell>

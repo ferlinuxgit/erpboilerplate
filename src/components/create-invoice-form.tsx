@@ -34,6 +34,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { defaultLineTaxIds } from "@/server/invoices/default-taxes";
 import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
+import type { VatTreatmentContext } from "@/lib/country-packs/vat-treatment";
 import { customerDefaultVatTreatment } from "@/server/invoices/lifecycle";
 import { createInvoiceSchema } from "@/server/invoices/schemas";
 import { createCustomerSchema } from "@/server/schemas/forms";
@@ -58,8 +59,8 @@ export type CustomerOption = {
 const COUNTRY_OPTIONS = countriesForSelect();
 
 /** Impuestos que se proponen para un cliente (IVA por defecto solo en operaciones nacionales). */
-export function customerLineTaxIds(taxes: InvoiceTaxOption[], customer: CustomerOption | null | undefined) {
-  return defaultLineTaxIds(taxes, customer, { withVat: customerDefaultVatTreatment(customer) === "DOMESTIC" });
+export function customerLineTaxIds(taxes: InvoiceTaxOption[], customer: CustomerOption | null | undefined, vatContext?: VatTreatmentContext) {
+  return defaultLineTaxIds(taxes, customer, { withVat: customerDefaultVatTreatment(customer, vatContext) === "DOMESTIC" });
 }
 
 function sameIds(left: string[] | undefined, right: string[]) {
@@ -107,8 +108,11 @@ export function CreateInvoiceForm({
   invoiceSeries = [],
   paymentMethods,
   taxes,
+  vatContext,
 }: {
   canCreateCustomer: boolean;
+  /** País de la empresa y qué vende: deciden el tratamiento de IVA propuesto para cada cliente. */
+  vatContext?: VatTreatmentContext;
   /** Días de pago de la empresa (si el cliente no tiene los suyos). */
   companyPaymentTermsDays?: number | null;
   customers: CustomerOption[];
@@ -146,7 +150,7 @@ export function CreateInvoiceForm({
     shouldUnregister: true,
     defaultValues: {
       customerId: initialCustomer ? initialCustomer.id : "",
-      vatTreatment: customerDefaultVatTreatment(initialCustomer),
+      vatTreatment: customerDefaultVatTreatment(initialCustomer, vatContext),
       issueDate: defaultIssueDate,
       // Vencimiento automático: emisión + días de pago del cliente (o de la empresa).
       dueDate: defaultDueDateInput(defaultIssueDate, termsFor(initialCustomer)),
@@ -154,7 +158,7 @@ export function CreateInvoiceForm({
       notes: "",
       paymentMethodIds: defaultPaymentMethodIds,
       seriesId: defaultSeries?.id ?? null,
-      lines: [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(taxes, initialCustomer) }],
+      lines: [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(taxes, initialCustomer, vatContext) }],
     },
   });
   const {
@@ -172,7 +176,7 @@ export function CreateInvoiceForm({
       postalCode: "",
       city: "",
       province: "",
-      countryCode: "ES",
+      countryCode: vatContext?.homeCountry ?? "ES",
       email: "",
       phone: "",
     },
@@ -193,7 +197,7 @@ export function CreateInvoiceForm({
   }));
   const totals = calculateInvoiceTotals(calculatedLines);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
-  const defaultTaxIds = useMemo(() => customerLineTaxIds(taxes, selectedCustomer), [selectedCustomer, taxes]);
+  const defaultTaxIds = useMemo(() => customerLineTaxIds(taxes, selectedCustomer, vatContext), [selectedCustomer, taxes, vatContext]);
   const previousDefaultTaxIds = useRef(defaultTaxIds);
   const termsDays = termsFor(selectedCustomer);
   const termsSource = typeof selectedCustomer?.paymentTermsDays === "number" ? "customer" : "company";
@@ -208,8 +212,8 @@ export function CreateInvoiceForm({
   // El tratamiento de IVA sigue al cliente (su tratamiento habitual o su país) mientras no se cambie a mano.
   useEffect(() => {
     if (vatTreatmentTouched || !selectedCustomer) return;
-    setValue("vatTreatment", customerDefaultVatTreatment(selectedCustomer));
-  }, [selectedCustomer, setValue, vatTreatmentTouched]);
+    setValue("vatTreatment", customerDefaultVatTreatment(selectedCustomer, vatContext));
+  }, [selectedCustomer, setValue, vatContext, vatTreatmentTouched]);
 
   // Vencimiento = emisión + días de pago, mientras el usuario no lo fije a mano.
   useEffect(() => {

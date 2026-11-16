@@ -10,6 +10,7 @@ import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/c
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
+import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 import { fiscalStatusLabels, getSpanishFiscalModel } from "@/lib/fiscal-spain";
 import { modelo349KeyLabels } from "@/server/fiscal/spain-calc";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -21,6 +22,7 @@ const statusTone = { DRAFT: "neutral", READY: "warning", FILED: "success" } as c
 
 export default async function FiscalReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("fiscal.read");
+  requireCountryFeaturePage(ctx.company.countryCode, "taxReports");
   const { id } = await params;
   const report = (await listFiscalReportsWithSummary(ctx.company.id)).find((candidate) => candidate.id === id);
   if (!report) notFound();

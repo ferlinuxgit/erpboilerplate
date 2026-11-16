@@ -24,6 +24,7 @@ import {
 
 import { SETTINGS_HOME, settingsSections } from "@/components/settings/settings-catalog";
 import type { BusinessType } from "@/lib/company-readiness";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { can, isAppRole, type PermissionKey } from "@/lib/rbac";
 import { isModuleVisible, resolveEnabledModules, type ModuleId } from "@/modules/registry";
 
@@ -43,7 +44,14 @@ export type NavigationLink = {
   unlessModule?: ModuleId;
   /** Permiso necesario para verlo en el menú (sigue accesible por URL/búsqueda si se tiene). */
   permission?: PermissionKey;
+  /** Solo si el país de la empresa tiene esa capacidad fiscal (modelos oficiales, VERI*FACTU…). */
+  countryFeature?: CountryNavFeature;
+  /** Solo si el país de la empresa NO la tiene (alternativa genérica). */
+  unlessCountryFeature?: CountryNavFeature;
 };
+
+/** Capacidades del paquete fiscal del país que deciden qué pantallas fiscales se ven. */
+export type CountryNavFeature = "taxReports" | "eInvoicing";
 
 export type NavigationGroup = {
   code: string;
@@ -124,6 +132,8 @@ export type ContextLink = {
   commandLabel?: string;
   /** Permiso para ver la pestaña (sigue accesible por URL si se tiene). */
   permission?: PermissionKey;
+  countryFeature?: CountryNavFeature;
+  unlessCountryFeature?: CountryNavFeature;
 };
 
 export const contextGroups: ContextGroup[] = [
@@ -225,11 +235,12 @@ export const contextGroups: ContextGroup[] = [
     code: "33",
     label: "Fiscalidad",
     links: [
-      { href: "/fiscal", label: "Modelos", exact: true, keywords: "303 111 130 390 347 349 iva impuestos declaraciones" },
-      { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos vencimientos trimestre fechas hacienda" },
-      { href: "/fiscal/verifactu", label: "VERI*FACTU", keywords: "verifactu registro aeat facturación antifraude" },
-      { href: "/settings/fiscal", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo" },
-      { href: "/fiscal/glossary", label: "Glosario", commandLabel: "Glosario fiscal", keywords: "glosario ayuda qué es términos 303 555 recargo irpf devolución" },
+      { href: "/fiscal", label: "Modelos", exact: true, keywords: "303 111 130 390 347 349 iva impuestos declaraciones", countryFeature: "taxReports" },
+      { href: "/fiscal", label: "Resumen de impuestos", exact: true, commandLabel: "Resumen de impuestos (IVA)", keywords: "iva vat impuestos repercutido soportado periodo trimestre declaración", unlessCountryFeature: "taxReports" },
+      { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos vencimientos trimestre fechas hacienda", countryFeature: "taxReports" },
+      { href: "/fiscal/verifactu", label: "VERI*FACTU", keywords: "verifactu registro aeat facturación antifraude", countryFeature: "eInvoicing" },
+      { href: "/settings/fiscal", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo periodicidad" },
+      { href: "/fiscal/glossary", label: "Glosario", commandLabel: "Glosario fiscal", keywords: "glosario ayuda qué es términos 303 555 recargo irpf devolución", countryFeature: "taxReports" },
     ],
   },
   {
@@ -240,7 +251,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/reporting", label: "Indicadores", exact: true, keywords: "kpi ventas gastos exportar" },
       { href: "/accounting/reports", label: "Estados financieros", keywords: "balance pérdidas y ganancias" },
       { href: "/treasury/forecast", label: "Previsión de tesorería", keywords: "liquidez", module: "banking" },
-      { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos impuestos" },
+      { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos impuestos", countryFeature: "taxReports" },
     ],
   },
   {
@@ -264,6 +275,8 @@ export type NavigationAudience = {
   modules?: readonly string[] | null;
   businessType?: BusinessType | string | null;
   role?: string | null;
+  /** País de la empresa: oculta las pantallas fiscales de otros países. Si falta, se muestran las de España. */
+  countryCode?: string | null;
 };
 
 function audienceModules(audience: NavigationAudience): readonly string[] | null {
@@ -271,7 +284,14 @@ function audienceModules(audience: NavigationAudience): readonly string[] | null
   return audience.businessType ? resolveEnabledModules([], audience.businessType) : null;
 }
 
-function visibleFor(entry: { module?: ModuleId; unlessModule?: ModuleId; permission?: PermissionKey }, audience: NavigationAudience) {
+function visibleFor(
+  entry: { module?: ModuleId; unlessModule?: ModuleId; permission?: PermissionKey; countryFeature?: CountryNavFeature; unlessCountryFeature?: CountryNavFeature },
+  audience: NavigationAudience,
+) {
+  const features = getCountryFiscalProfile(audience.countryCode).features;
+  const hasFeature = (feature: CountryNavFeature) => Boolean(features[feature]);
+  if (entry.countryFeature && !hasFeature(entry.countryFeature)) return false;
+  if (entry.unlessCountryFeature && hasFeature(entry.unlessCountryFeature)) return false;
   const modules = audienceModules(audience);
   if (!isModuleVisible(entry.module, modules)) return false;
   // "Solo si el módulo está desactivado": mientras no se conocen los módulos, no se muestra (evita duplicados).

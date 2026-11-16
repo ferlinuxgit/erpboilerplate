@@ -6,6 +6,7 @@ import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { countriesForSelect, isEuCountry } from "@/lib/countries";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import type { CustomerUpdateFormInput } from "@/server/customers/schemas";
 import { salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
 
@@ -66,13 +67,17 @@ export function CountrySelectField({
  */
 export function CustomerBillingFields({
   errors,
+  homeCountryCode = "ES",
   idPrefix = "customer",
   register,
 }: {
   errors: FieldErrors<Values>;
+  /** País de la empresa: la retención IRPF y el recargo de equivalencia solo existen en España. */
+  homeCountryCode?: string;
   idPrefix?: string;
   register: UseFormRegister<Values>;
 }) {
+  const { features } = getCountryFiscalProfile(homeCountryCode);
   return (
     <fieldset className="grid gap-4 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-6 md:grid-cols-6" data-testid="customer-billing-fields">
       <legend className="px-1 font-mono text-xs font-bold uppercase tracking-wide">Condiciones de facturación</legend>
@@ -87,6 +92,7 @@ export function CustomerBillingFields({
       >
         <Input data-testid={`${idPrefix}-payment-terms-input`} id={`${idPrefix}-payment-terms`} inputMode="numeric" placeholder="30" {...register("paymentTermsDays", integerOrNull)} />
       </AccessibleField>
+      {features.incomeTaxWithholding ? (
       <AccessibleField
         error={errors.defaultRetentionRate?.message}
         helperText="Para clientes empresa que te retienen IRPF (profesionales: 15 %, o 7 % los tres primeros años)."
@@ -99,6 +105,7 @@ export function CustomerBillingFields({
           ))}
         </Select>
       </AccessibleField>
+      ) : null}
       <AccessibleField
         className="md:col-span-2"
         error={errors.defaultVatTreatment?.message}
@@ -117,6 +124,7 @@ export function CustomerBillingFields({
       <AccessibleField error={errors.iban?.message} helperText="Opcional; solo si le cobras por domiciliación." id={`${idPrefix}-iban`} label="IBAN del cliente">
         <Input autoComplete="off" data-testid={`${idPrefix}-iban-input`} id={`${idPrefix}-iban`} placeholder="ES91 2100 0418 4502 0005 1332" {...register("iban")} />
       </AccessibleField>
+      {features.equivalenceSurcharge ? (
       <label className="flex items-start gap-2 text-sm md:col-span-6" htmlFor={`${idPrefix}-equivalence-surcharge`}>
         <input className="mt-1 size-4 accent-primary" data-testid={`${idPrefix}-equivalence-surcharge`} id={`${idPrefix}-equivalence-surcharge`} type="checkbox" {...register("equivalenceSurcharge")} />
         <span>
@@ -124,6 +132,7 @@ export function CustomerBillingFields({
           <span className="text-xs text-muted-foreground">Comercios minoristas (autónomos) a los que debes cobrar el recargo además del IVA. Se añadirá solo en sus facturas.</span>
         </span>
       </label>
+      ) : null}
     </fieldset>
   );
 }

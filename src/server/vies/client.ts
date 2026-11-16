@@ -44,14 +44,14 @@ function cleanText(value: unknown) {
 export async function checkVatNumber(
   countryCode: string,
   taxId: string,
-  options: { fetchImpl?: FetchLike; timeoutMs?: number; now?: () => Date } = {},
+  options: { fetchImpl?: FetchLike; timeoutMs?: number; now?: () => Date; homeCountry?: string | null } = {},
 ): Promise<ViesResult> {
   const now = options.now ?? (() => new Date());
   const country = normalizeCountryCode(countryCode);
   const { prefix, number } = splitVatNumber(country, taxId);
   const base = { countryCode: country, vatNumber: `${prefix}${number}`, name: null, address: null };
 
-  if (!isEuCountry(country) || country === "ES") {
+  if (!isEuCountry(country) || country === (normalizeCountryCode(options.homeCountry) || "ES")) {
     return { ...base, status: "UNAVAILABLE", checkedAt: now(), message: "VIES solo comprueba NIF-IVA de clientes de otros países de la UE." };
   }
   if (!/^[A-Z0-9]{2,14}$/.test(number)) {

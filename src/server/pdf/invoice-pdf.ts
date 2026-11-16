@@ -10,7 +10,7 @@ import {
   isSalesVatTreatment,
   rectificationReasonLabels,
   rectificationTypeLabels,
-  vatTreatmentLegalNotes,
+  vatTreatmentLegalNote,
   type RectificationReason,
   type RectificationType,
 } from "@/server/invoices/lifecycle";
@@ -160,8 +160,8 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
     number: row.customerNumber,
   };
 
-  const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode);
-  const legalNotes = [vatTreatmentLegalNotes[vatTreatment]].filter((note): note is string => Boolean(note));
+  const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode, issuer.countryCode);
+  const legalNotes = [vatTreatmentLegalNote(vatTreatment, issuer.countryCode)].filter((note): note is string => Boolean(note));
 
   const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
     ? rectificationReasonLabels[row.rectificationReason as RectificationReason]

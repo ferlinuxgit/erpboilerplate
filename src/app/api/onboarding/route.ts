@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
-import { onboardingStepPayloadSchema } from "@/lib/onboarding";
+import { onboardingStepPayloadSchemaFor } from "@/lib/onboarding";
 import { saveOnboardingStep } from "@/server/onboarding/service";
 
 import { requireOnboardingActor } from "@/server/onboarding/actor";
@@ -12,7 +12,7 @@ export async function PATCH(request: Request) {
     const { actor } = await requireOnboardingActor();
     const payload = await readJsonBody(request);
     if (!payload) return invalidJsonResponse();
-    const parsed = onboardingStepPayloadSchema.safeParse(payload);
+    const parsed = onboardingStepPayloadSchemaFor(actor.countryCode, payload).safeParse(payload);
     if (!parsed.success) return jsonError(400, parsed.error.issues[0]?.message ?? "Revisa los datos marcados.");
     const saved = await saveOnboardingStep(actor, parsed.data);
     return NextResponse.json({ ok: true, ...saved });

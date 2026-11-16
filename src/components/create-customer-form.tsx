@@ -13,9 +13,11 @@ import { customerUpdateFormSchema, type CustomerUpdateFormInput } from "@/server
 
 type CreateCustomerFormProps = {
   redirectHref?: string;
+  /** País propuesto para el cliente nuevo: el de la empresa. */
+  defaultCountryCode?: string;
 };
 
-export function CreateCustomerForm({ redirectHref }: CreateCustomerFormProps = {}) {
+export function CreateCustomerForm({ defaultCountryCode = "ES", redirectHref }: CreateCustomerFormProps = {}) {
   type CreateCustomerPayload = CustomerUpdateFormInput;
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export function CreateCustomerForm({ redirectHref }: CreateCustomerFormProps = {
       postalCode: "",
       city: "",
       province: "",
-      countryCode: "ES",
+      countryCode: defaultCountryCode,
       email: "",
       phone: "",
       paymentTermsDays: null,
@@ -107,7 +109,7 @@ export function CreateCustomerForm({ redirectHref }: CreateCustomerFormProps = {
       <AccessibleField id="customer-phone" label="Teléfono" error={errors.phone?.message} helperText="Opcional; incluye prefijo si aplica.">
         <Input autoComplete="tel" data-testid="customer-phone-input" id="customer-phone" placeholder="+34 600 000 000" type="tel" {...register("phone")} />
       </AccessibleField>
-      <CustomerBillingFields errors={errors} register={register} />
+      <CustomerBillingFields errors={errors} homeCountryCode={defaultCountryCode} register={register} />
       <FormErrorMessage className="md:col-span-6">{submitError}</FormErrorMessage>
       <FormActions className="md:col-span-6">
         <SubmitButton data-testid="customer-create-submit" pending={isSubmitting} pendingLabel="Creando…">

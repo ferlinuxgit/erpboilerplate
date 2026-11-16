@@ -20,6 +20,7 @@ import { HttpError } from "@/lib/http";
 import { calculateInvoiceTotals, type InvoiceCalculationTax, type InvoiceTotals } from "@/lib/invoice-totals";
 import { postCreditNote, postSalesInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
+import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
 import { getCompanyDefaultsStatus, type CompanyDefaultsStatus } from "@/server/company/defaults";
 import { createCustomerWithPartner } from "@/server/customers/service";
 import { assertSelectableSeries, reserveSeriesNumberDetailed } from "@/server/documents/series";
@@ -346,10 +347,11 @@ export type CustomerBillingDefaults = {
 
 /** Condiciones de facturación de un cliente: días de pago, tratamiento de IVA, retención y formas de pago. */
 export async function resolveCustomerBillingDefaults(client: DbClient, companyId: string, customerId: string): Promise<CustomerBillingDefaults> {
-  const [[row], [settings], defaultMethods] = await Promise.all([
+  const [[row], [settings], defaultMethods, fiscal] = await Promise.all([
     client
       .select({
         countryCode: partner.countryCode,
+        taxId: partner.taxId,
         paymentTermsDays: partner.paymentTermsDays,
         paymentMethodId: partner.paymentMethodId,
         defaultVatTreatment: customer.defaultVatTreatment,
@@ -365,12 +367,13 @@ export async function resolveCustomerBillingDefaults(client: DbClient, companyId
       .select({ id: paymentMethod.id })
       .from(paymentMethod)
       .where(and(eq(paymentMethod.companyId, companyId), eq(paymentMethod.isDefault, true))),
+    getCompanyFiscalContext(companyId, client),
   ]);
   const retention = row?.defaultRetentionRate === null || row?.defaultRetentionRate === undefined ? null : Number(row.defaultRetentionRate);
   return {
-    countryCode: row?.countryCode ?? "ES",
+    countryCode: row?.countryCode ?? fiscal.homeCountry,
     termsDays: effectivePaymentTermsDays(row?.paymentTermsDays, settings?.paymentTermsDays),
-    vatTreatment: customerDefaultVatTreatment(row),
+    vatTreatment: customerDefaultVatTreatment(row, fiscal),
     retentionRate: retention && retention > 0 ? retention : null,
     equivalenceSurcharge: Boolean(row?.equivalenceSurcharge),
     paymentMethodIds: row?.paymentMethodId ? [row.paymentMethodId] : defaultMethods.map((method) => method.id),
@@ -407,7 +410,7 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
   const billing = !isCreditNote && (!row.dueDate || !row.vatTreatment)
     ? await resolveCustomerBillingDefaults(tx, actor.companyId, row.customerId)
     : null;
-  const vatTreatment = (row.vatTreatment as SalesVatTreatmentCode | null) ?? billing?.vatTreatment ?? customerDefaultVatTreatment({ countryCode: customerSnapshot.countryCode });
+  const vatTreatment = (row.vatTreatment as SalesVatTreatmentCode | null) ?? billing?.vatTreatment ?? customerDefaultVatTreatment({ countryCode: customerSnapshot.countryCode, taxId: customerSnapshot.taxId }, await getCompanyFiscalContext(actor.companyId, tx));
   assertVatTreatmentConsistency({ vatTreatment, customerTaxId: customerSnapshot.taxId, totals });
   // Sin vencimiento: fecha de emisión + días de pago del cliente (o de la empresa).
   const dueDate = row.dueDate ?? (billing ? computeDueDate(row.issueDate, billing.termsDays) : null);

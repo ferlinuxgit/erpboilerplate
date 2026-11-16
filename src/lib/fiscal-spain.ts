@@ -1,3 +1,5 @@
+import { normalizeCountryCode } from "@/lib/countries";
+import { isIntraCommunity, normalizeHomeCountry, suggestSupplierVatTreatment, type SalesVatTreatment, type SupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
 import { centsToNumber, lineBaseCents, roundHalfAwayFromZero, taxOnBaseCents } from "@/server/taxation/engine";
 
 export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130"] as const;
@@ -367,8 +369,7 @@ export const EU_COUNTRY_CODES = new Set([
  * INTRA_EU_SERVICES: servicio a empresa de otro país de la UE, no sujeto por reglas de localización
  * (arts. 69.Uno.1º y 84.Uno.2º LIVA). Ambos van en la casilla 59 del 303 y en el 349 (claves E y S).
  */
-export type SalesVatTreatment = "DOMESTIC" | "INTRA_EU" | "INTRA_EU_SERVICES" | "EXPORT" | "EXEMPT" | "REVERSE_CHARGE" | "NOT_SUBJECT";
-export type SupplierVatTreatment = "DOMESTIC" | "INTRA_EU" | "REVERSE_CHARGE" | "IMPORT" | "NOT_SUBJECT";
+export type { SalesVatTreatment, SupplierVatTreatment };
 
 const salesVatTreatments = new Set<SalesVatTreatment>(["DOMESTIC", "INTRA_EU", "INTRA_EU_SERVICES", "EXPORT", "EXEMPT", "REVERSE_CHARGE", "NOT_SUBJECT"]);
 const supplierVatTreatments = new Set<SupplierVatTreatment>(["DOMESTIC", "INTRA_EU", "REVERSE_CHARGE", "IMPORT", "NOT_SUBJECT"]);
@@ -391,16 +392,20 @@ export const supplierVatTreatmentLabels: Record<SupplierVatTreatment, string> = 
   NOT_SUBJECT: "No sujeta",
 };
 
-function normalizeCountry(countryCode: string | null | undefined) {
-  return (countryCode ?? "ES").trim().toUpperCase() || "ES";
-}
-
-/** Tratamiento IVA de una venta: explícito o deducido del país del cliente. */
-export function resolveSalesVatTreatment(explicit: string | null | undefined, customerCountryCode: string | null | undefined): SalesVatTreatment {
+/**
+ * Tratamiento IVA de una venta ya registrada: el explícito o, en datos antiguos sin él, el que
+ * resulta del país del cliente respecto al de la empresa (por defecto España).
+ */
+export function resolveSalesVatTreatment(
+  explicit: string | null | undefined,
+  customerCountryCode: string | null | undefined,
+  homeCountry?: string | null,
+): SalesVatTreatment {
   if (explicit && salesVatTreatments.has(explicit as SalesVatTreatment)) return explicit as SalesVatTreatment;
-  const country = normalizeCountry(customerCountryCode);
-  if (country === "ES") return "DOMESTIC";
-  return EU_COUNTRY_CODES.has(country) ? "INTRA_EU" : "EXPORT";
+  const home = normalizeHomeCountry(homeCountry);
+  const country = normalizeCountryCode(customerCountryCode) || home;
+  if (country === home) return "DOMESTIC";
+  return isIntraCommunity(home, country) ? "INTRA_EU" : "EXPORT";
 }
 
 /**
@@ -413,12 +418,10 @@ export function resolveSupplierVatTreatment(
   explicit: string | null | undefined,
   supplierCountryCode: string | null | undefined,
   supplierKind?: string | null,
+  homeCountry?: string | null,
 ): SupplierVatTreatment {
   if (explicit && supplierVatTreatments.has(explicit as SupplierVatTreatment)) return explicit as SupplierVatTreatment;
-  const country = normalizeCountry(supplierCountryCode);
-  if (country === "ES") return "DOMESTIC";
-  if (EU_COUNTRY_CODES.has(country)) return "INTRA_EU";
-  return supplierKind === "SERVICES" ? "REVERSE_CHARGE" : "IMPORT";
+  return suggestSupplierVatTreatment({ countryCode: supplierCountryCode, supplierKind }, { homeCountry });
 }
 
 /** Venta a empresa de otro país de la UE (bienes o servicios): casilla 59 del 303 y modelo 349. */
@@ -437,9 +440,9 @@ export const REVERSE_CHARGE_DEFAULT_RATE = 21;
  * Cuota autorepercutida (ISP / adquisición intracomunitaria) de una línea.
  * Si la línea trae cuota calculada se usa esa; si no, se aplica el tipo general.
  */
-export function reverseChargeTaxAmount(subtotal: number, lineTaxAmount: number) {
+export function reverseChargeTaxAmount(subtotal: number, lineTaxAmount: number, defaultRate = REVERSE_CHARGE_DEFAULT_RATE) {
   if (lineTaxAmount > 0) return roundMoney(lineTaxAmount);
-  return roundMoney((subtotal * REVERSE_CHARGE_DEFAULT_RATE) / 100);
+  return roundMoney((subtotal * defaultRate) / 100);
 }
 
 /** Recargo de equivalencia → casillas del modelo 303 (diseño vigente AEAT). */

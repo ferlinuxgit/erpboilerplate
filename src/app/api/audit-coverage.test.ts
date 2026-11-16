@@ -282,7 +282,7 @@ describe("company settings and profile", () => {
     mocks.queues.update.push([{ id: "company_1", name: "Nueva" }]);
 
     const response = (await profile.PUT(
-      request("PUT", { name: "Nueva", countryCode: "FR", timezone: "Europe/Paris", baseCurrencyCode: "EUR" }),
+      request("PUT", { name: "Nueva", countryCode: "ES", timezone: "Europe/Madrid", baseCurrencyCode: "EUR" }),
     ))!;
     expect(response.status).toBe(200);
     expectAudit("company.profile.update", { entityName: "company", entityId: "company_1" });

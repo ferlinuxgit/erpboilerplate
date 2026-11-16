@@ -49,7 +49,9 @@ describe("subcuentas (reglas puras)", () => {
     expect(partnerAccountPrefix({ role: "customer", supplierKind: "GOODS", countryCode: "ES" })).toBe("430");
     expect(partnerAccountPrefix({ role: "supplier", supplierKind: "GOODS", countryCode: "ES" })).toBe("400");
     expect(partnerAccountPrefix({ role: "supplier", supplierKind: "SERVICES", countryCode: "ES" })).toBe("410");
-    expect(partnerAccountPrefix({ role: "customer", supplierKind: "GOODS", countryCode: "US", customerCode: "1100" })).toBe("110");
+    // Los demás países usan la plantilla genérica con la misma numeración por grupos.
+    expect(partnerAccountPrefix({ role: "customer", supplierKind: "GOODS", countryCode: "FR", customerCode: "4300" })).toBe("430");
+    expect(partnerAccountPrefix({ role: "supplier", supplierKind: "SERVICES", countryCode: "US" })).toBe("410");
     expect(defaultSupplierKind("services")).toBe("SERVICES");
     expect(defaultSupplierKind("products")).toBe("GOODS");
     expect(defaultSupplierKind("both")).toBe("GOODS");

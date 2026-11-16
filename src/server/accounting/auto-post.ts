@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
+import { usesPgcChart } from "@/lib/country-packs/profile";
+import { standardVatRate } from "@/lib/country-packs/vat-rates";
 import { accountChart, bankAccount, company, companySettings, item, journalEntry, journalLine, partner, paymentMethod, supplierInvoice } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { getCompanyTemplate } from "@/lib/company-templates";
@@ -92,7 +94,8 @@ type SettingsRow = {
 export function resolvePostingSettings(settings: SettingsRow | null | undefined, countryCode: string | null | undefined): PostingSettings {
   const country = (countryCode ?? "ES").toUpperCase();
   const template = getCompanyTemplate(country)?.settings;
-  const isSpain = country === "ES";
+  // Plan por grupos (PGC y plantilla genérica): retenciones 4751/473 y partidas pendientes 555.
+  const isSpain = usesPgcChart(country);
   const prorrata = Number(settings?.prorrataPct ?? 100);
   const businessType = settings?.businessType ?? "both";
   const configuredSales = settings?.defaultSalesAccountCode ?? template?.defaultSalesAccountCode ?? "700";
@@ -545,7 +548,7 @@ async function resolveSalesSplit(client: DbClient, companyId: string, settings: 
         .where(and(eq(item.companyId, companyId), inArray(item.id, itemIds)))
     : [];
   const byItem = new Map(items.map((row) => [row.id, row]));
-  const standardSalesCode = settings.countryCode === "ES" && ["700", "705"].includes(settings.codes.sales);
+  const standardSalesCode = usesPgcChart(settings.countryCode) && ["700", "705"].includes(settings.codes.sales);
   const split: Array<{ accountId: string; subtotal: number }> = [];
   for (const line of lines) {
     const itemRow = line.itemId ? byItem.get(line.itemId) : undefined;
@@ -608,7 +611,7 @@ async function settlementPartyAccountId(
   input: { partnerId: string | null; role: PartnerAccountRole; fallbackId: string; documentSource: { sourceType: string; sourceId: string } | null },
 ) {
   const settings = await loadPostingSettings(companyId, client);
-  const prefixes = settings.countryCode === "ES"
+  const prefixes = usesPgcChart(settings.countryCode)
     ? input.role === "customer" ? ["43"] : ["40", "41"]
     : [(input.role === "customer" ? settings.codes.customer : settings.codes.supplier).slice(0, 2)];
   const previous = input.documentSource ? await documentPartyAccount(client, companyId, input.documentSource, prefixes) : null;
@@ -681,6 +684,8 @@ export function buildSupplierInvoiceLines(input: {
   totalAmount: number;
   prorrataPct: number;
   vatTreatment: SupplierVatTreatment;
+  /** Tipo general del país para autorepercutir líneas sin cuota (por defecto, el español). */
+  selfAssessmentRate?: number;
 }): PostingLine[] {
   const selfAssessed = isSelfAssessedTreatment(input.vatTreatment);
   const expenseByAccount = new Map<string, number>();
@@ -693,7 +698,7 @@ export function buildSupplierInvoiceLines(input: {
     const accountId = line.accountId || input.accounts.purchase;
     const lineSubtotal = toCents(line.subtotal);
     const chargedTax = toCents(line.taxAmount ?? 0);
-    const vatCents = selfAssessed ? toCents(reverseChargeTaxAmount(line.subtotal, line.taxAmount ?? 0)) : chargedTax;
+    const vatCents = selfAssessed ? toCents(reverseChargeTaxAmount(line.subtotal, line.taxAmount ?? 0, input.selfAssessmentRate)) : chargedTax;
     const lineDeductiblePct = Math.min(Math.max(line.taxDeductiblePct ?? 100, 0), 100);
     const effectivePct = (lineDeductiblePct * input.prorrataPct) / 100;
     const deductible = applyPct(vatCents, effectivePct);
@@ -719,12 +724,13 @@ export function buildSupplierInvoiceLines(input: {
 
 async function lookupSupplierVatTreatment(client: DbClient, companyId: string, supplierInvoiceId: string): Promise<SupplierVatTreatment> {
   const [row] = await client
-    .select({ vatTreatment: supplierInvoice.vatTreatment, countryCode: partner.countryCode })
+    .select({ vatTreatment: supplierInvoice.vatTreatment, countryCode: partner.countryCode, homeCountry: company.countryCode })
     .from(supplierInvoice)
+    .innerJoin(company, eq(company.id, supplierInvoice.companyId))
     .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
     .where(and(eq(supplierInvoice.id, supplierInvoiceId), eq(supplierInvoice.companyId, companyId)))
     .limit(1);
-  return resolveSupplierVatTreatment(row?.vatTreatment, row?.countryCode);
+  return resolveSupplierVatTreatment(row?.vatTreatment, row?.countryCode, null, row?.homeCountry);
 }
 
 /** Factura recibida: gastos (6xx/2xx) + 472 a la subcuenta del proveedor (400/410) + 4751 (+ 477 en ISP). */
@@ -760,6 +766,7 @@ export async function postSupplierInvoice(
     totalAmount: input.totalAmount,
     prorrataPct: input.prorrataPct ?? settings.prorrataPct,
     vatTreatment,
+    selfAssessmentRate: standardVatRate(settings.countryCode),
   });
   await createAutomaticEntry({
     ...input,

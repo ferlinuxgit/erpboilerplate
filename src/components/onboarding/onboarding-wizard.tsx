@@ -13,13 +13,18 @@ import { Select } from "@/components/ui/select";
 import { invalidateActiveContext } from "@/lib/active-context-client";
 import { BUSINESS_TYPES, businessTypeDescriptions, businessTypeLabels, type BusinessType } from "@/lib/company-readiness";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { onboardingFieldsSchema, onboardingInviteSchema, onboardingStepFields, type OnboardingFields, type OnboardingStepKey } from "@/lib/onboarding";
+import { countriesForSelect } from "@/lib/countries";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
+import { countryFromTaxId } from "@/lib/country-packs/tax-id";
+import { onboardingFieldsSchemaFor, onboardingInviteSchema, onboardingStepFields, type OnboardingFields, type OnboardingStepKey } from "@/lib/onboarding";
 import { roleDescriptions, type AppRole } from "@/lib/rbac";
 import { roleLabels } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
 
 export type OnboardingInitialValues = {
   legalName: string;
+  /** País de la empresa (ISO alfa-2): decide impuestos, plantilla contable y cómo se valida el NIF. */
+  countryCode: string;
   vatNumber: string;
   businessType: BusinessType | "";
   fiscalAddress: string;
@@ -35,10 +40,11 @@ type FormValues = OnboardingInitialValues & { inviteEmail: string; inviteRole: I
 type FieldName = keyof FormValues;
 type InviteRole = "ACCOUNTANT" | "MEMBER" | "ADMIN" | "VIEWER";
 
+const COUNTRY_OPTIONS = countriesForSelect();
 const inviteRoles: InviteRole[] = ["ACCOUNTANT", "MEMBER", "ADMIN", "VIEWER"];
 
 const steps: Array<{ key: OnboardingStepKey; title: string; optional: boolean; description: string }> = [
-  { key: "company", title: "Tu empresa", optional: false, description: "Nombre, NIF y qué vendes. Aparecen en tus facturas." },
+  { key: "company", title: "Tu empresa", optional: false, description: "Nombre, país, NIF y qué vendes. Con esto se configuran solos tus impuestos." },
   { key: "address", title: "Dirección fiscal", optional: false, description: "El domicilio fiscal es obligatorio en toda factura." },
   { key: "billing", title: "Facturación y banco", optional: false, description: "Cómo se numeran tus facturas y dónde cobras." },
   { key: "team", title: "Tu gestor o equipo", optional: true, description: "Invita a tu gestor o a quien te ayude. Puedes hacerlo después." },
@@ -89,7 +95,7 @@ function validateStep(step: OnboardingStepKey, values: FormValues) {
     return { errors, data: {} };
   }
   const picked = Object.fromEntries(fields.map((field) => [field, values[field]]));
-  const parsed = onboardingFieldsSchema.pick(Object.fromEntries(fields.map((field) => [field, true])) as Partial<Record<keyof OnboardingFields, true>>).safeParse(picked);
+  const parsed = onboardingFieldsSchemaFor(values.countryCode).pick(Object.fromEntries(fields.map((field) => [field, true])) as Partial<Record<keyof OnboardingFields, true>>).safeParse(picked);
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
       const field = issue.path[0] as FieldName | undefined;
@@ -102,7 +108,8 @@ function validateStep(step: OnboardingStepKey, values: FormValues) {
 /** Campos válidos de todos los pasos (para no perder nada al posponer). */
 function validPartialValues(values: FormValues) {
   const result: Partial<OnboardingFields> = {};
-  for (const [field, schema] of Object.entries(onboardingFieldsSchema.shape) as Array<[keyof OnboardingFields, (typeof onboardingFieldsSchema.shape)[keyof OnboardingFields]]>) {
+  const schemaShape = onboardingFieldsSchemaFor(values.countryCode).shape;
+  for (const [field, schema] of Object.entries(schemaShape) as Array<[keyof OnboardingFields, (typeof schemaShape)[keyof OnboardingFields]]>) {
     const value = values[field];
     if (typeof value !== "string" || !value.trim()) continue;
     const parsed = schema.safeParse(value);
@@ -131,6 +138,10 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
   const [pending, setPending] = useState<"step" | "finish" | "later" | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<CompletionResult | null>(null);
+  // Mientras el usuario no elija país a mano, se deduce del NIF (PT…, FR…, o formato español).
+  const [countryTouched, setCountryTouched] = useState(false);
+  const fiscalProfile = getCountryFiscalProfile(values.countryCode);
+  const isSpain = fiscalProfile.features.nationalTaxIdValidation === "es";
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstRender = useRef(true);
   const currentStep = steps[stepIndex];
@@ -159,6 +170,12 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
       return next;
     });
     if (errors[field]) setErrors((current) => ({ ...current, [field]: undefined }));
+  };
+
+  const setVatNumber = (value: string) => {
+    setField("vatNumber", value);
+    const detected = countryTouched ? null : countryFromTaxId(value);
+    if (detected && detected !== values.countryCode) setField("countryCode", detected);
   };
 
   const inputProps = (field: Exclude<FieldName, "businessType" | "inviteRole">) => ({
@@ -368,12 +385,41 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
             </AccessibleField>
             <AccessibleField
               error={errors.vatNumber}
-              helperText="CIF de la sociedad, o NIF/NIE si eres autónomo."
+              helperText={isSpain
+                ? "CIF de la sociedad, o NIF/NIE si eres autónomo. Con él sabemos si eres autónomo o sociedad."
+                : `${fiscalProfile.taxIdLabel} de la empresa${fiscalProfile.isEu ? ", con el prefijo del país (p. ej. PT501964843)" : ""}.`}
               id="vatNumber"
-              label="NIF/CIF"
+              label={isSpain ? "NIF/CIF" : fiscalProfile.taxIdLabel}
               required
             >
-              <Input autoCapitalize="characters" placeholder="B12345674" spellCheck={false} {...inputProps("vatNumber")} />
+              <Input
+                autoCapitalize="characters"
+                placeholder={isSpain ? "B12345674" : ""}
+                spellCheck={false}
+                value={values.vatNumber}
+                onChange={(event) => setVatNumber(event.target.value)}
+              />
+            </AccessibleField>
+            <AccessibleField
+              error={errors.countryCode}
+              helperText={fiscalProfile.level === "full"
+                ? "Impuestos, plan contable, modelos y VERI*FACTU se configuran solos."
+                : `Se configuran solos los tipos de ${fiscalProfile.taxLabel} del país y un plan contable general. Los modelos oficiales de este país aún no están disponibles.`}
+              id="countryCode"
+              label="País de la empresa"
+              required
+            >
+              <Select
+                value={values.countryCode}
+                onChange={(event) => {
+                  setCountryTouched(true);
+                  setField("countryCode", event.target.value);
+                }}
+              >
+                {COUNTRY_OPTIONS.map((country) => (
+                  <option key={country.code} value={country.code}>{country.name}</option>
+                ))}
+              </Select>
             </AccessibleField>
             <fieldset aria-describedby={errors.businessType ? "businessType-error" : undefined} className="space-y-1 md:col-span-2">
               <legend className="text-sm font-medium">
@@ -415,13 +461,13 @@ export function OnboardingWizard({ companyId, initialValues, workspaceName }: { 
               <Input autoComplete="street-address" autoFocus placeholder="Calle Mayor 1, 2º B" {...inputProps("fiscalAddress")} />
             </AccessibleField>
             <AccessibleField className="md:col-span-2" error={errors.postalCode} id="postalCode" label="Código postal" required>
-              <Input autoComplete="postal-code" inputMode="numeric" maxLength={5} placeholder="28013" {...inputProps("postalCode")} />
+              <Input autoComplete="postal-code" inputMode={isSpain ? "numeric" : "text"} maxLength={isSpain ? 5 : 12} placeholder={isSpain ? "28013" : ""} {...inputProps("postalCode")} />
             </AccessibleField>
             <AccessibleField className="md:col-span-2" error={errors.city} id="city" label="Ciudad" required>
               <Input autoComplete="address-level2" placeholder="Madrid" {...inputProps("city")} />
             </AccessibleField>
-            <AccessibleField className="md:col-span-2" error={errors.province} id="province" label="Provincia" required>
-              <Input autoComplete="address-level1" placeholder="Madrid" {...inputProps("province")} />
+            <AccessibleField className="md:col-span-2" error={errors.province} id="province" label={isSpain ? "Provincia" : "Provincia o región"} required={isSpain}>
+              <Input autoComplete="address-level1" placeholder={isSpain ? "Madrid" : ""} {...inputProps("province")} />
             </AccessibleField>
           </div>
         ) : null}

@@ -29,7 +29,7 @@ import {
   rectificationReasonLabels,
   rectificationTypeLabels,
   salesVatTreatmentOptions,
-  vatTreatmentLegalNotes,
+  vatTreatmentLegalNote,
   type RectificationReason,
   type RectificationType,
 } from "@/server/invoices/lifecycle";
@@ -170,9 +170,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     email: row.customerEmail,
     phone: row.customerPhone,
   };
-  const vatTreatment = isSalesVatTreatment(data.vatTreatment) ? data.vatTreatment : defaultSalesVatTreatment(party.countryCode);
+  const vatTreatment = isSalesVatTreatment(data.vatTreatment) ? data.vatTreatment : defaultSalesVatTreatment(party.countryCode, tenantContext.company.countryCode);
   const vatTreatmentLabel = salesVatTreatmentOptions.find((option) => option.value === vatTreatment)?.label ?? vatTreatment;
-  const legalNote = vatTreatmentLegalNotes[vatTreatment];
+  const legalNote = vatTreatmentLegalNote(vatTreatment, tenantContext.company.countryCode);
   const displayedPaymentMethods = selectedPaymentMethods.length > 0
     ? selectedPaymentMethods
     : data.paymentMethodName

@@ -57,6 +57,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
         ) : (
           <CreateExpenseInvoiceForm
             baseCurrencyCode={ctx.company.baseCurrencyCode}
+            homeCountryCode={ctx.company.countryCode}
             expenseAccounts={expenseAccounts}
             goodsReceipts={relations.receipts}
             initialSupplierId={initialSupplierId}

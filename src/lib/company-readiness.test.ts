@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { companyInvoiceReadiness, isValidIban, isValidSeriesPrefix, normalizeIban, parseBusinessType } from "@/lib/company-readiness";
-import { onboardingFieldsSchema, onboardingStepPayloadSchema } from "@/lib/onboarding";
+import { onboardingFieldsSchema, onboardingFieldsSchemaFor, onboardingStepPayloadSchema, onboardingStepPayloadSchemaFor } from "@/lib/onboarding";
 
 describe("company invoice readiness", () => {
   it("lists the missing issuer data in Spanish", () => {
@@ -56,5 +56,18 @@ describe("setup wizard validation", () => {
     expect(onboardingStepPayloadSchema.safeParse({ legalName: "Mi taller" }).success).toBe(true);
     expect(onboardingStepPayloadSchema.safeParse({ iban: "" }).success).toBe(true);
     expect(onboardingStepPayloadSchema.safeParse({ iban: "ES00 1234" }).success).toBe(false);
+  });
+
+  it("valida el alta según el país de la empresa", () => {
+    const base = { legalName: "Atelier Dupont", vatNumber: "FR40303265045", businessType: "services", fiscalAddress: "1 rue de Rivoli", postalCode: "75001", city: "Paris", province: "", invoicePrefix: "F", iban: "", bankName: "" };
+    // Francia: NIF-IVA sin algoritmo español, código postal libre y región opcional.
+    expect(onboardingFieldsSchemaFor("FR").safeParse({ ...base, countryCode: "FR" }).success).toBe(true);
+    // España: el mismo identificador no es un NIF español y la provincia es obligatoria.
+    const spain = onboardingFieldsSchemaFor("ES").safeParse({ ...base, countryCode: "ES" });
+    expect(spain.success).toBe(false);
+    expect(spain.error?.issues.map((issue) => issue.path[0])).toEqual(expect.arrayContaining(["vatNumber", "province"]));
+    // La API valida con el país enviado en el propio paso.
+    expect(onboardingStepPayloadSchemaFor("ES", { countryCode: "FR", vatNumber: "FR40303265045" }).safeParse({ countryCode: "FR", vatNumber: "FR40303265045" }).success).toBe(true);
+    expect(onboardingStepPayloadSchemaFor("ES", { vatNumber: "FR40303265045" }).safeParse({ vatNumber: "FR40303265045" }).success).toBe(false);
   });
 });

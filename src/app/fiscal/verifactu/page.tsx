@@ -7,6 +7,7 @@ import { EmptyState, InlineAlert, MetricCard, PageHeader, PageSection, PageShell
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
+import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 import { formatCount } from "@/lib/pluralize";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
@@ -39,6 +40,7 @@ function aeatErrorText(record: VerifactuRecordRow) {
 
 export default async function VerifactuPage() {
   const ctx = await requireContext("fiscal.read");
+  requireCountryFeaturePage(ctx.company.countryCode, "eInvoicing");
   const overview = await getVerifactuOverview(ctx.company.id);
   const canWrite = can(ctx.membership.role, "fiscal.write");
   const pending = overview.counts.PENDING_SEND ?? 0;

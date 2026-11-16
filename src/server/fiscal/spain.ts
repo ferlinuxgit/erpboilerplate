@@ -1,5 +1,6 @@
 import { and, eq, gte, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 
+import { standardVatRate } from "@/lib/country-packs/vat-rates";
 import { alias } from "drizzle-orm/pg-core";
 
 import { accountChart, companySettings, customer, invoice, invoiceLine, invoiceLineTax, item, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
@@ -239,7 +240,7 @@ export function supplierInvoiceFiscalFilter(companyId: string, start: Date, endE
   );
 }
 
-async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusive: Date): Promise<IssuedVatResult> {
+export async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusive: Date, homeCountry?: string | null): Promise<IssuedVatResult> {
   const lines = await db
     .select({
       lineId: invoiceLine.id,
@@ -278,7 +279,7 @@ async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusiv
 
   return computeIssuedVat(lines.map((line) => ({
     ...line,
-    treatment: resolveSalesVatTreatment(line.vatTreatment, line.countryCode),
+    treatment: resolveSalesVatTreatment(line.vatTreatment, line.countryCode, homeCountry),
     taxes: taxesByLine.get(line.lineId) ?? null,
   })));
 }
@@ -289,7 +290,7 @@ async function fetchIssuedInvoiceVat(companyId: string, start: Date, endExclusiv
  * - una factura anulada sigue en su periodo y su anulación resta (sign −1) en el periodo del asiento
  *   de anulación, como en el diario; las anuladas sin fecha de anulación (antiguas) no computan.
  */
-async function fetchSupplierLines(companyId: string, start: Date, endExclusive: Date): Promise<SupplierLineInput[]> {
+async function fetchSupplierLines(companyId: string, start: Date, endExclusive: Date, homeCountry?: string | null): Promise<SupplierLineInput[]> {
   const columns = {
     subtotal: supplierInvoiceLine.subtotalAmount,
     taxAmount: supplierInvoiceLine.taxAmount,
@@ -334,13 +335,13 @@ async function fetchSupplierLines(companyId: string, start: Date, endExclusive: 
     ...voided.map((line) => ({ ...line, sign: -1 as const })),
   ].map((line) => ({
     ...line,
-    treatment: resolveSupplierVatTreatment(line.vatTreatment, line.countryCode),
+    treatment: resolveSupplierVatTreatment(line.vatTreatment, line.countryCode, null, homeCountry),
   }));
 }
 
 /** Facturas recibidas del periodo. Excluye anuladas (VOID) y borradores si los hubiera. */
-async function fetchSupplierInvoiceVat(companyId: string, start: Date, endExclusive: Date, prorrataPct: number): Promise<SupplierVatResult> {
-  return computeSupplierVat(await fetchSupplierLines(companyId, start, endExclusive), prorrataPct);
+export async function fetchSupplierInvoiceVat(companyId: string, start: Date, endExclusive: Date, prorrataPct: number, homeCountry?: string | null): Promise<SupplierVatResult> {
+  return computeSupplierVat(await fetchSupplierLines(companyId, start, endExclusive, homeCountry), prorrataPct, standardVatRate(homeCountry));
 }
 
 function quarterIndex(date: Date) {

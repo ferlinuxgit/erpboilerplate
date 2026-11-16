@@ -51,6 +51,7 @@ export async function resolvePostAuthDestination(userId: string, requestedNext: 
         postalCode: company.postalCode,
         city: company.city,
         province: company.province,
+        countryCode: company.countryCode,
       })
       .from(membership)
       .innerJoin(company, eq(company.tenantId, membership.tenantId))

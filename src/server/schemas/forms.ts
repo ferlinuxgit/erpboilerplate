@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { describeSpanishTaxIdProblem, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { describeTaxIdProblemForCountry } from "@/lib/country-packs/tax-id";
+import { describeSpanishTaxIdProblem } from "@/lib/spanish-tax-id";
 
 export const authSignInSchema = z.object({
   email: z.string().trim().email("Debes indicar un email válido."),
@@ -83,8 +84,7 @@ export const companyProfileSchema = z.object({
     .or(z.literal("")),
   invoiceFooter: z.string().trim().max(500, "El pie de factura no puede superar 500 caracteres.").optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
-  const vatNumber = normalizeSpanishTaxId(value.vatNumber);
-  const vatProblem = value.countryCode.toUpperCase() === "ES" && vatNumber ? describeSpanishTaxIdProblem(vatNumber) : null;
+  const vatProblem = value.vatNumber?.trim() ? describeTaxIdProblemForCountry(value.vatNumber, value.countryCode) : null;
   if (vatProblem) {
     ctx.addIssue({ code: "custom", message: vatProblem, path: ["vatNumber"] });
   }

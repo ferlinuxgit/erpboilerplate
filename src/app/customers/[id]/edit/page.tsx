@@ -79,6 +79,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
       />
       <PageSection title="Datos del cliente" description="Actualiza identidad fiscal, contacto y condiciones de facturación.">
         <EditCustomerForm
+          homeCountryCode={ctx.company.countryCode}
           id={data.id}
           defaults={{
             name: data.name,
@@ -88,7 +89,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
             postalCode: data.postalCode ?? "",
             city: data.city ?? "",
             province: data.province ?? "",
-            countryCode: data.countryCode ?? "ES",
+            countryCode: data.countryCode ?? ctx.company.countryCode,
             email: data.email,
             phone: data.phone,
             status: data.status,

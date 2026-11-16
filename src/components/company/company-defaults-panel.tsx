@@ -50,14 +50,6 @@ export function CompanyDefaultsPanel({ canRepair = true, compact = false, initia
     }
   };
 
-  if (status.preset === "UNSUPPORTED") {
-    return (
-      <div className="border border-dashed border-window-dark-shadow bg-window-panel p-3 text-xs text-muted-foreground">
-        No hay una plantilla automática para el país de esta empresa. Revisa los maestros y el plan contable manualmente.
-      </div>
-    );
-  }
-
   return (
     <div
       className={cn(

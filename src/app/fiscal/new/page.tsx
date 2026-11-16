@@ -3,10 +3,12 @@ import { spanishFiscalModelsFor } from "@/lib/fiscal-spain";
 import { getFiscalSettings } from "@/server/fiscal/settings";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
+import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 import { canFromDb } from "@/lib/rbac-server";
 
 export default async function NewFiscalReportPage({ searchParams }: { searchParams: Promise<{ code?: string; period?: string }> }) {
   const ctx = await requireContext("fiscal.write");
+  requireCountryFeaturePage(ctx.company.countryCode, "taxReports");
   const [canWrite, settings, query] = await Promise.all([
     canFromDb(ctx.membership.role, "fiscal.write"),
     getFiscalSettings(ctx.company.id),

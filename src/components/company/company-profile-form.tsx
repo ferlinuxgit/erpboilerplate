@@ -15,6 +15,8 @@ import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
 import { companyInvoiceReadiness } from "@/lib/company-readiness";
+import { countriesForSelect } from "@/lib/countries";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { companyProfileSchema } from "@/server/schemas/forms";
 
@@ -31,11 +33,7 @@ type CompanyProfileFormProps = {
 
 const documentFields = new Set<keyof CompanyProfileFormValues>(["logoDataUrl", "invoiceFooter"]);
 
-const countries = [
-  { code: "ES", label: "España" },
-  { code: "PT", label: "Portugal" },
-  { code: "FR", label: "Francia" },
-];
+const countries = countriesForSelect().map((country) => ({ code: country.code, label: country.name }));
 
 const currencies = ["EUR", "USD", "GBP", "CHF", "CAD", "AUD", "JPY", "CNY", "SEK", "NOK", "DKK", "PLN", "CZK", "MXN"] as const;
 
@@ -64,6 +62,10 @@ export function CompanyProfileForm({ initialValues, part }: CompanyProfileFormPr
     defaultValues: initialValues,
   });
   const watchedValues = useWatch({ control });
+  const countryProfile = getCountryFiscalProfile(watchedValues.countryCode);
+  // La moneda y la zona horaria del país (y las ya guardadas) siempre están entre las opciones.
+  const currencyOptions = [...new Set([...currencies, countryProfile.currency, watchedValues.baseCurrencyCode ?? ""].filter(Boolean))];
+  const timezoneOptions = [...new Set([...timezones, countryProfile.timezone, watchedValues.timezone ?? ""].filter(Boolean))];
   const invoiceReadiness = useMemo(() => completion(watchedValues), [watchedValues]);
   const logoDataUrl = watchedValues.logoDataUrl ?? "";
   const [formError, setFormError] = useState<string | null>(null);
@@ -169,11 +171,29 @@ export function CompanyProfileForm({ initialValues, part }: CompanyProfileFormPr
               <AccessibleField id="company-legal-name" label="Razón social" helperText={invoiceHelper} error={errors.legalName?.message} className="md:col-span-3">
                 <Input id="company-legal-name" autoComplete="organization" placeholder="Empresa Demo S.L." {...register("legalName")} />
               </AccessibleField>
-              <AccessibleField id="company-vat-number" label="CIF/NIF/VAT" error={errors.vatNumber?.message} helperText="Necesario para facturar. En España se valida y se guarda sin espacios ni guiones." className="md:col-span-2">
+              <AccessibleField id="company-vat-number" label={countryProfile.features.nationalTaxIdValidation === "es" ? "CIF/NIF" : countryProfile.taxIdLabel} error={errors.vatNumber?.message} helperText="Necesario para facturar. En España se valida y se guarda sin espacios ni guiones." className="md:col-span-2">
                 <Input id="company-vat-number" autoCapitalize="characters" placeholder="B12345678" {...register("vatNumber")} />
               </AccessibleField>
-              <AccessibleField id="company-country" label="País" required error={errors.countryCode?.message} className="md:col-span-2">
-                <Select id="company-country" required {...register("countryCode")}>
+              <AccessibleField
+                id="company-country"
+                label="País"
+                required
+                error={errors.countryCode?.message}
+                helperText={countryProfile.level === "full" ? "Cumplimiento fiscal completo." : `Impuestos y plan contable generales; sin modelos oficiales de ${countryProfile.countryName} por ahora.`}
+                className="md:col-span-2"
+              >
+                <Select
+                  id="company-country"
+                  required
+                  {...register("countryCode", {
+                    // Al cambiar de país se proponen su moneda y su zona horaria; impuestos y plan contable se adaptan al guardar.
+                    onChange: (event: ChangeEvent<HTMLSelectElement>) => {
+                      const next = getCountryFiscalProfile(event.target.value);
+                      setValue("baseCurrencyCode", next.currency, { shouldDirty: true });
+                      setValue("timezone", next.timezone, { shouldDirty: true });
+                    },
+                  })}
+                >
                   {countries.map((country) => (
                     <option key={country.code} value={country.code}>{country.label}</option>
                   ))}
@@ -181,7 +201,7 @@ export function CompanyProfileForm({ initialValues, part }: CompanyProfileFormPr
               </AccessibleField>
               <AccessibleField id="company-currency" label="Moneda base" required error={errors.baseCurrencyCode?.message} className="md:col-span-2">
                 <Select id="company-currency" required {...register("baseCurrencyCode")}>
-                  {currencies.map((currency) => (
+                  {currencyOptions.map((currency) => (
                     <option key={currency} value={currency}>{currency}</option>
                   ))}
                 </Select>
@@ -230,7 +250,7 @@ export function CompanyProfileForm({ initialValues, part }: CompanyProfileFormPr
               </AccessibleField>
               <AccessibleField id="company-timezone" label="Zona horaria" required error={errors.timezone?.message} className="md:col-span-2">
                 <Select id="company-timezone" required {...register("timezone")}>
-                  {timezones.map((timezone) => (
+                  {timezoneOptions.map((timezone) => (
                     <option key={timezone} value={timezone}>{timezone}</option>
                   ))}
                 </Select>

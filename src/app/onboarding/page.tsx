@@ -45,6 +45,7 @@ export default async function OnboardingPage() {
             companyId={ctx.company.id}
             initialValues={{
               legalName: profile?.legalName ?? (profile?.name && profile.name !== DEFAULT_COMPANY_NAME ? profile.name : ""),
+              countryCode: ctx.company.countryCode,
               vatNumber: profile?.vatNumber ?? "",
               // El primer paso guarda nombre y tipo de negocio a la vez: sin nombre, la pregunta sigue sin responder.
               businessType: profile?.legalName || state.onboardingCompletedAt ? state.businessType : "",

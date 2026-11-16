@@ -68,8 +68,8 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
   // Subcuenta 430 del cliente (43000001…), donde van sus facturas y cobros.
   const ledgerAccount = record.partnerId ? await findPartnerSubaccount(ctx.company.id, record.partnerId, ["430"]) : null;
   const termsDays = effectivePaymentTermsDays(record.paymentTermsDays, settings?.paymentTermsDays);
-  const vatTreatmentLabel = salesVatTreatmentOptions.find((option) => option.value === record.defaultVatTreatment)?.label ?? `Automático (${countryName(record.countryCode ?? "ES")})`;
-  const showVies = isEuCountry(record.countryCode) && record.countryCode !== "ES";
+  const vatTreatmentLabel = salesVatTreatmentOptions.find((option) => option.value === record.defaultVatTreatment)?.label ?? `Automático (${countryName(record.countryCode ?? ctx.company.countryCode)})`;
+  const showVies = isEuCountry(record.countryCode) && record.countryCode !== ctx.company.countryCode;
   const timeline: ActivityTimelineItem[] = [
     ...invoices.map((row) => ({ id: `invoice-${row.id}`, title: `Factura ${row.number}`, description: `${formatMoney(row.totalAmount, currencyCode)} · ${statusLabel(invoicePaymentStatusLabels, row.paymentStatus)}`, date: row.createdAt, href: `/invoices/${row.id}`, tone: row.paymentStatus === "PAID" ? "success" as const : "warning" as const })),
     ...quotes.map((row) => ({ id: `quote-${row.id}`, title: `Presupuesto ${row.number}`, description: `${formatMoney(row.totalAmount, currencyCode)} · ${statusLabel(salesDocumentStatusLabels, row.status)}`, date: row.createdAt, href: `/sales/quotes/${row.id}` })),
