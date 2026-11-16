@@ -1,6 +1,6 @@
 import { CreateFiscalReportForm } from "@/components/fiscal/create-fiscal-report-form";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
-import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
+import { companyHasAiem, getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { spanishFiscalModelsFor } from "@/lib/fiscal-spain";
 import { getFiscalSettings } from "@/server/fiscal/settings";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -33,7 +33,7 @@ export default async function NewFiscalReportPage({ searchParams }: { searchPara
           <CreateFiscalReportForm
             initialCode={query.code}
             initialPeriod={query.period}
-            models={spanishFiscalModelsFor(settings.taxpayerType, { vatReturns: getCountryFiscalProfile(territory).features.vatReturns })}
+            models={spanishFiscalModelsFor(settings.taxpayerType, { vatReturns: getCountryFiscalProfile(territory).features.vatReturns, territory, aiem: territory === "ES-CN" && (await companyHasAiem(ctx.company.id)) })}
             periodicity={settings.taxPeriodicity}
           />
         ) : (

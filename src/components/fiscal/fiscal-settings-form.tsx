@@ -13,12 +13,14 @@ import { PercentInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { IGIC_REGIMES, igicRegimeHelp, igicRegimeLabels, isIgicRegime } from "@/lib/country-packs/igic";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
 export type FiscalSettingsFormValues = {
   logoUrl: string;
   paymentTermsDays: number;
-  fiscalRegime: "general" | "recargo_equivalencia" | "cash_accounting" | "exempt";
+  /** IVA: general, recargo de equivalencia, criterio de caja o exento. IGIC (Canarias): además comerciante minorista y REPEP. */
+  fiscalRegime: "general" | "recargo_equivalencia" | "cash_accounting" | "exempt" | "comerciante_minorista" | "pequeno_empresario";
   taxPeriodicity: "monthly" | "quarterly";
   siiEnabled: boolean;
   verifactuMode: "pending" | "verifactu" | "non_verifactu";
@@ -40,6 +42,8 @@ type FiscalSettingsFormProps = {
   spanishRegimes?: boolean;
   /** Régimen de IVA, prorrata y SII: false en Canarias, Ceuta y Melilla (IGIC / IPSI). Por defecto, igual que `spanishRegimes`. */
   vatRegimes?: boolean;
+  /** Canarias: régimen del IGIC (general, comerciante minorista, REPEP, criterio de caja). */
+  igicRegimes?: boolean;
   /** Nombre local del impuesto ("IVA", "TVA"…). */
   taxLabel?: string;
 };
@@ -50,7 +54,7 @@ async function readError(response: Response, fallback: string) {
 }
 
 /** Perfil fiscal: tipo de contribuyente, régimen, periodicidad, prorrata y SII. */
-export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRegimes, taxLabel = "IVA" }: FiscalSettingsFormProps) {
+export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRegimes, igicRegimes = false, taxLabel = "IVA" }: FiscalSettingsFormProps) {
   const showVatRegimes = vatRegimes ?? spanishRegimes;
   const router = useRouter();
   const [values, setValues] = useState(initialValues);
@@ -114,6 +118,21 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
           <Select value={values.taxpayerType} onChange={(event) => setValue("taxpayerType", event.target.value as FiscalSettingsFormValues["taxpayerType"])}>
             <option value="company">Sociedad</option>
             <option value="individual">Autónomo (persona física)</option>
+          </Select>
+        </AccessibleField>
+        ) : null}
+
+        {igicRegimes ? (
+        <AccessibleField
+          id="fiscal-igic-regime"
+          label="Régimen del IGIC"
+          helperText={igicRegimeHelp[isIgicRegime(values.fiscalRegime) ? values.fiscalRegime : "general"]}
+        >
+          <Select
+            value={isIgicRegime(values.fiscalRegime) ? values.fiscalRegime : "general"}
+            onChange={(event) => setValue("fiscalRegime", event.target.value as FiscalSettingsFormValues["fiscalRegime"])}
+          >
+            {IGIC_REGIMES.map((regime) => <option key={regime} value={regime}>{igicRegimeLabels[regime]}</option>)}
           </Select>
         </AccessibleField>
         ) : null}
@@ -296,5 +315,51 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
         title="¿Activar el registro de facturas?"
       />
     </form>
+  );
+}
+
+/** Canarias: activar el AIEM crea sus tipos (5, 10, 15 y 25 %) y el modelo 450. */
+export function AiemSettingsForm({ initialEnabled }: { initialEnabled: boolean }) {
+  const router = useRouter();
+  const [enabled, setEnabled] = useState(initialEnabled);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (next: boolean) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/fiscal-profile/aiem", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!response.ok) throw new Error(await readError(response, "No se pudo guardar el AIEM."));
+      setEnabled(next);
+      toast.success(next ? "AIEM activado: ya puedes añadirlo a las líneas y preparar el 450." : "AIEM desactivado.");
+      router.refresh();
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : "Error inesperado.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-surface border p-3">
+      <label className="flex items-start gap-2 text-sm" htmlFor="fiscal-aiem">
+        <input checked={enabled} className="mt-1 size-4 accent-primary" disabled={loading} id="fiscal-aiem" onChange={(event) => void save(event.target.checked)} type="checkbox" />
+        <span>
+          <span className="block font-medium">Fabrico o entrego en Canarias mercancías sujetas al AIEM</span>
+          <span className="text-xs text-muted-foreground">
+            Crea los tipos del arbitrio (5, 10, 15 y 25 %) para añadirlos a las líneas de esas mercancías y activa el modelo 450 trimestral.
+            Solo para productores de los bienes del anexo de la Ley 4/2014; las importaciones lo pagan en aduana.
+          </span>
+        </span>
+      </label>
+      {error ? <InlineAlert className="mt-3" role="alert" tone="danger">{error}</InlineAlert> : null}
+    </div>
   );
 }

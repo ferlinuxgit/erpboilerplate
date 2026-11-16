@@ -33,6 +33,7 @@ import { createCustomerWithPartner } from "@/server/customers/service";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
 import { createSupplierWithPartner } from "@/server/suppliers/service";
 import { getVerifactuSettings } from "@/server/verifactu/settings";
+import { calculateSpanishFiscalSummary } from "@/server/fiscal/spain";
 import { calculateTaxSummary, parseTaxSummaryPeriod } from "@/server/fiscal/tax-summary";
 
 const TENANT = "tenant-1";
@@ -197,11 +198,38 @@ describe("Canarias, Ceuta y Melilla", () => {
     const taxes = await activeTaxes(companyId);
     const indirect = taxes.filter((entry) => entry.kind === "VAT");
     expect(indirect.every((entry) => entry.name.startsWith("IPSI"))).toBe(true);
-    expect(indirect.map((entry) => Number(entry.rate)).sort((a, b) => b - a)).toEqual([10, 8, 6, 4, 3, 2, 1, 0.5]);
-    // IPSI: el tipo depende de la actividad, no hay uno por defecto.
-    expect(indirect.some((entry) => entry.isDefault)).toBe(false);
+    expect(indirect.map((entry) => Number(entry.rate)).sort((a, b) => b - a)).toEqual([10, 9, 6, 4, 2, 1, 0.5]);
+    // IPSI general de servicios (4 %) por defecto; el IVA superreducido 4 % se ha renombrado.
+    expect(indirect.filter((entry) => entry.isDefault).map((entry) => entry.name)).toEqual(["IPSI general 4%"]);
     expect(taxes.some((entry) => entry.kind === "SURCHARGE")).toBe(false);
     // Sin cambios si el territorio es el mismo.
     expect(await syncCompanyTaxTerritory({ ...actorInput, previousTerritory: "ES-CE" })).toBe(false);
   });
 });
+
+describe("modelos de la Agencia Tributaria Canaria con datos reales", () => {
+  it("una factura con IGIC 7 % y AIEM 5 % sale en el 420 (casillas 07-09) y en el 450", async () => {
+    const companyId = "cn-models";
+    await createCompany(companyId, "ES");
+    await state.db.update(company).set({ postalCode: "35001", province: "Las Palmas" }).where(eq(company.id, companyId));
+    await applyCompanyTemplate({ tenantId: TENANT, companyId, actorUserId: USER, activeFiscalYearId: `${companyId}-fy`, countryCode: "ES" });
+    const customer = await createCustomerWithPartner(state.db, companyId, { ...partyInput("Cliente Canario", "B12345674", "ES"), postalCode: "35002", province: "Las Palmas" });
+    const issueDate = new Date(Date.UTC(2026, 4, 5));
+    await state.db.insert(invoice).values({ id: "cn-inv", companyId, customerId: customer.id, number: "F-1", issueDate, totalAmount: "1120.00", status: "SENT", issuedAt: issueDate, vatTreatment: "DOMESTIC" });
+    await state.db.insert(schema.invoiceLine).values({ id: "cn-line", invoiceId: "cn-inv", description: "Bloques de hormigón", quantity: "1", unitPrice: "1000", lineTotal: "1120.00" });
+    await state.db.insert(schema.invoiceLineTax).values([
+      { invoiceLineId: "cn-line", name: "IGIC general 7%", rate: "7.000", kind: "VAT", operation: "ADD", baseAmount: "1000.00", amount: "70.00" },
+      { invoiceLineId: "cn-line", name: "AIEM 5%", rate: "5.000", kind: "OTHER", operation: "ADD", baseAmount: "1000.00", amount: "50.00" },
+    ]);
+
+    const model420 = await calculateSpanishFiscalSummary(companyId, "420", "2026-Q2");
+    const box = (code: string) => model420.canaryBoxes?.find((entry) => entry.box === code)?.amount;
+    expect([box("01"), box("03"), box("25"), box("45")]).toEqual([1000, 70, 70, 70]);
+    expect(model420.amountDue).toBe(70);
+
+    const model450 = await calculateSpanishFiscalSummary(companyId, "450", "2026-Q2");
+    expect(model450.canaryBoxes?.find((entry) => entry.box === "6")?.amount).toBe(50);
+    expect(model450.amountDue).toBe(50);
+  }, 60_000);
+});
+

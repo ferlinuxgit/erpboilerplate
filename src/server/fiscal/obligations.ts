@@ -1,7 +1,8 @@
 import { and, eq, gt, sql } from "drizzle-orm";
 
+import { igicExemptRegime } from "@/lib/country-packs/igic";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
-import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
+import { companyHasAiem, getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { accountChart, companySettings, customer, invoice, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import {
@@ -117,7 +118,11 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
   const taxpayerType = normalizeTaxpayerType(settings?.taxpayerType);
   const regime = settings?.fiscalRegime ?? "general";
   // Canarias, Ceuta y Melilla: sin modelos de IVA (IGIC / IPSI se resumen aparte).
-  const vatReturns = getCountryFiscalProfile(await getCompanyTaxTerritory(companyId)).features.vatReturns;
+  const territory = await getCompanyTaxTerritory(companyId);
+  const vatReturns = getCountryFiscalProfile(territory).features.vatReturns;
+  const canary = territory === "ES-CN";
+  const igicExempt = igicExemptRegime(territory, regime);
+  const aiem = canary && (await companyHasAiem(companyId));
 
   const vatPeriod = nextFilingPeriod("303", periodicity, now);
   const vatRange = parseSpanishFiscalPeriod(vatPeriod, "303");
@@ -149,6 +154,19 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
     requirement: activity?.intraEu ? "required" : "not-needed",
     reason: activity?.intraEu ? "Has operado con empresas de otros países de la UE." : "Sin operaciones con empresas de la UE en el periodo.",
   });
+  if (canary) {
+    entries.push({
+      code: "420",
+      period: nextFilingPeriod("420", "quarterly", now),
+      requirement: igicExempt ? "not-needed" : "required",
+      reason: igicExempt
+        ? "En el régimen de comerciante minorista o del pequeño empresario no presentas el 420 por esas ventas."
+        : "IGIC del trimestre ante la Agencia Tributaria Canaria; se presenta aunque salga a cero.",
+    });
+    if (aiem) {
+      entries.push({ code: "450", period: nextFilingPeriod("450", "quarterly", now), requirement: "required", reason: "Entregas de mercancías sujetas al AIEM en el trimestre." });
+    }
+  }
   if (taxpayerType === "individual") {
     entries.push({
       code: "130",
@@ -162,6 +180,14 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
     const previousYear = String(now.getUTCFullYear() - 1);
     if (month === 1 && !vatExempt && vatReturns) entries.push({ code: "390", period: previousYear, requirement: "required", reason: "Resumen anual del IVA del año pasado." });
     entries.push({ code: "347", period: previousYear, requirement: "required", reason: "Obligatorio si algún cliente o proveedor superó 3.005,06 € en el año." });
+    if (month === 1 && canary) {
+      entries.push({
+        code: "425",
+        period: previousYear,
+        requirement: "required",
+        reason: regime === "pequeno_empresario" ? "Declaración del volumen de operaciones del REPEP del año pasado." : "Resumen anual del IGIC del año pasado, con el 420 del cuarto trimestre.",
+      });
+    }
   }
 
   return entries.flatMap((entry) => {

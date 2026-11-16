@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
+import { igicExemptRegime } from "@/lib/country-packs/igic";
 import { usesPgcChart } from "@/lib/country-packs/profile";
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { standardVatRate } from "@/lib/country-packs/vat-rates";
@@ -133,6 +134,7 @@ async function fetchPostingSettings(companyId: string, client: DbClient): Promis
         defaultBankAccountCode: companySettings.defaultBankAccountCode,
         prorrataPct: companySettings.prorrataPct,
         businessType: companySettings.businessType,
+        fiscalRegime: companySettings.fiscalRegime,
       })
       .from(companySettings)
       .where(eq(companySettings.companyId, companyId))
@@ -143,7 +145,10 @@ async function fetchPostingSettings(companyId: string, client: DbClient): Promis
       .where(eq(company.id, companyId))
       .limit(1),
   ]);
-  return { ...resolvePostingSettings(settings, companyRow?.countryCode), taxTerritory: taxTerritoryOf(companyRow) ?? undefined };
+  const taxTerritory = taxTerritoryOf(companyRow) ?? undefined;
+  const resolved = resolvePostingSettings(settings, companyRow?.countryCode);
+  // IGIC en régimen de comerciante minorista o REPEP: el IGIC soportado es más gasto (no se deduce).
+  return { ...resolved, taxTerritory, prorrataPct: igicExemptRegime(taxTerritory, settings?.fiscalRegime) ? 0 : resolved.prorrataPct };
 }
 
 /**

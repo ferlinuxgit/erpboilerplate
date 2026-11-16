@@ -51,7 +51,9 @@ export default async function FiscalPage({ searchParams }: { searchParams: Promi
         title={territoryProfile.features.vatReturns ? "Fiscalidad España" : `Fiscalidad ${territoryProfile.territoryName}`}
         description={territoryProfile.features.vatReturns
           ? "Qué tienes que presentar y cuándo, con los importes calculados desde tus facturas. Modelos 303, 390, 347, 349, 111, 115 y 130, y registro VERI*FACTU."
-          : `Qué tienes que presentar y cuándo: modelos estatales 111, 115, 130 y 347, registro VERI*FACTU y el resumen de tu ${territoryProfile.taxLabel} por periodo.`}
+          : territoryProfile.territory === "ES-CN"
+            ? "Qué tienes que presentar y cuándo: modelos 420 y 425 del IGIC (y 450 si tienes AIEM) ante la Agencia Tributaria Canaria, modelos estatales 111, 115, 130 y 347 y registro VERI*FACTU."
+            : `Qué tienes que presentar y cuándo: modelos estatales 111, 115, 130 y 347, registro VERI*FACTU y el resumen de tu ${territoryProfile.taxLabel} por periodo.`}
         backHref="/dashboard"
         backLabel="Volver al panel"
         meta={
@@ -91,8 +93,8 @@ export default async function FiscalPage({ searchParams }: { searchParams: Promi
         <PageSection
           title={`Resumen de ${territoryProfile.taxLabel}`}
           description={territoryProfile.taxLabel === "IGIC"
-            ? "IGIC repercutido menos deducible del periodo, para el modelo 420 de la Agencia Tributaria Canaria (los modelos del IGIC aún no se generan aquí)."
-            : `IPSI del periodo, para la autoliquidación ante la ciudad de ${territoryProfile.territoryName} (aún no se genera aquí).`}
+            ? "IGIC repercutido menos deducible del periodo, de un vistazo. El 420 y el 425 con sus casillas se preparan en «Nuevo modelo»."
+            : `IPSI del periodo, para la autoliquidación ante la ciudad de ${territoryProfile.territoryName} (cada ciudad tiene su propio modelo y sede).`}
         >
           <GenericTaxSummary country={territoryProfile} currencyCode={ctx.company.baseCurrencyCode} periods={indirectSummary.periods} summary={indirectSummary.summary} />
         </PageSection>

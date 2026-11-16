@@ -26,8 +26,8 @@ export type CountryVatRates = {
   /** Tipo cero explícito (IGIC). */
   zeroRated?: boolean;
   /**
-   * Sin tipo por defecto: el tipo depende de la actividad (IPSI de Ceuta y Melilla). Se crean
-   * todos los tipos y la línea se factura con el que corresponda.
+   * Todos los tipos del territorio (IPSI de Ceuta y Melilla: dependen de la actividad). Se crean
+   * todos; `standard` es el general que se propone por defecto.
    */
   allRates?: readonly number[];
 };
@@ -66,8 +66,17 @@ export const COUNTRY_VAT_RATES: Readonly<Record<string, CountryVatRates>> = {
 
   // Territorios españoles fuera del IVA (códigos ISO 3166-2)
   "ES-CN": { system: "VAT", label: "IGIC", standard: 7, reduced: [3], increased: [9.5, 15], zeroRated: true },
-  "ES-CE": { system: "VAT", label: "IPSI", standard: 0, allRates: [10, 8, 6, 4, 3, 2, 1, 0.5] },
-  "ES-ML": { system: "VAT", label: "IPSI", standard: 0, allRates: [10, 8, 6, 4, 2, 1, 0.5] },
+  // IPSI de Ceuta: art. 33 de su ordenanza fiscal (texto refundido con modificaciones hasta el
+  // BOCCE 6391 de 15-03-2024). Servicios e inmuebles al 4 % general; 10 % telecomunicaciones y obra
+  // pública; 9 % agrupaciones 84 y 92 del IAE; 6 % agrupación 75 y 9221.1; 2 % restauración de un
+  // tenedor, bares, taxis y VPO; 1 % agua y electricidad; 0,5 % servicios electrónicos, publicidad,
+  // call center y proyectos estratégicos. La producción e importación de bienes, por su anexo 1.
+  "ES-CE": { system: "VAT", label: "IPSI", standard: 4, allRates: [10, 9, 6, 4, 2, 1, 0.5] },
+  // IPSI de Melilla: tipos publicados por la Ciudad Autónoma (actualizado 28-01-2026). Servicios e
+  // inmuebles al 4 % general; 8 % telecomunicaciones; 10 % construcción y obra inmobiliaria; 2 %
+  // restauración de dos o más tenedores y hostelería; 1 % taxis, bares y electricidad; 0,5 %
+  // transporte colectivo, publicidad, servicios electrónicos y VPO.
+  "ES-ML": { system: "VAT", label: "IPSI", standard: 4, allRates: [10, 8, 4, 2, 1, 0.5] },
 
   // Resto de Europa
   AD: { system: "VAT", label: "IGI", standard: 4.5, reduced: [2.5, 1] },

@@ -72,6 +72,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       pdfShowCustomerNumber: companySettings.pdfShowCustomerNumber,
       pdfShowPaymentMethod: companySettings.pdfShowPaymentMethod,
       pdfShowTaxBreakdown: companySettings.pdfShowTaxBreakdown,
+      fiscalRegime: companySettings.fiscalRegime,
       companyName: company.name,
       companyLegalName: company.legalName,
       companyVatNumber: company.vatNumber,
@@ -162,7 +163,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   };
 
   const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode, issuer.countryCode);
-  const legalNotes = [vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer))].filter((note): note is string => Boolean(note));
+  const legalNotes = [vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer), row.fiscalRegime)].filter((note): note is string => Boolean(note));
 
   const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
     ? rectificationReasonLabels[row.rectificationReason as RectificationReason]

@@ -53,4 +53,17 @@ describe("calendario fiscal", () => {
     const codes = new Set(entries.map((entry) => entry.code));
     expect([...codes].sort()).toEqual(["111", "115", "130", "347"]);
   });
+
+  it("en Canarias añade el 420 de cada trimestre, el 425 anual y el 450 si hay AIEM", () => {
+    const entries = buildFiscalCalendar({ year: 2026, periodicity: "quarterly", taxpayerType: "company", fiscalRegime: "general", vatReturns: false, territory: "ES-CN", aiem: true, reports: [], now: new Date(Date.UTC(2026, 0, 10)) });
+    expect(entries.filter((entry) => entry.code === "420").map((entry) => entry.period)).toEqual(["2025-Q4", "2026-Q1", "2026-Q2", "2026-Q3"]);
+    expect(entries.filter((entry) => entry.code === "450")).toHaveLength(4);
+    const annual = entries.find((entry) => entry.code === "425");
+    expect(annual?.period).toBe("2025");
+    expect(annual?.dueDate.slice(0, 10)).toBe("2026-01-30");
+    // REPEP: sin 420, pero con el 425 (volumen de operaciones).
+    const repep = buildFiscalCalendar({ year: 2026, periodicity: "quarterly", taxpayerType: "individual", fiscalRegime: "pequeno_empresario", vatReturns: false, territory: "ES-CN", reports: [] });
+    expect(repep.some((entry) => entry.code === "420")).toBe(false);
+    expect(repep.some((entry) => entry.code === "425")).toBe(true);
+  });
 });

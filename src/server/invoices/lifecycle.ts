@@ -17,6 +17,7 @@
  * su número no es provisional.
  */
 
+import { igicExemptRegime, igicRegimeLegalNotes, isIgicRegime } from "@/lib/country-packs/igic";
 import { resolveSalesVatTreatment } from "@/lib/fiscal-spain";
 import { isEuCountry } from "@/lib/countries";
 import { normalizeHomeCountry, suggestSalesVatTreatment, type VatTreatmentContext } from "@/lib/country-packs/vat-treatment";
@@ -101,8 +102,10 @@ const ipsiTreatmentLegalNotes: Partial<Record<SalesVatTreatmentCode, string>> = 
 };
 
 /** Mención legal de la factura según el tratamiento y el país o territorio de la empresa emisora. */
-export function vatTreatmentLegalNote(treatment: SalesVatTreatmentCode, homeCountry?: string | null): string | null {
+export function vatTreatmentLegalNote(treatment: SalesVatTreatmentCode, homeCountry?: string | null, fiscalRegime?: string | null): string | null {
   const home = normalizeHomeCountry(homeCountry);
+  // Canarias en régimen de comerciante minorista o REPEP: la exención es la del régimen.
+  if (treatment === "EXEMPT" && igicExemptRegime(home, fiscalRegime) && isIgicRegime(fiscalRegime)) return igicRegimeLegalNotes[fiscalRegime] ?? null;
   const notes = home === "ES"
     ? vatTreatmentLegalNotes
     : home === "ES-CN"

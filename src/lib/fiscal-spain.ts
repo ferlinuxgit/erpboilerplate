@@ -2,7 +2,7 @@ import { normalizeCountryCode } from "@/lib/countries";
 import { isIntraCommunity, normalizeHomeCountry, suggestSupplierVatTreatment, type SalesVatTreatment, type SupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
 import { centsToNumber, lineBaseCents, roundHalfAwayFromZero, taxOnBaseCents } from "@/server/taxation/engine";
 
-export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130"] as const;
+export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130", "420", "425", "450"] as const;
 
 export type SpanishFiscalModelCode = (typeof spanishFiscalModelCodes)[number];
 
@@ -19,9 +19,18 @@ export type SpanishFiscalModel = {
   plainHelp: string;
   /** Solo para autónomos (personas físicas en IRPF). */
   individualsOnly?: boolean;
-  /** Ficha del trámite en la sede electrónica de la AEAT (presentación y ayuda). */
+  /** Ficha del trámite en la sede electrónica de la administración que lo gestiona (presentación y ayuda). */
   aeatUrl: string;
+  /** Quién lo gestiona: AEAT (por defecto) o la Agencia Tributaria Canaria. */
+  authority?: "AEAT" | "ATC";
+  /** Solo para empresas de estos territorios fiscales (ES-CN…). */
+  territories?: readonly string[];
+  /** Solo si la empresa factura el AIEM (Canarias). */
+  requiresAiem?: boolean;
 };
+
+/** Modelos de la Agencia Tributaria Canaria. */
+export const CANARY_MODEL_CODES: ReadonlySet<SpanishFiscalModelCode> = new Set<SpanishFiscalModelCode>(["420", "425", "450"]);
 
 export type TaxpayerType = "company" | "individual";
 
@@ -36,9 +45,13 @@ export const SPANISH_VAT_MODEL_CODES: ReadonlySet<SpanishFiscalModelCode> = new 
  * Modelos visibles según el tipo de contribuyente (el 130 solo aplica a autónomos) y el territorio
  * (`vatReturns: false` en Canarias, Ceuta y Melilla: sin 303, 390 ni 349).
  */
-export function spanishFiscalModelsFor(taxpayerType: TaxpayerType, options: { vatReturns?: boolean } = {}) {
+export function spanishFiscalModelsFor(taxpayerType: TaxpayerType, options: { vatReturns?: boolean; territory?: string | null; aiem?: boolean } = {}) {
   const vatReturns = options.vatReturns ?? true;
-  return spanishFiscalModels.filter((model) => (!model.individualsOnly || taxpayerType === "individual") && (vatReturns || !SPANISH_VAT_MODEL_CODES.has(model.code)));
+  return spanishFiscalModels.filter((model) =>
+    (!model.individualsOnly || taxpayerType === "individual")
+    && (vatReturns || !SPANISH_VAT_MODEL_CODES.has(model.code))
+    && (!model.territories || model.territories.includes(options.territory ?? ""))
+    && (!model.requiresAiem || Boolean(options.aiem)));
 }
 
 export type FiscalPeriodRange = {
@@ -152,6 +165,43 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
     plainHelp: "Para autónomos: cada trimestre adelantas el 20 % de lo que has ganado en el año (ingresos − gastos), descontando lo que ya te han retenido y lo que ya pagaste.",
     individualsOnly: true,
   },
+  {
+    code: "420",
+    aeatUrl: "https://www3.gobiernodecanarias.org/tributos/atc/w/igic-impuesto-general-indirecto-canario-",
+    authority: "ATC",
+    territories: ["ES-CN"],
+    name: "Modelo 420",
+    shortName: "IGIC autoliquidación",
+    description: "Borrador del IGIC devengado y deducible del trimestre por casillas (tipos, inversión del sujeto pasivo, exportaciones).",
+    cadence: "quarterly",
+    periodHint: "2026-Q1",
+    plainHelp: "El IGIC que has cobrado en tus facturas menos el que has pagado en tus gastos. Se presenta cada trimestre ante la Agencia Tributaria Canaria (del 1 al 20 del mes siguiente; el cuarto, en enero).",
+  },
+  {
+    code: "425",
+    aeatUrl: "https://www3.gobiernodecanarias.org/tributos/atc/w/igic-impuesto-general-indirecto-canario-",
+    authority: "ATC",
+    territories: ["ES-CN"],
+    name: "Modelo 425",
+    shortName: "Resumen anual IGIC",
+    description: "Declaración-resumen anual del IGIC: bases y cuotas del año y volumen de operaciones (en el REPEP, solo el volumen).",
+    cadence: "annual",
+    periodHint: "2026",
+    plainHelp: "Resumen de todos los 420 del año. Se presenta en enero junto con el último trimestre; si estás en el REPEP, declaras aquí tu volumen de operaciones.",
+  },
+  {
+    code: "450",
+    aeatUrl: "https://www3.gobiernodecanarias.org/tributos/atc/",
+    authority: "ATC",
+    territories: ["ES-CN"],
+    requiresAiem: true,
+    name: "Modelo 450",
+    shortName: "AIEM autoliquidación",
+    description: "Cuotas del AIEM repercutidas en las entregas de mercancías del trimestre, por tipo.",
+    cadence: "quarterly",
+    periodHint: "2026-Q1",
+    plainHelp: "Si fabricas en Canarias productos sujetos al AIEM, ingresas cada trimestre el arbitrio de tus entregas (del 1 al 20 del mes siguiente; el cuarto, en enero).",
+  },
 ];
 
 export const fiscalStatusLabels: Record<FiscalReportStatus, string> = {
@@ -255,7 +305,7 @@ function lastDayOfMonthUtc(year: number, monthOneBased: number) {
 }
 
 /** Modelos cuyo último periodo del año vence el 30 de enero (el resto, el 20). */
-const JANUARY_30_MODELS = new Set<SpanishFiscalModelCode>(["303", "130", "349"]);
+const JANUARY_30_MODELS = new Set<SpanishFiscalModelCode>(["303", "130", "349", "420", "450"]);
 
 export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {
   const value = period.trim().toUpperCase();
@@ -265,7 +315,7 @@ export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscal
 
   if (annualMatch) {
     const year = Number(annualMatch[1]);
-    if (modelCode === "390") return new Date(Date.UTC(year + 1, 0, 30));
+    if (modelCode === "390" || modelCode === "425") return new Date(Date.UTC(year + 1, 0, 30));
     if (modelCode === "347") return lastDayOfMonthUtc(year + 1, 2);
     return null;
   }

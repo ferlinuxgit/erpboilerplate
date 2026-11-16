@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getCountryPack } from "@/lib/country-packs";
 import { getCountryFiscalProfile, isFullComplianceCountry, usesPgcChart } from "@/lib/country-packs/profile";
 import { countryFromTaxId, describeTaxIdProblemForCountry, spanishTaxpayerTypeFromTaxId } from "@/lib/country-packs/tax-id";
+import { igicExemptRegime } from "@/lib/country-packs/igic";
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { allVatRates, COUNTRY_VAT_RATES, countryVatRates, standardVatRate } from "@/lib/country-packs/vat-rates";
 import { isIntraCommunity, suggestSalesVatTreatment, suggestSupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
@@ -162,7 +163,12 @@ describe("Canarias, Ceuta y Melilla", () => {
       ["Retención alquiler 19%", false],
     ]);
     const ceuta = getCountryPack("ES-CE").template;
-    expect(ceuta.taxes.filter((entry) => entry.kind === "VAT").every((entry) => entry.name.startsWith("IPSI") && !entry.isDefault)).toBe(true);
+    const ipsi = ceuta.taxes.filter((entry) => entry.kind === "VAT");
+    expect(ipsi.every((entry) => entry.name.startsWith("IPSI"))).toBe(true);
+    // Ordenanza de Ceuta: 4 % general de servicios, propuesto por defecto.
+    expect(ipsi.filter((entry) => entry.isDefault).map((entry) => entry.name)).toEqual(["IPSI general 4%"]);
+    expect(ipsi.map((entry) => Number(entry.rate))).toEqual([10, 9, 6, 4, 2, 1, 0.5]);
+    expect(allVatRates("ES-ML")).toEqual([10, 8, 4, 2, 1, 0.5]);
     expect(ceuta.taxes.some((entry) => entry.kind === "SURCHARGE")).toBe(false);
   });
 
@@ -184,7 +190,20 @@ describe("Canarias, Ceuta y Melilla", () => {
 
   it("autorepercusión con el tipo general del territorio", () => {
     expect(standardVatRate("ES-CN")).toBe(7);
-    expect(standardVatRate("ES-CE")).toBe(0);
+    expect(standardVatRate("ES-CE")).toBe(4);
     expect(allVatRates("ES-CN")).toEqual([15, 9.5, 7, 3, 0]);
+  });
+});
+
+describe("regímenes del IGIC", () => {
+  it("comerciante minorista y REPEP venden exento en Canarias; fuera de Canarias no aplica", () => {
+    expect(igicExemptRegime("ES-CN", "comerciante_minorista")).toBe(true);
+    expect(igicExemptRegime("ES-CN", "pequeno_empresario")).toBe(true);
+    expect(igicExemptRegime("ES-CN", "general")).toBe(false);
+    expect(igicExemptRegime("ES", "pequeno_empresario")).toBe(false);
+    const context = { homeCountry: "ES-CN", salesExempt: true };
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "38001", taxId: "B12345674" }, context)).toBe("EXEMPT");
+    // Exportar desde Canarias sigue siendo exportación.
+    expect(suggestSalesVatTreatment({ countryCode: "ES", postalCode: "28013", taxId: "B12345674" }, context)).toBe("EXPORT");
   });
 });

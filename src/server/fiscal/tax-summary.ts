@@ -5,6 +5,7 @@
  * agrupación por tipo y mismas autorepercusiones), así que es coherente con la contabilidad.
  */
 
+import { igicExemptRegime } from "@/lib/country-packs/igic";
 import { centsToNumber } from "@/server/taxation/engine";
 import type { VatBucket } from "@/lib/fiscal-spain";
 import { bucketsToNumbers, computeModelo303Totals } from "@/server/fiscal/spain-calc";
@@ -39,9 +40,11 @@ export type TaxSummary = {
 
 export async function calculateTaxSummary(companyId: string, period: TaxSummaryPeriod, homeCountry: string): Promise<TaxSummary> {
   const settings = await getFiscalSettings(companyId);
+  // IGIC en régimen de comerciante minorista o REPEP: el soportado no se deduce.
+  const prorrataPct = igicExemptRegime(homeCountry, settings.fiscalRegime) ? 0 : settings.prorrataPct;
   const [issued, supplier] = await Promise.all([
     fetchIssuedInvoiceVat(companyId, period.start, period.endExclusive, homeCountry),
-    fetchSupplierInvoiceVat(companyId, period.start, period.endExclusive, settings.prorrataPct, homeCountry),
+    fetchSupplierInvoiceVat(companyId, period.start, period.endExclusive, prorrataPct, homeCountry),
   ]);
   const totals = computeModelo303Totals(issued, supplier);
   return {

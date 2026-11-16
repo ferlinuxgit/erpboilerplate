@@ -64,7 +64,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
             ) : null}
             {model ? (
               <a className={buttonVariants({ variant: "outline" })} href={model.aeatUrl} rel="noopener noreferrer" target="_blank">
-                Presentar en la sede de la AEAT<span className="sr-only"> (se abre en otra pestaña)</span>
+                {model.authority === "ATC" ? "Presentar en la Agencia Tributaria Canaria" : "Presentar en la sede de la AEAT"}<span className="sr-only"> (se abre en otra pestaña)</span>
               </a>
             ) : null}
             <FiscalReportRowActions canWrite={canWrite} hideView report={report} />
@@ -187,6 +187,14 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
         </section>
       ) : summary ? null : <InlineAlert tone="danger">No se ha podido calcular el resumen de este modelo.</InlineAlert>}
 
+      {summary?.canaryBoxes ? (
+        <PageSection
+          title={`Casillas del ${model?.name ?? `modelo ${summary.code}`}`}
+          description="Borrador por casillas según las instrucciones de la Agencia Tributaria Canaria. Revísalas antes de copiarlas en su programa de ayuda o en la sede electrónica."
+        >
+          <FiscalBoxesTable authority="ATC" boxes={summary.canaryBoxes} caption={`Casillas del ${model?.name ?? summary.code}`} currencyCode={currency} reviewBoxes={["REV"]} />
+        </PageSection>
+      ) : null}
       {summary && summary.code === "303" ? (
         <PageSection title="Casillas del modelo 303" description="Borrador por casillas según el diseño vigente de la AEAT. Revísalas antes de copiarlas en la sede electrónica.">
           <FiscalBoxesTable boxes={summary.modelo303Boxes} caption="Casillas del modelo 303" currencyCode={currency} reviewBoxes={["REV", "EXE"]} />

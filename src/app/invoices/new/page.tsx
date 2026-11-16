@@ -1,5 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
+import { vatContextFor } from "@/server/company/fiscal-context";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -92,7 +92,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
           <CreateInvoiceForm
             canCreateCustomer={canCreateCustomer}
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
-            vatContext={{ homeCountry: await getCompanyTaxTerritory(tenantContext.company.id), businessType: settings?.businessType ?? "both" }}
+            vatContext={await vatContextFor(tenantContext.company.id)}
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}

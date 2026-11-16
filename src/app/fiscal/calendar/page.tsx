@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
-import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
+import { companyHasAiem, getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import Link from "next/link";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -37,12 +37,15 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
   const year = Number.isInteger(requested) && requested >= 2000 && requested <= currentYear + 1 ? requested : currentYear;
   const [reports, settings] = await Promise.all([listFiscalReportsWithSummary(ctx.company.id), getFiscalSettings(ctx.company.id)]);
   const canWrite = can(ctx.membership.role, "fiscal.write");
+  const territory = await getCompanyTaxTerritory(ctx.company.id);
   const entries = buildFiscalCalendar({
     year,
     periodicity: settings.taxPeriodicity,
     taxpayerType: settings.taxpayerType,
     fiscalRegime: settings.fiscalRegime,
-    vatReturns: getCountryFiscalProfile(await getCompanyTaxTerritory(ctx.company.id)).features.vatReturns,
+    vatReturns: getCountryFiscalProfile(territory).features.vatReturns,
+    territory,
+    aiem: territory === "ES-CN" && (await companyHasAiem(ctx.company.id)),
     reports,
   });
   const overdue = entries.filter((entry) => entry.state === "overdue");

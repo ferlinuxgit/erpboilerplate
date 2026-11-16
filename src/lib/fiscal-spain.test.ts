@@ -9,6 +9,7 @@ import {
   getSpanishFiscalDueDate,
   normalizeSpanishFiscalPeriod,
   parseSpanishFiscalPeriod,
+  spanishFiscalModelsFor,
 } from "@/lib/fiscal-spain";
 
 describe("Spanish fiscal periods", () => {
@@ -83,3 +84,22 @@ describe("Spanish fiscal aggregation (bucket rounding)", () => {
     expect(aggregateWithholdings(smallLines)).toEqual([{ rate: 15, base: 1.05, tax: 0.16 }]);
   });
 });
+
+describe("modelos de la Agencia Tributaria Canaria", () => {
+  it("solo para empresas de Canarias; el 450 solo con AIEM", () => {
+    const canary = spanishFiscalModelsFor("company", { vatReturns: false, territory: "ES-CN" }).map((model) => model.code);
+    expect(canary).toEqual(expect.arrayContaining(["420", "425", "111", "115", "347"]));
+    expect(canary).not.toContain("303");
+    expect(canary).not.toContain("450");
+    expect(spanishFiscalModelsFor("company", { vatReturns: false, territory: "ES-CN", aiem: true }).map((model) => model.code)).toContain("450");
+    expect(spanishFiscalModelsFor("company").map((model) => model.code)).not.toContain("420");
+  });
+
+  it("plazos: 1-20 del mes siguiente; el cuarto trimestre y el 425, en enero", () => {
+    expect(getSpanishFiscalDueDate("2026-Q2", "420")?.toISOString().slice(0, 10)).toBe("2026-07-20");
+    expect(getSpanishFiscalDueDate("2026-Q4", "420")?.toISOString().slice(0, 10)).toBe("2027-01-30");
+    expect(getSpanishFiscalDueDate("2026-Q4", "450")?.toISOString().slice(0, 10)).toBe("2027-01-30");
+    expect(getSpanishFiscalDueDate("2026", "425")?.toISOString().slice(0, 10)).toBe("2027-01-30");
+  });
+});
+

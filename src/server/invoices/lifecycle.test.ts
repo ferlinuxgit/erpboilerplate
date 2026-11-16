@@ -80,5 +80,8 @@ describe("mención legal según el país del emisor", () => {
     expect(vatTreatmentLegalNote("DOMESTIC", "FR")).toBeNull();
     expect(vatTreatmentLegalNote("EXPORT", "ES-CN")).toContain("Ley 20/1991");
     expect(vatTreatmentLegalNote("NOT_SUBJECT", "ES-ML")).toContain("IPSI");
+    expect(vatTreatmentLegalNote("EXEMPT", "ES-CN", "comerciante_minorista")).toContain("Comerciante minorista");
+    expect(vatTreatmentLegalNote("EXEMPT", "ES-CN", "pequeno_empresario")).toContain("art. 110 Ley 4/2012");
+    expect(vatTreatmentLegalNote("EXEMPT", "ES-CN", "general")).toContain("art. 10 Ley 20/1991");
   });
 });

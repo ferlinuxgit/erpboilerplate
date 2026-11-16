@@ -1,11 +1,15 @@
 import { and, eq, gte, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 
+import { buildModelo420, buildModelo425, buildModelo450, type AiemBucket } from "@/server/fiscal/canarias-calc";
+import { igicExemptRegime } from "@/lib/country-packs/igic";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { standardVatRate } from "@/lib/country-packs/vat-rates";
 import { alias } from "drizzle-orm/pg-core";
 
 import { accountChart, companySettings, customer, invoice, invoiceLine, invoiceLineTax, item, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import {
+  CANARY_MODEL_CODES,
   getDaysUntilDue,
   getFiscalDueStatus,
   getSpanishFiscalDueDate,
@@ -101,6 +105,8 @@ export type SpanishFiscalSummary = {
   warnings: string[];
   fiscalProfile: FiscalAutomationProfile;
   modelo303Boxes: Modelo303Box[];
+  /** Casillas de los modelos de la Agencia Tributaria Canaria (420, 425, 450). */
+  canaryBoxes?: Modelo303Box[];
   automationChecks: FiscalAutomationCheck[];
   sourceDocuments: {
     salesInvoices: FiscalSourceDocument[];
@@ -116,7 +122,9 @@ export type SpanishFiscalSummary = {
 };
 
 export type FiscalAutomationProfile = {
-  fiscalRegime: "general" | "recargo_equivalencia" | "cash_accounting" | "exempt";
+  fiscalRegime: "general" | "recargo_equivalencia" | "cash_accounting" | "exempt" | "comerciante_minorista" | "pequeno_empresario";
+  /** Territorio fiscal de la empresa (ES, ES-CN, ES-CE, ES-ML). */
+  territory: string;
   taxPeriodicity: "monthly" | "quarterly";
   siiEnabled: boolean;
   verifactuMode: "pending" | "verifactu" | "non_verifactu";
@@ -150,8 +158,16 @@ function toNumber(value: string | number | null | undefined) {
 
 function unsupportedWarnings(code: SpanishFiscalModelCode) {
   const warnings = [
-    "Borrador interno: no sustituye la presentación oficial en AEAT ni genera fichero oficial.",
+    CANARY_MODEL_CODES.has(code)
+      ? "Borrador interno: no sustituye la presentación oficial en la Agencia Tributaria Canaria ni genera fichero oficial."
+      : "Borrador interno: no sustituye la presentación oficial en AEAT ni genera fichero oficial.",
   ];
+  if (code === "420" || code === "425") {
+    warnings.push("No incluye cuotas a compensar de periodos anteriores, regularizaciones (prorrata, bienes de inversión, inicio de actividad), devoluciones en régimen de viajeros ni complementarias: añádelas tú en el programa de ayuda de la ATC.");
+  }
+  if (code === "450") {
+    warnings.push("El 450 suma los impuestos «AIEM» de tus facturas emitidas. No incluye el régimen simplificado del AIEM, los productos derivados del petróleo ni rectificaciones de cuotas de periodos anteriores.");
+  }
 
   if (code === "111") {
     warnings.push("El Modelo 111 se calcula con las retenciones que practicas en facturas recibidas (salvo gastos de alquiler, cuenta 621, que van al 115).");
@@ -186,18 +202,22 @@ async function fetchFiscalAutomationProfile(companyId: string): Promise<FiscalAu
     .where(eq(companySettings.companyId, companyId))
     .limit(1);
 
+  const territory = await getCompanyTaxTerritory(companyId);
+  const fiscalRegime = normalizeFiscalRegime(settings?.fiscalRegime);
   return {
-    fiscalRegime: normalizeFiscalRegime(settings?.fiscalRegime),
+    territory,
+    fiscalRegime,
     taxPeriodicity: normalizeTaxPeriodicity(settings?.taxPeriodicity),
     siiEnabled: settings?.siiEnabled ?? false,
     verifactuMode: normalizeVerifactuMode(settings?.verifactuMode),
-    prorrataPct: clampPct(toNumber(settings?.prorrataPct ?? 100)),
+    // IGIC en régimen de comerciante minorista o REPEP: el soportado no se deduce.
+    prorrataPct: igicExemptRegime(territory, fiscalRegime) ? 0 : clampPct(toNumber(settings?.prorrataPct ?? 100)),
     taxpayerType: normalizeTaxpayerType(settings?.taxpayerType),
   };
 }
 
 function normalizeFiscalRegime(value: string | null | undefined): FiscalAutomationProfile["fiscalRegime"] {
-  if (value === "recargo_equivalencia" || value === "cash_accounting" || value === "exempt") return value;
+  if (value === "recargo_equivalencia" || value === "cash_accounting" || value === "exempt" || value === "comerciante_minorista" || value === "pequeno_empresario") return value;
   return "general";
 }
 
@@ -787,11 +807,20 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
   }
 
   const profile = await fetchFiscalAutomationProfile(companyId);
+  // Territorio de la empresa: tratamientos de facturas antiguas sin tratamiento guardado y tipo de
+  // autorepercusión (7 % IGIC en Canarias).
   const [issued, supplier, accountingBalances] = await Promise.all([
-    fetchIssuedInvoiceVat(companyId, range.start, range.endExclusive),
-    fetchSupplierInvoiceVat(companyId, range.start, range.endExclusive, profile.prorrataPct),
+    fetchIssuedInvoiceVat(companyId, range.start, range.endExclusive, profile.territory),
+    fetchSupplierInvoiceVat(companyId, range.start, range.endExclusive, profile.prorrataPct, profile.territory),
     fetchAccountingTaxBalances(companyId, range.start, range.endExclusive),
   ]);
+  const canary = code === "420"
+    ? buildModelo420(issued, supplier)
+    : code === "425"
+      ? buildModelo425(issued, supplier, profile.fiscalRegime)
+      : code === "450"
+        ? buildModelo450(await fetchAiemBuckets(companyId, range.start, range.endExclusive))
+        : null;
   const totals = computeModelo303Totals(issued, supplier);
   const modelo303Boxes = buildModelo303Boxes(issued, supplier, { periodYear: range.start.getUTCFullYear() });
   const dueDate = getSpanishFiscalDueDate(period, code);
@@ -848,7 +877,9 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
     deductibleInputTaxAmount: centsToNumber(totals.deductibleCents),
     nonDeductibleInputTaxAmount: centsToNumber(inputTotals.tax - totals.deductibleCents),
     settlementAmount: centsToNumber(totals.resultCents),
-    amountDue: code === "303" || code === "390"
+    amountDue: canary
+      ? centsToNumber(canary.resultCents)
+      : code === "303" || code === "390"
       ? centsToNumber(totals.resultCents)
       : code === "111" || code === "115"
         ? centsToNumber(practicedTotals.tax)
@@ -868,6 +899,7 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
     warnings: unsupportedWarnings(code),
     fiscalProfile: profile,
     modelo303Boxes,
+    canaryBoxes: canary?.boxes,
     automationChecks: buildAutomationChecks({
       accountingBalanced,
       code,
@@ -893,6 +925,25 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
       balanced: accountingBalanced,
     },
   };
+}
+
+/**
+ * AIEM repercutido en las facturas emitidas del periodo, por tipo: impuestos de clase "Otro"
+ * cuyo nombre empieza por "AIEM" (los que crea la configuración fiscal de Canarias).
+ */
+export async function fetchAiemBuckets(companyId: string, start: Date, endExclusive: Date): Promise<AiemBucket[]> {
+  const rows = await db
+    .select({
+      rate: invoiceLineTax.rate,
+      base: sql<string>`coalesce(sum(${invoiceLineTax.baseAmount}), 0)`,
+      amount: sql<string>`coalesce(sum(${invoiceLineTax.amount}), 0)`,
+    })
+    .from(invoiceLineTax)
+    .innerJoin(invoiceLine, eq(invoiceLine.id, invoiceLineTax.invoiceLineId))
+    .innerJoin(invoice, eq(invoice.id, invoiceLine.invoiceId))
+    .where(and(issuedInvoiceFiscalFilter(companyId, start, endExclusive), eq(invoiceLineTax.kind, "OTHER"), eq(invoiceLineTax.operation, "ADD"), sql`upper(${invoiceLineTax.name}) LIKE 'AIEM%'`))
+    .groupBy(invoiceLineTax.rate);
+  return rows.map((row) => ({ rate: toNumber(row.rate), baseCents: toCents(row.base), taxCents: toCents(row.amount) }));
 }
 
 export type VatRegisterRow = {

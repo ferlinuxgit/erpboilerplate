@@ -20,9 +20,11 @@ acepta un código de país acepta también uno de territorio.
 
 | | Canarias (`ES-CN`) | Ceuta (`ES-CE`) / Melilla (`ES-ML`) |
 |---|---|---|
-| Impuesto | IGIC: 0 %, 3 %, 7 % (por defecto), 9,5 %, 15 % | IPSI: tipos de la ordenanza, sin tipo por defecto |
+| Impuesto | IGIC: 0 %, 3 %, 7 % (por defecto), 9,5 %, 15 % | IPSI (4 % general de servicios por defecto). Ceuta: 10, 9, 6, 4, 2, 1 y 0,5 % (art. 33 de su ordenanza, BOCCE 15-03-2024). Melilla: 10, 8, 4, 2, 1 y 0,5 % (tipos publicados por la Ciudad, 28-01-2026) |
 | Recargo de equivalencia, prorrata de IVA, SII, VIES | No | No |
-| Modelos 303, 390, 349 | No (resumen de IGIC en Fiscalidad para el 420) | No (resumen de IPSI) |
+| Modelos 303, 390, 349 | No | No (resumen de IPSI por periodo) |
+| Modelos propios | 420 (trimestral), 425 (anual) y 450 (AIEM, si se activa) con sus casillas oficiales | La autoliquidación del IPSI se presenta ante cada ciudad (sin casillas aquí) |
+| Regímenes | General, comerciante minorista, pequeño empresario (REPEP) y criterio de caja | — |
 | VERI*FACTU | Sí, `Impuesto` = 03 | Sí, `Impuesto` = 02 (sin `ClaveRegimen`) |
 | Menciones legales | Ley 20/1991 | Ley 8/1991 |
 
@@ -32,8 +34,17 @@ acepta un código de país acepta también uno de territorio.
 - Al cambiar el domicilio (Madrid → Tenerife) la empresa adopta los impuestos del territorio: los
   de mismo tipo se renombran (IVA 4 % → IPSI 4 %) y el resto se desactiva. Se permite aunque haya
   facturas emitidas (es un traslado; las facturas guardan sus propios impuestos).
-- Pendiente: modelos del IGIC (420/425) y del IPSI; regímenes especiales del IGIC (comerciante
-  minorista, AIEM).
+- Comerciante minorista y REPEP (`src/lib/country-packs/igic.ts`): las ventas se proponen exentas con
+  su mención legal (art. 50.Uno.27º y art. 110 Ley 4/2012), el IGIC soportado va a gasto (prorrata 0
+  en asientos y resúmenes), sin 420; el 425 lleva el volumen (casillas 143 o 142-147).
+- 420 / 425 / 450 (`src/server/fiscal/canarias-calc.ts`) según las instrucciones de la ATC:
+  IGIC por tipo en las filas 01-18, inversión del sujeto pasivo 19-20 (75-76 en el 425), deducible
+  26-33 (80-87), resultado 45 (95/115) y volumen de operaciones 120-134. Sin compensaciones de
+  periodos anteriores, regularizaciones ni complementarias (la ficha del modelo lo advierte).
+- AIEM: se activa en Configuración › Fiscalidad; crea los impuestos «AIEM» 5/10/15/25 % (Ley
+  4/2014) y el 450. Su cuota se contabiliza hoy junto al IGIC repercutido (477); no hay cuenta propia.
+- Pendiente: casillas oficiales de la autoliquidación del IPSI de cada ciudad; régimen simplificado
+  del IGIC y del AIEM.
 
 ## Piezas
 

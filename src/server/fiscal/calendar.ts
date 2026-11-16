@@ -1,3 +1,4 @@
+import { igicExemptRegime } from "@/lib/country-packs/igic";
 import {
   getDaysUntilDue,
   getFiscalDueStatus,
@@ -40,6 +41,10 @@ export type FiscalCalendarInput = {
   fiscalRegime: string;
   /** false en Canarias, Ceuta y Melilla: sin modelos de IVA (303, 390, 349). */
   vatReturns?: boolean;
+  /** Territorio fiscal: en Canarias (ES-CN) se añaden el 420 y el 425 (y el 450 con AIEM). */
+  territory?: string;
+  /** La empresa factura el AIEM (Canarias). */
+  aiem?: boolean;
   reports: Array<{ id: string; code: string; period: string; status: FiscalReportStatus; summary?: { amountDue: number | null } | null }>;
   now?: Date;
 };
@@ -74,6 +79,19 @@ export function buildFiscalCalendar(input: FiscalCalendarInput): FiscalCalendarE
     planned.push({ code: "111", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["111"] });
     planned.push({ code: "115", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["115"] });
     if (vatReturns) planned.push({ code: "349", period, requirement: "if-applicable", reason: CONDITIONAL_REASONS["349"] });
+  }
+  if (input.territory === "ES-CN") {
+    const igicExempt = igicExemptRegime(input.territory, input.fiscalRegime);
+    for (const period of quarterPeriodsDueIn(input.year)) {
+      if (!igicExempt) planned.push({ code: "420", period, requirement: "required", reason: "IGIC del trimestre ante la Agencia Tributaria Canaria; se presenta aunque salga a cero." });
+      if (input.aiem) planned.push({ code: "450", period, requirement: "required", reason: "AIEM de las entregas de mercancías del trimestre." });
+    }
+    planned.push({
+      code: "425",
+      period: String(input.year - 1),
+      requirement: "required",
+      reason: input.fiscalRegime === "pequeno_empresario" ? "Volumen de operaciones del REPEP del año anterior." : "Resumen anual del IGIC del año anterior.",
+    });
   }
   if (input.taxpayerType === "individual") {
     for (const period of quarterPeriodsDueIn(input.year)) {

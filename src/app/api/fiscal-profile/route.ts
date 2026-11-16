@@ -9,7 +9,7 @@ import { recordAudit } from "@/server/audit";
 
 const payloadSchema = z.object({
   taxpayerType: z.enum(["company", "individual"]),
-  fiscalRegime: z.enum(["general", "recargo_equivalencia", "cash_accounting", "exempt"]),
+  fiscalRegime: z.enum(["general", "recargo_equivalencia", "cash_accounting", "exempt", "comerciante_minorista", "pequeno_empresario"]),
   taxPeriodicity: z.enum(["monthly", "quarterly"]),
   siiEnabled: z.boolean(),
   prorrataPct: z.number().min(0).max(100),

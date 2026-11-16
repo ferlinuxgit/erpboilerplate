@@ -20,6 +20,8 @@ type FiscalBoxesTableProps = {
   currencyCode: string;
   /** Casillas que no se copian a la AEAT (p. ej. "REV"/"EXE": revisar a mano). */
   reviewBoxes?: string[];
+  /** Administración del modelo (texto de ayuda): AEAT o Agencia Tributaria Canaria. */
+  authority?: "AEAT" | "ATC";
   caption: string;
 };
 
@@ -44,7 +46,9 @@ async function copyText(text: string) {
  * Casillas del modelo con botón "Copiar" por casilla (importe con coma decimal y sin miles, tal
  * como lo piden los formularios de la AEAT) y "Copiar todas" (casilla + importe, una por línea).
  */
-export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [] }: FiscalBoxesTableProps) {
+export function FiscalBoxesTable({ authority = "AEAT", boxes, caption, currencyCode, reviewBoxes = [] }: FiscalBoxesTableProps) {
+  // Filas sin número de casilla (p. ej. las de cada tipo del 450): se identifican por su concepto.
+  const boxName = (box: FiscalBoxRow) => (box.box ? `Casilla ${box.box}` : box.label);
   const [copied, setCopied] = useState<string | null>(null);
   const copyable = boxes.filter((box) => !reviewBoxes.includes(box.box));
 
@@ -64,8 +68,8 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
   function copyButton(box: FiscalBoxRow, key: string, touch = false) {
     return (
       <Button
-        aria-label={`Copiar importe de la casilla ${box.box}`}
-        onClick={() => void copy(key, formatAeatAmount(box.amount), `Casilla ${box.box} copiada: ${formatAeatAmount(box.amount)}`)}
+        aria-label={`Copiar importe: ${boxName(box)}`}
+        onClick={() => void copy(key, formatAeatAmount(box.amount), `${boxName(box)} copiada: ${formatAeatAmount(box.amount)}`)}
         size={touch ? "sm" : "xs"}
         type="button"
         variant={touch ? "outline" : "ghost"}
@@ -79,9 +83,9 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">Los importes se copian sin puntos de miles y con coma decimal, como los pide la sede de la AEAT.</p>
+        <p className="text-xs text-muted-foreground">Los importes se copian sin puntos de miles y con coma decimal, como los pide la sede de la {authority === "ATC" ? "Agencia Tributaria Canaria" : "AEAT"}.</p>
         <Button
-          onClick={() => void copy("all", copyable.map((box) => `Casilla ${box.box}\t${formatAeatAmount(box.amount)}`).join("\n"), `${copyable.length} casillas copiadas.`)}
+          onClick={() => void copy("all", copyable.map((box) => `${boxName(box)}\t${formatAeatAmount(box.amount)}`).join("\n"), `${copyable.length} casillas copiadas.`)}
           size="sm"
           type="button"
           variant="outline"
@@ -106,7 +110,7 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
           <TableBody>
             {rows.map(({ box, key, review }) => (
               <TableRow key={key}>
-                <TableCell>{review ? "Revisar" : box.box}</TableCell>
+                <TableCell>{review ? "Revisar" : box.box || "—"}</TableCell>
                 <TableCell className={box.kind === "settlement" ? "font-bold" : undefined}>{box.label}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{formatMoney(box.amount, currencyCode)}</TableCell>
                 <TableCell className="text-right">{review ? null : copyButton(box, key)}</TableCell>
@@ -118,7 +122,7 @@ export function FiscalBoxesTable({ boxes, caption, currencyCode, reviewBoxes = [
       {/* En móvil, una tarjeta por casilla con el botón de copiar a tamaño táctil. */}
       <MobileRecordList aria-label={caption}>
         {rows.map(({ box, key, review }) => (
-          <MobileRecord aside={formatMoney(box.amount, currencyCode)} key={key} title={review ? "Revisar" : `Casilla ${box.box}`}>
+          <MobileRecord aside={formatMoney(box.amount, currencyCode)} key={key} title={review ? "Revisar" : boxName(box)}>
             <p className={box.kind === "settlement" ? "font-bold" : undefined}>{box.label}</p>
             {review ? null : <div className="mt-2 flex justify-end">{copyButton(box, key, true)}</div>}
           </MobileRecord>

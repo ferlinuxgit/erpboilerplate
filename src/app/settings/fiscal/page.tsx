@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 
-import { FiscalSettingsForm, VerifactuSettingsForm } from "@/components/fiscal/fiscal-settings-form";
+import { AiemSettingsForm, FiscalSettingsForm, VerifactuSettingsForm } from "@/components/fiscal/fiscal-settings-form";
 import { MastersPanel } from "@/components/settings/masters-panel";
 import { SettingsPageHeader } from "@/components/settings/settings-page-header";
 import { EmptyState, InlineAlert, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { db } from "@/lib/db";
-import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
+import { companyHasAiem, getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { can } from "@/lib/rbac";
 import { getFiscalSettings } from "@/server/fiscal/settings";
 import { isValidIssuerNifFormat } from "@/server/verifactu/format";
@@ -33,7 +33,8 @@ export default async function FiscalSettingsPage() {
           {country.level === "full" && !country.features.vatReturns ? (
             <InlineAlert className="mb-3" title={`${country.territoryName}: ${country.taxLabel} en lugar de IVA`} tone="info">
               Tu domicilio fiscal está en {country.territoryName}: tus facturas llevan {country.taxLabel} (tipos ya creados), sin recargo de
-              equivalencia, y no presentas los modelos de IVA (303, 390, 349). Siguen aplicando VERI*FACTU y los modelos 111, 115, 130 y 347.
+              equivalencia, y no presentas los modelos de IVA (303, 390, 349). Siguen aplicando VERI*FACTU y los modelos 111, 115, 130 y 347
+              {country.territory === "ES-CN" ? ", y en Fiscalidad preparas el 420 y el 425 del IGIC" : ""}.
               Las ventas a la península y al extranjero se proponen como exportación o no sujetas.
             </InlineAlert>
           ) : null}
@@ -50,8 +51,19 @@ export default async function FiscalSettingsPage() {
             title="Perfil fiscal"
             description={country.features.taxReports ? "Estos valores deciden los modelos que aparecen en tu calendario y cómo se calculan." : "Periodo con el que se agrupa tu resumen de impuestos."}
           >
-            <FiscalSettingsForm initialValues={settings} spanishRegimes={country.features.taxReports === "es-aeat"} vatRegimes={country.features.vatReturns} taxLabel={country.taxLabel} />
+            <FiscalSettingsForm
+              initialValues={settings}
+              spanishRegimes={country.features.taxReports === "es-aeat"}
+              vatRegimes={country.features.vatReturns}
+              igicRegimes={country.territory === "ES-CN"}
+              taxLabel={country.taxLabel}
+            />
           </PageSection>
+          {country.territory === "ES-CN" ? (
+            <PageSection className="scroll-mt-24" id="aiem" title="AIEM" description="Arbitrio sobre Importaciones y Entregas de Mercancías en Canarias (modelo 450).">
+              <AiemSettingsForm initialEnabled={await companyHasAiem(ctx.company.id)} />
+            </PageSection>
+          ) : null}
           {country.features.eInvoicing === "verifactu" ? (
           <PageSection className="scroll-mt-24" id="verifactu" title="VERI*FACTU" description="Registro de facturas obligatorio por la Ley Antifraude (RD 1007/2023).">
             <VerifactuSettingsForm

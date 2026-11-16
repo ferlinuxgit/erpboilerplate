@@ -164,7 +164,7 @@ function normalizeTemplateCountry(countryCode: string | null | undefined) {
 }
 
 function spanishTerritoryTaxName(label: string, rate: number, rates: { standard: number; reduced?: readonly number[]; increased?: readonly number[] }) {
-  if (label === "IPSI") return `IPSI ${formatRate(rate)}`;
+  if (label === "IPSI") return rate === rates.standard ? `IPSI general ${formatRate(rate)}` : `IPSI ${formatRate(rate)}`;
   if (rate === 0) return `${label} tipo cero 0%`;
   if (rate === rates.standard) return `${label} general ${formatRate(rate)}`;
   if (rates.reduced?.includes(rate)) return `${label} reducido ${formatRate(rate)}`;
@@ -177,7 +177,7 @@ function spanishTerritoryTaxName(label: string, rate: number, rates: { standard:
  * Canarias (IGIC) y Ceuta / Melilla (IPSI): la plantilla española (PGC, diarios, series y
  * retenciones de IRPF) con su impuesto indirecto en lugar del IVA y sin recargo de equivalencia
  * (no existe fuera del territorio del IVA). En Ceuta y Melilla el tipo del IPSI depende de la
- * actividad: se crean todos y ninguno se propone por defecto.
+ * actividad: se crean todos y se propone el general de servicios (4 %).
  */
 export function buildSpanishTerritoryTemplate(territory: SpanishSpecialTerritory): CompanyTemplate {
   const spain = getCompanyTemplate("ES");

@@ -34,6 +34,11 @@ export type VatTreatmentContext = {
   homeCountry?: string | null;
   /** Qué vende la empresa: "products", "services" o "both" (ajustes de empresa). */
   businessType?: string | null;
+  /**
+   * Ventas interiores exentas por el régimen de la empresa (IGIC: comerciante minorista o
+   * pequeño empresario): lo que sería "nacional" pasa a "exenta".
+   */
+  salesExempt?: boolean | null;
 };
 
 /** Territorio fiscal de la empresa: país o ES-CN / ES-CE / ES-ML. */
@@ -68,7 +73,7 @@ export function suggestSalesVatTreatment(
 ): SalesVatTreatment {
   const home = normalizeHomeCountry(context.homeCountry);
   const country = counterpartyTerritory(customer, home);
-  if (country === home) return "DOMESTIC";
+  if (country === home) return context.salesExempt ? "EXEMPT" : "DOMESTIC";
   const services = context.businessType === "services";
   const business = hasTaxId(customer?.taxId);
   if (isEuCountry(home) && isEuCountry(country)) {
@@ -76,7 +81,8 @@ export function suggestSalesVatTreatment(
     return services ? "INTRA_EU_SERVICES" : "INTRA_EU";
   }
   if (!services) return "EXPORT";
-  return business ? "NOT_SUBJECT" : "DOMESTIC";
+  if (business) return "NOT_SUBJECT";
+  return context.salesExempt ? "EXEMPT" : "DOMESTIC";
 }
 
 export function suggestSupplierVatTreatment(
