@@ -55,7 +55,6 @@ test("a French company is configured from its VAT number: TVA rates and a generi
 test("the Spanish tax screens redirect to the tax summary for companies from other countries", async ({ page }) => {
   test.setTimeout(180_000);
   await registerAndSignIn(page, "Country Pack PT");
-  await page.goto("/dashboard");
   // Sin facturas emitidas, la empresa puede cambiar de país (adopta el paquete de Portugal).
   await patchJson(page, "/api/onboarding", { countryCode: "PT" });
 

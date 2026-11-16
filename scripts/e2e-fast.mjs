@@ -2,21 +2,26 @@
 // E2E en local con Postgres real en Docker (datos en memoria, sin fsync): con PGlite sembrar
 // ~1.600 subcuentas por empresa de test es muy lento.
 //
-// Se lanza siempre a través de scripts/e2e-sandbox.mjs (npm run test:e2e:fast), que limita
-// memoria y CPU para que los e2e nunca puedan colgar el servidor. Por eso va en serie por
-// defecto: cada worker añade un Chromium y más rutas compilando a la vez en `next dev`.
+// Cada fase pesada corre en su propio sandbox (scripts/e2e-sandbox.mjs: límites de memoria, CPU
+// y tiempo) para que los e2e nunca puedan colgar el servidor, y solo hay una ejecución a la vez
+// (scripts/e2e-lock.mjs). Van en serie por defecto: cada worker añade un Chromium.
 //
 // Los tests se sirven desde una compilación de producción (`next start`) en .next-e2e: se compila
-// solo cuando cambia el código (~1 min) y durante los tests no se compila nada, lo que los hace
-// ligeros y rápidos. E2E_SERVER_MODE=dev vuelve a `next dev`.
+// solo cuando cambia el código (~3 min) y durante los tests no se compila nada, lo que los hace
+// ligeros y rápidos. La compilación (Turbopack, ~3,5-4 GB) necesita más memoria que los tests:
+// tiene su propio límite (E2E_BUILD_MEMORY_MAX) y no arranca si el host no tiene esa memoria libre.
+// E2E_SERVER_MODE=dev vuelve a `next dev` (sin compilación previa).
 //
 // Uso: npm run test:e2e:fast [-- <specs o args de playwright>]
 // Variables: E2E_WORKERS (por defecto 1), E2E_GLOBAL_TIMEOUT_MS (por defecto 10 min),
-//            E2E_SERVER_MODE (start | dev, por defecto start).
+//            E2E_SERVER_MODE (start | dev, por defecto start),
+//            E2E_BUILD_MEMORY_MAX (por defecto 4608M), E2E_MEMORY_MAX (tests, por defecto 3584M).
 import { spawn, spawnSync } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
+
+import { acquireE2eLock } from "./e2e-lock.mjs";
 
 const CONTAINER = "erpboilerplate-e2e-pg";
 const IMAGE = process.env.E2E_PG_IMAGE ?? "postgres:17-alpine";
@@ -115,16 +120,41 @@ function buildIsFresh() {
   return BUILD_INPUTS.every((input) => newestMtime(input) <= builtAt);
 }
 
+const BUILD_MEMORY_MAX = process.env.E2E_BUILD_MEMORY_MAX ?? "4608M";
+const SANDBOX = path.join(path.dirname(new URL(import.meta.url).pathname), "e2e-sandbox.mjs");
+
+function megabytes(value) {
+  const match = /^(\d+(?:\.\d+)?)([MG])$/i.exec(value.trim());
+  if (!match) fail(`E2E_BUILD_MEMORY_MAX no válido (${value}). Ejemplos: 4608M, 5G.`);
+  return Number(match[1]) * (match[2].toUpperCase() === "G" ? 1024 : 1);
+}
+
+function availableMegabytes() {
+  const kb = Number(/^MemAvailable:\s+(\d+) kB$/m.exec(readFileSync("/proc/meminfo", "utf8"))?.[1]);
+  return kb ? kb / 1024 : Infinity;
+}
+
 function buildForTests(databaseUrl) {
   if (buildIsFresh()) {
     console.log(`e2e-fast: compilación de ${DIST_DIR} al día, se reutiliza.`);
     return;
   }
-  console.log(`e2e-fast: compilando la app para los tests en ${DIST_DIR} (solo cuando cambia el código)…`);
-  const built = spawnSync("npx", ["next", "build"], {
+  // Margen de 1 GB para el resto del host: si no lo hay, mejor no empezar que estrangularlo.
+  const needed = megabytes(BUILD_MEMORY_MAX) + 1024;
+  const available = availableMegabytes();
+  if (available < needed) {
+    fail(
+      `la compilación para los tests necesita ~${Math.round(needed / 1024)} GB libres y el host tiene ${(available / 1024).toFixed(1)} GB.\n` +
+        "Prueba más tarde o usa E2E_SERVER_MODE=dev (sin compilación previa, para un spec suelto).",
+    );
+  }
+  console.log(`e2e-fast: compilando la app para los tests en ${DIST_DIR} (solo cuando cambia el código, límite ${BUILD_MEMORY_MAX})…`);
+  const built = spawnSync("node", [SANDBOX, "npx", "next", "build"], {
     stdio: "inherit",
     env: {
       ...env,
+      E2E_MEMORY_MAX: BUILD_MEMORY_MAX,
+      E2E_MAX_MINUTES: process.env.E2E_BUILD_MAX_MINUTES ?? "12",
       NEXT_DIST_DIR: DIST_DIR,
       NEXT_TELEMETRY_DISABLED: "1",
       // Nunca contra la base de datos de desarrollo, aunque .env la defina.
@@ -133,6 +163,8 @@ function buildForTests(databaseUrl) {
   });
   if (built.status !== 0) fail("la compilación para los tests ha fallado.");
 }
+
+if (!acquireE2eLock("e2e-fast")) process.exit(1);
 
 ensurePostgres();
 waitForPostgres();
@@ -145,7 +177,7 @@ const serverMode = process.env.E2E_SERVER_MODE === "dev" ? "dev" : "start";
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${postgresPort()}/${DATABASE}`;
 if (serverMode === "start") buildForTests(databaseUrl);
 
-const child = spawn("npx", ["playwright", "test", ...process.argv.slice(2)], {
+const child = spawn("node", [SANDBOX, "npx", "playwright", "test", ...process.argv.slice(2)], {
   env: {
     ...env,
     PORT: port,

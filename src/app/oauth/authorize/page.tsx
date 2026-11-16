@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AuthPageShell } from "@/components/auth-page-shell";
 import { OAuthConsentForm } from "@/components/oauth/oauth-consent-form";
 import { requireUserSession } from "@/lib/current-user";
+import { ensureUserTenant } from "@/lib/tenant";
 import { listAuthorizableCompanies, OAuthError, validateAuthorizationRequest } from "@/server/oauth/core";
 
 export const metadata: Metadata = { title: "Conectar aplicación" };
@@ -23,6 +24,9 @@ export default async function OAuthAuthorizePage({ searchParams }: { searchParam
   }
 
   const session = await requireUserSession();
+  // Alguien recién registrado aún no tiene empresa hasta entrar en el panel: se crea igual que allí
+  // para que pueda conectar el asistente nada más darse de alta.
+  if (validated) await ensureUserTenant({ id: session.user.id, name: session.user.name });
   const companies = validated ? await listAuthorizableCompanies(session.user.id) : [];
 
   return (

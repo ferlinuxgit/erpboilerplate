@@ -29,6 +29,19 @@ export async function registerAndSignIn(page: Page, prefix: string): Promise<Tes
   return user;
 }
 
+/**
+ * Alta e inicio de sesión solo por API (la cookie queda en el contexto de `page`), sin cargar el
+ * panel: para specs que no necesitan la interfaz principal y deben ser ligeros.
+ */
+export async function registerViaApi(page: Page, prefix: string): Promise<TestUser> {
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const slug = prefix.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const user = { email: `${slug}-${runId}@example.test`, password: "Password123!" };
+  const response = await page.request.post("/api/auth/register", { data: { name: prefix, ...user } });
+  expect(response.ok(), `POST /api/auth/register → ${response.status()}: ${await response.text()}`).toBeTruthy();
+  return user;
+}
+
 export async function signIn(page: Page, user: TestUser) {
   const response = await page.request.post("/api/auth/login", {
     data: {

@@ -1,23 +1,22 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { expect, request as playwrightRequest, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-import { registerAndSignIn } from "./helpers/authenticated-session";
+import { registerViaApi } from "./helpers/authenticated-session";
 
 const REDIRECT_URI = "https://client.example.test/oauth/callback";
 
-test("Claude/ChatGPT connect in one click: OAuth discovery, consent, PKCE token and MCP tools with the user's permissions", async ({ page, baseURL }) => {
-  // Recorrido completo (OAuth + MCP + Ajustes): en modo dev compila muchas rutas por primera vez.
-  test.setTimeout(480_000);
-  await registerAndSignIn(page, "AI Connector");
+// Ligero a propósito: una sola pantalla (el consentimiento) y el resto por HTTP. La lógica de
+// OAuth y MCP está cubierta por los unitarios (src/server/oauth, src/server/mcp).
+test("Claude/ChatGPT: descubrimiento OAuth, consentimiento, token PKCE y MCP con los permisos del usuario", async ({ page, playwright, baseURL }) => {
+  test.setTimeout(120_000);
+  await registerViaApi(page, "AI Connector");
 
-  // Descubrimiento (lo primero que hace el cliente tras recibir un 401 del MCP).
-  const anonymous = await playwrightRequest.newContext({ baseURL });
+  // Descubrimiento: lo primero que hace el cliente tras recibir un 401 del MCP.
+  const anonymous = await playwright.request.newContext({ baseURL });
   const unauthorized = await anonymous.post("/api/mcp", { data: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
   expect(unauthorized.status()).toBe(401);
   expect(unauthorized.headers()["www-authenticate"]).toContain("/.well-known/oauth-protected-resource/api/mcp");
-  const resource = await (await anonymous.get("/.well-known/oauth-protected-resource/api/mcp")).json();
-  expect(resource.resource).toMatch(/\/api\/mcp$/);
   const metadata = await (await anonymous.get("/.well-known/oauth-authorization-server")).json();
   expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
 
@@ -39,47 +38,37 @@ test("Claude/ChatGPT connect in one click: OAuth discovery, consent, PKCE token 
   await callback;
   const returned = new URL(page.url());
   expect(returned.searchParams.get("state")).toBe("s1");
-  const code = returned.searchParams.get("code");
+  const code = returned.searchParams.get("code")!;
   expect(code).toBeTruthy();
 
   // Canje del código con PKCE (formulario, como los clientes reales).
   const tokenResponse = await anonymous.post("/api/oauth/token", {
-    form: { grant_type: "authorization_code", code: code!, redirect_uri: REDIRECT_URI, client_id: clientId, code_verifier: verifier },
+    form: { grant_type: "authorization_code", code, redirect_uri: REDIRECT_URI, client_id: clientId, code_verifier: verifier },
   });
   expect(tokenResponse.status(), await tokenResponse.text()).toBe(200);
   const tokens = await tokenResponse.json();
   expect(tokens.scope).toBe("erp:read");
 
-  // MCP con el token: initialize, herramientas de solo lectura y una consulta real.
-  const client = await playwrightRequest.newContext({ baseURL, extraHTTPHeaders: { Authorization: `Bearer ${tokens.access_token}` } });
+  // MCP con el token: solo herramientas de lectura y una consulta real.
+  const client = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { Authorization: `Bearer ${tokens.access_token}` } });
   const rpc = async (method: string, params: Record<string, unknown> = {}) => (await (await client.post("/api/mcp", { data: { jsonrpc: "2.0", id: 1, method, params } })).json()).result;
-  expect((await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } })).serverInfo.name).toBe("erp");
   const tools = (await rpc("tools/list")).tools.map((tool: { name: string }) => tool.name);
-  expect(tools).toEqual(expect.arrayContaining(["search", "fetch", "erp_contexto", "erp_listar_facturas", "erp_catalogo"]));
+  expect(tools).toEqual(expect.arrayContaining(["search", "fetch", "erp_contexto"]));
   expect(tools).not.toContain("erp_crear_factura");
   const contextResult = await rpc("tools/call", { name: "erp_contexto", arguments: {} });
   expect(contextResult.isError).toBeFalsy();
   expect(contextResult.structuredContent.accessLevel).toBe("solo consultar");
-  const invoices = await rpc("tools/call", { name: "erp_listar_facturas", arguments: {} });
-  expect(invoices.isError).toBeFalsy();
 
-  // Solo lectura: ni el MCP ni la API directa permiten escribir.
-  const write = await rpc("tools/call", { name: "erp_ejecutar_accion", arguments: { metodo: "POST", ruta: "/api/customers", cuerpo: { name: "X" } } });
-  expect(write.isError).toBe(true);
+  // Solo lectura también en la API directa.
   expect((await client.post("/api/customers", { data: { name: "X" } })).status()).toBe(403);
 
-  // La conexión aparece en Ajustes y se puede desconectar.
-  await page.goto("/settings/ai");
-  await expect(page.getByRole("heading", { name: "Conectar con IA", level: 1 })).toBeVisible();
-  const connections = page.getByTestId("ai-connections");
-  // La lista se carga en el cliente (la primera vez el servidor de desarrollo compila la ruta).
-  await expect(connections.getByText("Claude", { exact: true })).toBeVisible({ timeout: 30_000 });
-  // En `next dev` la primera visita compila rutas y dispara un Fast Refresh que recarga la página:
-  // se recarga una vez antes de interactuar para no pulsar durante esa recarga.
-  await page.reload();
-  await expect(connections.getByText("Claude", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await connections.getByRole("button", { name: "Desconectar" }).click();
-  await expect(connections.getByText("Ninguna aplicación conectada todavía.")).toBeVisible({ timeout: 30_000 });
+  // La conexión aparece en la lista del usuario y, al desconectarla, el token deja de valer.
+  const grants = await (await page.request.get("/api/oauth/grants")).json();
+  const grant = grants.find((entry: { clientName: string }) => entry.clientName === "Claude");
+  expect(grant?.scope).toBe("read");
+  const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "csrf-token")?.value ?? "";
+  const revoked = await page.request.delete(`/api/oauth/grants?id=${encodeURIComponent(grant.id)}`, { headers: { "x-csrf-token": decodeURIComponent(csrf) } });
+  expect(revoked.ok(), await revoked.text()).toBeTruthy();
   expect((await client.post("/api/mcp", { data: { jsonrpc: "2.0", id: 2, method: "tools/list" } })).status()).toBe(401);
 
   await client.dispose();
