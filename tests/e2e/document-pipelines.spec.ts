@@ -51,11 +51,23 @@ test("sales documents progress from quote to order, delivery note and invoice", 
   await page.getByLabel("Número").fill(quoteNumber);
   await page.getByLabel("Concepto").fill("Servicio de implantación");
   await page.getByLabel("Precio unitario").fill("100");
+  // IVA de la línea y retención en sus diálogos: 100 € + 10 % − 15 % = 95 €.
+  await page.getByTestId("quote-line-1-tax-rate").click();
+  const quoteVat = page.getByRole("dialog", { name: "IVA de la línea 1" });
+  await quoteVat.getByRole("radio", { name: "IVA 10 %" }).check();
+  await quoteVat.getByRole("button", { name: "Aplicar" }).click();
+  await expect(page.getByTestId("quote-line-1-tax-rate")).toContainText("IVA 10 %");
+  await page.getByTestId("quote-retention").click();
+  const quoteRetention = page.getByRole("dialog", { name: "Retención IRPF" });
+  await quoteRetention.getByRole("radio", { name: /^15 %/ }).check();
+  await quoteRetention.getByRole("button", { name: "Aplicar" }).click();
+  await expect(page.getByTestId("quote-grand-total")).toHaveText("Total: 95,00 €");
   await clickAndExpectPost(page, "/api/sales-quotes", () => page.getByRole("button", { name: "Crear presupuesto" }).click());
   // Tras crearlo se abre el presupuesto para seguir con él.
   await expect(page).toHaveURL(/\/sales\/quotes\/.+/, { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: quoteNumber })).toBeVisible();
   await expect(page.getByText("Borrador", { exact: true })).toBeVisible();
+  await expect(page.getByText("95,00 €").first()).toBeVisible();
   await page.goto("/sales/quotes");
   await expect(page.getByTestId("sales-quotes-list")).toContainText(quoteNumber);
   await page.getByTestId("sales-quotes-list").getByRole("link", { name: quoteNumber }).click();

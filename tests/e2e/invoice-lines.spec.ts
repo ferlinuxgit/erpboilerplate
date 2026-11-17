@@ -327,6 +327,12 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await setLineTaxes(page, 1, { vat: "IVA general 21%", retention: "Retención IRPF 15%" });
   await expect(page.getByTestId("invoice-line-1-taxes")).toContainText("IVA general 21% · Retención IRPF 15%");
   await expect(page.getByTestId("invoice-grand-total")).toHaveText("Total: 106,00 €");
+  // Tratamiento de IVA en su diálogo: propone «Nacional» para un cliente español.
+  await expect(page.getByTestId("invoice-vat-treatment-picker")).toContainText("Nacional");
+  await page.getByTestId("invoice-vat-treatment-picker").click();
+  const treatmentDialog = page.getByRole("dialog", { name: "Tratamiento de IVA" });
+  await expect(treatmentDialog.getByRole("radio", { name: /Nacional/ })).toBeChecked();
+  await treatmentDialog.getByRole("button", { name: "Cancelar" }).click();
 
   const invoiceResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/api/invoices") && response.request().method() === "POST",
@@ -335,6 +341,7 @@ test("crear factura permite crear cliente fiscal inline si no existe", async ({ 
   await page.getByTestId("invoice-issue-confirm").click();
   const invoiceResponse = await invoiceResponsePromise;
   expect(invoiceResponse.ok()).toBe(true);
+  expect(invoiceResponse.request().postDataJSON()).toMatchObject({ vatTreatment: "DOMESTIC" });
   const createdInvoice = (await invoiceResponse.json()) as { number: string; lifecycle: string };
   expect(createdInvoice.lifecycle).toBe("ISSUED");
   await expect(page).toHaveURL(/\/invoices\/[^/]+$/);

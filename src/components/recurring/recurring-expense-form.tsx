@@ -180,7 +180,7 @@ export function RecurringExpenseForm({ accounts, generated, initial, suppliers, 
       key: line.key,
       description: { maxLength: 500, placeholder: "Alquiler {mes} {año}", value: line.description, onChange: (event) => updateLine(line.key, { description: event.target.value }) },
       unitPrice: { value: line.amount, onChange: (event) => updateLine(line.key, { amount: event.target.value }) },
-      taxRate: { value: String(line.taxRate), onChange: (event) => updateLine(line.key, { taxRate: Number(event.target.value) }) },
+      taxRate: { value: String(line.taxRate), onChange: (value) => updateLine(line.key, { taxRate: Number(value) }) },
       total: { amount: lineTotal?.lineTotal ?? 0, base: lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount) ? lineTotal.subtotal : null },
       errors: { account: lineError.account, description: lineError.description, unitPrice: lineError.amount, deductible: lineError.deductible },
     };

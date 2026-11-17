@@ -15,6 +15,7 @@ import {
   vatRateOptions,
 } from "@/components/invoices/lines-editor-model";
 import { LineTaxDialog } from "@/components/invoices/line-tax-dialog";
+import { ChoiceDialogButton } from "@/components/ui/choice-dialog";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { FIELD_SCROLL_MARGIN } from "@/components/ui/form";
@@ -84,8 +85,8 @@ export type LinesEditorRow = {
   quantity?: InputBinding;
   unitPrice: InputBinding;
   discountPct?: InputBinding;
-  /** Modo `vat`: valor en texto del tipo elegido ("21"). */
-  taxRate?: SelectBinding;
+  /** Modo `vat`: tipo elegido en texto ("21") y cómo cambiarlo (se elige en un diálogo). */
+  taxRate?: { value: string; onChange: (value: string) => void };
   /** Modo `multi`: impuestos de la línea y cómo cambiarlos. */
   selectedTaxIds?: readonly string[];
   onTaxIdsChange?: (taxIds: string[]) => void;
@@ -167,7 +168,7 @@ const TRACKS = {
   unitPrice: "7.5rem",
   discount: "5rem",
   multi: "minmax(10rem,.7fr)",
-  vat: "6.5rem",
+  vat: "7.5rem",
   fixed: "minmax(8rem,.6fr)",
   total: "7.5rem",
 };
@@ -483,23 +484,29 @@ export function LinesEditor({
                     />
                   </LineField>
                 ) : null}
-                {tax.kind === "vat" ? (
-                  <LineField error={errors.tax} errorId={errorId(ids.taxRate, "tax")} htmlFor={ids.taxRate} label="IVA" lineNumber={lineNumber}>
-                    <Select
-                      aria-describedby={errorId(ids.taxRate, "tax")}
-                      aria-invalid={Boolean(errors.tax) || undefined}
-                      className="h-9"
-                      data-testid={ids.taxRate}
-                      id={ids.taxRate}
-                      onKeyDown={(event) => handleEnter(event, index, "tax")}
-                      {...row.taxRate}
-                    >
-                      {vatRateOptions(typeof row.taxRate?.value === "string" ? row.taxRate.value : undefined, tax.defaultRate).map((rate) => (
-                        <option key={rate} value={String(rate)}>{vatRateLabel(rate)}</option>
-                      ))}
-                    </Select>
-                  </LineField>
-                ) : null}
+                {tax.kind === "vat" ? (() => {
+                  const current = row.taxRate?.value ?? String(tax.defaultRate);
+                  const summary = vatRateLabel(Number(current));
+                  return (
+                    <LineField error={errors.tax} errorId={errorId(ids.taxRate, "tax")} label="IVA" lineNumber={lineNumber}>
+                      <ChoiceDialogButton
+                        ariaLabel={`IVA de la línea ${lineNumber}: ${summary}. Cambiar`}
+                        describedBy={errorId(ids.taxRate, "tax")}
+                        groups={[{
+                          key: "rate",
+                          legend: "IVA",
+                          choices: vatRateOptions(current, tax.defaultRate).map((rate) => ({ value: String(rate), label: vatRateLabel(rate) })),
+                          value: String(Number(current)),
+                        }]}
+                        id={ids.taxRate}
+                        invalid={Boolean(errors.tax)}
+                        onApply={(values) => { if (values.rate) row.taxRate?.onChange(values.rate); }}
+                        summary={summary}
+                        title={`IVA de la línea ${lineNumber}`}
+                      />
+                    </LineField>
+                  );
+                })() : null}
                 {tax.kind === "fixed" ? (
                   <div className={cn("col-span-2 min-w-0 space-y-1 lg:col-span-1 lg:flex lg:min-h-9 lg:items-center", FIELD_SCROLL_MARGIN)} data-testid={ids.taxes}>
                     <p className="font-mono text-xs">

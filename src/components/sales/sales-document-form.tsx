@@ -16,14 +16,16 @@ import {
   type DocumentLineErrors,
 } from "@/components/invoices/document-lines-editor";
 import { InvoiceTotalsSummary } from "@/components/invoices/invoice-form-controls";
+import { retentionRateLabel } from "@/components/invoices/lines-editor-model";
 import { buttonVariants } from "@/components/ui/button";
+import { ChoiceDialogButton } from "@/components/ui/choice-dialog";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { FormTotalSummary } from "@/components/ui/form-total-summary";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
-import { formatPercent, parseDecimalInput } from "@/lib/format";
+import { parseDecimalInput } from "@/lib/format";
 import { addDaysToDateInput, todayDateInput } from "@/server/invoices/due-dates";
 
 export type SalesCustomerOption = { id: string; number?: string | null; name: string; defaultRetentionRate?: number | null };
@@ -73,6 +75,15 @@ const copy = {
 /** Hoy (o dentro de N días) en la zona horaria del usuario (Europe/Madrid), nunca en UTC. */
 function todayInputValue(offsetDays = 0) {
   return addDaysToDateInput(todayDateInput(), offsetDays);
+}
+
+/** Explicación de cada retención habitual en el diálogo. */
+function retentionHelp(rate: number) {
+  if (rate === 0) return "El cliente es un particular o no tienes que retener.";
+  if (rate === 7) return "Profesionales en sus tres primeros años de actividad.";
+  if (rate === 15) return "Profesionales que facturan a empresas o autónomos (tipo general).";
+  if (rate === 19) return "Alquileres de locales y rendimientos del capital.";
+  return undefined;
 }
 
 type HeaderErrors = Partial<Record<"customerId" | "issueDate" | "validUntil", string>>;
@@ -233,13 +244,29 @@ export function SalesDocumentForm({
             <Input autoComplete="off" onChange={(event) => setNumber(event.target.value)} placeholder="Automático" value={number} />
           </AccessibleField>
         ) : null}
-        <AccessibleField helperText="Si el cliente es una empresa y tú eres profesional, normalmente 15 %. Se aplica a todas las líneas." id={`${idPrefix}-retention`} label="Retención IRPF">
-          <Select onChange={(event) => { setRetentionTouched(true); setRetentionRate(Number(event.target.value)); }} value={String(retentionRate)}>
-            {retentionOptions.map((rate) => (
-              <option key={rate} value={String(rate)}>{rate === 0 ? "Sin retención" : formatPercent(rate)}</option>
-            ))}
-          </Select>
-        </AccessibleField>
+        <div className="min-w-0 space-y-1">
+          <p className="font-mono text-xs font-bold">Retención IRPF</p>
+          <ChoiceDialogButton
+            ariaLabel={`Retención IRPF: ${retentionRateLabel(retentionRate)}. Cambiar`}
+            describedBy={`${idPrefix}-retention-help`}
+            description="Se aplica a todas las líneas del documento."
+            groups={[{
+              key: "rate",
+              legend: "Retención IRPF",
+              choices: retentionOptions.map((rate) => ({ value: String(rate), label: retentionRateLabel(rate), description: retentionHelp(rate) })),
+              value: String(retentionRate),
+            }]}
+            id={`${idPrefix}-retention`}
+            onApply={(values) => {
+              if (values.rate === undefined || Number(values.rate) === retentionRate) return;
+              setRetentionTouched(true);
+              setRetentionRate(Number(values.rate));
+            }}
+            summary={retentionRateLabel(retentionRate)}
+            title="Retención IRPF"
+          />
+          <p className="text-xs text-muted-foreground" id={`${idPrefix}-retention-help`}>Si el cliente es una empresa y tú eres profesional, normalmente 15 %. Se aplica a todas las líneas.</p>
+        </div>
         <AccessibleField error={headerErrors.issueDate} id={`${idPrefix}-issue-date`} label={kind === "quote" ? "Fecha de emisión" : "Fecha"} required>
           <Input onChange={(event) => setIssueDate(event.target.value)} required type="date" value={issueDate} />
         </AccessibleField>

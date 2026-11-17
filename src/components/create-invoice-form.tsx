@@ -184,7 +184,6 @@ export function CreateInvoiceForm({
   const { fields, append, insert, move, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
   const selectedCustomerId = useWatch({ control, name: "customerId" });
-  const selectedVatTreatment = useWatch({ control, name: "vatTreatment" });
   const watchedIssueDate = useWatch({ control, name: "issueDate" });
   const watchedDueDate = useWatch({ control, name: "dueDate" });
   const selectedSeriesId = useWatch({ control, name: "seriesId" });
@@ -503,10 +502,11 @@ export function CreateInvoiceForm({
             name="paymentMethodIds"
           />
           <InvoiceVatTreatmentField
-            binding={register("vatTreatment", { onChange: () => setVatTreatmentTouched(true) })}
+            control={control}
             error={errors.vatTreatment?.message}
             hasChargedVat={hasChargedVat}
-            value={selectedVatTreatment}
+            name="vatTreatment"
+            onUserChange={() => setVatTreatmentTouched(true)}
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input

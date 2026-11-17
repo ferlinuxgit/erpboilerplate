@@ -156,7 +156,7 @@ export function DocumentLinesEditor({
       quantity: { value: line.quantity, required: true, onChange: (event) => update(index, { quantity: event.target.value }) },
       unitPrice: { value: line.unitPrice, required: true, onChange: (event) => update(index, { unitPrice: event.target.value }) },
       discountPct: { value: line.discountPct ?? "", onChange: (event) => update(index, { discountPct: event.target.value }) },
-      taxRate: { value: String(parseDecimalInput(line.taxRate) ?? defaultTaxRate), onChange: (event) => update(index, { taxRate: event.target.value }) },
+      taxRate: { value: String(parseDecimalInput(line.taxRate) ?? defaultTaxRate), onChange: (value) => update(index, { taxRate: value }) },
       total: {
         amount: lineTotal?.lineTotal ?? 0,
         base: lineTotal && (lineTotal.taxAmount || lineTotal.retentionAmount || parseDecimalInput(line.discountPct)) ? lineTotal.subtotal : null,
