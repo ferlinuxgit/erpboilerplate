@@ -9,11 +9,14 @@ export type FloorOrder = {
   status: OrderStatus;
   guests: number;
   openedAt: string;
+  waiterUserId: string | null;
   waiterName: string | null;
   total: number;
   pending: number;
   unsent: number;
   ready: number;
+  readyLines: Array<{ id: string; description: string; quantity: number; station: Station }>;
+  lastOrderAt: string | null;
 };
 
 export type FloorBooking = { id: string; time: string; name: string; partySize: number; late: boolean };
@@ -24,6 +27,7 @@ export type FloorData = {
   areas: Array<{ id: string; name: string; planned: boolean; tables: FloorTable[] }>;
   loose: FloorOrder[];
   pendingBookings: number;
+  training?: boolean;
 };
 
 export type OrderLineView = {
@@ -64,6 +68,7 @@ export type OrderData = {
   waiterUserId: string | null;
   waiterName: string | null;
   openedAt: string;
+  training?: boolean;
   closedAt: string | null;
   lines: OrderLineView[];
   amounts: { total: number; pending: number; paid: number };

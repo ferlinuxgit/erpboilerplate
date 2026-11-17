@@ -407,6 +407,13 @@
       "when": 1793783294000,
       "tag": "0057_sales_vat_treatments",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1793783299384,
+      "tag": "0058_hospitality_staff_training",
+      "breakpoints": true
     }
   ]
 }

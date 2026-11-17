@@ -13,7 +13,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!payload) return invalidJsonResponse();
     const parsed = cancelSchema.safeParse(payload);
     if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
-    return NextResponse.json(await hospitality.cancelOrder(actor, (await params).id, parsed.data.reason), { status: 200 });
+    return NextResponse.json(await hospitality.cancelOrder(actor, (await params).id, parsed.data.reason, parsed.data.approvalPin), { status: 200 });
   } catch (error) {
     return handleRouteError(error, "pos.orders.cancel");
   }

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AutoPrint } from "@/components/pos/auto-print";
 import { requireContext } from "@/lib/current-context";
 import { stationLabels } from "@/modules/hospitality/model";
+import { ALLERGENS } from "@/modules/hospitality/menu";
 import { courseLongLabels } from "@/modules/hospitality/ordering";
 import { getKitchenBatch } from "@/server/pos/hospitality";
 
@@ -36,6 +37,7 @@ export default async function KitchenTicketPage({ params, searchParams }: { para
               <li className={line.status === "CANCELLED" ? "line-through" : ""} key={index}>
                 <p className="text-xl font-black">{line.quantity.toLocaleString("es-ES")} × {line.description}{line.inMenu ? " (menú)" : ""}</p>
                 {line.note ? <p className="text-lg font-bold">→ {line.note}</p> : null}
+                {line.allergens.length > 0 ? <p className="text-sm font-bold">⚠ ALÉRGENOS: {line.allergens.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.es ?? id).join(", ").toUpperCase()}</p> : null}
               </li>
             ))}
           </ul>

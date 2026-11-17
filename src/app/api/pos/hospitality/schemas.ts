@@ -9,6 +9,7 @@ export const openOrderSchema = z.object({
   label: z.string().trim().max(60).nullable().optional(),
   guests: z.number().int().min(1).max(200).optional(),
   waiterUserId: z.string().trim().nullable().optional(),
+  training: z.boolean().optional(),
 });
 
 export const updateOrderSchema = z.object({
@@ -38,6 +39,9 @@ export const updateLineSchema = z.object({
   note: z.string().trim().max(200).nullable().optional(),
   cancelReason: z.string().trim().max(200).nullable().optional(),
   course: z.number().int().min(1).max(4).optional(),
+  // PIN del encargado que autoriza anular algo ya enviado (si la empresa lo exige) y camarero que lo pide.
+  approvalPin: z.string().trim().max(6).nullable().optional(),
+  waiterUserId: id.nullable().optional(),
 });
 
 export const modifierGroupSchema = z.object({
@@ -59,7 +63,9 @@ export const setMenuSchema = z.object({
 export const moveSchema = z.object({ tableId: id });
 export const mergeSchema = z.object({ targetOrderId: id });
 export const transferSchema = z.object({ tableId: id, lines: z.array(z.object({ lineId: id, quantity: z.number().positive() })).min(1).max(100) });
-export const cancelSchema = z.object({ reason: z.string().trim().max(200).default("") });
+export const cancelSchema = z.object({ reason: z.string().trim().max(200).default(""), approvalPin: z.string().trim().max(6).nullable().optional() });
+export const staffRoleSchema = z.object({ isManager: z.boolean() });
+export const hospitalitySettingsSchema = z.object({ managerApproval: z.boolean() });
 
 export const paySchema = z.object({
   clientRequestId: z.string().trim().min(8).max(80),

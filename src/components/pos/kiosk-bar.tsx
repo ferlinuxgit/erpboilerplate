@@ -5,10 +5,10 @@ import Link from "next/link";
  * Barra superior del TPV en modo mostrador (sin el menú del ERP): caja, estado y acciones. En móvil
  * las acciones se quedan en iconos.
  */
-export function KioskBar({ backHref = "/dashboard", backLabel = "ERP", children, status, title }: { backHref?: string; backLabel?: string; children?: React.ReactNode; status?: React.ReactNode; title: string }) {
+export function KioskBar({ backHref = "/dashboard", backLabel = "ERP", children, onBack, status, title }: { backHref?: string; backLabel?: string; children?: React.ReactNode; onBack?: (event: React.MouseEvent<HTMLAnchorElement>) => void; status?: React.ReactNode; title: string }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 pt-[env(safe-area-inset-top)] text-chrome-active-foreground" data-testid="pos-kiosk-bar">
-      <Link aria-label={`Volver al ${backLabel}`} className="flex h-11 items-center gap-1 px-2 font-mono text-xs font-bold hover:bg-white/10" href={backHref}>
+      <Link aria-label={`Volver al ${backLabel}`} className="flex h-11 items-center gap-1 px-2 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-kiosk-back" href={backHref} onClick={onBack}>
         <ArrowLeft aria-hidden="true" className="size-5" /><span className="hidden sm:inline">{backLabel}</span>
       </Link>
       <CashRegister aria-hidden="true" className="size-5 shrink-0" />

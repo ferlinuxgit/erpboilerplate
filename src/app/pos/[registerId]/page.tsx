@@ -13,11 +13,17 @@ import { getOpenSession, listBankAccountOptions, listPosCatalog, listRegisters, 
 
 export const metadata: Metadata = { title: "TPV · Vender" };
 
-export default async function PosRegisterPage({ params, searchParams }: { params: Promise<{ registerId: string }>; searchParams: Promise<{ counter?: string }> }) {
+export default async function PosRegisterPage({ params, searchParams }: { params: Promise<{ registerId: string }>; searchParams: Promise<{ counter?: string; practica?: string }> }) {
   const ctx = await requireContext("pos.sell");
   const [{ registerId }, query] = await Promise.all([params, searchParams]);
   const register = (await listRegisters(ctx.company.id)).find((entry) => entry.id === registerId);
   if (!register) notFound();
+  // Bar o restaurante: el plano de mesas es la pantalla principal (con «Mostrador» para venta directa).
+  const tablesMode = register.mode === "TABLES" && (await isModuleEnabled(ctx.company.id, "hospitality"));
+  // Modo formación: plano de práctica, sin caja abierta ni tickets reales.
+  if (tablesMode && query.practica === "1") {
+    return <FloorScreen canManage={can(ctx.membership.role, "pos.manage")} currencyCode={ctx.company.baseCurrencyCode} initial={JSON.parse(JSON.stringify(await getFloor(ctx.company.id, register.id, true)))} registerId={register.id} registerName={register.name} training />;
+  }
   const session = await getOpenSession(ctx.company.id, register.id);
   if (!session) {
     return (
@@ -27,8 +33,6 @@ export default async function PosRegisterPage({ params, searchParams }: { params
       </div>
     );
   }
-  // Bar o restaurante: el plano de mesas es la pantalla principal (con «Mostrador» para venta directa).
-  const tablesMode = register.mode === "TABLES" && (await isModuleEnabled(ctx.company.id, "hospitality"));
   if (tablesMode && query.counter !== "1") {
     return <FloorScreen canManage={can(ctx.membership.role, "pos.manage")} currencyCode={ctx.company.baseCurrencyCode} initial={JSON.parse(JSON.stringify(await getFloor(ctx.company.id, register.id)))} registerId={register.id} registerName={register.name} />;
   }
@@ -41,6 +45,7 @@ export default async function PosRegisterPage({ params, searchParams }: { params
   return (
     <PosTerminal
       backHref={tablesMode ? `/pos/${register.id}` : undefined}
+      setupHref={!tablesMode && register.mode !== "TABLES" && (await isModuleEnabled(ctx.company.id, "hospitality")) ? "/pos/puesta-en-marcha" : undefined}
         bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name }))}
         canManage={can(ctx.membership.role, "pos.manage")}
         catalog={catalog}

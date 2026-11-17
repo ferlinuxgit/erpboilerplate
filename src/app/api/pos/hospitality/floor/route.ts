@@ -9,9 +9,10 @@ import { posActor } from "../../actor";
 export async function GET(request: Request) {
   try {
     const { ctx } = await posActor("pos.sell");
-    const registerId = new URL(request.url).searchParams.get("registerId");
+    const params = new URL(request.url).searchParams;
+    const registerId = params.get("registerId");
     if (!registerId) return jsonError(400, "Indica la caja.");
-    return NextResponse.json(await getFloor(ctx.company.id, registerId));
+    return NextResponse.json(await getFloor(ctx.company.id, registerId, params.get("training") === "1"));
   } catch (error) {
     return handleRouteError(error, "pos.floor");
   }

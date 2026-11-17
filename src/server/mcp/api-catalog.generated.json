@@ -2037,10 +2037,7 @@
   "path": "/api/pos/hospitality/floor",
   "area": "pos",
   "summary": "Plano: salas, mesas y cuenta abierta de cada una (se consulta cada pocos segundos).",
-  "permissions": [],
-  "query": [
-   "registerId"
-  ]
+  "permissions": []
  },
  {
   "method": "PUT",
@@ -2060,11 +2057,8 @@
   "method": "GET",
   "path": "/api/pos/hospitality/kitchen",
   "area": "pos",
-  "summary": "Comandas pendientes de cocina o barra (pantalla de la estación).",
-  "permissions": [],
-  "query": [
-   "station"
-  ]
+  "summary": "Comandas pendientes de cocina o barra (pantalla de la estación); `served=1`: las retiradas hace poco.",
+  "permissions": []
  },
  {
   "method": "POST",
@@ -2080,7 +2074,7 @@
   "area": "pos",
   "summary": "Unidades o nota de una línea (si ya está en cocina, solo anular con motivo).",
   "permissions": [],
-  "body": "const updateLineSchema = z.object({\n  quantity: z.number().min(0).max(10_000).optional(),\n  note: z.string().trim().max(200).nullable().optional(),\n  cancelReason: z.string().trim().max(200).nullable().optional(),\n  course: z.number().int().min(1).max(4).optional(),\n})"
+  "body": "const updateLineSchema = z.object({\n  quantity: z.number().min(0).max(10_000).optional(),\n  note: z.string().trim().max(200).nullable().optional(),\n  cancelReason: z.string().trim().max(200).nullable().optional(),\n  course: z.number().int().min(1).max(4).optional(),\n  // PIN del encargado que autoriza anular algo ya enviado (si la empresa lo exige) y camarero que lo pide.\n  approvalPin: z.string().trim().max(6).nullable().optional(),\n  waiterUserId: id.nullable().optional(),\n})"
  },
  {
   "method": "PUT",
@@ -2118,7 +2112,7 @@
   "area": "pos",
   "summary": "",
   "permissions": [],
-  "body": "const cancelSchema = z.object({ reason: z.string().trim().max(200).default(\"\") })"
+  "body": "const cancelSchema = z.object({ reason: z.string().trim().max(200).default(\"\"), approvalPin: z.string().trim().max(6).nullable().optional() })"
  },
  {
   "method": "POST",
@@ -2195,7 +2189,7 @@
   "area": "pos",
   "summary": "Abre la cuenta de una mesa (o devuelve la abierta) o una cuenta sin mesa.",
   "permissions": [],
-  "body": "const openOrderSchema = z.object({\n  registerId: id,\n  tableId: z.string().trim().nullable().optional(),\n  label: z.string().trim().max(60).nullable().optional(),\n  guests: z.number().int().min(1).max(200).optional(),\n  waiterUserId: z.string().trim().nullable().optional(),\n})"
+  "body": "const openOrderSchema = z.object({\n  registerId: id,\n  tableId: z.string().trim().nullable().optional(),\n  label: z.string().trim().max(60).nullable().optional(),\n  guests: z.number().int().min(1).max(200).optional(),\n  waiterUserId: z.string().trim().nullable().optional(),\n  training: z.boolean().optional(),\n})"
  },
  {
   "method": "POST",
@@ -2220,12 +2214,35 @@
   "permissions": []
  },
  {
+  "method": "GET",
+  "path": "/api/pos/hospitality/settings",
+  "area": "pos",
+  "summary": "Reglas de la sala (autorización del encargado).",
+  "permissions": []
+ },
+ {
+  "method": "PUT",
+  "path": "/api/pos/hospitality/settings",
+  "area": "pos",
+  "summary": "Reglas de la sala (autorización del encargado).",
+  "permissions": [],
+  "body": "const hospitalitySettingsSchema = z.object({ managerApproval: z.boolean() })"
+ },
+ {
   "method": "PUT",
   "path": "/api/pos/hospitality/staff/{userId}",
   "area": "pos",
   "summary": "Pone o quita el PIN de camarero de una persona del equipo.",
   "permissions": [],
   "body": "const pinSchema = z.object({ pin: z.string().trim().regex(/^(\\d{4,6})?$/, \"El PIN tiene de 4 a 6 cifras.\").nullable() })"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/pos/hospitality/staff/{userId}",
+  "area": "pos",
+  "summary": "Marca o desmarca a alguien como encargado.",
+  "permissions": [],
+  "body": "const staffRoleSchema = z.object({ isManager: z.boolean() })"
  },
  {
   "method": "GET",
@@ -2279,6 +2296,13 @@
   "summary": "",
   "permissions": [],
   "body": "const tablesSchema = z.object({ areaId: id, prefix: z.string().trim().max(20).default(\"Mesa\"), from: z.number().int().min(0).max(9999), to: z.number().int().min(0).max(9999), seats: z.number().int().min(1).max(50).default(4) })"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/pos/hospitality/training",
+  "area": "pos",
+  "summary": "Borra las cuentas de práctica del modo formación.",
+  "permissions": []
  },
  {
   "method": "POST",
@@ -2434,6 +2458,14 @@
   "area": "pos",
   "summary": "",
   "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/pos/setup-hospitality",
+  "area": "pos",
+  "summary": "Asistente de puesta en marcha: caja en modo Mesas, salas y mesas de una vez.",
+  "permissions": [],
+  "body": "const setupSchema = z.object({\n  registerId: z.string().trim().min(1).nullable().optional(),\n  registerName: z.string().trim().max(60).nullable().optional(),\n  areas: z.array(z.object({ name: z.string().trim().max(40), tables: z.number().int().min(0).max(100), seats: z.number().int().min(1).max(50) })).min(1).max(10),\n})"
  },
  {
   "method": "POST",

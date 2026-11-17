@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRinging, CalendarCheck, ChefHat, Clock, ListBullets, LockKey, MapTrifold, Plus, Receipt, Users } from "@phosphor-icons/react";
+import { BellRinging, CalendarCheck, ChefHat, Clock, GraduationCap, HandPointing, ListBullets, LockKey, MapTrifold, Plus, Receipt, Trash, UserFocus, Users } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PLAN_COLS, PLAN_ROWS } from "@/modules/hospitality/floor-plan";
 import { formatElapsed, minutesSince } from "@/modules/hospitality/model";
+import { attentionFor } from "@/modules/hospitality/service-aids";
 
 import { KioskBar } from "../pos/kiosk-bar";
 import { tapFeedback, useWakeLock } from "../pos/use-touch-pos";
@@ -28,10 +29,13 @@ import { useWaiter, WaiterButton } from "./waiter";
  * ocupada o pidiendo la cuenta), importe, comensales, tiempo abierta y avisos de cocina. Se actualiza
  * solo cada pocos segundos para ver lo que hacen los demás camareros.
  */
-export function FloorScreen({ canManage, currencyCode, initial, registerId, registerName }: { canManage: boolean; currencyCode: string; initial: FloorData; registerId: string; registerName: string }) {
+export function FloorScreen({ canManage, currencyCode, initial, registerId, registerName, training = false }: { canManage: boolean; currencyCode: string; initial: FloorData; registerId: string; registerName: string; training?: boolean }) {
   const router = useRouter();
-  const { data } = usePolling<FloorData>(`/api/pos/hospitality/floor?registerId=${registerId}`, initial, 4000);
-  const { waiter, setWaiter } = useWaiter();
+  const { data } = usePolling<FloorData>(`/api/pos/hospitality/floor?registerId=${registerId}${training ? "&training=1" : ""}`, initial, 4000);
+  const { waiter, setWaiter, lockMinutes, setLockMinutes } = useWaiter();
+  const [mineOnly, setMineOnly] = useState(false);
+  const [pickup, setPickup] = useState(false);
+  const knownReady = useRef<Set<string> | null>(null);
   const [areaId, setAreaId] = useState<string | null>(initial.areas[0]?.id ?? null);
   const [opening, setOpening] = useState<{ tableId: string; name: string; seats: number; booking: FloorBooking | null } | null>(null);
   const [looseOpen, setLooseOpen] = useState(false);
@@ -64,10 +68,43 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
     knownRequests.current = ids;
   }, [requestIds]);
   const occupied = data.areas.flatMap((entry) => entry.tables).filter((table) => table.order).length + data.loose.length;
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMineOnly(window.localStorage.getItem(MINE_KEY) === "1"), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const filterMine = mineOnly && Boolean(waiter);
+  const isMine = (order: FloorOrder | null) => !filterMine || (order !== null && order.waiterUserId === waiter?.userId);
+  // Lo listo en cocina y barra de las mesas que lleva este camarero (o de todas si no hay camarero).
+  const readyOrders = [...data.areas.flatMap((entry) => entry.tables.map((table) => ({ name: table.name, order: table.order }))), ...data.loose.map((order) => ({ name: order.label ?? "Cuenta", order }))]
+    .filter((entry): entry is { name: string; order: FloorOrder } => Boolean(entry.order && entry.order.readyLines.length > 0))
+    .filter((entry) => !waiter || !entry.order.waiterUserId || entry.order.waiterUserId === waiter.userId);
+  const readyCount = readyOrders.reduce((sum, entry) => sum + entry.order.readyLines.length, 0);
+  // Aviso (sonido, vibración y mensaje) cuando cocina o barra marca algo listo de mis mesas.
+  const readyKey = readyOrders.flatMap((entry) => entry.order.readyLines.map((line) => `${line.id}|${entry.name}|${line.quantity} ${line.description}`)).join("\n");
+  useEffect(() => {
+    const entries = readyKey ? readyKey.split("\n").map((entry) => entry.split("|")) : [];
+    const fresh = knownReady.current ? entries.filter(([id]) => !knownReady.current!.has(id)) : [];
+    if (fresh.length > 0) {
+      tapFeedback();
+      playChime();
+      const byTable = new Map<string, string[]>();
+      for (const [, name, text] of fresh) byTable.set(name, [...(byTable.get(name) ?? []), text]);
+      for (const [name, items] of byTable) toast.success(`${name}: listo ${items.join(", ")}`, { duration: 8000 });
+    }
+    knownReady.current = new Set(entries.map(([id]) => id));
+  }, [readyKey]);
+
+  async function pickedUp(lineIds: string[]) {
+    try {
+      await postJson("/api/pos/hospitality/kitchen/status", { lineIds, status: "SERVED" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo marcar como servido.");
+    }
+  }
 
   async function open(input: { tableId?: string; label?: string; guests: number }) {
     try {
-      const result = await postJson<{ id: string }>("/api/pos/hospitality/orders", { registerId, waiterUserId: waiter?.userId ?? null, ...input });
+      const result = await postJson<{ id: string }>("/api/pos/hospitality/orders", { registerId, waiterUserId: waiter?.userId ?? null, training, ...input });
       router.push(`/pos/${registerId}/orders/${result.id}`);
     } catch (error) {
       toast.error(isConnectionError(error) ? "Sin conexión: para abrir una mesa nueva hace falta conexión. Las mesas ya abiertas se pueden seguir usando." : error instanceof Error ? error.message : "No se pudo abrir la cuenta.");
@@ -95,7 +132,12 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
   return (
     <div className="flex h-dvh flex-col bg-background [touch-action:manipulation]" data-testid="pos-floor">
       <KioskBar backHref="/pos?choose=1" backLabel="Cajas" status={`${occupied} ${occupied === 1 ? "mesa abierta" : "mesas abiertas"}`} title={registerName}>
-        <WaiterButton onChange={setWaiter} waiter={waiter} />
+        <WaiterButton lockMinutes={lockMinutes} onChange={setWaiter} onLockChange={setLockMinutes} waiter={waiter} />
+        <button aria-label={`Para recoger${readyCount ? ` (${readyCount})` : ""}`} className={cn("relative flex h-11 min-w-11 items-center justify-center gap-1.5 border px-2.5 font-mono text-xs font-bold hover:bg-white/10", readyCount ? "border-success bg-success text-white" : "border-white/30")} data-testid="pos-pickup-button" onClick={() => setPickup(true)} type="button">
+          <BellRinging aria-hidden="true" className="size-5" weight={readyCount ? "fill" : "regular"} /><span className="hidden md:inline">Recoger</span>
+          {readyCount ? <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center bg-white px-1 font-mono text-[11px] font-black text-success-text" data-testid="pos-pickup-count">{readyCount}</span> : null}
+        </button>
+        {training ? null : <>
         <Link aria-label={`Reservas${data.pendingBookings ? ` (${data.pendingBookings} por confirmar)` : ""}`} className="relative flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-bookings-link" href={`/pos/bookings?register=${registerId}`}>
           <CalendarCheck aria-hidden="true" className="size-5" /><span className="hidden md:inline">Reservas</span>
           {data.pendingBookings ? <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center bg-warning px-1 font-mono text-[11px] font-black text-warning-foreground">{data.pendingBookings}</span> : null}
@@ -109,14 +151,21 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
         <Link aria-label="Cerrar caja" className="flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-close-link" href={`/pos/${registerId}/close`}>
           <LockKey aria-hidden="true" className="size-5" /><span className="hidden lg:inline">Cerrar caja</span>
         </Link>
+        {canManage ? (
+          <Link aria-label="Modo formación (práctica sin tickets reales)" className="flex h-11 min-w-11 items-center justify-center gap-1.5 border border-white/30 px-2.5 font-mono text-xs font-bold hover:bg-white/10" data-testid="pos-training-enter" href={`/pos/${registerId}?practica=1`}>
+            <GraduationCap aria-hidden="true" className="size-5" /><span className="hidden xl:inline">Formación</span>
+          </Link>
+        ) : null}
+        </>}
       </KioskBar>
+      {training ? <TrainingBanner registerId={registerId} /> : null}
       <ConnectionBanner />
 
       {data.areas.length === 0 ? (
         <div className="m-auto max-w-sm space-y-3 p-6 text-center">
           <p className="font-mono text-lg font-bold">Aún no hay mesas</p>
           <p className="text-sm text-muted-foreground">Crea las salas (Salón, Terraza…) y sus mesas en la configuración de las cajas.</p>
-          {canManage ? <Link className="inline-flex h-12 items-center border-2 border-primary bg-primary px-4 font-mono font-bold text-primary-foreground" href="/pos/settings#mesas">Crear salas y mesas</Link> : null}
+          {canManage ? <Link className="inline-flex h-12 items-center border-2 border-primary bg-primary px-4 font-mono font-bold text-primary-foreground" data-testid="pos-floor-setup" href="/pos/puesta-en-marcha">Poner en marcha la sala (3 pasos)</Link> : null}
         </div>
       ) : (
         <>
@@ -129,18 +178,23 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
                 </button>
               );
             })}
+            {waiter ? (
+              <button aria-pressed={filterMine} className={cn("ml-auto flex h-11 shrink-0 items-center gap-1.5 border-2 px-3 font-mono text-xs font-bold", filterMine ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid="pos-floor-mine" onClick={() => { setMineOnly(!mineOnly); window.localStorage.setItem(MINE_KEY, mineOnly ? "0" : "1"); }} type="button">
+                <UserFocus aria-hidden="true" className="size-5" /><span className="hidden sm:inline">Mis mesas</span>
+              </button>
+            ) : null}
             {area?.planned ? (
-              <button aria-label={showPlan ? "Ver como lista" : "Ver el plano"} className="ml-auto flex h-11 shrink-0 items-center gap-1.5 border-2 border-window-dark-shadow bg-window-panel px-3 font-mono text-xs font-bold" data-testid="pos-floor-view" onClick={() => chooseView(showPlan ? "list" : "plan")} type="button">
+              <button aria-label={showPlan ? "Ver como lista" : "Ver el plano"} className={cn(waiter ? "" : "ml-auto", " flex h-11 shrink-0 items-center gap-1.5 border-2 border-window-dark-shadow bg-window-panel px-3 font-mono text-xs font-bold")} data-testid="pos-floor-view" onClick={() => chooseView(showPlan ? "list" : "plan")} type="button">
                 {showPlan ? <ListBullets aria-hidden="true" className="size-5" /> : <MapTrifold aria-hidden="true" className="size-5" />}<span className="hidden sm:inline">{showPlan ? "Lista" : "Plano"}</span>
               </button>
             ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
             {showPlan && area ? (
-              <FloorPlanView currencyCode={currencyCode} now={now} onOpen={openTable} tables={area.tables} />
+              <FloorPlanView currencyCode={currencyCode} isMine={isMine} now={now} onOpen={openTable} tables={area.tables} />
             ) : (
               <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 md:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]" data-testid="pos-tables">
-                {(area?.tables ?? []).map((table) => (
+                {(area?.tables ?? []).filter((table) => !filterMine || isMine(table.order) || table.requests.length > 0).map((table) => (
                   <li key={table.id}>
                     <TableTile booking={table.booking} currencyCode={currencyCode} now={now} onOpen={() => openTable(table)} order={table.order} requests={table.requests} seats={table.seats} title={table.name} />
                   </li>
@@ -154,7 +208,7 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
               </div>
               {data.loose.length > 0 ? (
                 <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 md:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
-                  {data.loose.map((order) => (
+                  {data.loose.filter((order) => isMine(order)).map((order) => (
                     <li key={order.id}><TableTile currencyCode={currencyCode} now={now} onOpen={() => router.push(`/pos/${registerId}/orders/${order.id}`)} order={order} title={order.label ?? "Cuenta"} /></li>
                   ))}
                 </ul>
@@ -176,12 +230,56 @@ export function FloorScreen({ canManage, currencyCode, initial, registerId, regi
         />
       ) : null}
       {opening ? <GuestsDialog booking={opening.booking} name={opening.name} onClose={() => setOpening(null)} onConfirm={(guests) => { const target = opening; setOpening(null); void open({ tableId: target.tableId, guests }); }} onSeatBooking={(bookingId) => { setOpening(null); void seatBooking(bookingId); }} seats={opening.seats} /> : null}
+      {pickup ? (
+        <Dialog description={readyCount ? "Lo que cocina y barra ya tienen listo. Al llevarlo, márcalo como servido." : undefined} onClose={() => setPickup(false)} open title="Para recoger">
+          <div className="max-h-[65dvh] space-y-2 overflow-y-auto" data-testid="pos-pickup-list">
+            {readyOrders.length === 0 ? <p className="text-sm text-muted-foreground">Nada listo ahora mismo.</p> : readyOrders.map((entry) => (
+              <div className="border-2 border-success bg-success/10 p-2" data-testid={`pos-pickup-${entry.name}`} key={entry.order.id}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-lg font-black">{entry.name}</span>
+                  <Button className="h-12" data-testid={`pos-pickup-done-${entry.name}`} onClick={() => void pickedUp(entry.order.readyLines.map((line) => line.id))} type="button"><HandPointing aria-hidden="true" /> Servido</Button>
+                </div>
+                <ul className="mt-1 text-sm">
+                  {entry.order.readyLines.map((line) => <li key={line.id}><span className="font-mono font-bold">{line.quantity.toLocaleString("es-ES")}</span> {line.description} <span className="text-xs text-muted-foreground">· {line.station === "BAR" ? "barra" : "cocina"}</span></li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </Dialog>
+      ) : null}
       {looseOpen ? <LooseDialog onClose={() => setLooseOpen(false)} onConfirm={(label) => { setLooseOpen(false); void open({ label, guests: 1 }); }} /> : null}
     </div>
   );
 }
 
+/**
+ * Franja del modo formación: siempre visible para que nadie confunda la práctica con el servicio real.
+ */
+export function TrainingBanner({ registerId }: { registerId: string }) {
+  const router = useRouter();
+  async function clear() {
+    if (!window.confirm("¿Borrar todas las cuentas de práctica?")) return;
+    try {
+      const result = await postJson<{ deleted: number }>("/api/pos/hospitality/training", {}, "DELETE");
+      toast.success(result.deleted === 1 ? "Borrada 1 cuenta de práctica." : `Borradas ${result.deleted} cuentas de práctica.`);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo borrar.");
+    }
+  }
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b-2 border-warning bg-[repeating-linear-gradient(135deg,var(--color-warning)_0_12px,transparent_12px_24px)] px-2 py-1.5" data-testid="pos-training-banner" role="status">
+      <span className="flex items-center gap-1.5 bg-background px-2 py-1 font-mono text-sm font-black uppercase"><GraduationCap aria-hidden="true" className="size-5" />Modo formación · nada de esto es real</span>
+      <span className="ml-auto flex gap-1.5">
+        <Button className="h-10" data-testid="pos-training-clear" onClick={() => void clear()} type="button" variant="outline"><Trash aria-hidden="true" /> Borrar práctica</Button>
+        <Link className="flex h-10 items-center border-2 border-primary bg-primary px-3 font-mono text-sm font-bold text-primary-foreground" data-testid="pos-training-exit" href={`/pos/${registerId}`}>Salir de la práctica</Link>
+      </span>
+    </div>
+  );
+}
+
 const FLOOR_VIEW_KEY = "pos-floor-view";
+const MINE_KEY = "erp:pos:floor-mine";
 
 function subscribeFloorView(onChange: () => void) {
   window.addEventListener(FLOOR_VIEW_KEY, onChange);
@@ -200,7 +298,7 @@ function readFloorView(): "plan" | "list" {
 }
 
 /** La sala tal como está dibujada en la configuración; en pantallas estrechas se desplaza en horizontal. */
-function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: string; now: Date; onOpen: (table: FloorTable) => void; tables: FloorTable[] }) {
+function FloorPlanView({ currencyCode, isMine, now, onOpen, tables }: { currencyCode: string; isMine: (order: FloorOrder | null) => boolean; now: Date; onOpen: (table: FloorTable) => void; tables: FloorTable[] }) {
   return (
     <div className="overflow-x-auto overscroll-x-contain">
       {/* Ancho limitado por el alto disponible: la sala entera cabe en la tablet sin desplazarse. */}
@@ -208,11 +306,12 @@ function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: st
         {tables.map((table) => {
           const order = table.order;
           const minutes = order ? minutesSince(order.openedAt, now) : 0;
-          const tone = table.requests.length > 0 ? "border-destructive bg-destructive/20 ring-2 ring-destructive" : !order ? (table.booking ? "border-dashed border-link bg-window-panel" : "border-window-dark-shadow bg-window-panel") : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/30" : "border-primary bg-primary/15";
+          const attention = order ? attentionFor(order, now) : null;
+          const tone = table.requests.length > 0 ? "border-destructive bg-destructive/20 ring-2 ring-destructive" : !order ? (table.booking ? "border-dashed border-link bg-window-panel" : "border-window-dark-shadow bg-window-panel") : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/30" : attention?.kind === "unattended" ? "border-destructive bg-primary/15 ring-2 ring-destructive" : "border-primary bg-primary/15";
           return (
             <button
               aria-label={`${table.name}: ${!order ? (table.booking ? `reservada a las ${table.booking.time}` : "libre") : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`}
-              className={cn("absolute flex select-none flex-col items-center justify-center gap-0.5 border-2 p-0.5 text-center shadow-raised active:translate-y-px", table.shape === "ROUND" && "rounded-full", tone)}
+              className={cn("absolute flex select-none flex-col items-center justify-center gap-0.5 border-2 p-0.5 text-center shadow-raised active:translate-y-px", table.shape === "ROUND" && "rounded-full", tone, !isMine(order) && table.requests.length === 0 && "opacity-35")}
               data-testid={`pos-table-${table.name}`}
               key={table.id}
               onClick={() => onOpen(table)}
@@ -224,6 +323,7 @@ function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: st
                 <>
                   <span className="font-mono text-xs font-bold tabular-nums leading-none">{formatMoney(order.pending, currencyCode)}</span>
                   <span className={cn("flex items-center gap-1 text-xs leading-none text-muted-foreground", minutes >= 90 && "font-bold text-warning-text")}><Users aria-hidden="true" className="size-3" />{order.guests} · {formatElapsed(minutes)}</span>
+                  {attention ? <AttentionLabel attention={attention} compact /> : null}
                 </>
               ) : table.booking ? (
                 <span className={cn("max-w-full truncate px-0.5 font-mono text-xs font-bold leading-none", table.booking.late ? "text-destructive" : "text-link")}>{table.booking.time} · {table.booking.partySize}p</span>
@@ -242,7 +342,8 @@ function FloorPlanView({ currencyCode, now, onOpen, tables }: { currencyCode: st
 
 function TableTile({ booking, currencyCode, now, onOpen, order, requests = [], seats, title }: { booking?: FloorBooking | null; currencyCode: string; now: Date; onOpen: () => void; order: FloorOrder | null; requests?: TableRequest[]; seats?: number; title: string }) {
   const minutes = order ? minutesSince(order.openedAt, now) : 0;
-  const tone = requests.length > 0 ? "border-destructive bg-destructive/20 ring-2 ring-destructive" : !order ? "border-window-dark-shadow bg-window-panel" : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/20" : "border-primary bg-primary/10";
+  const attention = order ? attentionFor(order, now) : null;
+  const tone = requests.length > 0 ? "border-destructive bg-destructive/20 ring-2 ring-destructive" : !order ? "border-window-dark-shadow bg-window-panel" : order.status === "BILL_REQUESTED" ? "border-warning bg-warning/20" : attention?.kind === "unattended" ? "border-destructive bg-primary/10 ring-2 ring-destructive" : "border-primary bg-primary/10";
   return (
     <button aria-label={`${title}: ${!order ? (booking ? `reservada a las ${booking.time}` : "libre") : order.status === "BILL_REQUESTED" ? "pide la cuenta" : "ocupada"}`} className={cn("relative flex min-h-28 w-full select-none flex-col justify-between border-2 p-2 text-left shadow-raised active:translate-y-px", tone)} data-testid={`pos-table-${title}`} onClick={onOpen} type="button">
       <span className="flex items-start justify-between gap-1">
@@ -258,6 +359,7 @@ function TableTile({ booking, currencyCode, now, onOpen, order, requests = [], s
             <span className={cn("flex items-center gap-0.5", minutes >= 90 && "font-bold text-warning-text")}><Clock aria-hidden="true" className="size-3.5" />{formatElapsed(minutes)}</span>
             {order.unsent > 0 ? <span className="font-bold text-destructive">{order.unsent} sin enviar</span> : null}
           </span>
+          {attention ? <AttentionLabel attention={attention} /> : null}
           {order.status === "BILL_REQUESTED" ? <span className="block font-mono text-xs font-bold uppercase text-warning-text">Pide la cuenta</span> : order.waiterName ? <span className="block truncate text-xs">{order.waiterName}</span> : null}
         </span>
       ) : booking ? (
@@ -269,6 +371,14 @@ function TableTile({ booking, currencyCode, now, onOpen, order, requests = [], s
         <span className="text-xs text-muted-foreground">Libre{seats ? ` · ${seats} pax` : ""}</span>
       )}
     </button>
+  );
+}
+
+function AttentionLabel({ attention, compact = false }: { attention: { kind: "unattended" | "idle"; minutes: number }; compact?: boolean }) {
+  return attention.kind === "unattended" ? (
+    <span className={cn("block font-mono font-black uppercase text-destructive", compact ? "text-[10px] leading-none" : "text-xs")} data-testid="pos-table-unattended">{compact ? "¡Tomar nota!" : `¡Sin tomar nota! · ${formatElapsed(attention.minutes)}`}</span>
+  ) : (
+    <span className={cn("block font-mono font-bold text-link", compact ? "text-[10px] leading-none" : "text-xs")} data-testid="pos-table-idle">{compact ? `${formatElapsed(attention.minutes)} sin pedir` : `${formatElapsed(attention.minutes)} sin pedir · ¿postre o café?`}</span>
   );
 }
 

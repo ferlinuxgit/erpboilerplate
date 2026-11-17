@@ -1,6 +1,6 @@
 "use client";
 
-import { Barcode, Calculator, X } from "@phosphor-icons/react";
+import { Barcode, Calculator, Star, X } from "@phosphor-icons/react";
 import { forwardRef, useMemo, useState } from "react";
 
 import { formatMoney } from "@/lib/format";
@@ -22,17 +22,23 @@ export const PosCatalogPanel = forwardRef<HTMLInputElement, {
   onFreeAmount: () => void;
   /** Artículos agotados hoy (se ven marcados; el que los toca decide). */
   soldOut?: ReadonlySet<string>;
-}>(function PosCatalogPanel({ catalog, className, currencyCode, inCart, onAdd, onFreeAmount, soldOut }, searchRef) {
+  /** Lo más pedido (en orden): si hay suficiente, es la primera pestaña y la que se ve al entrar. */
+  topItemIds?: readonly string[];
+}>(function PosCatalogPanel({ catalog, className, currencyCode, inCart, onAdd, onFreeAmount, soldOut, topItemIds = [] }, searchRef) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
+  const topRank = useMemo(() => {
+    const known = new Set(catalog.map((entry) => entry.id));
+    return new Map(topItemIds.filter((id) => known.has(id)).map((id, index) => [id, index]));
+  }, [catalog, topItemIds]);
+  const hasTop = topRank.size >= MIN_TOP_ITEMS;
+  const [category, setCategory] = useState<string | null>(() => (hasTop ? TOP : null));
   const categories = useMemo(() => [...new Set(catalog.map((entry) => entry.categoryName).filter((name): name is string => Boolean(name)))], [catalog]);
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("es-ES");
-    return catalog
-      .filter((entry) => !category || entry.categoryName === category)
-      .filter((entry) => !normalized || entry.name.toLocaleLowerCase("es-ES").includes(normalized) || entry.sku.toLocaleLowerCase("es-ES").includes(normalized))
-      .slice(0, 200);
-  }, [catalog, category, query]);
+    // Al buscar se busca en todo el catálogo, no solo en la pestaña elegida.
+    const inTab = normalized ? catalog : category === TOP ? catalog.filter((entry) => topRank.has(entry.id)).sort((a, b) => topRank.get(a.id)! - topRank.get(b.id)!) : catalog.filter((entry) => !category || entry.categoryName === category);
+    return inTab.filter((entry) => !normalized || entry.name.toLocaleLowerCase("es-ES").includes(normalized) || entry.sku.toLocaleLowerCase("es-ES").includes(normalized)).slice(0, 200);
+  }, [catalog, category, query, topRank]);
 
   function onSearchEnter(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return;
@@ -68,10 +74,11 @@ export const PosCatalogPanel = forwardRef<HTMLInputElement, {
             <button aria-label="Borrar búsqueda" className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center" onClick={() => setQuery("")} type="button"><X aria-hidden="true" className="size-5" /></button>
           ) : null}
         </div>
-        {categories.length > 0 ? (
+        {categories.length > 0 || hasTop ? (
           <div className="-mx-2 flex snap-x gap-1.5 overflow-x-auto px-2 pb-1 [scrollbar-width:none]">
+            {hasTop ? <CategoryChip active={category === TOP} icon={<Star aria-hidden="true" className="size-4" weight="fill" />} label="Más pedidos" onClick={() => setCategory(TOP)} testId="pos-category-top" /> : null}
             <CategoryChip active={category === null} label="Todo" onClick={() => setCategory(null)} />
-            {categories.map((name) => <CategoryChip active={category === name} key={name} label={name} onClick={() => setCategory(name)} />)}
+            {categories.map((name) => <CategoryChip active={category === name} color={categoryColor(name)} key={name} label={name} onClick={() => setCategory(name)} />)}
           </div>
         ) : null}
       </div>
@@ -94,6 +101,7 @@ export const PosCatalogPanel = forwardRef<HTMLInputElement, {
                   onClick={() => onAdd(entry)}
                   type="button"
                 >
+                  {entry.categoryName ? <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: categoryColor(entry.categoryName) }} /> : null}
                   {count ? <span className="absolute right-1 top-1 min-w-6 bg-primary px-1 text-center font-mono text-xs font-bold text-primary-foreground">×{count.toLocaleString("es-ES")}</span> : null}
                   {out ? <span className="absolute bottom-1 right-1 bg-destructive px-1 font-mono text-[11px] font-black uppercase text-destructive-foreground" data-testid="pos-item-sold-out">Agotado</span> : null}
                   <span className="line-clamp-3 pr-6 text-sm font-semibold leading-tight">{entry.name}</span>
@@ -114,9 +122,21 @@ export const PosCatalogPanel = forwardRef<HTMLInputElement, {
   );
 });
 
-function CategoryChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+const TOP = "__top__";
+const MIN_TOP_ITEMS = 4;
+// Un color fijo por categoría (siempre el mismo para el mismo nombre): se reconoce de un vistazo.
+const CATEGORY_COLORS = ["#b45309", "#0e7490", "#7c3aed", "#15803d", "#be123c", "#1d4ed8", "#a16207", "#0f766e"];
+
+export function categoryColor(name: string) {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return CATEGORY_COLORS[hash % CATEGORY_COLORS.length];
+}
+
+function CategoryChip({ active, color, icon, label, onClick, testId }: { active: boolean; color?: string; icon?: React.ReactNode; label: string; onClick: () => void; testId?: string }) {
   return (
-    <button className={cn("h-11 shrink-0 snap-start border-2 px-4 font-mono text-sm font-bold", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} onClick={onClick} type="button">
+    <button className={cn("flex h-11 shrink-0 snap-start items-center gap-1.5 border-2 px-4 font-mono text-sm font-bold", active ? "border-primary bg-primary text-primary-foreground" : "border-window-dark-shadow bg-window-panel")} data-testid={testId} onClick={onClick} type="button">
+      {color ? <span aria-hidden="true" className="size-2.5 shrink-0" style={{ backgroundColor: color }} /> : icon}
       {label}
     </button>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowsOut, DotsThreeVertical, GearSix, LockKey, Minus, Money, Plus, Printer, Receipt, ShoppingCart, SquaresFour, User, X } from "@phosphor-icons/react";
+import { ArrowsOut, DotsThreeVertical, GearSix, LockKey, Minus, Money, Plus, Printer, Receipt, ShoppingCart, SquaresFour, User } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -35,11 +35,13 @@ type LastSale = { invoiceId: string; number: string; total: number; change: numb
  * - Móvil: dos pantallas («Productos» y «Ticket») con una barra fija abajo con el total y «Cobrar».
  * Buscar también sirve para lector de códigos (referencia + Intro). Con teclado: F2 busca, F9 cobra.
  */
-export function PosTerminal({ backHref, bankAccounts, canManage, catalog, currencyCode, register, session, tickets }: {
+export function PosTerminal({ backHref, bankAccounts, canManage, catalog, currencyCode, register, session, setupHref, tickets }: {
   /** Caja en modo mesas: la venta directa vuelve al plano. */
   backHref?: string;
   bankAccounts: Array<{ id: string; name: string }>;
   canManage: boolean;
+  /** Hostelería activa y esta caja en mostrador: acceso al asistente para trabajar por mesas. */
+  setupHref?: string;
   catalog: PosCatalogItem[];
   currencyCode: string;
   register: PosRegisterView;
@@ -299,6 +301,7 @@ export function PosTerminal({ backHref, bankAccounts, canManage, catalog, curren
           </label>
           <Button className="h-12 justify-start" onClick={() => { void document.documentElement.requestFullscreen?.().catch(() => undefined); setSheet(null); }} type="button" variant="outline"><ArrowsOut aria-hidden="true" /> Pantalla completa</Button>
           <Link className={buttonVariants({ className: "h-12 justify-start", variant: "outline" })} href="/pos/sessions"><Receipt aria-hidden="true" /> Cierres de caja anteriores</Link>
+          {canManage && setupHref ? <Link className={buttonVariants({ className: "h-12 justify-start" })} data-testid="pos-terminal-setup" href={setupHref}><GearSix aria-hidden="true" /> Trabajar por mesas (bar o restaurante)</Link> : null}
           {canManage ? <Link className={buttonVariants({ className: "h-12 justify-start", variant: "outline" })} href="/pos/settings"><GearSix aria-hidden="true" /> Configurar cajas</Link> : null}
           <Link className={buttonVariants({ className: "h-12 justify-start", variant: "outline" })} href="/pos?choose=1">Cambiar de caja</Link>
           <p className="text-xs text-muted-foreground">Con teclado: F2 busca y F9 cobra. Consejo: en la tablet, «Añadir a pantalla de inicio» abre el TPV como una aplicación.</p>

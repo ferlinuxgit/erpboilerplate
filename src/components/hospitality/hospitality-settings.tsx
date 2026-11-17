@@ -104,24 +104,60 @@ export function StationsEditor({ canManage, initial }: { canManage: boolean; ini
   );
 }
 
-/** PIN de 4 a 6 cifras por camarero: se identifican al instante en una tablet compartida. */
-export function StaffPins({ canManage, staff }: { canManage: boolean; staff: Array<{ userId: string; name: string; hasPin: boolean }> }) {
+/**
+ * PIN de 4 a 6 cifras por camarero: se identifican al instante en una tablet compartida. Los
+ * encargados autorizan con su PIN anular lo ya enviado y cerrar mesas sin cobrar (si se exige).
+ */
+export function StaffPins({ canManage, managerApproval, staff }: { canManage: boolean; managerApproval: boolean; staff: Array<{ userId: string; name: string; hasPin: boolean; isManager: boolean }> }) {
   const { act, pending } = useAction();
   const [pins, setPins] = useState<Record<string, string>>({});
+  // Las casillas cambian al momento; si no se guarda, vuelven a lo que dice el servidor.
+  const [managerOverride, setManagerOverride] = useState<Record<string, boolean>>({});
+  const [approvalOverride, setApprovalOverride] = useState<boolean | null>(null);
+  const isManager = (member: { userId: string; isManager: boolean }) => managerOverride[member.userId] ?? member.isManager;
+  const approval = approvalOverride ?? managerApproval;
+  const managers = staff.filter(isManager).length;
+  const toggleManager = (member: { userId: string; name: string }, checked: boolean) => {
+    setManagerOverride((current) => ({ ...current, [member.userId]: checked }));
+    void act(() => postJson(`/api/pos/hospitality/staff/${member.userId}`, { isManager: checked }, "PATCH"), checked ? `${member.name} es encargado.` : `${member.name} ya no es encargado.`).then((ok) => {
+      if (!ok) setManagerOverride((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== member.userId)));
+    });
+  };
+  const toggleApproval = (checked: boolean) => {
+    setApprovalOverride(checked);
+    void act(() => postJson("/api/pos/hospitality/settings", { managerApproval: checked }, "PUT"), checked ? "A partir de ahora, anular lo enviado pide el PIN de un encargado." : "Ya no hace falta el PIN de encargado.").then((ok) => {
+      if (!ok) setApprovalOverride(null);
+    });
+  };
   return (
-    <ul className="divide-y divide-window-shadow border border-window-shadow" data-testid="pos-staff-pins">
-      {staff.map((member) => (
-        <li className="flex flex-wrap items-center justify-between gap-2 p-2" key={member.userId}>
-          <span className="flex items-center gap-2 text-sm font-semibold">{member.name} <StatusBadge tone={member.hasPin ? "success" : "neutral"}>{member.hasPin ? "Con PIN" : "Sin PIN"}</StatusBadge></span>
-          {canManage ? (
-            <span className="flex items-center gap-1">
-              <Input aria-label={`PIN de ${member.name}`} className="h-11 w-28 text-center font-mono text-base tracking-widest" inputMode="numeric" maxLength={6} onChange={(event) => setPins((current) => ({ ...current, [member.userId]: event.target.value.replace(/\D/g, "") }))} placeholder="••••" type="password" value={pins[member.userId] ?? ""} />
-              <Button className="h-11" data-testid={`pos-pin-save-${member.name}`} disabled={pending || (pins[member.userId] ?? "").length < 4} onClick={() => void act(() => postJson(`/api/pos/hospitality/staff/${member.userId}`, { pin: pins[member.userId] }, "PUT"), "PIN guardado.").then((ok) => ok && setPins((current) => ({ ...current, [member.userId]: "" })))} type="button">Guardar</Button>
-              {member.hasPin ? <Button className="h-11" disabled={pending} onClick={() => void act(() => postJson(`/api/pos/hospitality/staff/${member.userId}`, { pin: null }, "PUT"), "PIN quitado.")} type="button" variant="ghost">Quitar</Button> : null}
-            </span>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <ul className="divide-y divide-window-shadow border border-window-shadow" data-testid="pos-staff-pins">
+        {staff.map((member) => (
+          <li className="flex flex-wrap items-center justify-between gap-2 p-2" key={member.userId}>
+            <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">{member.name} <StatusBadge tone={member.hasPin ? "success" : "neutral"}>{member.hasPin ? "Con PIN" : "Sin PIN"}</StatusBadge>{isManager(member) ? <StatusBadge tone="info">Encargado</StatusBadge> : null}</span>
+            {canManage ? (
+              <span className="flex flex-wrap items-center gap-1">
+                <Input aria-label={`PIN de ${member.name}`} className="h-11 w-28 text-center font-mono text-base tracking-widest" inputMode="numeric" maxLength={6} onChange={(event) => setPins((current) => ({ ...current, [member.userId]: event.target.value.replace(/\D/g, "") }))} placeholder="••••" type="password" value={pins[member.userId] ?? ""} />
+                <Button className="h-11" data-testid={`pos-pin-save-${member.name}`} disabled={pending || (pins[member.userId] ?? "").length < 4} onClick={() => void act(() => postJson(`/api/pos/hospitality/staff/${member.userId}`, { pin: pins[member.userId] }, "PUT"), "PIN guardado.").then((ok) => ok && setPins((current) => ({ ...current, [member.userId]: "" })))} type="button">Guardar</Button>
+                {member.hasPin ? <Button className="h-11" disabled={pending} onClick={() => void act(() => postJson(`/api/pos/hospitality/staff/${member.userId}`, { pin: null }, "PUT"), "PIN quitado.")} type="button" variant="ghost">Quitar</Button> : null}
+                {member.hasPin ? (
+                  <label className="flex min-h-11 items-center gap-2 border border-window-shadow px-2 text-sm">
+                    <input checked={isManager(member)} className="size-5" data-testid={`pos-staff-manager-${member.name}`} disabled={pending} onChange={(event) => toggleManager(member, event.target.checked)} type="checkbox" />
+                    Encargado
+                  </label>
+                ) : null}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      <label className={cn("flex min-h-12 items-start gap-3 border-2 p-3 text-sm", approval ? "border-primary bg-primary/5" : "border-window-shadow")}>
+        <input checked={approval} className="mt-0.5 size-5" data-testid="pos-manager-approval" disabled={!canManage || pending || (!approval && managers === 0)} onChange={(event) => toggleApproval(event.target.checked)} type="checkbox" />
+        <span>
+          <span className="block font-semibold">Pedir el PIN de un encargado para anular lo ya enviado a cocina o barra y para cerrar una mesa sin cobrar</span>
+          <span className="block text-xs text-muted-foreground">{managers === 0 ? "Marca primero a algún encargado (necesita PIN)." : "Queda registrado quién lo pidió y qué encargado lo autorizó; sale en el cierre de caja."}</span>
+        </span>
+      </label>
+    </div>
   );
 }

@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { OrderScreen } from "@/components/hospitality/order-screen";
 import { requireContext } from "@/lib/current-context";
 import { isModuleEnabled } from "@/server/modules/service";
-import { getOrder } from "@/server/pos/hospitality";
+import { getHospitalitySettings, getOrder, topOrderedItemIds } from "@/server/pos/hospitality";
 import { getOrderingOptions } from "@/server/pos/ordering";
 import { getOpenSession, listPosCatalog, listRegisters } from "@/server/pos/service";
 
@@ -19,7 +19,7 @@ export default async function PosOrderPage({ params }: { params: Promise<{ regis
   ]);
   if (!register || !order || order.registerId !== register.id) notFound();
   // Para cobrar hace falta la caja abierta.
-  if (!(await getOpenSession(ctx.company.id, register.id))) redirect(`/pos/${register.id}`);
-  const [catalog, ordering] = await Promise.all([listPosCatalog(ctx.company.id, register.warehouseId, await isModuleEnabled(ctx.company.id, "inventory")), getOrderingOptions(ctx.company.id)]);
-  return <OrderScreen cardEnabled={Boolean(register.cardPaymentMethodId)} catalog={catalog} currencyCode={ctx.company.baseCurrencyCode} initial={JSON.parse(JSON.stringify(order))} ordering={ordering} />;
+  if (!order.training && !(await getOpenSession(ctx.company.id, register.id))) redirect(`/pos/${register.id}`);
+  const [catalog, ordering, topItemIds, settings] = await Promise.all([listPosCatalog(ctx.company.id, register.warehouseId, await isModuleEnabled(ctx.company.id, "inventory")), getOrderingOptions(ctx.company.id), topOrderedItemIds(ctx.company.id), getHospitalitySettings(ctx.company.id)]);
+  return <OrderScreen cardEnabled={Boolean(register.cardPaymentMethodId)} catalog={catalog} currencyCode={ctx.company.baseCurrencyCode} initial={JSON.parse(JSON.stringify(order))} managerApproval={settings.managerApproval && !order.training} ordering={ordering} topItemIds={topItemIds} />;
 }

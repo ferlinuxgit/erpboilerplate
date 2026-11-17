@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 
 import {
   bankAccount,
@@ -13,6 +13,8 @@ import {
   payment,
   paymentMethod,
   posCashMovement,
+  posOrder,
+  posOrderLine,
   posRegister,
   posSession,
   posTicket,
@@ -359,6 +361,10 @@ export type SessionSummary = {
   /** Ventas netas (ventas − devoluciones) por tipo de IVA. */
   taxBreakdown: Array<{ rate: number; base: number; tax: number }>;
   netTotal: number;
+  /** Hostelería: ventas y propinas de cada camarero. */
+  byWaiter?: Array<{ name: string; tickets: number; total: number; tips: number }>;
+  /** Hostelería: lo anulado después de enviarlo a cocina o barra (quién y quién lo autorizó). */
+  voids?: { count: number; total: number; lines: Array<{ description: string; quantity: number; amount: number; reason: string | null; table: string; waiterName: string | null; approvedByName: string | null; at: string }> };
 };
 
 /** Totales de una sesión: ventas, devoluciones, efectivo esperado y desglose por IVA (informe Z). */
@@ -366,7 +372,7 @@ export async function computeSessionSummary(companyId: string, sessionId: string
   const [session] = await client.select().from(posSession).where(and(eq(posSession.id, sessionId), eq(posSession.companyId, companyId))).limit(1);
   if (!session) throw new HttpError(404, "Sesión de caja no encontrada.");
   const [tickets, movements] = await Promise.all([
-    client.select({ kind: posTicket.kind, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, tipAmount: posTicket.tipAmount }).from(posTicket).where(eq(posTicket.sessionId, sessionId)),
+    client.select({ kind: posTicket.kind, invoiceId: posTicket.invoiceId, totalAmount: posTicket.totalAmount, cashAmount: posTicket.cashAmount, cardAmount: posTicket.cardAmount, tipAmount: posTicket.tipAmount, waiterUserId: posTicket.waiterUserId, waiterName: user.name }).from(posTicket).leftJoin(user, eq(user.id, posTicket.waiterUserId)).where(eq(posTicket.sessionId, sessionId)),
     client.select({ type: posCashMovement.type, amount: posCashMovement.amount }).from(posCashMovement).where(eq(posCashMovement.sessionId, sessionId)),
   ]);
   const sum = (rows: typeof tickets, key: "totalAmount" | "cashAmount" | "cardAmount") => centsToNumber(rows.reduce((total, row) => total + amountToCents(num(row[key])), 0));
@@ -418,7 +424,18 @@ export async function computeSessionSummary(companyId: string, sessionId: string
   const salesSummary = { count: sales.length, total: sum(sales, "totalAmount"), cash: sum(sales, "cashAmount"), card: sum(sales, "cardAmount") };
   const refundSummary = { count: refunds.length, total: sum(refunds, "totalAmount"), cash: sum(refunds, "cashAmount"), card: sum(refunds, "cardAmount") };
   const openingCash = num(session.openingCash);
+  const waiters = new Map<string, { name: string; tickets: number; totalCents: number; tipsCents: number }>();
+  for (const ticket of sales.filter((entry) => entry.waiterUserId)) {
+    const current = waiters.get(ticket.waiterUserId!) ?? { name: ticket.waiterName ?? "—", tickets: 0, totalCents: 0, tipsCents: 0 };
+    current.tickets += 1;
+    current.totalCents += amountToCents(num(ticket.totalAmount));
+    current.tipsCents += amountToCents(num(ticket.tipAmount));
+    waiters.set(ticket.waiterUserId!, current);
+  }
+  const voids = await sessionVoids(client, companyId, session.registerId, session.openedAt, session.closedAt ?? new Date());
   return {
+    byWaiter: [...waiters.values()].map((entry) => ({ name: entry.name, tickets: entry.tickets, total: centsToNumber(entry.totalCents), tips: centsToNumber(entry.tipsCents) })).sort((a, b) => b.total - a.total),
+    voids,
     sales: salesSummary,
     refunds: refundSummary,
     cashIn,
@@ -429,6 +446,30 @@ export async function computeSessionSummary(companyId: string, sessionId: string
     taxBreakdown: [...breakdown.entries()].map(([rate, value]) => ({ rate, base: centsToNumber(value.baseCents), tax: centsToNumber(value.taxCents) })).sort((a, b) => b.rate - a.rate),
     netTotal: centsToNumber(amountToCents(salesSummary.total) - amountToCents(refundSummary.total)),
   };
+}
+
+/** Anulaciones de lo ya enviado a cocina o barra en las mesas de la caja durante el turno. */
+async function sessionVoids(client: DbClient, companyId: string, registerId: string, from: Date, to: Date): Promise<NonNullable<SessionSummary["voids"]>> {
+  const approver = aliasedTable(user, "approver");
+  const rows = await client
+    .select({ description: posOrderLine.description, quantity: posOrderLine.quantity, unitPrice: posOrderLine.unitPrice, taxRate: posOrderLine.taxRate, reason: posOrderLine.cancelReason, updatedAt: posOrderLine.updatedAt, label: posOrder.label, orderId: posOrder.id, waiterName: user.name, approvedByName: approver.name, tableName: sql<string | null>`(select name from pos_table where pos_table.id = ${posOrder.tableId})` })
+    .from(posOrderLine)
+    .innerJoin(posOrder, eq(posOrder.id, posOrderLine.orderId))
+    .leftJoin(user, eq(user.id, posOrderLine.cancelledByUserId))
+    .leftJoin(approver, eq(approver.id, posOrderLine.approvedByUserId))
+    .where(and(eq(posOrder.companyId, companyId), eq(posOrder.registerId, registerId), eq(posOrder.training, false), eq(posOrderLine.status, "CANCELLED"), isNotNull(posOrderLine.sentAt), isNull(posOrderLine.parentLineId), gte(posOrderLine.updatedAt, from), lte(posOrderLine.updatedAt, to)))
+    .orderBy(asc(posOrderLine.updatedAt));
+  const lines = rows.map((row) => ({
+    description: row.description,
+    quantity: num(row.quantity),
+    amount: centsToNumber(amountToCents(num(row.unitPrice) * (1 + num(row.taxRate) / 100) * num(row.quantity))),
+    reason: row.reason,
+    table: row.tableName ?? row.label ?? "Cuenta",
+    waiterName: row.waiterName,
+    approvedByName: row.approvedByName,
+    at: row.updatedAt.toISOString(),
+  }));
+  return { count: lines.length, total: centsToNumber(lines.reduce((sum, line) => sum + amountToCents(line.amount), 0)), lines };
 }
 
 /** Cierra la caja con el efectivo contado: arqueo (diferencia) e informe Z congelado. */

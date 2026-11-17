@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { requireContext } from "@/lib/current-context";
 import { formatDateTime } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { isModuleEnabled } from "@/server/modules/service";
 import { listRegisters } from "@/server/pos/service";
 
 export const metadata: Metadata = { title: "TPV" };
@@ -17,10 +18,21 @@ export default async function PosHomePage({ searchParams }: { searchParams: Prom
   const ctx = await requireContext("pos.read");
   const registers = (await listRegisters(ctx.company.id)).filter((register) => register.isActive);
   const canManage = can(ctx.membership.role, "pos.manage");
-  if (registers.length === 1 && (await searchParams).choose !== "1" && can(ctx.membership.role, "pos.sell")) redirect(`/pos/${registers[0].id}`);
+  // Bar o restaurante sin ninguna caja en modo Mesas: el asistente lo deja listo en tres pasos.
+  const offerSetup = canManage && (await isModuleEnabled(ctx.company.id, "hospitality")) && !registers.some((register) => register.mode === "TABLES");
+  if (registers.length === 1 && !offerSetup && (await searchParams).choose !== "1" && can(ctx.membership.role, "pos.sell")) redirect(`/pos/${registers[0].id}`);
 
   return (
     <PageShell>
+      {offerSetup ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-2 border-primary bg-primary/5 p-3" data-testid="pos-home-setup">
+          <div>
+            <p className="font-mono text-base font-bold">¿Bar o restaurante? Pon en marcha la sala</p>
+            <p className="text-sm text-muted-foreground">Ninguna caja trabaja por mesas todavía. En tres pasos creas las salas, las mesas y la caja de los camareros.</p>
+          </div>
+          <Link className={buttonVariants()} href="/pos/puesta-en-marcha">Empezar</Link>
+        </div>
+      ) : null}
       <PageHeader
         title="TPV"
         description="Venta en mostrador con tickets (factura simplificada), cobro en efectivo o tarjeta y cierre de caja."

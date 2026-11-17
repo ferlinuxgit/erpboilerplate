@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 
-import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 
 import {
   item,
@@ -8,7 +8,9 @@ import {
   membership,
   posArea,
   posCategoryStation,
+  posHospitalitySettings,
   posKitchenBatch,
+  posMenuItem,
   posOrder,
   posOrderLine,
   posRegister,
@@ -204,10 +206,53 @@ function pinHash(companyId: string, pin: string) {
 export async function listStaff(companyId: string, tenantId: string) {
   const [members, pins] = await Promise.all([
     db.select({ userId: user.id, name: user.name }).from(membership).innerJoin(user, eq(user.id, membership.userId)).where(eq(membership.tenantId, tenantId)).orderBy(asc(user.name)),
-    db.select({ userId: posStaffPin.userId }).from(posStaffPin).where(eq(posStaffPin.companyId, companyId)),
+    db.select({ userId: posStaffPin.userId, isManager: posStaffPin.isManager }).from(posStaffPin).where(eq(posStaffPin.companyId, companyId)),
   ]);
-  const withPin = new Set(pins.map((pin) => pin.userId));
-  return members.map((member) => ({ ...member, hasPin: withPin.has(member.userId) }));
+  const byUser = new Map(pins.map((pin) => [pin.userId, pin]));
+  return members.map((member) => ({ ...member, hasPin: byUser.has(member.userId), isManager: byUser.get(member.userId)?.isManager ?? false }));
+}
+
+/** Marca o desmarca a alguien con PIN como encargado (su PIN autoriza anulaciones). */
+export async function setStaffManager(actor: PosActor, userId: string, isManager: boolean) {
+  const [updated] = await db.update(posStaffPin).set({ isManager, updatedAt: new Date() }).where(and(eq(posStaffPin.companyId, actor.companyId), eq(posStaffPin.userId, userId))).returning({ id: posStaffPin.id });
+  if (!updated) throw new HttpError(409, "Ponle antes un PIN: el encargado autoriza con su PIN.");
+  await audit(actor, isManager ? "pos_staff.manager_on" : "pos_staff.manager_off", "pos_staff_pin", userId, {});
+}
+
+export async function getHospitalitySettings(companyId: string, client: DbClient = db) {
+  const [row] = await client.select({ managerApproval: posHospitalitySettings.managerApproval }).from(posHospitalitySettings).where(eq(posHospitalitySettings.companyId, companyId)).limit(1);
+  return { managerApproval: row?.managerApproval ?? false };
+}
+
+export async function saveHospitalitySettings(actor: PosActor, input: { managerApproval: boolean }) {
+  if (input.managerApproval) {
+    const [manager] = await db.select({ id: posStaffPin.id }).from(posStaffPin).where(and(eq(posStaffPin.companyId, actor.companyId), eq(posStaffPin.isManager, true))).limit(1);
+    if (!manager) throw new HttpError(409, "Marca antes a algún encargado (con su PIN) en «Camareros»: si no, nadie podría autorizar.");
+  }
+  await db
+    .insert(posHospitalitySettings)
+    .values({ companyId: actor.companyId, managerApproval: input.managerApproval })
+    .onConflictDoUpdate({ target: posHospitalitySettings.companyId, set: { managerApproval: input.managerApproval, updatedAt: new Date() } });
+  await audit(actor, "pos_hospitality.settings", "pos_hospitality_settings", actor.companyId, input);
+  return getHospitalitySettings(actor.companyId);
+}
+
+/**
+ * Si la empresa exige autorización, comprueba el PIN del encargado y devuelve quién autoriza
+ * (null si no hace falta).
+ */
+async function requireManagerApproval(client: DbClient, companyId: string, pin: string | null | undefined) {
+  const { managerApproval } = await getHospitalitySettings(companyId, client);
+  if (!managerApproval) return null;
+  if (!pin) throw new HttpError(403, "Hace falta el PIN de un encargado.");
+  if (!/^\d{4,6}$/.test(pin)) throw new HttpError(403, "PIN de encargado incorrecto.");
+  const [row] = await client
+    .select({ userId: posStaffPin.userId })
+    .from(posStaffPin)
+    .where(and(eq(posStaffPin.companyId, companyId), eq(posStaffPin.pinHash, pinHash(companyId, pin)), eq(posStaffPin.isManager, true)))
+    .limit(1);
+  if (!row) throw new HttpError(403, "PIN de encargado incorrecto.");
+  return row.userId;
 }
 
 /** PIN de 4 a 6 cifras para identificarse rápido en una tablet compartida. Vacío = quitarlo. */
@@ -294,7 +339,7 @@ async function loadLines(client: DbClient, orderIds: string[]): Promise<LoadedLi
 }
 
 /** Salas con sus mesas y la cuenta abierta de cada una (importe, comensales, tiempo, cocina). */
-export async function getFloor(companyId: string, registerId: string) {
+export async function getFloor(companyId: string, registerId: string, training = false) {
   const [areas, orders] = await Promise.all([
     listAreasWithTables(companyId),
     db
@@ -306,17 +351,24 @@ export async function getFloor(companyId: string, registerId: string) {
         guests: posOrder.guests,
         openedAt: posOrder.openedAt,
         equalSplit: posOrder.equalSplit,
+        waiterUserId: posOrder.waiterUserId,
         waiterName: user.name,
       })
       .from(posOrder)
       .leftJoin(user, eq(user.id, posOrder.waiterUserId))
-      .where(and(eq(posOrder.companyId, companyId), eq(posOrder.registerId, registerId), inArray(posOrder.status, [...OPEN_STATUSES])))
+      .where(and(eq(posOrder.companyId, companyId), eq(posOrder.registerId, registerId), inArray(posOrder.status, [...OPEN_STATUSES]), eq(posOrder.training, training)))
       .orderBy(asc(posOrder.openedAt)),
   ]);
   // Import diferido: el módulo de reservas usa openOrder de este archivo.
   const { countPendingBookings, upcomingBookingsByTable } = await import("@/server/pos/bookings");
   const { pendingRequestsByTable } = await import("@/server/pos/table-requests");
-  const [lines, upcoming, pendingBookings, requests] = await Promise.all([loadLines(db, orders.map((order) => order.id)), upcomingBookingsByTable(companyId), countPendingBookings(companyId), pendingRequestsByTable(companyId)]);
+  // En formación no se ven reservas ni avisos de clientes reales (no se pueden atender desde la práctica).
+  const [lines, upcoming, pendingBookings, requests] = await Promise.all([
+    loadLines(db, orders.map((order) => order.id)),
+    training ? new Map<string, never>() : upcomingBookingsByTable(companyId),
+    training ? 0 : countPendingBookings(companyId),
+    training ? new Map<string, never>() : pendingRequestsByTable(companyId),
+  ]);
   const summaries = orders.map((order) => {
     const own = lines.filter((line) => line.orderId === order.id);
     const amounts = orderAmounts(own, order.equalSplit as EqualSplit | null);
@@ -327,11 +379,16 @@ export async function getFloor(companyId: string, registerId: string) {
       status: order.status as OrderStatus,
       guests: order.guests,
       openedAt: order.openedAt,
+      waiterUserId: order.waiterUserId,
       waiterName: order.waiterName,
       total: amounts.total,
       pending: amounts.pending,
       unsent: own.filter((line) => line.status === "PENDING").length,
       ready: own.filter((line) => line.status === "READY").length,
+      // Platos listos en cocina o barra: para la lista «Para recoger» del camarero.
+      readyLines: own.filter((line) => line.status === "READY").map((line) => ({ id: line.id, description: line.description, quantity: line.quantity, station: line.station })),
+      // Cuándo se pidió algo por última vez (mesas sin atender o que llevan rato sin pedir).
+      lastOrderAt: own.filter((line) => line.status !== "CANCELLED").reduce<Date | null>((latest, line) => (!latest || line.createdAt > latest ? line.createdAt : latest), null),
     };
   });
   return {
@@ -354,6 +411,7 @@ export async function getFloor(companyId: string, registerId: string) {
       })),
     })),
     pendingBookings,
+    training,
     // Cuentas sin mesa (barra, para llevar).
     loose: summaries.filter((order) => !order.tableId),
   };
@@ -382,19 +440,20 @@ async function assertTable(client: DbClient, companyId: string, tableId: string)
   return row;
 }
 
-async function tableOpenOrder(client: DbClient, companyId: string, tableId: string) {
-  const [row] = await client.select({ id: posOrder.id }).from(posOrder).where(and(eq(posOrder.companyId, companyId), eq(posOrder.tableId, tableId), inArray(posOrder.status, [...OPEN_STATUSES]))).limit(1);
+async function tableOpenOrder(client: DbClient, companyId: string, tableId: string, training = false) {
+  const [row] = await client.select({ id: posOrder.id }).from(posOrder).where(and(eq(posOrder.companyId, companyId), eq(posOrder.tableId, tableId), inArray(posOrder.status, [...OPEN_STATUSES]), eq(posOrder.training, training))).limit(1);
   return row ?? null;
 }
 
 /** Abre la cuenta de una mesa (si ya está abierta, devuelve esa) o una cuenta sin mesa (barra). */
-export async function openOrder(actor: PosActor, input: { registerId: string; tableId?: string | null; label?: string | null; guests?: number; waiterUserId?: string | null }) {
+export async function openOrder(actor: PosActor, input: { registerId: string; tableId?: string | null; label?: string | null; guests?: number; waiterUserId?: string | null; training?: boolean }) {
+  const training = Boolean(input.training);
   return db.transaction(async (tx) => {
     const [register] = await tx.select({ id: posRegister.id }).from(posRegister).where(and(eq(posRegister.id, input.registerId), eq(posRegister.companyId, actor.companyId))).limit(1);
     if (!register) throw new HttpError(404, "Caja no encontrada.");
     if (input.tableId) {
       await assertTable(tx, actor.companyId, input.tableId);
-      const existing = await tableOpenOrder(tx, actor.companyId, input.tableId);
+      const existing = await tableOpenOrder(tx, actor.companyId, input.tableId, training);
       if (existing) return { id: existing.id, created: false };
     } else if (!input.label?.trim()) {
       throw new HttpError(400, "Pon un nombre a la cuenta (p. ej. «Barra · Juan»).");
@@ -410,16 +469,17 @@ export async function openOrder(actor: PosActor, input: { registerId: string; ta
         guests: Math.max(1, Math.min(200, input.guests ?? 1)),
         waiterUserId: waiterUserId ?? actor.actorUserId,
         openedByUserId: actor.actorUserId,
+        training,
       })
       .onConflictDoNothing()
       .returning({ id: posOrder.id });
     if (!created && input.tableId) {
       // Otro camarero la abrió a la vez: se usa la suya.
-      const existing = await tableOpenOrder(tx, actor.companyId, input.tableId);
+      const existing = await tableOpenOrder(tx, actor.companyId, input.tableId, training);
       if (existing) return { id: existing.id, created: false };
     }
     if (!created) throw new HttpError(409, "No se pudo abrir la cuenta.");
-    await audit(actor, "pos_order.open", "pos_order", created.id, { tableId: input.tableId ?? null, label: input.label ?? null, guests: input.guests ?? 1 }, tx);
+    await audit(actor, "pos_order.open", "pos_order", created.id, { tableId: input.tableId ?? null, label: input.label ?? null, guests: input.guests ?? 1, training }, tx);
     return { id: created.id, created: true };
   });
 }
@@ -443,6 +503,7 @@ export async function getOrder(companyId: string, orderId: string) {
       waiterName: user.name,
       openedAt: posOrder.openedAt,
       closedAt: posOrder.closedAt,
+      training: posOrder.training,
       updatedAt: posOrder.updatedAt,
     })
     .from(posOrder)
@@ -601,7 +662,7 @@ export async function addOrderLines(actor: PosActor, orderId: string, lines: Ord
  * Cambia unidades o nota de una línea. Sin enviar a cocina se edita libremente; ya enviada, solo se
  * puede anular (queda registrado con el motivo) o reducir unidades anulando la diferencia.
  */
-export async function updateOrderLine(actor: PosActor, lineId: string, input: { quantity?: number; note?: string | null; cancelReason?: string | null; course?: number }) {
+export async function updateOrderLine(actor: PosActor, lineId: string, input: { quantity?: number; note?: string | null; cancelReason?: string | null; course?: number; approvalPin?: string | null; waiterUserId?: string | null }) {
   return db.transaction(async (tx) => {
     const [line] = await tx.select().from(posOrderLine).where(eq(posOrderLine.id, lineId)).for("update").limit(1);
     if (!line) throw new HttpError(404, "Línea no encontrada.");
@@ -631,23 +692,25 @@ export async function updateOrderLine(actor: PosActor, lineId: string, input: { 
       if (nextQuantity < current) {
         const reason = input.cancelReason?.trim();
         if (!reason) throw new HttpError(400, "Indica el motivo para anular algo que ya está en cocina.");
+        const approvedByUserId = order.training ? null : await requireManagerApproval(tx, actor.companyId, input.approvalPin);
+        const cancelledByUserId = (await assertWaiter(tx, actor.tenantId, input.waiterUserId)) ?? actor.actorUserId;
         const cancelled = Math.round((current - nextQuantity) * 1000) / 1000;
         if (nextQuantity <= 0) {
           // Toda la línea anulada (queda a la vista en la cuenta y en cocina, tachada, con su motivo).
-          await tx.update(posOrderLine).set({ status: "CANCELLED", cancelReason: reason, updatedAt: new Date() }).where(eq(posOrderLine.id, lineId));
+          await tx.update(posOrderLine).set({ status: "CANCELLED", cancelReason: reason, cancelledByUserId, approvedByUserId, updatedAt: new Date() }).where(eq(posOrderLine.id, lineId));
           // Anular un menú anula también sus platos (cocina los ve tachados).
-          if (children.length > 0) await tx.update(posOrderLine).set({ status: "CANCELLED", cancelReason: reason, updatedAt: new Date() }).where(and(eq(posOrderLine.parentLineId, lineId), ne(posOrderLine.status, "CANCELLED")));
+          if (children.length > 0) await tx.update(posOrderLine).set({ status: "CANCELLED", cancelReason: reason, cancelledByUserId, approvedByUserId, updatedAt: new Date() }).where(and(eq(posOrderLine.parentLineId, lineId), ne(posOrderLine.status, "CANCELLED")));
         } else {
           if (children.length > 0) throw new HttpError(409, "Anula el menú entero (todas sus unidades) o pásalo a otra mesa.");
           await tx.update(posOrderLine).set({ quantity: qty(nextQuantity), updatedAt: new Date() }).where(eq(posOrderLine.id, lineId));
           const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, paidQuantity: _paid, ...copy } = line;
-          await tx.insert(posOrderLine).values({ ...copy, quantity: qty(cancelled), paidQuantity: "0", status: "CANCELLED", cancelReason: reason, addedByUserId: actor.actorUserId });
+          await tx.insert(posOrderLine).values({ ...copy, quantity: qty(cancelled), paidQuantity: "0", status: "CANCELLED", cancelReason: reason, cancelledByUserId, approvedByUserId, addedByUserId: actor.actorUserId });
         }
       }
       if (input.note !== undefined) await tx.update(posOrderLine).set({ note: input.note?.trim() || null }).where(eq(posOrderLine.id, lineId));
     }
     await tx.update(posOrder).set({ updatedAt: new Date() }).where(eq(posOrder.id, line.orderId));
-    await audit(actor, line.status === "PENDING" ? "pos_order.line_update" : "pos_order.line_cancel", "pos_order", line.orderId, { lineId, description: line.description, from: current, to: nextQuantity, reason: input.cancelReason ?? null }, tx);
+    await audit(actor, line.status === "PENDING" ? "pos_order.line_update" : "pos_order.line_cancel", "pos_order", line.orderId, { lineId, description: line.description, from: current, to: nextQuantity, reason: input.cancelReason ?? null, waiterUserId: input.waiterUserId ?? null }, tx);
     return { id: line.orderId };
   });
 }
@@ -725,7 +788,7 @@ export async function moveOrder(actor: PosActor, orderId: string, tableId: strin
   return db.transaction(async (tx) => {
     const order = await loadOpenOrder(tx, actor.companyId, orderId);
     const table = await assertTable(tx, actor.companyId, tableId);
-    if (await tableOpenOrder(tx, actor.companyId, tableId)) throw new HttpError(409, `${table.name} está ocupada: júntalas en lugar de moverla.`);
+    if (await tableOpenOrder(tx, actor.companyId, tableId, order.training)) throw new HttpError(409, `${table.name} está ocupada: júntalas en lugar de moverla.`);
     await tx.update(posOrder).set({ tableId, label: null, updatedAt: new Date() }).where(eq(posOrder.id, orderId));
     await audit(actor, "pos_order.move", "pos_order", orderId, { from: order.tableId, to: tableId }, tx);
     return { id: orderId };
@@ -739,6 +802,7 @@ export async function mergeOrders(actor: PosActor, sourceOrderId: string, target
     const source = await loadOpenOrder(tx, actor.companyId, sourceOrderId);
     const target = await loadOpenOrder(tx, actor.companyId, targetOrderId);
     if (source.equalSplit || target.equalSplit) throw new HttpError(409, "Hay una cuenta pagándose a partes iguales: termina de cobrarla.");
+    if (source.training !== target.training) throw new HttpError(409, "No se puede juntar una cuenta de práctica con una real.");
     if (await hasPayments(tx, actor.companyId, sourceOrderId)) throw new HttpError(409, "Esa cuenta ya tiene cobros: pasa los productos pendientes con «Traspasar».");
     await tx.update(posOrderLine).set({ orderId: targetOrderId, updatedAt: new Date() }).where(eq(posOrderLine.orderId, sourceOrderId));
     await tx.update(posKitchenBatch).set({ orderId: targetOrderId }).where(eq(posKitchenBatch.orderId, sourceOrderId));
@@ -756,9 +820,9 @@ export async function transferLines(actor: PosActor, orderId: string, input: { l
     if (order.equalSplit) throw new HttpError(409, "La cuenta se está pagando a partes iguales.");
     if (order.tableId === input.tableId) throw new HttpError(400, "Elige otra mesa.");
     await assertTable(tx, actor.companyId, input.tableId);
-    let target = await tableOpenOrder(tx, actor.companyId, input.tableId);
+    let target = await tableOpenOrder(tx, actor.companyId, input.tableId, order.training);
     if (!target) {
-      const [created] = await tx.insert(posOrder).values({ companyId: actor.companyId, registerId: order.registerId, tableId: input.tableId, guests: 1, waiterUserId: order.waiterUserId, openedByUserId: actor.actorUserId }).returning({ id: posOrder.id });
+      const [created] = await tx.insert(posOrder).values({ companyId: actor.companyId, registerId: order.registerId, tableId: input.tableId, guests: 1, waiterUserId: order.waiterUserId, openedByUserId: actor.actorUserId, training: order.training }).returning({ id: posOrder.id });
       target = created;
     }
     const lines = await tx.select().from(posOrderLine).where(eq(posOrderLine.orderId, orderId));
@@ -791,16 +855,18 @@ export async function transferLines(actor: PosActor, orderId: string, input: { l
 }
 
 /** Cierra sin cobrar una cuenta sin cobros (se equivocaron de mesa, se fueron sin consumir…). */
-export async function cancelOrder(actor: PosActor, orderId: string, reason: string) {
+export async function cancelOrder(actor: PosActor, orderId: string, reason: string, approvalPin?: string | null) {
   return db.transaction(async (tx) => {
-    await loadOpenOrder(tx, actor.companyId, orderId);
+    const order = await loadOpenOrder(tx, actor.companyId, orderId);
     if (await hasPayments(tx, actor.companyId, orderId)) throw new HttpError(409, "La cuenta ya tiene cobros: cobra el resto.");
     const lines = await tx.select({ status: posOrderLine.status }).from(posOrderLine).where(eq(posOrderLine.orderId, orderId));
     const served = lines.filter((line) => line.status !== "PENDING" && line.status !== "CANCELLED").length;
     if (served > 0 && !reason.trim()) throw new HttpError(400, "Hay productos ya enviados: indica el motivo para cerrar sin cobrar.");
-    await tx.update(posOrderLine).set({ status: "CANCELLED", cancelReason: reason.trim() || "Cuenta anulada", updatedAt: new Date() }).where(and(eq(posOrderLine.orderId, orderId), ne(posOrderLine.status, "CANCELLED")));
+    // Cerrar sin cobrar algo que ya salió de cocina o barra: lo autoriza un encargado (si se exige).
+    const approvedByUserId = served > 0 && !order.training ? await requireManagerApproval(tx, actor.companyId, approvalPin) : null;
+    await tx.update(posOrderLine).set({ status: "CANCELLED", cancelReason: reason.trim() || "Cuenta anulada", approvedByUserId, cancelledByUserId: order.waiterUserId ?? actor.actorUserId, updatedAt: new Date() }).where(and(eq(posOrderLine.orderId, orderId), ne(posOrderLine.status, "CANCELLED")));
     await tx.update(posOrder).set({ status: "CANCELLED", cancelReason: reason.trim() || null, closedAt: new Date(), updatedAt: new Date() }).where(eq(posOrder.id, orderId));
-    await audit(actor, "pos_order.cancel", "pos_order", orderId, { reason, sentLines: served }, tx);
+    await audit(actor, "pos_order.cancel", "pos_order", orderId, { reason, sentLines: served, approvedByUserId }, tx);
     return { id: orderId };
   });
 }
@@ -829,6 +895,7 @@ export async function payOrder(actor: PosActor, orderId: string, input: PayOrder
   if ("error" in plan && !previous) throw new HttpError(409, plan.error);
   const cart = "error" in plan ? [] : plan.cart;
   let closed = false;
+  if (order.training) return payTrainingOrder(actor, order, plan, input);
 
   const sale = await createSale(actor, {
     registerId: order.registerId,
@@ -868,13 +935,41 @@ export async function payOrder(actor: PosActor, orderId: string, input: PayOrder
   return { ...sale, closed: closed || after?.status === "PAID", pending: after?.amounts.pending ?? 0 };
 }
 
+/**
+ * Cobro de práctica (modo formación): se comporta como un cobro (cambio, partes, mesa libre) pero no
+ * emite ticket, no registra VeriFactu, no contabiliza ni mueve stock ni caja.
+ */
+async function payTrainingOrder(actor: PosActor, order: typeof posOrder.$inferSelect, plan: ReturnType<typeof billPartLines>, input: PayOrderInput) {
+  if ("error" in plan) throw new HttpError(409, plan.error);
+  // Lo que el camarero ha cobrado en la práctica (el importe lo calcula la pantalla de cobro).
+  const total = Math.round((input.payment.cash + input.payment.card) * 100) / 100;
+  const received = input.payment.cashReceived ?? input.payment.cash;
+  const change = Math.max(0, Math.round((received - input.payment.cash) * 100) / 100);
+  await db.transaction(async (tx) => {
+    await loadOpenOrder(tx, actor.companyId, order.id);
+    for (const [lineId, paidQuantity] of plan.paidQuantities) await tx.update(posOrderLine).set({ paidQuantity: qty(paidQuantity), updatedAt: new Date() }).where(eq(posOrderLine.id, lineId));
+    await tx.update(posOrder).set({ equalSplit: plan.equalSplit, ...(plan.closes ? { status: "PAID", closedAt: new Date() } : {}), updatedAt: new Date() }).where(eq(posOrder.id, order.id));
+  });
+  const after = await getOrder(actor.companyId, order.id);
+  return { ticketId: "", invoiceId: "", number: "PRÁCTICA", total, change, warnings: [], closed: plan.closes, pending: after?.amounts.pending ?? 0 };
+}
+
+/** Borra todas las cuentas de práctica de la empresa (nada real se toca). */
+export async function deleteTrainingOrders(actor: PosActor) {
+  const deleted = await db.delete(posOrder).where(and(eq(posOrder.companyId, actor.companyId), eq(posOrder.training, true))).returning({ id: posOrder.id });
+  await audit(actor, "pos_order.training_clear", "pos_order", actor.companyId, { orders: deleted.length });
+  return { deleted: deleted.length };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Cocina y barra
 // ---------------------------------------------------------------------------------------------
 
-/** Comandas pendientes de una estación (las más antiguas primero), para su pantalla. */
-export async function getKitchenBoard(companyId: string, station: Exclude<Station, "NONE">) {
-  const rows = await db
+type KitchenLine = { id: string; description: string; quantity: number; note: string | null; status: LineStatus; course: number; held: boolean; firedAt: Date | null; inMenu: boolean; allergens: string[]; traces: string[] };
+type KitchenBatchView = { batchId: string; orderId: string; name: string; waiterName: string | null; sentAt: Date | null; firedAt: Date | null; servedAt: Date | null; lines: KitchenLine[] };
+
+async function kitchenRows(companyId: string, station: Exclude<Station, "NONE">, statuses: LineStatus[], since?: Date) {
+  return db
     .select({
       lineId: posOrderLine.id,
       batchId: posOrderLine.kitchenBatchId,
@@ -884,9 +979,12 @@ export async function getKitchenBoard(companyId: string, station: Exclude<Statio
       note: posOrderLine.note,
       status: posOrderLine.status,
       sentAt: posOrderLine.sentAt,
+      updatedAt: posOrderLine.updatedAt,
       course: posOrderLine.course,
       firedAt: posOrderLine.firedAt,
       parentLineId: posOrderLine.parentLineId,
+      allergens: posMenuItem.allergens,
+      traces: posMenuItem.traces,
       tableName: posTable.name,
       label: posOrder.label,
       waiterName: user.name,
@@ -895,20 +993,37 @@ export async function getKitchenBoard(companyId: string, station: Exclude<Statio
     .innerJoin(posOrder, eq(posOrder.id, posOrderLine.orderId))
     .leftJoin(posTable, eq(posTable.id, posOrder.tableId))
     .leftJoin(user, eq(user.id, posOrder.waiterUserId))
-    .where(and(eq(posOrder.companyId, companyId), eq(posOrderLine.station, station), inArray(posOrderLine.status, ["SENT", "READY"])))
+    // Alérgenos de la carta: cocina los ve en cada plato.
+    .leftJoin(posMenuItem, eq(posMenuItem.itemId, posOrderLine.itemId))
+    .where(and(eq(posOrder.companyId, companyId), eq(posOrder.training, false), eq(posOrderLine.station, station), inArray(posOrderLine.status, statuses), ...(since ? [gte(posOrderLine.updatedAt, since)] : [])))
     .orderBy(asc(posOrderLine.sentAt), asc(posOrderLine.createdAt));
-  const batches = new Map<string, { batchId: string; orderId: string; name: string; waiterName: string | null; sentAt: Date | null; firedAt: Date | null; lines: Array<{ id: string; description: string; quantity: number; note: string | null; status: LineStatus; course: number; held: boolean; firedAt: Date | null; inMenu: boolean }> }>();
+}
+
+function groupKitchenRows(rows: Awaited<ReturnType<typeof kitchenRows>>) {
+  const batches = new Map<string, KitchenBatchView>();
   for (const row of rows) {
     const key = row.batchId ?? row.orderId;
-    const batch = batches.get(key) ?? { batchId: key, orderId: row.orderId, name: row.tableName ?? row.label ?? "Cuenta", waiterName: row.waiterName, sentAt: row.sentAt, firedAt: null, lines: [] };
+    const batch = batches.get(key) ?? { batchId: key, orderId: row.orderId, name: row.tableName ?? row.label ?? "Cuenta", waiterName: row.waiterName, sentAt: row.sentAt, firedAt: null, servedAt: null, lines: [] };
     const held = row.status === "SENT" && !row.firedAt;
-    batch.lines.push({ id: row.lineId, description: row.description, quantity: num(row.quantity), note: row.note, status: row.status as LineStatus, course: row.course, held, firedAt: row.firedAt, inMenu: Boolean(row.parentLineId) });
+    batch.lines.push({ id: row.lineId, description: row.description, quantity: num(row.quantity), note: row.note, status: row.status as LineStatus, course: row.course, held, firedAt: row.firedAt, inMenu: Boolean(row.parentLineId), allergens: row.allergens ?? [], traces: row.traces ?? [] });
     // Lo último que se ha marchado en la comanda (para avisar y ordenar).
     if (row.firedAt && (!batch.firedAt || row.firedAt > batch.firedAt)) batch.firedAt = row.firedAt;
+    if (row.status === "SERVED" && (!batch.servedAt || row.updatedAt > batch.servedAt)) batch.servedAt = row.updatedAt;
     batches.set(key, batch);
   }
   for (const batch of batches.values()) batch.lines.sort((a, b) => Number(a.held) - Number(b.held) || a.course - b.course);
   return [...batches.values()];
+}
+
+/** Comandas pendientes de una estación (las más antiguas primero), para su pantalla. */
+export async function getKitchenBoard(companyId: string, station: Exclude<Station, "NONE">) {
+  return groupKitchenRows(await kitchenRows(companyId, station, ["SENT", "READY"]));
+}
+
+/** Comandas retiradas como servidas en la última hora (para recuperar una retirada por error). */
+export async function getRecentlyServed(companyId: string, station: Exclude<Station, "NONE">, now = new Date()) {
+  const batches = groupKitchenRows(await kitchenRows(companyId, station, ["SERVED"], new Date(now.getTime() - 60 * 60_000)));
+  return batches.sort((a, b) => (b.servedAt?.getTime() ?? 0) - (a.servedAt?.getTime() ?? 0)).slice(0, 12);
 }
 
 /** Cocina/barra marca líneas como listas o servidas (o las devuelve a «en preparación»). */
@@ -939,13 +1054,31 @@ export async function getKitchenBatch(companyId: string, batchId: string) {
     .where(and(eq(posKitchenBatch.id, batchId), eq(posKitchenBatch.companyId, companyId)))
     .limit(1);
   if (!batch) return null;
-  const lines = await db.select({ description: posOrderLine.description, quantity: posOrderLine.quantity, note: posOrderLine.note, status: posOrderLine.status, course: posOrderLine.course, firedAt: posOrderLine.firedAt, parentLineId: posOrderLine.parentLineId }).from(posOrderLine).where(eq(posOrderLine.kitchenBatchId, batchId)).orderBy(asc(posOrderLine.course), asc(posOrderLine.createdAt));
-  return { ...batch, station: batch.station as Station, name: batch.tableName ?? batch.label ?? "Cuenta", lines: lines.map((line) => ({ ...line, quantity: num(line.quantity), held: line.status === "SENT" && !line.firedAt, inMenu: Boolean(line.parentLineId) })) };
+  const lines = await db
+    .select({ description: posOrderLine.description, quantity: posOrderLine.quantity, note: posOrderLine.note, status: posOrderLine.status, course: posOrderLine.course, firedAt: posOrderLine.firedAt, parentLineId: posOrderLine.parentLineId, allergens: posMenuItem.allergens })
+    .from(posOrderLine)
+    .leftJoin(posMenuItem, eq(posMenuItem.itemId, posOrderLine.itemId))
+    .where(eq(posOrderLine.kitchenBatchId, batchId))
+    .orderBy(asc(posOrderLine.course), asc(posOrderLine.createdAt));
+  return { ...batch, station: batch.station as Station, name: batch.tableName ?? batch.label ?? "Cuenta", lines: lines.map((line) => ({ ...line, allergens: line.allergens ?? [], quantity: num(line.quantity), held: line.status === "SENT" && !line.firedAt, inMenu: Boolean(line.parentLineId) })) };
+}
+
+/** Lo más pedido en las mesas los últimos 30 días: primera pestaña del catálogo del camarero. */
+export async function topOrderedItemIds(companyId: string, limit = 24, now = new Date()) {
+  const rows = await db
+    .select({ itemId: posOrderLine.itemId, total: sql<string>`sum(${posOrderLine.quantity})` })
+    .from(posOrderLine)
+    .innerJoin(posOrder, eq(posOrder.id, posOrderLine.orderId))
+    .where(and(eq(posOrder.companyId, companyId), eq(posOrder.training, false), gte(posOrderLine.createdAt, new Date(now.getTime() - 30 * 86_400_000)), ne(posOrderLine.status, "CANCELLED"), sql`${posOrderLine.itemId} is not null`, sql`${posOrderLine.parentLineId} is null`))
+    .groupBy(posOrderLine.itemId)
+    .orderBy(sql`sum(${posOrderLine.quantity}) desc`)
+    .limit(limit);
+  return rows.map((row) => row.itemId).filter((id): id is string => Boolean(id));
 }
 
 /** Mesas abiertas de una caja (aviso al cerrarla). */
 export async function countOpenOrders(companyId: string, registerId: string) {
-  const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(posOrder).where(and(eq(posOrder.companyId, companyId), eq(posOrder.registerId, registerId), inArray(posOrder.status, [...OPEN_STATUSES])));
+  const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(posOrder).where(and(eq(posOrder.companyId, companyId), eq(posOrder.registerId, registerId), inArray(posOrder.status, [...OPEN_STATUSES]), eq(posOrder.training, false)));
   return row?.count ?? 0;
 }
 

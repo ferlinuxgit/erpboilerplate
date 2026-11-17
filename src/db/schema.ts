@@ -2055,10 +2055,12 @@ export const posOrder = pgTable("pos_order", {
   openedAt: timestamp("openedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   closedAt: timestamp("closedAt", { withTimezone: true, mode: "date" }),
   cancelReason: text("cancelReason"),
+  // Modo formación: cuenta de práctica (no va a cocina, no emite tickets ni mueve stock).
+  training: boolean("training").notNull().default(false),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  // Una sola cuenta abierta por mesa.
-  uniqueIndex("pos_order_table_open_unique").on(table.tableId).where(sql`${table.status} IN ('OPEN', 'BILL_REQUESTED') AND ${table.tableId} IS NOT NULL`),
+  // Una sola cuenta abierta por mesa (las de práctica van aparte).
+  uniqueIndex("pos_order_table_open_unique").on(table.tableId, table.training).where(sql`${table.status} IN ('OPEN', 'BILL_REQUESTED') AND ${table.tableId} IS NOT NULL`),
   index("pos_order_company_status_idx").on(table.companyId, table.status),
   check("pos_order_status_valid", sql`${table.status} IN ('OPEN', 'BILL_REQUESTED', 'PAID', 'CANCELLED')`),
   check("pos_order_guests_valid", sql`${table.guests} BETWEEN 1 AND 200`),
@@ -2093,6 +2095,9 @@ export const posOrderLine = pgTable("pos_order_line", {
   // Modificadores elegidos (punto, extras…), con su precio con IVA: [{ group, name, price }].
   modifiers: jsonb("modifiers").$type<Array<{ group: string; name: string; price: number }>>().notNull().default([]),
   cancelReason: text("cancelReason"),
+  // Anulación de algo ya enviado: camarero que la pidió y encargado que la autorizó con su PIN.
+  cancelledByUserId: text("cancelledByUserId").references(() => user.id, { onDelete: "set null" }),
+  approvedByUserId: text("approvedByUserId").references(() => user.id, { onDelete: "set null" }),
   addedByUserId: text("addedByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -2283,8 +2288,19 @@ export const posStaffPin = pgTable("pos_staff_pin", {
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   userId: text("userId").notNull().references(() => user.id, { onDelete: "cascade" }),
   pinHash: text("pinHash").notNull(),
+  // Encargado: su PIN autoriza anulaciones de lo ya enviado y cerrar mesas sin cobrar.
+  isManager: boolean("isManager").notNull().default(false),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [unique("pos_staff_pin_company_user_unique").on(table.companyId, table.userId)]);
+
+/** Reglas de la sala (Hostelería) de la empresa. */
+export const posHospitalitySettings = pgTable("pos_hospitality_settings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }).unique(),
+  // Anular lo ya enviado a cocina o cerrar una mesa sin cobrar pide el PIN de un encargado.
+  managerApproval: boolean("managerApproval").notNull().default(false),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
 
 // ---------------------------------------------------------------------------------------------
 // Reservas de mesa (módulo Hostelería): reglas, horarios, cierres y reservas.

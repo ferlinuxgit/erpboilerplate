@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import Link from "next/link";
 import QRCode from "qrcode";
 
 import { BookingSettings } from "@/components/bookings/booking-settings";
@@ -15,7 +16,7 @@ import { appBaseUrl } from "@/server/email/templates";
 import { isModuleEnabled } from "@/server/modules/service";
 import { listIntegrations } from "@/server/integrations/service";
 import { getBookingSettings } from "@/server/pos/bookings";
-import { listAreasWithTables, listCategoryStations, listStaff } from "@/server/pos/hospitality";
+import { getHospitalitySettings, listAreasWithTables, listCategoryStations, listStaff } from "@/server/pos/hospitality";
 import { listModifierGroups, listSetMenus } from "@/server/pos/ordering";
 import { listBankAccountOptions, listPosCatalog, listRegisters, listWarehouseOptions } from "@/server/pos/service";
 import { grossPrice } from "@/modules/pos/model";
@@ -36,6 +37,7 @@ export default async function PosSettingsPage() {
     ? await Promise.all([listAreasWithTables(ctx.company.id), listCategoryStations(ctx.company.id), listStaff(ctx.company.id, ctx.tenant.id), getBookingSettings(ctx.company.id), listModifierGroups(ctx.company.id), listSetMenus(ctx.company.id), listPosCatalog(ctx.company.id, null, false)])
     : [[], [], [], null, [], [], []];
   const integrations = hospitalityEnabled ? await listIntegrations(ctx.company.id) : null;
+  const hospitalitySettings = hospitalityEnabled ? await getHospitalitySettings(ctx.company.id) : { managerApproval: false };
   const catalogEntries = catalog.map((entry) => ({ id: entry.id, name: entry.name, price: grossPrice(entry.unitPrice, entry.taxRate), categoryName: entry.categoryName }));
   const baseUrl = appBaseUrl();
   const qrDataUrl = bookings ? await QRCode.toDataURL(`${baseUrl}/reservar/${bookings.slug}`, { margin: 1, width: 288 }).catch(() => null) : null;
@@ -52,6 +54,7 @@ export default async function PosSettingsPage() {
       {hospitalityEnabled ? (
         <>
           <PageSection className="scroll-mt-24" description="Dibuja cada sala como es tu local: arrastra las mesas, elige forma y tamaño. Es el plano que verán los camareros en las cajas en modo «Mesas»." id="mesas" title="Salas y mesas">
+            <p className="mb-3 text-sm"><Link className="font-semibold text-link underline" data-testid="pos-settings-setup-link" href="/pos/puesta-en-marcha">Asistente: crear salas y mesas de golpe y pasar una caja a modo Mesas →</Link></p>
             <AreasTablesManager areas={areas.map((area) => ({ id: area.id, name: area.name, bookable: area.bookable, tables: area.tables.map((table) => ({ id: table.id, name: table.name, seats: table.seats, isActive: table.isActive, bookable: table.bookable, shape: table.shape as TableShape, posX: table.posX, posY: table.posY, width: table.width, height: table.height })) }))} canManage={canManage} />
           </PageSection>
           {bookings ? (
@@ -74,7 +77,7 @@ export default async function PosSettingsPage() {
             <SetMenusEditor canManage={canManage} catalog={catalogEntries} menus={setMenus} />
           </PageSection>
           <PageSection className="scroll-mt-24" description="En una tablet compartida cada camarero toca su nombre y pone su PIN: los pedidos y cobros quedan a su nombre." id="camareros" title="Camareros">
-            <StaffPins canManage={canManage} staff={staff} />
+            <StaffPins canManage={canManage} managerApproval={hospitalitySettings.managerApproval} staff={staff} />
           </PageSection>
         </>
       ) : null}

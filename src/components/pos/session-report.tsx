@@ -10,6 +10,8 @@ export type SessionSummaryView = {
   expectedCash: number;
   taxBreakdown: Array<{ rate: number; base: number; tax: number }>;
   netTotal: number;
+  byWaiter?: Array<{ name: string; tickets: number; total: number; tips: number }>;
+  voids?: { count: number; total: number; lines: Array<{ description: string; quantity: number; amount: number; reason: string | null; table: string; waiterName: string | null; approvedByName: string | null; at: string }> };
 };
 
 /** Informe de caja (X en curso, Z al cerrar): ventas, devoluciones, efectivo y desglose de IVA. */
@@ -51,6 +53,30 @@ export function SessionReport({ compact = false, countedCash, currencyCode, diff
             ))}
           </tbody>
         </table>
+      ) : null}
+      {summary.byWaiter && summary.byWaiter.length > 0 ? (
+        <table className={compact ? "w-full border border-window-shadow text-sm" : "w-full border border-window-shadow text-sm md:col-span-2"} data-testid="pos-report-waiters">
+          <caption className="p-1 text-left font-mono text-xs font-bold uppercase">Por camarero</caption>
+          <thead><tr className="bg-window-panel text-left font-mono text-xs"><th className="p-1">Camarero</th><th className="p-1 text-right">Tickets</th><th className="p-1 text-right">Vendido</th><th className="p-1 text-right">Propinas</th></tr></thead>
+          <tbody>
+            {summary.byWaiter.map((row) => (
+              <tr className="border-t border-window-shadow" key={row.name}><td className="p-1">{row.name}</td><td className="p-1 text-right font-mono">{row.tickets}</td><td className="p-1 text-right font-mono">{money(row.total)}</td><td className="p-1 text-right font-mono">{money(row.tips)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {summary.voids && summary.voids.count > 0 ? (
+        <div className={compact ? "border border-window-shadow p-2 text-sm" : "border border-window-shadow p-2 text-sm md:col-span-2"} data-testid="pos-report-voids">
+          <p className="flex justify-between font-mono text-xs font-bold uppercase"><span>Anulado tras enviar a cocina o barra ({summary.voids.count})</span><span>{money(summary.voids.total)}</span></p>
+          <ul className="mt-1 divide-y divide-window-shadow">
+            {summary.voids.lines.map((line, index) => (
+              <li className="py-1" key={index}>
+                <span className="flex justify-between gap-2"><span><span className="font-mono font-bold">{line.quantity.toLocaleString("es-ES")}</span> {line.description} · {line.table}</span><span className="font-mono">{money(line.amount)}</span></span>
+                <span className="block text-xs text-muted-foreground">{new Date(line.at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}{line.waiterName ? ` · ${line.waiterName}` : ""}{line.approvedByName ? ` · autorizó ${line.approvedByName}` : ""}{line.reason ? ` · «${line.reason}»` : ""}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </div>
   );
