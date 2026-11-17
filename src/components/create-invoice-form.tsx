@@ -109,10 +109,13 @@ export function CreateInvoiceForm({
   paymentMethods,
   taxes,
   vatContext,
+  vatTreatments,
 }: {
   canCreateCustomer: boolean;
   /** País de la empresa y qué vende: deciden el tratamiento de IVA propuesto para cada cliente. */
   vatContext?: VatTreatmentContext;
+  /** Tratamientos de IVA que usa la empresa (Configuración › Fiscalidad). */
+  vatTreatments?: readonly string[];
   /** Días de pago de la empresa (si el cliente no tiene los suyos). */
   companyPaymentTermsDays?: number | null;
   customers: CustomerOption[];
@@ -507,6 +510,7 @@ export function CreateInvoiceForm({
             hasChargedVat={hasChargedVat}
             name="vatTreatment"
             onUserChange={() => setVatTreatmentTouched(true)}
+            treatments={vatTreatments}
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input

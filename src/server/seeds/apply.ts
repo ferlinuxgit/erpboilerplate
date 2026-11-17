@@ -179,6 +179,8 @@ async function applyTemplateRows(
           kind: entry.kind ?? "VAT",
           operation: entry.operation ?? (entry.kind === "WITHHOLDING" ? "SUBTRACT" : "ADD"),
           isDefault: entry.isDefault ?? false,
+          // Lo que no se usa por defecto queda archivado: en el catálogo, sin aparecer al facturar.
+          isActive: entry.inUseByDefault !== false,
       }))).onConflictDoUpdate({
         target: [tax.companyId, tax.name],
         set: { rate: sql`excluded."rate"`, kind: sql`excluded."kind"`, operation: sql`excluded."operation"`, updatedAt: new Date() },

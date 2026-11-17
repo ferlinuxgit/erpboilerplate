@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { vatContextFor } from "@/server/company/fiscal-context";
+import { getCompanySalesVatTreatments } from "@/server/invoices/vat-treatments";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -200,6 +201,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
             canCreateCustomer={canManageCustomers(ctx.membership.role)}
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
             vatContext={await vatContextFor(ctx.company.id)}
+            vatTreatments={(await getCompanySalesVatTreatments(ctx.company.id)).enabled}
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultCustomerId={data.customerId}
             invoiceNumber={data.number}

@@ -66,18 +66,22 @@ async function adoptTerritoryTaxes(client: DbClient, input: CompanyActor, territ
     client,
   });
   const templateBySignature = new Map(pack.template.taxes.map((entry) => [templateTaxSignature(entry), entry]));
-  const existing = await client.select({ id: tax.id, name: tax.name, kind: tax.kind, rate: tax.rate, operation: tax.operation }).from(tax).where(eq(tax.companyId, input.companyId));
+  const existing = await client.select({ id: tax.id, name: tax.name, kind: tax.kind, rate: tax.rate, operation: tax.operation, isActive: tax.isActive }).from(tax).where(eq(tax.companyId, input.companyId));
   const names = new Set(existing.map((entry) => entry.name));
   const stale: string[] = [];
   for (const entry of existing) {
     const wanted = templateBySignature.get(taxSignatureKey(entry));
     if (!wanted) {
       stale.push(entry.id);
-    } else if (wanted.name !== entry.name && !names.has(wanted.name)) {
-      await client.update(tax).set({ name: wanted.name, isActive: true, updatedAt: new Date() }).where(eq(tax.id, entry.id));
-      names.add(wanted.name);
     } else {
-      await client.update(tax).set({ isActive: true, updatedAt: new Date() }).where(eq(tax.id, entry.id));
+      // Sigue en uso lo que ya se usaba y, además, lo que el catálogo del territorio usa por defecto.
+      const isActive = entry.isActive || wanted.inUseByDefault !== false;
+      if (wanted.name !== entry.name && !names.has(wanted.name)) {
+        await client.update(tax).set({ name: wanted.name, isActive, updatedAt: new Date() }).where(eq(tax.id, entry.id));
+        names.add(wanted.name);
+      } else {
+        await client.update(tax).set({ isActive, updatedAt: new Date() }).where(eq(tax.id, entry.id));
+      }
     }
   }
   if (stale.length > 0) {

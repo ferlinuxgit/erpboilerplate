@@ -376,6 +376,9 @@ export const companySettings = pgTable("company_settings", {
   pdfShowTaxBreakdown: boolean("pdfShowTaxBreakdown").notNull().default(true),
   // Qué vende la empresa: "products", "services" o "both". Adapta navegación y avisos del panel.
   businessType: text("businessType").notNull().default("both"),
+  // Tratamientos de IVA que usa en sus ventas (los demás no se ofrecen al facturar). Null = automático
+  // según lo que vende (ver `defaultSalesVatTreatments`).
+  salesVatTreatments: jsonb("salesVatTreatments").$type<string[]>(),
   // Longitud fija de las subcuentas (donde se apunta): 8 por defecto, de 8 a 12. Solo se puede
   // cambiar mientras la empresa no tenga asientos.
   subaccountLength: integer("subaccountLength").notNull().default(8),

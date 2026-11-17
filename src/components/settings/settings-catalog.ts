@@ -79,7 +79,8 @@ export const settingsSections: SettingsSection[] = [
     items: [
       { label: "Perfil fiscal", description: "Sociedad o autónomo, régimen de IVA, periodicidad, prorrata y SII.", href: "/settings/fiscal#perfil", keywords: "regimen iva autonomo sociedad recargo de equivalencia criterio de caja exento trimestral mensual prorrata sii modelos", permission: "fiscal.write" },
       { label: "VERI*FACTU", description: "Registro antifraude de facturas y envío a Hacienda (QR en las facturas).", href: "/settings/fiscal#verifactu", keywords: "verifactu veri factu antifraude aeat hacienda qr registro facturacion", permission: "fiscal.write" },
-      { label: "Impuestos y retenciones", description: "Tipos de IVA, recargo de equivalencia e IRPF que se proponen en las líneas.", href: "/settings/fiscal#impuestos", keywords: "iva 21 10 4 tipos impuesto recargo retencion irpf 15 7 porcentaje", permission: "settings.manage" },
+      { label: "Impuestos y retenciones", description: "Catálogo de IVA, recargo de equivalencia e IRPF: marca los que usas.", href: "/settings/fiscal#impuestos", keywords: "iva 21 10 4 tipos impuesto recargo retencion irpf 15 7 1 2 19 35 porcentaje catalogo modulos alquiler", permission: "settings.manage" },
+      { label: "Tratamientos de IVA", description: "Nacional, intracomunitario, exportación, exento… marca los que usas en tus ventas.", href: "/settings/fiscal#tratamientos-iva", keywords: "tratamiento iva intracomunitario exportacion exenta inversion sujeto pasivo no sujeta ue", permission: "settings.manage" },
     ],
   },
   {

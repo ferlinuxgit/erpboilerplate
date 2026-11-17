@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 import { AiemSettingsForm, FiscalSettingsForm, VerifactuSettingsForm } from "@/components/fiscal/fiscal-settings-form";
-import { MastersPanel } from "@/components/settings/masters-panel";
+import { TaxCatalogPanel } from "@/components/settings/tax-catalog-panel";
+import { VatTreatmentsPanel } from "@/components/settings/vat-treatments-panel";
 import { SettingsPageHeader } from "@/components/settings/settings-page-header";
 import { EmptyState, InlineAlert, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
@@ -10,6 +11,7 @@ import { db } from "@/lib/db";
 import { companyHasAiem, getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { can } from "@/lib/rbac";
 import { getFiscalSettings } from "@/server/fiscal/settings";
+import { getCompanySalesVatTreatments } from "@/server/invoices/vat-treatments";
 import { isValidIssuerNifFormat } from "@/server/verifactu/format";
 import { getVerifactuSettings } from "@/server/verifactu/settings";
 
@@ -20,9 +22,10 @@ export default async function FiscalSettingsPage() {
   const canWrite = can(ctx.membership.role, "fiscal.write");
   const canManageTaxes = can(ctx.membership.role, "settings.manage");
   const country = getCountryFiscalProfile(await getCompanyTaxTerritory(ctx.company.id));
-  const [settings, verifactu] = await Promise.all([
+  const [settings, verifactu, vatTreatments] = await Promise.all([
     getFiscalSettings(ctx.company.id),
     getVerifactuSettings(db, ctx.company.id),
+    getCompanySalesVatTreatments(ctx.company.id),
   ]);
 
   return (
@@ -81,8 +84,13 @@ export default async function FiscalSettingsPage() {
         </PageSection>
       )}
       {canManageTaxes ? (
-        <PageSection className="scroll-mt-24" id="impuestos" title="Impuestos y retenciones" description="Tipos que se proponen al añadir líneas a facturas y gastos.">
-          <MastersPanel blocks={["taxes"]} />
+        <PageSection className="scroll-mt-24" id="impuestos" title="Impuestos y retenciones" description="Elige del catálogo los que usas en tu negocio: solo esos aparecen al facturar.">
+          <TaxCatalogPanel taxLabel={country.taxLabel} />
+        </PageSection>
+      ) : null}
+      {canManageTaxes ? (
+        <PageSection className="scroll-mt-24" id="tratamientos-iva" title="Tratamientos de IVA" description="Elige los que usas en tus ventas: solo esos aparecen al facturar.">
+          <VatTreatmentsPanel initialAutomatic={vatTreatments.automatic} initialEnabled={vatTreatments.enabled} />
         </PageSection>
       ) : null}
     </PageShell>

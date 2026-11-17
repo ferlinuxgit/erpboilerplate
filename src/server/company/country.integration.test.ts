@@ -175,7 +175,8 @@ describe("Canarias, Ceuta y Melilla", () => {
     expect(taxes.filter((entry) => entry.kind === "VAT").map((entry) => entry.name).sort()).toEqual(["IGIC especial incrementado 15%", "IGIC general 7%", "IGIC incrementado 9,5%", "IGIC reducido 3%", "IGIC tipo cero 0%"]);
     expect(taxes.find((entry) => entry.isDefault)?.name).toBe("IGIC general 7%");
     expect(taxes.some((entry) => entry.kind === "SURCHARGE")).toBe(false);
-    expect(taxes.filter((entry) => entry.kind === "WITHHOLDING")).toHaveLength(3);
+    // Del catálogo de retenciones solo se usa por defecto el IRPF general; el resto se activa a mano.
+    expect(taxes.filter((entry) => entry.kind === "WITHHOLDING").map((entry) => entry.name)).toEqual(["Retención IRPF 15%"]);
     const context = await getCompanyFiscalContext(companyId);
     expect(context.homeCountry).toBe("ES-CN");
     expect(context.profile.features.vatReturns).toBe(false);

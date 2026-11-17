@@ -161,6 +161,9 @@ describe("Canarias, Ceuta y Melilla", () => {
       ["Retención IRPF 15%", false],
       ["Retención IRPF 7%", false],
       ["Retención alquiler 19%", false],
+      ["Retención módulos 1%", false],
+      ["Retención agraria 2%", false],
+      ["Retención administradores 35%", false],
     ]);
     const ceuta = getCountryPack("ES-CE").template;
     const ipsi = ceuta.taxes.filter((entry) => entry.kind === "VAT");

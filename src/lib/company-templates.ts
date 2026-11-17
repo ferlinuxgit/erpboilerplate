@@ -46,6 +46,13 @@ export type CompanyTemplateTax = {
   operation?: "ADD" | "SUBTRACT";
   /** IVA propuesto por defecto en las líneas nuevas (solo al crear el impuesto). */
   isDefault?: boolean;
+  /** Para qué sirve, en una frase (se muestra en el catálogo de impuestos). */
+  description?: string;
+  /**
+   * Se usa desde el alta de la empresa (por defecto, sí). Los demás quedan en el catálogo para
+   * activarlos con un clic y no aparecen en facturas ni presupuestos mientras no se usen.
+   */
+  inUseByDefault?: boolean;
 };
 
 export type CompanyTemplateSeries = {
@@ -111,17 +118,20 @@ export const companyTemplates = [
       { code: "CIE", name: "Diario de cierre", role: "Regularizacion y cierre fiscal." },
     ],
     taxes: [
-      { name: "IVA general 21%", rate: "21.000", kind: "VAT", operation: "ADD", isDefault: true },
-      { name: "IVA reducido 10%", rate: "10.000", kind: "VAT", operation: "ADD" },
-      { name: "IVA superreducido 4%", rate: "4.000", kind: "VAT", operation: "ADD" },
+      { name: "IVA general 21%", rate: "21.000", kind: "VAT", operation: "ADD", isDefault: true, description: "La mayoría de productos y servicios." },
+      { name: "IVA reducido 10%", rate: "10.000", kind: "VAT", operation: "ADD", description: "Hostelería, transporte de viajeros, vivienda, algunos alimentos." },
+      { name: "IVA superreducido 4%", rate: "4.000", kind: "VAT", operation: "ADD", description: "Pan, leche, frutas y verduras, libros, medicamentos." },
       // Recargo de equivalencia (art. 161 LIVA) de cada tipo de IVA: 21 % → 5,2 %, 10 % → 1,4 %, 4 % → 0,5 %.
-      { name: "Recargo de equivalencia 5,2%", rate: "5.200", kind: "SURCHARGE", operation: "ADD" },
-      { name: "Recargo de equivalencia 1,4%", rate: "1.400", kind: "SURCHARGE", operation: "ADD" },
-      { name: "Recargo de equivalencia 0,5%", rate: "0.500", kind: "SURCHARGE", operation: "ADD" },
+      { name: "Recargo de equivalencia 5,2%", rate: "5.200", kind: "SURCHARGE", operation: "ADD", inUseByDefault: false, description: "Ventas a comercios minoristas en recargo, con IVA del 21 %." },
+      { name: "Recargo de equivalencia 1,4%", rate: "1.400", kind: "SURCHARGE", operation: "ADD", inUseByDefault: false, description: "Ventas a comercios minoristas en recargo, con IVA del 10 %." },
+      { name: "Recargo de equivalencia 0,5%", rate: "0.500", kind: "SURCHARGE", operation: "ADD", inUseByDefault: false, description: "Ventas a comercios minoristas en recargo, con IVA del 4 %." },
       // Retenciones: restan del total. Al reaplicar se reconocen también por su nombre antiguo sin tilde para corregir las ya creadas.
-      { name: "Retención IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
-      { name: "Retención IRPF 7%", rate: "7.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
-      { name: "Retención alquiler 19%", rate: "19.000", kind: "WITHHOLDING", operation: "SUBTRACT" },
+      { name: "Retención IRPF 15%", rate: "15.000", kind: "WITHHOLDING", operation: "SUBTRACT", description: "Profesionales que facturan a empresas o autónomos; también cursos y conferencias." },
+      { name: "Retención IRPF 7%", rate: "7.000", kind: "WITHHOLDING", operation: "SUBTRACT", inUseByDefault: false, description: "Profesionales en el año de inicio de actividad y los dos siguientes." },
+      { name: "Retención alquiler 19%", rate: "19.000", kind: "WITHHOLDING", operation: "SUBTRACT", inUseByDefault: false, description: "Alquiler de locales y otros rendimientos del capital." },
+      { name: "Retención módulos 1%", rate: "1.000", kind: "WITHHOLDING", operation: "SUBTRACT", inUseByDefault: false, description: "Actividades en estimación objetiva (módulos) que facturan a empresas." },
+      { name: "Retención agraria 2%", rate: "2.000", kind: "WITHHOLDING", operation: "SUBTRACT", inUseByDefault: false, description: "Actividades agrícolas, ganaderas y forestales (1 % en engorde de porcino y avicultura)." },
+      { name: "Retención administradores 35%", rate: "35.000", kind: "WITHHOLDING", operation: "SUBTRACT", inUseByDefault: false, description: "Retribuciones de administradores y consejeros (19 % si la entidad factura menos de 100.000 €)." },
     ],
     documentSeries: commonSeries,
     settings: {

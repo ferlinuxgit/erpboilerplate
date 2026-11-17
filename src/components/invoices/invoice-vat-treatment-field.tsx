@@ -4,6 +4,7 @@ import { useController, type Control, type FieldValues, type Path } from "react-
 
 import { ChoiceDialogButton } from "@/components/ui/choice-dialog";
 import { salesVatTreatmentOptions, vatTreatmentLegalNotes } from "@/server/invoices/lifecycle";
+import { visibleVatTreatmentOptions } from "@/server/invoices/vat-treatments-model";
 
 type InvoiceVatTreatmentFieldProps<T extends FieldValues> = {
   control: Control<T>;
@@ -13,6 +14,8 @@ type InvoiceVatTreatmentFieldProps<T extends FieldValues> = {
   /** Hay IVA o recargo repercutido en alguna línea. */
   hasChargedVat: boolean;
   error?: string;
+  /** Tratamientos que usa la empresa (los demás no se ofrecen; el elegido ahora siempre sí). */
+  treatments?: readonly string[];
 };
 
 /**
@@ -20,7 +23,7 @@ type InvoiceVatTreatmentFieldProps<T extends FieldValues> = {
  * y su explicación. El valor por defecto se deduce del país del cliente; la ayuda explica qué
  * implica la opción elegida y avisa si las líneas llevan IVA con un tratamiento sin IVA.
  */
-export function InvoiceVatTreatmentField<T extends FieldValues>({ control, error, hasChargedVat, name, onUserChange }: InvoiceVatTreatmentFieldProps<T>) {
+export function InvoiceVatTreatmentField<T extends FieldValues>({ control, error, hasChargedVat, name, onUserChange, treatments }: InvoiceVatTreatmentFieldProps<T>) {
   const { field } = useController({ control, name });
   const selected = salesVatTreatmentOptions.find((option) => option.value === field.value) ?? salesVatTreatmentOptions[0]!;
   const legalNote = vatTreatmentLegalNotes[selected.value];
@@ -37,7 +40,7 @@ export function InvoiceVatTreatmentField<T extends FieldValues>({ control, error
         groups={[{
           key: "treatment",
           legend: "Tratamiento de IVA",
-          choices: salesVatTreatmentOptions.map((option) => ({ value: option.value, label: option.label, description: option.help })),
+          choices: visibleVatTreatmentOptions(treatments, selected.value).map((option) => ({ value: option.value, label: option.label, description: option.help })),
           value: selected.value,
         }]}
         id="invoice-vat-treatment"

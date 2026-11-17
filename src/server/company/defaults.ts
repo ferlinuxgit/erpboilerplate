@@ -143,7 +143,8 @@ export async function getCompanyDefaultsStatus(input: {
       key: "taxes",
       label: "Impuestos",
       description: "Impuestos habituales de la plantilla seleccionada.",
-      items: template.taxes.map((entry) => ({
+      // Solo los que se usan por defecto: el resto del catálogo se activa cuando se necesita.
+      items: template.taxes.filter((entry) => entry.inUseByDefault !== false).map((entry) => ({
         key: entry.name,
         label: entry.name,
         description: `Tipo ${Number(entry.rate).toLocaleString("es-ES", { maximumFractionDigits: 3 })}%`,
