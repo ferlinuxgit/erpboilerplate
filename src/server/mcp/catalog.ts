@@ -24,7 +24,7 @@ export const MCP_TOOL_COUNT = 21;
  * Rutas que una IA no debe usar: sesión e identidad (login, contraseñas, OAuth, el propio MCP),
  * credenciales (API keys) y webhooks/formularios públicos sin sesión.
  */
-const BLOCKED_PREFIXES = ["/api/auth", "/api/oauth", "/api/mcp", "/api/api-keys", "/api/public", "/api/billing", "/api/recurring/run", "/api/advisor/login", "/api/health", "/api/readyz", "/api/openapi"];
+const BLOCKED_PREFIXES = ["/api/auth", "/api/oauth", "/api/mcp", "/api/api-keys", "/api/public", "/api/billing", "/api/platform", "/api/recurring/run", "/api/advisor/login", "/api/health", "/api/readyz", "/api/openapi"];
 
 export function isBlockedPath(path: string) {
   return BLOCKED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));

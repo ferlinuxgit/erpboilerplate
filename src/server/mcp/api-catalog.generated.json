@@ -1918,6 +1918,29 @@
   "body": "const paymentMethodPayloadSchema = z.object({\n  code: z.string().trim().min(1, \"El código es obligatorio.\").max(80, \"El código es demasiado largo.\"),\n  name: z.string().trim().min(1, \"El nombre es obligatorio.\").max(160, \"El nombre es demasiado largo.\"),\n  type: z.enum([\"BANK_TRANSFER\", \"CARD\", \"CASH\", \"DIRECT_DEBIT\"]),\n  bankAccountId: z.string().trim().optional().nullable().or(z.literal(\"\")),\n  bankAccountNumber: z.string().trim().max(80, \"El número de cuenta es demasiado largo.\").optional().nullable(),\n  isDefault: z.boolean().default(false),\n})"
  },
  {
+  "method": "GET",
+  "path": "/api/platform/tenants/{id}",
+  "area": "platform",
+  "summary": "Detalle de un espacio para el panel de plataforma: miembros y movimientos de créditos.",
+  "permissions": []
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/platform/tenants/{id}",
+  "area": "platform",
+  "summary": "Suspender, reactivar, cortesía, ampliar la prueba o ajustar créditos de un espacio.",
+  "permissions": [],
+  "body": "const actionSchema = z.discriminatedUnion(\"action\", [\n  z.object({ action: z.literal(\"suspend\"), reason: z.string().trim().min(3, \"Indica el motivo.\").max(300) }),\n  z.object({ action: z.literal(\"unsuspend\") }),\n  z.object({ action: z.literal(\"exempt\"), exempt: z.boolean() }),\n  z.object({ action: z.literal(\"extendTrial\"), days: z.number().int().min(1).max(365) }),\n  z.object({ action: z.literal(\"grantCredits\"), credits: z.number().int().min(-100_000).max(100_000).refine((value) => value !== 0), note: z.string().trim().max(200).default(\"\") }),\n])"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/platform/users/{id}",
+  "area": "platform",
+  "summary": "Bloquear, desbloquear o cerrar todas las sesiones de un usuario.",
+  "permissions": [],
+  "body": "const actionSchema = z.object({ action: z.enum([\"disable\", \"enable\", \"revokeSessions\"]) })"
+ },
+ {
   "method": "PATCH",
   "path": "/api/pos/bookings/{id}",
   "area": "pos",

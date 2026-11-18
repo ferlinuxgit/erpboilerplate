@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { and, asc, desc, eq, exists, sql, type SQL } from "drizzle-orm";
 import { cache } from "react";
 
@@ -137,6 +138,8 @@ async function ensureUserTenantUncached(user: { id: string; name: string }): Pro
  * un módulo desactivado (o no contratado) en la empresa activa no llega a ejecutarse.
  */
 async function withModuleGuard(context: UserTenantContext) {
+  // Los errores de esta petición quedan etiquetados con su espacio y empresa (sin datos personales).
+  Sentry.setTags({ tenant_id: context.tenant.id, company_id: context.company.id });
   await enforceBillingForRequest(context.tenant.id);
   await enforceModuleForRequest(context.company.id);
   return context;

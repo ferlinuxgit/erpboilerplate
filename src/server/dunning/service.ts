@@ -218,18 +218,26 @@ export async function processScheduledDunning(options: { now?: Date; transport?:
     const schedule = settingsFromRow(row.settings).dunning;
     const timeZone = row.timezone || undefined;
     const today = todayDateInput(timeZone, now);
-    const collections = await listCollections(row.settings.companyId, { timeZone, now });
-    // Un intento (enviado o fallido) en las últimas 20 h basta: evita reintentar un fallo en cada ciclo.
-    const recentAttempts = new Set(
-      (await db
-        .select({ invoiceId: invoiceEmailLog.invoiceId })
-        .from(invoiceEmailLog)
-        .where(and(
-          eq(invoiceEmailLog.companyId, row.settings.companyId),
-          eq(invoiceEmailLog.kind, "REMINDER"),
-          gte(invoiceEmailLog.sentAt, new Date(now.getTime() - 20 * 60 * 60 * 1000)),
-        ))).map((attempt) => attempt.invoiceId),
-    );
+    // Un error al preparar una empresa no corta los avisos de las demás.
+    let collections: Awaited<ReturnType<typeof listCollections>>;
+    let recentAttempts: Set<string | null>;
+    try {
+      collections = await listCollections(row.settings.companyId, { timeZone, now });
+      // Un intento (enviado o fallido) en las últimas 20 h basta: evita reintentar un fallo en cada ciclo.
+      recentAttempts = new Set(
+        (await db
+          .select({ invoiceId: invoiceEmailLog.invoiceId })
+          .from(invoiceEmailLog)
+          .where(and(
+            eq(invoiceEmailLog.companyId, row.settings.companyId),
+            eq(invoiceEmailLog.kind, "REMINDER"),
+            gte(invoiceEmailLog.sentAt, new Date(now.getTime() - 20 * 60 * 60 * 1000)),
+          ))).map((attempt) => attempt.invoiceId),
+      );
+    } catch (error) {
+      logger.error({ err: error, companyId: row.settings.companyId }, "dunning.company_failed");
+      continue;
+    }
     for (const item of collections) {
       if (recentAttempts.has(item.invoiceId)) continue;
       if (item.optedOut || !item.customerEmail || !item.dueDate) {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import {
   accountChart,
@@ -53,6 +53,7 @@ import {
   templateTaxesFromInvoiceLine,
 } from "@/server/recurring/taxes";
 import { createExpenseInvoice } from "@/server/supplier-invoices/service";
+import { fairShare } from "@/lib/fair-share";
 
 /**
  * Plantillas recurrentes de facturas de venta y de gastos, y el motor que genera cada periodo.
@@ -737,6 +738,11 @@ async function generateExpensePeriod(template: TemplateRow, periodDate: string, 
 
 export type RecurringRunSummary = { templates: number; generated: number; pendingReview: number; failed: number };
 
+/** Reparto justo por pasada: nadie acapara el proceso con cientos de plantillas. */
+const MAX_TEMPLATES_PER_RUN = 500;
+const MAX_TEMPLATES_PER_COMPANY = 25;
+const FAILED_TEMPLATE_RETRY_MS = 6 * 60 * 60 * 1000;
+
 /**
  * Genera todos los periodos vencidos (hasta hoy, en la zona horaria de cada empresa). Se puede
  * ejecutar tantas veces como se quiera: cada periodo se genera una sola vez.
@@ -756,11 +762,17 @@ export async function runDueRecurringTemplates(options: { now?: Date; transport?
     .from(recurringTemplate)
     .innerJoin(company, eq(company.id, recurringTemplate.companyId))
     .innerJoin(tenant, eq(tenant.id, company.tenantId))
-    .where(and(eq(recurringTemplate.status, "ACTIVE"), isNotNull(recurringTemplate.nextRunDate), lte(recurringTemplate.nextRunDate, horizon)))
+    .where(and(
+      eq(recurringTemplate.status, "ACTIVE"),
+      isNotNull(recurringTemplate.nextRunDate),
+      lte(recurringTemplate.nextRunDate, horizon),
+      // Una plantilla que falló no se reintenta hasta pasadas unas horas: no acapara cada pasada.
+      or(isNull(recurringTemplate.lastError), isNull(recurringTemplate.lastRunAt), lt(recurringTemplate.lastRunAt, new Date(now.getTime() - FAILED_TEMPLATE_RETRY_MS))),
+    ))
     .orderBy(asc(recurringTemplate.nextRunDate), asc(recurringTemplate.id))
-    .limit(500);
+    .limit(MAX_TEMPLATES_PER_RUN * 4);
   const summary: RecurringRunSummary = { templates: 0, generated: 0, pendingReview: 0, failed: 0 };
-  for (const candidate of candidates) {
+  for (const candidate of fairShare(candidates, (entry) => entry.template.companyId, MAX_TEMPLATES_PER_COMPANY, MAX_TEMPLATES_PER_RUN)) {
     const companyContext: CompanyContext = {
       tenantId: candidate.tenantId,
       companyId: candidate.template.companyId,

@@ -639,7 +639,9 @@ async function claimNextQueuedExpenseOcrJob() {
     .set(claimValues(new Date()))
     .where(and(
       eq(expenseOcrJob.status, "PENDING"),
-      eq(expenseOcrJob.id, sql`(select "id" from "expense_ocr_job" where "status" = 'PENDING' and "attempts" < ${maxJobAttempts} order by "createdAt", "id" limit 1 for update skip locked)`),
+      // Turno justo entre empresas: primero la que menos lecturas tiene en curso; dentro de ella, el
+      // documento más antiguo. Quien sube mil facturas de golpe no deja esperando a los demás.
+      eq(expenseOcrJob.id, sql`(select "j"."id" from "expense_ocr_job" "j" where "j"."status" = 'PENDING' and "j"."attempts" < ${maxJobAttempts} order by (select count(*) from "expense_ocr_job" "p" where "p"."companyId" = "j"."companyId" and "p"."status" = 'PROCESSING'), "j"."createdAt", "j"."id" limit 1 for update of "j" skip locked)`),
     ))
     .returning();
   return job ?? null;
