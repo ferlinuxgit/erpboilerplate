@@ -12,6 +12,7 @@ import { getRateLimiter, RATE_LIMIT_RULES, tooManyRequestsResponse } from "@/lib
 import { authSignInSchema } from "@/server/schemas/forms";
 import { isEmailDeliveryConfigured, sendEmail } from "@/server/email/send";
 import { resolvePostAuthDestination, respondWithNewSession } from "@/server/auth/session";
+import { getClientIp } from "@/lib/ip-policy";
 
 const INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos.";
 
@@ -49,12 +50,16 @@ export async function POST(request: Request) {
 
     const email = parsed.data.email.toLowerCase().trim();
 
-    // 5 intentos fallidos / 15 min por email (el límite por IP lo aplica el proxy).
+    // 5 intentos / 15 min por email desde la misma IP y 30 desde cualquiera (el límite por IP solo
+    // lo aplica el proxy). Así un atacante no deja sin acceso al titular desde otra conexión.
     const limiter = getRateLimiter();
-    const emailLimit = await limiter.limit(RATE_LIMIT_RULES.loginEmail, email);
-    if (!emailLimit.success) {
-      logger.warn({ bucket: RATE_LIMIT_RULES.loginEmail.id }, "auth.login_rate_limited");
-      return tooManyRequestsResponse(emailLimit);
+    const emailIpKey = `${email}|${getClientIp(request.headers) ?? "unknown"}`;
+    for (const [rule, key] of [[RATE_LIMIT_RULES.loginEmail, emailIpKey], [RATE_LIMIT_RULES.loginEmailAny, email]] as const) {
+      const emailLimit = await limiter.limit(rule, key);
+      if (!emailLimit.success) {
+        logger.warn({ bucket: rule.id }, "auth.login_rate_limited");
+        return tooManyRequestsResponse(emailLimit);
+      }
     }
 
     const [row] = await db
@@ -75,7 +80,6 @@ export async function POST(request: Request) {
     if (!row || !validPassword) {
       return invalidCredentials();
     }
-    await limiter.reset(RATE_LIMIT_RULES.loginEmail, email);
 
     if (row.disabledAt) {
       return NextResponse.json({ error: "Esta cuenta está bloqueada. Escríbenos si crees que es un error." }, { status: 403 });
@@ -105,8 +109,10 @@ export async function POST(request: Request) {
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
       await sendEmail({ to: row.email, subject: "Código de acceso a ERP", html: `<p>Tu código de verificación es <strong>${code}</strong>.</p><p>Caduca en 10 minutos.</p>` });
+      // Los intentos no se perdonan hasta superar también el segundo factor.
       return NextResponse.json({ requiresTwoFactor: true, challengeId }, { status: 202 });
     }
+    await limiter.reset(RATE_LIMIT_RULES.loginEmail, emailIpKey);
 
     const authUser = { id: row.id, name: row.name, email: row.email };
     const { next, remember } = (body ?? {}) as { next?: unknown; remember?: unknown };

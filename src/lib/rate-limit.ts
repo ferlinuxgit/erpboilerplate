@@ -40,7 +40,10 @@ const MINUTE = 60_000;
 export const RATE_LIMIT_RULES = {
   api: { id: "api", limit: 300, windowMs: MINUTE },
   login: { id: "auth-login", limit: 10, windowMs: MINUTE },
+  // Por email + IP: quien adivina contraseñas desde su IP no bloquea al titular desde la suya.
   loginEmail: { id: "auth-login-email", limit: 5, windowMs: 15 * MINUTE },
+  // Por email desde cualquier IP: frena a quien rota IPs, con margen para el titular.
+  loginEmailAny: { id: "auth-login-email-any", limit: 30, windowMs: 15 * MINUTE },
   // Portal del asesor: mismo criterio que el acceso al ERP (por IP en el proxy y por email).
   advisorLogin: { id: "advisor-login", limit: 10, windowMs: MINUTE },
   advisorLoginEmail: { id: "advisor-login-email", limit: 5, windowMs: 15 * MINUTE },

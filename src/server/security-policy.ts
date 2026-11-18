@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
-import { tenantSecurityPolicy } from "@/db/schema";
+import { membership, session, tenantSecurityPolicy } from "@/db/schema";
 import { db } from "@/lib/db";
 import { getInvalidIpRules } from "@/lib/ip-policy";
 import { can, type AppRole } from "@/lib/rbac";
@@ -218,6 +218,8 @@ export async function updateTenantSecurityPolicy(params: {
   payload: unknown;
   store?: SecurityPolicyStore;
   audit?: AuditWriter;
+  /** Cierra las sesiones de los miembros (al exigir doble factor). Por defecto, en la base de datos. */
+  revokeMemberSessions?: (tenantId: string, exceptUserId: string) => Promise<number>;
 }): Promise<{ status: 200 | 201 | 400 | 403; policy?: SecurityPolicyState; changes?: SecurityPolicyChange[]; error?: string }> {
   if (!can(params.role, "settings.manage")) {
     return { status: 403, error: "Sin permisos para cambiar la política de seguridad." };
@@ -244,6 +246,13 @@ export async function updateTenantSecurityPolicy(params: {
   const changes = describePolicyChanges(existing, values);
   const saved = existing ? await store.update(existing.id, values) : await store.create(params.tenantId, values);
 
+  // Exigir doble factor a partir de ahora: las sesiones abiertas sin él dejan de valer (menos la de
+  // quien lo activa, para no dejarle fuera) y todos vuelven a entrar con código.
+  if (values.requireTwoFactor && !existing?.requireTwoFactor) {
+    const revoke = params.revokeMemberSessions ?? (params.store ? null : revokeTenantMemberSessions);
+    if (revoke) await revoke(params.tenantId, params.actorUserId);
+  }
+
   if (changes.length > 0) {
     await audit({
       tenantId: params.tenantId,
@@ -261,4 +270,11 @@ export async function updateTenantSecurityPolicy(params: {
   }
 
   return { status: existing ? 200 : 201, policy: getSecurityPolicyState(saved), changes };
+}
+
+async function revokeTenantMemberSessions(tenantId: string, exceptUserId: string) {
+  const members = await db.select({ userId: membership.userId }).from(membership).where(and(eq(membership.tenantId, tenantId), ne(membership.userId, exceptUserId)));
+  if (!members.length) return 0;
+  const removed = await db.delete(session).where(inArray(session.userId, members.map((entry) => entry.userId))).returning({ id: session.id });
+  return removed.length;
 }

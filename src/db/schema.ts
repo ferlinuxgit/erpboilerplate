@@ -212,7 +212,7 @@ export const auditLog = pgTable("audit_log", {
   entityId: text("entityId").notNull(),
   payload: text("payload"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
+}, (table) => [index("audit_log_company_created_idx").on(table.companyId, table.createdAt), 
   index("audit_log_tenant_created_idx").on(table.tenantId, table.createdAt.desc()),
   index("audit_log_entity_idx").on(table.entityName, table.entityId),
 ]);
@@ -255,7 +255,7 @@ export const documentAttachment = pgTable("document_attachment", {
   fileUrl: text("fileUrl").notNull(),
   fileName: text("fileName").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("document_attachment_company_idx").on(table.companyId)]);
 
 export const itemCategory = pgTable("item_category", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -343,7 +343,7 @@ export const taxRetention = pgTable("tax_retention", {
   rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("tax_retention_company_idx").on(table.companyId)]);
 
 /**
  * Módulos opcionales por empresa (ver `src/modules/registry.ts`). Solo se guarda lo que la empresa
@@ -559,7 +559,7 @@ export const itemCostHistory = pgTable("item_cost_history", {
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
   movementId: text("movementId").notNull().references(() => stockMovement.id, { onDelete: "cascade" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("item_cost_history_company_idx").on(table.companyId)]);
 
 export const invoice = pgTable(
   "invoice",
@@ -923,7 +923,7 @@ export const supplierInvoiceAttachment = pgTable("supplier_invoice_attachment", 
   contentType: text("contentType"),
   sizeBytes: integer("sizeBytes"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("supplier_invoice_attachment_company_idx").on(table.companyId)]);
 
 export const expenseIngestionBatch = pgTable("expense_ingestion_batch", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1194,7 +1194,7 @@ export const kpiSnapshot = pgTable("kpi_snapshot", {
   metricKey: text("metricKey").notNull(),
   metricValue: numeric("metricValue", { precision: 18, scale: 4 }).notNull(),
   capturedAt: timestamp("capturedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [index("kpi_snapshot_company_idx").on(table.companyId)]);
 
 export const subscription = pgTable(
   "subscription",
@@ -2057,7 +2057,7 @@ export const posCashMovement = pgTable("pos_cash_movement", {
   bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
   createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
+}, (table) => [index("pos_cash_movement_company_idx").on(table.companyId), 
   index("pos_cash_movement_session_idx").on(table.sessionId),
   check("pos_cash_movement_type_valid", sql`${table.type} IN ('IN', 'OUT')`),
   check("pos_cash_movement_amount_positive", sql`${table.amount} > 0`),
@@ -2185,7 +2185,7 @@ export const posKitchenBatch = pgTable("pos_kitchen_batch", {
   station: text("station").notNull(),
   sentByUserId: text("sentByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [index("pos_kitchen_batch_order_idx").on(table.orderId)]);
+}, (table) => [index("pos_kitchen_batch_company_idx").on(table.companyId), index("pos_kitchen_batch_order_idx").on(table.orderId)]);
 
 /** A qué estación van los productos de cada categoría (lo demás no genera comanda). */
 export const posCategoryStation = pgTable("pos_category_station", {
@@ -2317,7 +2317,7 @@ export const posModifierOption = pgTable("pos_modifier_option", {
   name: text("name").notNull(),
   price: numeric("price", { precision: 12, scale: 2 }).notNull().default("0"),
   position: integer("position").notNull().default(0),
-}, (table) => [index("pos_modifier_option_group_idx").on(table.groupId)]);
+}, (table) => [index("pos_modifier_option_company_idx").on(table.companyId), index("pos_modifier_option_group_idx").on(table.groupId)]);
 
 /** Qué grupos de modificadores pide cada artículo. */
 export const posItemModifierGroup = pgTable("pos_item_modifier_group", {
@@ -2326,7 +2326,7 @@ export const posItemModifierGroup = pgTable("pos_item_modifier_group", {
   itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
   groupId: text("groupId").notNull().references(() => posModifierGroup.id, { onDelete: "cascade" }),
   position: integer("position").notNull().default(0),
-}, (table) => [unique("pos_item_modifier_group_unique").on(table.itemId, table.groupId)]);
+}, (table) => [index("pos_item_modifier_group_company_idx").on(table.companyId), unique("pos_item_modifier_group_unique").on(table.itemId, table.groupId)]);
 
 /** Tiempos de un menú de precio cerrado (Primero, Segundo, Postre, Bebida…). */
 export const posSetMenuCourse = pgTable("pos_set_menu_course", {
@@ -2338,7 +2338,7 @@ export const posSetMenuCourse = pgTable("pos_set_menu_course", {
   // Tiempo en cocina (0 = sin tiempo, 1–4).
   course: integer("course").notNull().default(1),
   position: integer("position").notNull().default(0),
-}, (table) => [index("pos_set_menu_course_item_idx").on(table.itemId)]);
+}, (table) => [index("pos_set_menu_course_company_idx").on(table.companyId), index("pos_set_menu_course_item_idx").on(table.itemId)]);
 
 /** Platos que se pueden elegir en un tiempo del menú, con suplemento opcional (PVP con IVA). */
 export const posSetMenuChoice = pgTable("pos_set_menu_choice", {
@@ -2348,7 +2348,7 @@ export const posSetMenuChoice = pgTable("pos_set_menu_choice", {
   itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
   supplement: numeric("supplement", { precision: 12, scale: 2 }).notNull().default("0"),
   position: integer("position").notNull().default(0),
-}, (table) => [unique("pos_set_menu_choice_unique").on(table.courseId, table.itemId)]);
+}, (table) => [index("pos_set_menu_choice_company_idx").on(table.companyId), unique("pos_set_menu_choice_unique").on(table.courseId, table.itemId)]);
 
 /** PIN rápido de camarero para identificarse en una tablet compartida (solo atribución). */
 export const posStaffPin = pgTable("pos_staff_pin", {

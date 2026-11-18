@@ -406,6 +406,13 @@
  },
  {
   "method": "POST",
+  "path": "/api/auth/change-password",
+  "area": "auth",
+  "summary": "Cambiar la contraseña con la sesión iniciada (cierra las demás sesiones).",
+  "permissions": []
+ },
+ {
+  "method": "POST",
   "path": "/api/auth/forgot-password",
   "area": "auth",
   "summary": "Misma respuesta exista o no la cuenta: no permite averiguar qué emails están registrados.",
@@ -450,6 +457,20 @@
   "summary": "",
   "permissions": [],
   "body": "const payloadSchema = z.object({\n  token: z.string().trim().min(20).max(1024),\n  password: z.string().min(8, \"La contraseña debe tener al menos 8 caracteres.\").max(256),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/auth/sessions",
+  "area": "auth",
+  "summary": "Mis sesiones abiertas en navegadores.",
+  "permissions": []
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/auth/sessions",
+  "area": "auth",
+  "summary": "Cierra todas mis sesiones menos esta.",
+  "permissions": []
  },
  {
   "method": "POST",

@@ -11,6 +11,8 @@ import { logger } from "@/lib/logger";
 export type ScheduledJobsDeps = {
   runRecurring: (now: Date) => Promise<unknown>;
   runDunning: (now: Date) => Promise<unknown>;
+  /** Limpieza de sesiones y códigos caducados (opcional en los tests). */
+  runMaintenance?: (now: Date) => Promise<unknown>;
 };
 
 export type ScheduledJobsResult = {
@@ -19,13 +21,15 @@ export type ScheduledJobsResult = {
 };
 
 async function defaultDeps(): Promise<ScheduledJobsDeps> {
-  const [{ runDueRecurringTemplates }, { processScheduledDunning }] = await Promise.all([
+  const [{ runDueRecurringTemplates }, { processScheduledDunning }, { purgeExpiredRows }] = await Promise.all([
     import("@/server/recurring/service"),
     import("@/server/dunning/service"),
+    import("@/server/maintenance"),
   ]);
   return {
     runRecurring: (now) => runDueRecurringTemplates({ now }),
     runDunning: (now) => processScheduledDunning({ now }),
+    runMaintenance: (now) => purgeExpiredRows(now),
   };
 }
 
@@ -48,6 +52,13 @@ export async function runScheduledJobs(options: { now?: Date; deps?: ScheduledJo
   } catch (error) {
     logger.error({ err: error }, "scheduled.dunning_failed");
     result.dunning = { ok: false, error: error instanceof Error ? error.message : "Error inesperado." };
+  }
+  if (deps.runMaintenance) {
+    try {
+      logger.info({ purged: await deps.runMaintenance(now) }, "scheduled.maintenance");
+    } catch (error) {
+      logger.error({ err: error }, "scheduled.maintenance_failed");
+    }
   }
   return result;
 }

@@ -253,7 +253,8 @@ export const settingsSections: SettingsSection[] = [
     description: "Tu cuenta y cómo ves la aplicación en este navegador.",
     href: "/settings/preferences",
     items: [
-      { label: "Mi cuenta y contraseña", description: "Tus datos de acceso, tu rol y el cambio de contraseña.", href: "/settings/preferences#cuenta", keywords: "cuenta usuario perfil email contrasena clave password cambiar rol" },
+      { label: "Mi cuenta", description: "Tus datos de acceso y tu rol.", href: "/settings/preferences#cuenta", keywords: "cuenta usuario perfil email rol" },
+      { label: "Contraseña y sesiones", description: "Cambia tu contraseña y cierra sesiones en otros dispositivos.", href: "/settings/preferences#seguridad", keywords: "contrasena clave password cambiar sesiones dispositivos cerrar seguridad" },
       { label: "Apariencia", description: "Paleta de colores clara u oscura.", href: "/settings/preferences#apariencia", keywords: "tema paleta colores oscuro claro modo noche apariencia" },
       { label: "Teclado", description: "Modo teclado y atajos de una sola tecla.", href: "/settings/preferences#teclado", keywords: "teclado atajos codigos accesibilidad voz" },
     ],

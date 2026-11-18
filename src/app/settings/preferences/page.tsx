@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
+import { AccountSecurityPanel } from "@/components/settings/account-security-panel";
 import { SettingsPageHeader } from "@/components/settings/settings-page-header";
 import { UserPreferencesPanel } from "@/components/settings/user-preferences-panel";
-import { buttonVariants } from "@/components/ui/button";
 import { PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { roleLabels, statusLabel } from "@/lib/status-labels";
@@ -25,8 +24,10 @@ export default async function PreferencesPage() {
             <dt className="font-mono text-xs font-bold">Rol</dt>
             <dd>{statusLabel(roleLabels, ctx.membership.role)} en {ctx.company.name}</dd>
           </dl>
-          <Link className={buttonVariants({ variant: "outline" })} href="/auth/forgot-password">Cambiar mi contraseña</Link>
         </div>
+      </PageSection>
+      <PageSection className="scroll-mt-24" id="seguridad" title="Contraseña y sesiones" description="Cambia tu contraseña y cierra la sesión en los dispositivos que ya no uses.">
+        <AccountSecurityPanel />
       </PageSection>
       <PageSection className="scroll-mt-24" id="apariencia" title="Apariencia" description="La paleta de colores de la interfaz.">
         <UserPreferencesPanel part="appearance" />
