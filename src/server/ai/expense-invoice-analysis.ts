@@ -570,5 +570,12 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
     analysis: response.output_parsed,
     draft: toExpenseInvoiceAiDraft(response.output_parsed, { ownTaxIds: input.ownTaxIds }),
     model,
+    // Tokens consumidos: se cobran en créditos según su coste real (src/lib/billing/catalog.ts).
+    usage: {
+      model,
+      inputTokens: response.usage?.input_tokens ?? 0,
+      cachedInputTokens: response.usage?.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+    },
   };
 }

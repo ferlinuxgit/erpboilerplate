@@ -588,7 +588,26 @@
   "method": "POST",
   "path": "/api/billing/checkout",
   "area": "billing",
-  "summary": "",
+  "summary": "Contratar: plan base + módulos elegidos. Con una suscripción viva se cambian los módulos (no se duplica).",
+  "permissions": [
+   "billing.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/billing/credits",
+  "area": "billing",
+  "summary": "Compra de un pack de créditos de lectura de facturas con IA (pago único).",
+  "permissions": [
+   "billing.write"
+  ],
+  "body": "const creditsSchema = z.object({ packCode: z.string().trim().min(1).max(40) })"
+ },
+ {
+  "method": "POST",
+  "path": "/api/billing/modules",
+  "area": "billing",
+  "summary": "Cambia los módulos contratados de una suscripción en curso (prorrateado). Los módulos añadidos quedan además activados en la empresa activa.",
   "permissions": [
    "billing.write"
   ]
@@ -597,7 +616,7 @@
   "method": "POST",
   "path": "/api/billing/portal",
   "area": "billing",
-  "summary": "El cliente de Stripe se toma SIEMPRE del tenant persistido; se ignora el cuerpo.",
+  "summary": "Portal de Stripe (método de pago, facturas, cancelación). El cliente sale SIEMPRE del espacio guardado.",
   "permissions": [
    "billing.write"
   ]

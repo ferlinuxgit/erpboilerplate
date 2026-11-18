@@ -4,7 +4,7 @@ import { getUserSession } from "@/lib/current-user";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createExpenseOcrJob, drainExpenseOcrQueue, isLocalOcrEnabled, listRecentExpenseOcrJobs } from "@/server/ocr/expense-ocr";
-import { withHttpErrors } from "@/lib/http";
+import { isHttpError, withHttpErrors } from "@/lib/http";
 
 async function handleGET() {
   const session = await getUserSession();
@@ -42,6 +42,8 @@ async function handlePOST(request: Request) {
     after(() => drainExpenseOcrQueue());
     return NextResponse.json({ id: job.id, status: job.status, fileName: job.fileName, fileUrl: job.fileUrl, contentType: job.contentType, sizeBytes: job.sizeBytes }, { status: 202 });
   } catch (error) {
+    // Sin créditos de IA (402) u otro error con estado: se responde tal cual.
+    if (isHttpError(error)) return NextResponse.json({ message: error.message }, { status: error.status });
     const message = error instanceof Error ? error.message : "No se pudo guardar el documento para leerlo.";
     return NextResponse.json({ message }, { status: 400 });
   }

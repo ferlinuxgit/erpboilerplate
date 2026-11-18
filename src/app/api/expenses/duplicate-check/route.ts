@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, readJsonBody, httpErrorResponse } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { getExpenseOcrJob } from "@/server/ocr/expense-ocr";
@@ -20,25 +20,29 @@ const payloadSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para comprobar facturas de proveedor." }, { status: 403 });
-  const payload = await readJsonBody(request);
-  if (!payload) return invalidJsonResponse();
-  const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return NextResponse.json({ message: "Datos de comprobación inválidos." }, { status: 400 });
-  const job = parsed.data.ocrJobId ? await getExpenseOcrJob(ctx.company.id, parsed.data.ocrJobId) : null;
-  const result = await assessExpenseDuplicate({
-    companyId: ctx.company.id,
-    supplierPartnerId: parsed.data.supplierPartnerId,
-    supplierTaxId: parsed.data.supplierTaxId,
-    supplierName: parsed.data.supplierName,
-    supplierCountryCode: parsed.data.supplierCountryCode,
-    supplierDocumentNumber: parsed.data.supplierDocumentNumber,
-    issueDate: parsed.data.issueDate ? new Date(parsed.data.issueDate) : undefined,
-    totalAmount: parsed.data.totalAmount,
-    documentSha256: job?.documentSha256 ?? undefined,
-  });
-  return NextResponse.json(result);
+  try {
+    const session = await getUserSession();
+    if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para comprobar facturas de proveedor." }, { status: 403 });
+    const payload = await readJsonBody(request);
+    if (!payload) return invalidJsonResponse();
+    const parsed = payloadSchema.safeParse(payload);
+    if (!parsed.success) return NextResponse.json({ message: "Datos de comprobación inválidos." }, { status: 400 });
+    const job = parsed.data.ocrJobId ? await getExpenseOcrJob(ctx.company.id, parsed.data.ocrJobId) : null;
+    const result = await assessExpenseDuplicate({
+      companyId: ctx.company.id,
+      supplierPartnerId: parsed.data.supplierPartnerId,
+      supplierTaxId: parsed.data.supplierTaxId,
+      supplierName: parsed.data.supplierName,
+      supplierCountryCode: parsed.data.supplierCountryCode,
+      supplierDocumentNumber: parsed.data.supplierDocumentNumber,
+      issueDate: parsed.data.issueDate ? new Date(parsed.data.issueDate) : undefined,
+      totalAmount: parsed.data.totalAmount,
+      documentSha256: job?.documentSha256 ?? undefined,
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    return httpErrorResponse(error);
+  }
 }

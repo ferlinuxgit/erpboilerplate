@@ -435,6 +435,19 @@ export async function createExpenseOcrJob(input: {
     if (!ownedBatch) throw new Error("El lote OCR no pertenece a la empresa activa.");
     if (Number(jobCount?.count ?? 0) >= ownedBatch.expectedFiles) throw new Error("El lote ya alcanzó el número de archivos previsto.");
   }
+  // Créditos de lectura con IA: sin saldo, una subida se rechaza (402) y un correo se guarda como
+  // fallido con el aviso, para leerlo después de recargar.
+  const willAnalyze = (input.initialStatus ?? "PENDING") !== "DONE" && input.extractionProvider !== "tesseract";
+  let noCreditsMessage: string | null = null;
+  if (willAnalyze) {
+    const { assertOcrCreditsAvailable } = await import("@/server/billing/credits");
+    try {
+      await assertOcrCreditsAvailable(input.tenantId);
+    } catch (error) {
+      if (input.source?.type !== "email" || !(error instanceof Error)) throw error;
+      noCreditsMessage = error.message;
+    }
+  }
   const documentSha256 = createHash("sha256").update(input.buffer).digest("hex");
   const [created] = await db
     .insert(expenseOcrJob)
@@ -443,7 +456,8 @@ export async function createExpenseOcrJob(input: {
       companyId: input.companyId,
       actorUserId: input.actorUserId,
       batchId: input.batchId ?? null,
-      status: input.initialStatus ?? "PENDING",
+      status: noCreditsMessage ? "FAILED" : input.initialStatus ?? "PENDING",
+      ...(noCreditsMessage ? { errorMessage: noCreditsMessage } : {}),
       fileName: sanitizeFileName(input.fileName),
       filePath: "pending",
       contentType: input.contentType,
@@ -582,6 +596,11 @@ async function analyzeJobWithOpenAI(job: typeof expenseOcrJob.$inferSelect) {
     })
     .where(eq(expenseOcrJob.id, job.id))
     .returning();
+  // Coste real de la lectura en créditos (una vez por documento, aunque se reintente).
+  const { chargeOcrUsage } = await import("@/server/billing/credits");
+  await chargeOcrUsage({ tenantId: job.tenantId, companyId: job.companyId, ocrJobId: job.id, fileName: job.fileName, usage: result.usage }).catch((error) => {
+    logger.error({ err: error, jobId: job.id }, "expense_ocr.charge_failed");
+  });
   return updated;
 }
 

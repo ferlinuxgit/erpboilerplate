@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { tax } from "@/db/schema";
 import { getUserSession } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, readJsonBody, httpErrorResponse } from "@/lib/http";
 import { logger } from "@/lib/logger";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
@@ -19,65 +19,73 @@ function taxWriteError(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  const requestedInactive = new URL(request.url).searchParams.get("includeInactive") === "true";
-  const includeInactive = requestedInactive && can(ctx.membership.role, "settings.manage");
-  const where = includeInactive
-    ? eq(tax.companyId, ctx.company.id)
-    : and(eq(tax.companyId, ctx.company.id), eq(tax.isActive, true));
+  try {
+    const session = await getUserSession();
+    if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    const requestedInactive = new URL(request.url).searchParams.get("includeInactive") === "true";
+    const includeInactive = requestedInactive && can(ctx.membership.role, "settings.manage");
+    const where = includeInactive
+      ? eq(tax.companyId, ctx.company.id)
+      : and(eq(tax.companyId, ctx.company.id), eq(tax.isActive, true));
 
-  return NextResponse.json(
-    await db.select().from(tax).where(where).orderBy(desc(tax.isActive), asc(tax.operation), asc(tax.rate), asc(tax.name)),
-  );
+    return NextResponse.json(
+      await db.select().from(tax).where(where).orderBy(desc(tax.isActive), asc(tax.operation), asc(tax.rate), asc(tax.name)),
+    );
+  } catch (error) {
+    return httpErrorResponse(error);
+  }
 }
 
 export async function POST(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "settings.manage")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
-  const payload = await readJsonBody(request);
-  if (!payload) return invalidJsonResponse();
-  const parsed = taxMutationSchema.safeParse(payload);
-  if (!parsed.success) {
-    return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Los datos no son válidos." }, { status: 400 });
-  }
-
-  const values = parsed.data;
-  const duplicate = await findEquivalentTax(db, ctx.company.id, { kind: values.kind, rate: values.rate, operation: operationForTaxKind(values.kind, values.operation) });
-  if (duplicate) {
-    return NextResponse.json({ message: `Ya tienes «${duplicate.name}» con el mismo tipo y porcentaje. Usa ese impuesto (puedes renombrarlo) en lugar de crear otro.` }, { status: 409 });
-  }
   try {
-    const created = await db.transaction(async (tx) => {
-      const [row] = await tx.insert(tax).values({
-        companyId: ctx.company.id,
-        name: values.name,
-        rate: values.rate.toFixed(3),
-        kind: values.kind,
-        operation: operationForTaxKind(values.kind, values.operation),
-        isDefault: values.isDefault,
-        isActive: values.isActive,
-      }).returning();
-      await recordAudit(
-        {
-          tenantId: ctx.tenant.id,
+    const session = await getUserSession();
+    if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    if (!can(ctx.membership.role, "settings.manage")) return NextResponse.json({ message: "Sin permisos." }, { status: 403 });
+    const payload = await readJsonBody(request);
+    if (!payload) return invalidJsonResponse();
+    const parsed = taxMutationSchema.safeParse(payload);
+    if (!parsed.success) {
+      return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Los datos no son válidos." }, { status: 400 });
+    }
+
+    const values = parsed.data;
+    const duplicate = await findEquivalentTax(db, ctx.company.id, { kind: values.kind, rate: values.rate, operation: operationForTaxKind(values.kind, values.operation) });
+    if (duplicate) {
+      return NextResponse.json({ message: `Ya tienes «${duplicate.name}» con el mismo tipo y porcentaje. Usa ese impuesto (puedes renombrarlo) en lugar de crear otro.` }, { status: 409 });
+    }
+    try {
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx.insert(tax).values({
           companyId: ctx.company.id,
-          actorUserId: session.user.id,
-          action: "tax.create",
-          entityName: "tax",
-          entityId: row.id,
-          payload: { name: row.name, rate: row.rate, kind: row.kind, operation: row.operation, isDefault: row.isDefault, isActive: row.isActive },
-        },
-        tx,
-      );
-      return row;
-    });
-    return NextResponse.json(created, { status: 201 });
+          name: values.name,
+          rate: values.rate.toFixed(3),
+          kind: values.kind,
+          operation: operationForTaxKind(values.kind, values.operation),
+          isDefault: values.isDefault,
+          isActive: values.isActive,
+        }).returning();
+        await recordAudit(
+          {
+            tenantId: ctx.tenant.id,
+            companyId: ctx.company.id,
+            actorUserId: session.user.id,
+            action: "tax.create",
+            entityName: "tax",
+            entityId: row.id,
+            payload: { name: row.name, rate: row.rate, kind: row.kind, operation: row.operation, isDefault: row.isDefault, isActive: row.isActive },
+          },
+          tx,
+        );
+        return row;
+      });
+      return NextResponse.json(created, { status: 201 });
+    } catch (error) {
+      logger.error({ err: error }, "tax.create_failed");
+      return NextResponse.json({ message: taxWriteError(error) }, { status: 409 });
+    }
   } catch (error) {
-    logger.error({ err: error }, "tax.create_failed");
-    return NextResponse.json({ message: taxWriteError(error) }, { status: 409 });
+    return httpErrorResponse(error);
   }
 }

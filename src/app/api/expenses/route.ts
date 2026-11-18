@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getUserSession } from "@/lib/current-user";
-import { invalidJsonResponse, isSafeAttachmentUrl, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, isSafeAttachmentUrl, readJsonBody, httpErrorResponse } from "@/lib/http";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createExpenseInvoice, listExpenseInvoices } from "@/server/supplier-invoices/service";
@@ -70,88 +70,96 @@ function expenseCreationError(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver facturas de proveedor." }, { status: 403 });
-  // ?export=all: todas las facturas del filtro del listado (?q=&from=&to=&status=&sort=&dir=) para exportarlas.
-  const url = new URL(request.url);
-  if (url.searchParams.get("export") === "all") {
-    try {
-      const params = parseListParams(Object.fromEntries(url.searchParams), expenseInvoiceListConfig);
-      return NextResponse.json(await listExpenseInvoicesForExport(ctx.company.id, params));
-    } catch (error) {
-      return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudieron exportar las facturas." }, { status: 422 });
+  try {
+    const session = await getUserSession();
+    if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    if (!can(ctx.membership.role, "expense.read") && !can(ctx.membership.role, "purchase.read")) return NextResponse.json({ message: "Sin permisos para ver facturas de proveedor." }, { status: 403 });
+    // ?export=all: todas las facturas del filtro del listado (?q=&from=&to=&status=&sort=&dir=) para exportarlas.
+    const url = new URL(request.url);
+    if (url.searchParams.get("export") === "all") {
+      try {
+        const params = parseListParams(Object.fromEntries(url.searchParams), expenseInvoiceListConfig);
+        return NextResponse.json(await listExpenseInvoicesForExport(ctx.company.id, params));
+      } catch (error) {
+        return NextResponse.json({ message: error instanceof Error ? error.message : "No se pudieron exportar las facturas." }, { status: 422 });
+      }
     }
+    return NextResponse.json(await listExpenseInvoices(ctx.company.id));
+  } catch (error) {
+    return httpErrorResponse(error);
   }
-  return NextResponse.json(await listExpenseInvoices(ctx.company.id));
 }
 
 export async function POST(request: Request) {
-  const session = await getUserSession();
-  if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
-  const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
-  if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para crear facturas de proveedor." }, { status: 403 });
-
-  const payload = await readJsonBody(request);
-  if (!payload) return invalidJsonResponse();
-
-  const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
-  if (!parsed.data.supplierPartnerId && !parsed.data.supplierName && !parsed.data.supplierTaxId) {
-    return NextResponse.json({ message: "Indica proveedor existente, nombre de proveedor o CIF/NIF." }, { status: 400 });
-  }
-
   try {
-    const created = await createExpenseInvoice({
-      tenantId: ctx.tenant.id,
-      companyId: ctx.company.id,
-      fiscalYearId: ctx.fiscalYear.id,
-      actorUserId: session.user.id,
-      supplierPartnerId: parsed.data.supplierPartnerId || undefined,
-      supplierName: parsed.data.supplierName || undefined,
-      supplierTaxId: parsed.data.supplierTaxId || undefined,
-      supplierEmail: parsed.data.supplierEmail || undefined,
-      supplierPhone: parsed.data.supplierPhone || undefined,
-      supplierAddress: parsed.data.supplierAddress || undefined,
-      supplierAddressLine2: parsed.data.supplierAddressLine2 || undefined,
-      supplierPostalCode: parsed.data.supplierPostalCode || undefined,
-      supplierCity: parsed.data.supplierCity || undefined,
-      supplierProvince: parsed.data.supplierProvince || undefined,
-      supplierCountryCode: parsed.data.supplierCountryCode || undefined,
-      purchaseOrderId: parsed.data.purchaseOrderId || undefined,
-      goodsReceiptId: parsed.data.goodsReceiptId || undefined,
-      number: parsed.data.number || undefined,
-      supplierDocumentNumber: parsed.data.supplierDocumentNumber || undefined,
-      issueDate: new Date(parsed.data.issueDate),
-      accountingDate: parsed.data.accountingDate ? new Date(parsed.data.accountingDate) : undefined,
-      dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
-      notes: parsed.data.notes || undefined,
-      ocrJobId: parsed.data.ocrJobId || undefined,
-      currencyCode: parsed.data.currencyCode,
-      idempotencyKey: parsed.data.idempotencyKey || undefined,
-      vatTreatment: parsed.data.vatTreatment,
-      attachments: parsed.data.attachments?.map((attachment) => ({
-        fileName: attachment.fileName,
-        fileUrl: attachment.fileUrl,
-        storageKey: attachment.storageKey || undefined,
-        contentType: attachment.contentType || undefined,
-        sizeBytes: attachment.sizeBytes,
-      })),
-      lines: parsed.data.lines.map((line) => ({
-        expenseAccountId: line.expenseAccountId || undefined,
-        description: line.description,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        taxRate: line.taxRate,
-        taxDeductiblePct: line.taxDeductiblePct,
-        retentionRate: line.retentionRate,
-      })),
-    });
-    return NextResponse.json(created, { status: 201 });
+    const session = await getUserSession();
+    if (!session?.user) return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    const ctx = await ensureUserTenant({ id: session.user.id, name: session.user.name });
+    if (!can(ctx.membership.role, "expense.write") && !can(ctx.membership.role, "purchase.write")) return NextResponse.json({ message: "Sin permisos para crear facturas de proveedor." }, { status: 403 });
+
+    const payload = await readJsonBody(request);
+    if (!payload) return invalidJsonResponse();
+
+    const parsed = payloadSchema.safeParse(payload);
+    if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+    if (!parsed.data.supplierPartnerId && !parsed.data.supplierName && !parsed.data.supplierTaxId) {
+      return NextResponse.json({ message: "Indica proveedor existente, nombre de proveedor o CIF/NIF." }, { status: 400 });
+    }
+
+    try {
+      const created = await createExpenseInvoice({
+        tenantId: ctx.tenant.id,
+        companyId: ctx.company.id,
+        fiscalYearId: ctx.fiscalYear.id,
+        actorUserId: session.user.id,
+        supplierPartnerId: parsed.data.supplierPartnerId || undefined,
+        supplierName: parsed.data.supplierName || undefined,
+        supplierTaxId: parsed.data.supplierTaxId || undefined,
+        supplierEmail: parsed.data.supplierEmail || undefined,
+        supplierPhone: parsed.data.supplierPhone || undefined,
+        supplierAddress: parsed.data.supplierAddress || undefined,
+        supplierAddressLine2: parsed.data.supplierAddressLine2 || undefined,
+        supplierPostalCode: parsed.data.supplierPostalCode || undefined,
+        supplierCity: parsed.data.supplierCity || undefined,
+        supplierProvince: parsed.data.supplierProvince || undefined,
+        supplierCountryCode: parsed.data.supplierCountryCode || undefined,
+        purchaseOrderId: parsed.data.purchaseOrderId || undefined,
+        goodsReceiptId: parsed.data.goodsReceiptId || undefined,
+        number: parsed.data.number || undefined,
+        supplierDocumentNumber: parsed.data.supplierDocumentNumber || undefined,
+        issueDate: new Date(parsed.data.issueDate),
+        accountingDate: parsed.data.accountingDate ? new Date(parsed.data.accountingDate) : undefined,
+        dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
+        notes: parsed.data.notes || undefined,
+        ocrJobId: parsed.data.ocrJobId || undefined,
+        currencyCode: parsed.data.currencyCode,
+        idempotencyKey: parsed.data.idempotencyKey || undefined,
+        vatTreatment: parsed.data.vatTreatment,
+        attachments: parsed.data.attachments?.map((attachment) => ({
+          fileName: attachment.fileName,
+          fileUrl: attachment.fileUrl,
+          storageKey: attachment.storageKey || undefined,
+          contentType: attachment.contentType || undefined,
+          sizeBytes: attachment.sizeBytes,
+        })),
+        lines: parsed.data.lines.map((line) => ({
+          expenseAccountId: line.expenseAccountId || undefined,
+          description: line.description,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          taxRate: line.taxRate,
+          taxDeductiblePct: line.taxDeductiblePct,
+          retentionRate: line.retentionRate,
+        })),
+      });
+      return NextResponse.json(created, { status: 201 });
+    } catch (error) {
+      const message = expenseCreationError(error);
+      const status = message.toLocaleLowerCase().includes("duplicad") || message.includes("ya fue procesada") ? 409 : 400;
+      return NextResponse.json({ message }, { status });
+    }
   } catch (error) {
-    const message = expenseCreationError(error);
-    const status = message.toLocaleLowerCase().includes("duplicad") || message.includes("ya fue procesada") ? 409 : 400;
-    return NextResponse.json({ message }, { status });
+    return httpErrorResponse(error);
   }
 }

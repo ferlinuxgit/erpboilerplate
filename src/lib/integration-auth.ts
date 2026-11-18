@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { isHttpError } from "@/lib/http";
 import { ensureUserTenant } from "@/lib/tenant";
 import { can, type AppRole, type PermissionKey } from "@/lib/rbac";
-import { enforceModuleForRequest } from "@/server/modules/guard";
+import { enforceBillingForRequest, enforceModuleForRequest } from "@/server/modules/guard";
 
 type IntegrationContext = {
   tenant: {
@@ -126,7 +126,9 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
       return NextResponse.json({ message: "La API key no tiene una empresa activa asociada." }, { status: 403 });
     }
     try {
-      await enforceModuleForRequest(context.company.id, new URL(request.url).pathname);
+      const pathname = new URL(request.url).pathname;
+      await enforceBillingForRequest(context.tenant.id, pathname, request.method);
+      await enforceModuleForRequest(context.company.id, pathname);
     } catch (error) {
       if (isHttpError(error)) return NextResponse.json({ message: error.message }, { status: error.status });
       throw error;

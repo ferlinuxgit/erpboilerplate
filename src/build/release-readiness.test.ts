@@ -46,7 +46,7 @@ describe("release configuration templates", () => {
       "APP_URL",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
-      "NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID",
+      "BILLING_ENFORCED",
     ];
 
     const templateKeys = envKeys(".env.example");

@@ -13,6 +13,8 @@ export function authTokenMaxAgeSeconds(remember: boolean) {
 }
 /** Cabecera interna (fijada por `src/proxy.ts`) con la ruta solicitada, para `?next=`. */
 export const REQUEST_PATH_HEADER = "x-erp-request-path";
+/** Método HTTP de la petición (lo fija el proxy; el del cliente se sobrescribe). */
+export const REQUEST_METHOD_HEADER = "x-erp-request-method";
 
 export type JwtUser = {
   id: string;

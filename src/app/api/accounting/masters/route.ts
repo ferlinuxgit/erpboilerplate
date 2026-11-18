@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireContext } from "@/lib/current-context";
 import { getCompanyTemplate } from "@/lib/company-templates";
-import { invalidJsonResponse, readJsonBody } from "@/lib/http";
+import { invalidJsonResponse, readJsonBody, httpErrorResponse } from "@/lib/http";
 import { ensureAccountingMasters, getAccountingMasterStatus } from "@/server/accounting/masters";
 
 const accountSchema = z.object({
@@ -30,27 +30,35 @@ const payloadSchema = z.object({
 
 export async function GET() {
   try {
-    const ctx = await requireContext("accounting.read");
-    return NextResponse.json(await getAccountingMasterStatus(ctx.company.id, undefined, getCompanyTemplate(ctx.company.countryCode)));
-  } catch {
-    return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    try {
+      const ctx = await requireContext("accounting.read");
+      return NextResponse.json(await getAccountingMasterStatus(ctx.company.id, undefined, getCompanyTemplate(ctx.company.countryCode)));
+    } catch {
+      return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    }
+  } catch (error) {
+    return httpErrorResponse(error);
   }
 }
 
 export async function POST(request: Request) {
-  let ctx;
   try {
-    ctx = await requireContext("accounting.write");
-  } catch {
-    return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    let ctx;
+    try {
+      ctx = await requireContext("accounting.write");
+    } catch {
+      return NextResponse.json({ message: "No autorizado." }, { status: 401 });
+    }
+
+    const payload = await readJsonBody(request);
+    if (!payload) return invalidJsonResponse();
+
+    const parsed = payloadSchema.safeParse(payload);
+    if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
+
+    const status = await ensureAccountingMasters(ctx.company.id, parsed.data, getCompanyTemplate(ctx.company.countryCode));
+    return NextResponse.json(status, { status: 201 });
+  } catch (error) {
+    return httpErrorResponse(error);
   }
-
-  const payload = await readJsonBody(request);
-  if (!payload) return invalidJsonResponse();
-
-  const parsed = payloadSchema.safeParse(payload);
-  if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message ?? "Datos inválidos." }, { status: 400 });
-
-  const status = await ensureAccountingMasters(ctx.company.id, parsed.data, getCompanyTemplate(ctx.company.countryCode));
-  return NextResponse.json(status, { status: 201 });
 }

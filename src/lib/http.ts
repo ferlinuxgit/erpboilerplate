@@ -70,6 +70,15 @@ export function handleRouteError(
 }
 
 /**
+ * En el `catch` de un route handler: un `HttpError` (solo lectura por impago, módulo no activado,
+ * sin permisos…) responde con su estado y mensaje; cualquier otro error sigue su curso.
+ */
+export function httpErrorResponse(error: unknown): NextResponse {
+  if (isHttpError(error)) return jsonError(error.status, error.message);
+  throw error;
+}
+
+/**
  * URL de adjunto segura para guardar y renderizar como enlace: `https://`/`http://`
  * absolutas o rutas relativas del mismo origen (`/uploads/…`). Rechaza
  * `javascript:`, `data:`, `//host` (protocol-relative) y barras invertidas.

@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { bearerToken, hasApiKeyBearerAuthorization } from "@/lib/api-auth-header";
-import { REQUEST_PATH_HEADER, verifyAuthToken } from "@/lib/auth";
+import { REQUEST_METHOD_HEADER, REQUEST_PATH_HEADER, verifyAuthToken } from "@/lib/auth";
 import { getClientIp } from "@/lib/ip-policy";
 import { getRateLimiter, rateLimitKey, resolveRateLimitRule, tooManyRequestsResponse } from "@/lib/rate-limit";
 import { shouldUseSecureCookies } from "@/lib/secure-cookies";
@@ -71,6 +71,7 @@ export async function proxy(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(REQUEST_PATH_HEADER, `${pathname}${request.nextUrl.search}`);
+  requestHeaders.set(REQUEST_METHOD_HEADER, request.method);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("x-request-id", requestId);
   if (!request.cookies.get("csrf-token")) {

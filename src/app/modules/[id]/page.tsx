@@ -9,7 +9,8 @@ import { InlineAlert, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
 import { getModule, isModuleId, moduleForPath } from "@/modules/registry";
-import { isModuleEnabled } from "@/server/modules/service";
+import { formatEuros, MODULE_MONTHLY_CENTS } from "@/lib/billing/catalog";
+import { isModuleEnabled, listModuleStates } from "@/server/modules/service";
 
 export const metadata: Metadata = { title: "Módulo no activado" };
 
@@ -28,6 +29,8 @@ export default async function ModuleDisabledPage({ params, searchParams }: { par
   const returnTo = safeReturnPath(from, id, manifest.href);
   if (await isModuleEnabled(ctx.company.id, id)) redirect(returnTo);
   const canManage = can(ctx.membership.role, "settings.manage");
+  // Fuera del plan contratado: se añade en Plan y facturación (lo puede contratar el propietario).
+  const inPlan = (await listModuleStates(ctx.company.id)).find((entry) => entry.id === id)?.inPlan !== false;
 
   return (
     <PageShell>
@@ -43,7 +46,12 @@ export default async function ModuleDisabledPage({ params, searchParams }: { par
         <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
           {manifest.features.map((feature) => <li key={feature}>{feature}</li>)}
         </ul>
-        {canManage ? (
+        {!inPlan ? (
+          <div className="space-y-2">
+            <InlineAlert tone="info">No está incluido en tu plan: añádelo por {formatEuros(MODULE_MONTHLY_CENTS[id])} al mes (+ IVA). El cambio se prorratea en tu próxima factura.</InlineAlert>
+            <Link className={buttonVariants()} href="/billing">Añadir a mi plan</Link>
+          </div>
+        ) : canManage ? (
           <div className="flex flex-wrap gap-2">
             <ActivateModuleButton moduleId={id} moduleName={manifest.name} returnTo={returnTo} />
             <Link className={buttonVariants({ variant: "outline" })} href="/settings/modules">Ver todos los módulos</Link>

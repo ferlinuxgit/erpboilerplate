@@ -33,6 +33,8 @@ export type ActiveContextPayload = {
   modules?: string[];
   /** País de la empresa activa (ISO alfa-2). */
   countryCode?: string;
+  /** Estado del cobro del espacio (prueba, impago, solo lectura…). */
+  billing?: { state: string; readOnly: boolean; message: string | null; trialDaysLeft: number | null };
   availableCompanies: CompanyOption[];
   availableFiscalYears: FiscalYearOption[];
   availableFiscalYearsByCompany: Record<string, FiscalYearOption[]>;

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { errorMessage, readApiError } from "@/components/ui/form";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { formatEuros, MODULE_MONTHLY_CENTS } from "@/lib/billing/catalog";
 import { invalidateActiveContext } from "@/lib/active-context-client";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,7 @@ import { getModule, MODULES, type ModuleCategory, type ModuleId } from "@/module
 
 import { ModuleIcon } from "./module-icon";
 
-export type ModuleStateView = { id: ModuleId; enabled: boolean; explicit: boolean };
+export type ModuleStateView = { id: ModuleId; enabled: boolean; explicit: boolean; inPlan?: boolean };
 
 const CATEGORIES: ModuleCategory[] = ["Ventas", "Compras y gastos", "Operaciones", "Finanzas"];
 
@@ -59,6 +60,8 @@ export function ModulesManager({ canManage, initialStates }: { canManage: boolea
               {modules.map((manifest) => {
                 const state = states.find((entry) => entry.id === manifest.id);
                 const enabled = Boolean(state?.enabled);
+                // Fuera del plan contratado: se añade (y se paga) en Plan y facturación.
+                const inPlan = state?.inPlan !== false;
                 const switchId = `module-${manifest.id}`;
                 return (
                   <li className={cn("flex flex-col gap-3 border bg-card p-3", enabled ? "border-primary/60" : "border-window-shadow")} data-testid={`module-card-${manifest.id}`} key={manifest.id}>
@@ -70,7 +73,8 @@ export function ModulesManager({ canManage, initialStates }: { canManage: boolea
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-mono text-sm font-bold">{manifest.name}</h3>
                           {manifest.isNew ? <StatusBadge tone="info"><Sparkle aria-hidden="true" className="mr-1 inline size-3" />Nuevo</StatusBadge> : null}
-                          <StatusBadge tone={enabled ? "success" : "neutral"}>{enabled ? "Activado" : "Desactivado"}</StatusBadge>
+                          <StatusBadge tone={enabled ? "success" : "neutral"}>{enabled ? "Activado" : inPlan ? "Desactivado" : "No incluido en tu plan"}</StatusBadge>
+                          <span className="ml-auto font-mono text-xs text-muted-foreground">+{formatEuros(MODULE_MONTHLY_CENTS[manifest.id])}/mes</span>
                         </div>
                         <p className="text-sm text-muted-foreground">{manifest.description}</p>
                       </div>
@@ -82,6 +86,11 @@ export function ModulesManager({ canManage, initialStates }: { canManage: boolea
                       <p className="text-xs text-muted-foreground">Necesita: {manifest.dependsOn.map((dependency) => getModule(dependency).name).join(", ")}.</p>
                     ) : null}
                     <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-window-shadow pt-2">
+                      {!inPlan ? (
+                        <Link className="inline-flex items-center gap-1 text-sm font-semibold text-link underline" href="/billing">
+                          Añadir a mi plan <ArrowRight aria-hidden="true" className="size-3.5" />
+                        </Link>
+                      ) : (
                       <label className={cn("flex items-center gap-2 text-sm font-medium", !canManage && "opacity-70")} htmlFor={switchId}>
                         <input
                           aria-busy={saving === manifest.id || undefined}
@@ -95,6 +104,7 @@ export function ModulesManager({ canManage, initialStates }: { canManage: boolea
                         />
                         {enabled ? "Activado" : "Activar"} {manifest.name}
                       </label>
+                      )}
                       {enabled ? (
                         <Link className="inline-flex items-center gap-1 text-sm font-semibold text-link underline" href={manifest.href}>
                           Abrir <ArrowRight aria-hidden="true" className="size-3.5" />

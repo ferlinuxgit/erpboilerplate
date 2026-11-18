@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
+import { BillingBanner } from "@/components/billing/billing-banner";
 import { isPosKioskRoute } from "@/components/layout/pos-routes";
 import { ActiveContextSwitcher } from "@/components/layout/active-context-switcher";
 import { CommandPaletteButton, GlobalCommandPalette } from "@/components/layout/global-command-palette";
@@ -429,6 +430,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         ) : null}
 
+        <BillingBanner billing={activeContext?.billing} pathname={pathname} />
         <ContextNavigation businessType={activeContext?.businessType} countryCode={activeContext?.countryCode} keyboardMode={keyboardMode} modules={activeContext?.modules} role={activeContext?.user.role} />
         <div
           // Reserva el alto de la barra inferior móvil para que no tape el final de la página.

@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "@/lib/http";
 import { listUserTenants } from "@/lib/tenant";
 import { getEnabledModules } from "@/server/modules/service";
+import { getTenantBillingAccess } from "@/server/billing/access";
 
 const payloadSchema = z
   .object({
@@ -28,7 +29,7 @@ const payloadSchema = z
 export async function GET() {
   try {
     const ctx = await requireContext();
-    const [allFiscalYears, availableTenants, [settings], modules] = await Promise.all([
+    const [allFiscalYears, availableTenants, [settings], modules, billing] = await Promise.all([
       db
         .select({ id: fiscalYear.id, code: fiscalYear.code, companyId: fiscalYear.companyId })
         .from(fiscalYear)
@@ -37,6 +38,7 @@ export async function GET() {
       listUserTenants(ctx.user.id),
       db.select({ businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
       getEnabledModules(ctx.company.id),
+      getTenantBillingAccess(ctx.tenant.id),
     ]);
     return NextResponse.json({
       active: {
@@ -51,6 +53,13 @@ export async function GET() {
       modules,
       // País de la empresa activa: decide qué pantallas fiscales se ven (modelos, VERI*FACTU…).
       countryCode: ctx.company.countryCode,
+      // Prueba, impago o solo lectura: la cabecera lo avisa en todas las pantallas.
+      billing: {
+        state: billing.state,
+        readOnly: billing.readOnly,
+        message: billing.message,
+        trialDaysLeft: billing.trialEndsAt ? Math.ceil((billing.trialEndsAt.getTime() - Date.now()) / 86_400_000) : null,
+      },
       availableCompanies: ctx.availableCompanies,
       availableFiscalYears: ctx.availableFiscalYears,
       availableFiscalYearsByCompany: Object.fromEntries(ctx.availableCompanies.map((entry) => [entry.id, allFiscalYears.filter((year) => year.companyId === entry.id).map(({ id, code }) => ({ id, code }))])),

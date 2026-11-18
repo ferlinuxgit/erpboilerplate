@@ -86,8 +86,16 @@ export const tenant = pgTable("tenant", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
-  ownerId: text("ownerId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // Restrict: borrar un usuario nunca arrastra el espacio (y los datos de todos sus miembros).
+  ownerId: text("ownerId").notNull().references(() => user.id, { onDelete: "restrict" }),
   plan: text("plan").notNull().default("free"),
+  // Prueba gratuita: con todo incluido hasta esta fecha (ver src/lib/billing/catalog.ts).
+  trialEndsAt: timestamp("trialEndsAt", { withTimezone: true, mode: "date" }).default(sql`now() + interval '14 days'`),
+  // Cortesía de la plataforma (cuentas internas, socios): acceso completo sin suscripción.
+  billingExempt: boolean("billingExempt").notNull().default(false),
+  // Suspendido por la plataforma (abuso, impago grave): no se puede entrar ni usar la API.
+  suspendedAt: timestamp("suspendedAt", { withTimezone: true, mode: "date" }),
+  suspendedReason: text("suspendedReason"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -1194,9 +1202,60 @@ export const subscription = pgTable(
     cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").notNull().default(false),
     /** `created` del último evento de Stripe aplicado; descarta eventos que llegan desordenados. */
     lastStripeEventAt: timestamp("lastStripeEventAt", { withTimezone: true, mode: "date" }),
+    /** Módulos contratados además del plan base (ids de `src/modules/registry.ts`). */
+    addons: jsonb("addons").$type<string[]>().notNull().default([]),
+    /** Desde cuándo está impagada: pasado el periodo de gracia, la cuenta queda en solo lectura. */
+    pastDueSince: timestamp("pastDueSince", { withTimezone: true, mode: "date" }),
   },
   (table) => [unique("subscription_tenant_unique").on(table.tenantId), index("subscription_customer_idx").on(table.stripeCustomerId)],
 );
+
+/**
+ * Productos y precios de Stripe creados por la aplicación a partir del catálogo en código
+ * (`src/lib/billing/catalog.ts`): un precio por concepto e importe. Si cambia el importe se crea
+ * otro precio; las suscripciones antiguas conservan el suyo hasta que se cambien.
+ */
+export const billingPrice = pgTable("billing_price", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  /** «base», «module:pos», «ocr:100»… */
+  code: text("code").notNull(),
+  amountCents: integer("amountCents").notNull(),
+  currency: text("currency").notNull().default("eur"),
+  /** month para suscripciones; null para pagos únicos (packs de créditos). */
+  interval: text("interval"),
+  stripeProductId: text("stripeProductId").notNull(),
+  stripePriceId: text("stripePriceId").notNull().unique(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("billing_price_code_amount_unique").on(table.code, table.amountCents, table.currency, table.interval)]);
+
+/**
+ * Créditos de lectura de facturas con IA (OCR): libro de movimientos por espacio. El saldo es la
+ * suma de `delta`. Compras de packs y créditos de prueba suman; cada lectura resta según su coste
+ * real en la API (tokens de entrada y salida), que queda guardado para ajustar los precios.
+ */
+export const ocrCreditLedger = pgTable("ocr_credit_ledger", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenantId").notNull().references(() => tenant.id, { onDelete: "cascade" }),
+  companyId: text("companyId").references(() => company.id, { onDelete: "set null" }),
+  /** TRIAL | PURCHASE | USAGE | ADJUSTMENT | REFUND */
+  kind: text("kind").notNull(),
+  delta: integer("delta").notNull(),
+  description: text("description").notNull(),
+  ocrJobId: text("ocrJobId"),
+  /** Compra: sesión de pago de Stripe (idempotencia del webhook). */
+  stripeCheckoutSessionId: text("stripeCheckoutSessionId").unique(),
+  model: text("model"),
+  inputTokens: integer("inputTokens"),
+  cachedInputTokens: integer("cachedInputTokens"),
+  outputTokens: integer("outputTokens"),
+  /** Coste real en la API, en millonésimas de dólar. */
+  costMicroUsd: integer("costMicroUsd"),
+  actorUserId: text("actorUserId"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("ocr_credit_ledger_tenant_idx").on(table.tenantId, table.createdAt),
+  unique("ocr_credit_ledger_job_usage_unique").on(table.ocrJobId, table.kind),
+]);
 
 /** Idempotencia del webhook de Stripe: un evento (`evt_…`) se procesa una sola vez. */
 export const processedStripeEvent = pgTable("processed_stripe_event", {

@@ -414,6 +414,13 @@
       "when": 1793783299384,
       "tag": "0058_hospitality_staff_training",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794993972039,
+      "tag": "0059_saas_billing",
+      "breakpoints": true
     }
   ]
 }

@@ -6,7 +6,9 @@ import { parseBusinessType } from "@/lib/company-readiness";
 import { db } from "@/lib/db";
 import { ForbiddenError, HttpError } from "@/lib/http";
 import { activeDependents, getModule, missingDependencies, MODULES, resolveEnabledModules, type ModuleId } from "@/modules/registry";
+import { formatEuros, MODULE_MONTHLY_CENTS } from "@/lib/billing/catalog";
 import { recordAudit } from "@/server/audit";
+import { getCompanyBillingAccess } from "@/server/billing/access";
 
 /** 403 de una ruta de un módulo que la empresa no tiene activado. */
 export class ModuleDisabledError extends ForbiddenError {
@@ -17,12 +19,16 @@ export class ModuleDisabledError extends ForbiddenError {
 }
 
 async function loadCompanyModules(companyId: string) {
-  const [settings, [company]] = await Promise.all([
+  const [settings, [company], billing] = await Promise.all([
     db.select({ moduleId: companyModule.moduleId, enabled: companyModule.enabled }).from(companyModule).where(eq(companyModule.companyId, companyId)),
     db.select({ businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1),
+    getCompanyBillingAccess(companyId),
   ]);
   const businessType = parseBusinessType(company?.businessType);
-  return { enabled: resolveEnabledModules(settings, businessType), settings, businessType };
+  // Activo = elegido por la empresa y además incluido en su plan (o en la prueba).
+  const chosen = resolveEnabledModules(settings, businessType);
+  const inPlan = (moduleId: ModuleId) => !billing || billing.modules.has(moduleId);
+  return { enabled: chosen.filter(inPlan), chosen, inPlan, settings, businessType };
 }
 
 /** Módulos activos de la empresa (memoizado por petición). */
@@ -43,15 +49,21 @@ export async function assertModuleEnabled(companyId: string, moduleId: ModuleId)
 export type ModuleState = {
   id: ModuleId;
   enabled: boolean;
+  /** Incluido en el plan contratado (o en la prueba): si no, hay que añadirlo en Facturación. */
+  inPlan: boolean;
+  /** La empresa lo tiene elegido (aunque no esté en su plan). */
+  selected: boolean;
   /** La empresa lo ha decidido (si no, es el valor por defecto según lo que vende). */
   explicit: boolean;
 };
 
 export async function listModuleStates(companyId: string): Promise<ModuleState[]> {
-  const { enabled, settings } = await loadCompanyModules(companyId);
+  const { enabled, chosen, settings, inPlan } = await loadCompanyModules(companyId);
   return MODULES.map((manifest) => ({
     id: manifest.id,
     enabled: enabled.includes(manifest.id),
+    inPlan: inPlan(manifest.id),
+    selected: chosen.includes(manifest.id),
     explicit: settings.some((setting) => setting.moduleId === manifest.id),
   }));
 }
@@ -61,8 +73,11 @@ export async function listModuleStates(companyId: string): Promise<ModuleState[]
  * módulo activo lo necesite. Desactivar no borra datos.
  */
 export async function setCompanyModule(input: { tenantId: string; companyId: string; actorUserId: string; moduleId: ModuleId; enabled: boolean }) {
-  const { enabled } = await loadCompanyModules(input.companyId);
+  const { enabled, inPlan } = await loadCompanyModules(input.companyId);
   const manifest = getModule(input.moduleId);
+  if (input.enabled && !inPlan(input.moduleId)) {
+    throw new HttpError(402, `«${manifest.name}» no está incluido en tu plan: añádelo en Facturación (${formatEuros(MODULE_MONTHLY_CENTS[input.moduleId])} al mes).`);
+  }
   if (input.enabled) {
     const missing = missingDependencies(input.moduleId, enabled);
     if (missing.length > 0) throw new HttpError(409, `Para activar «${manifest.name}» activa antes: ${missing.map((entry) => `«${entry.name}»`).join(", ")}.`);

@@ -1,37 +1,24 @@
 import type { Metadata } from "next";
 
-import { BillingActions } from "@/components/billing/billing-actions";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { BillingDashboard } from "@/components/billing/billing-dashboard";
+import { PageHeader, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
-import { getBillingViewModelForTenant } from "@/server/billing/data";
+import { can } from "@/lib/rbac";
+import { getBillingOverview } from "@/server/billing/overview";
 
-export const metadata: Metadata = { title: "Suscripción" };
+export const metadata: Metadata = { title: "Plan y facturación" };
 
 export default async function BillingPage() {
   const ctx = await requireContext("billing.read");
-  const billing = await getBillingViewModelForTenant(ctx.tenant.id);
-
+  const overview = await getBillingOverview(ctx.tenant.id, ctx.company.id);
   return (
     <PageShell>
       <PageHeader
-        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "Suscripción" }]}
-        title="Suscripción"
-        description="Tu plan, sus límites y la renovación del espacio de trabajo."
-        meta={<StatusBadge tone="info">{billing.subscription.statusLabel}</StatusBadge>}
+        breadcrumbs={[{ label: "Configuración", href: "/settings" }, { label: "Plan y facturación" }]}
+        title="Plan y facturación"
+        description="El plan base de contabilidad y facturación, los módulos que quieras añadir y tus créditos de lectura de facturas con IA."
       />
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Plan" value={billing.plan.name} helper={billing.plan.code} />
-        <MetricCard label="Estado" value={billing.subscription.statusLabel} helper="Suscripción actual" />
-        <MetricCard label="Renovación / cancelación" value={billing.subscription.renewalLabel} />
-        <MetricCard label="Límites" value={billing.plan.limits} />
-      </section>
-      <PageSection
-        title="Gestión de facturación"
-        description="Contrata un plan o gestiona el pago y las facturas de tu suscripción."
-      >
-        <BillingActions checkout={billing.checkout} portal={billing.portal} />
-      </PageSection>
+      <BillingDashboard canManage={can(ctx.membership.role, "billing.write")} overview={overview} />
     </PageShell>
   );
 }

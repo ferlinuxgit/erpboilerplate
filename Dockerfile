@@ -15,7 +15,6 @@ ENV NODE_OPTIONS=--max-old-space-size=1024
 
 # Public build-time values. Runtime secrets must be configured in Coolify env vars.
 ARG APP_ORIGIN=http://localhost:3000
-ARG APP_PUBLIC_STRIPE_PRICE_ID=
 # Optional browser Sentry DSN (public by design; inlined into the client bundle).
 ARG NEXT_PUBLIC_SENTRY_DSN=
 
@@ -27,7 +26,6 @@ COPY . .
 RUN DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build" \
     JWT_SECRET="build-placeholder-minimum-32-characters" \
     APP_URL="$APP_ORIGIN" \
-    NEXT_PUBLIC_DEFAULT_STRIPE_PRICE_ID="$APP_PUBLIC_STRIPE_PRICE_ID" \
     NEXT_PUBLIC_SENTRY_DSN="$NEXT_PUBLIC_SENTRY_DSN" \
     npm run build:docker
 

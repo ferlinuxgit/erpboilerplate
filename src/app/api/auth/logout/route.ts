@@ -6,18 +6,23 @@ import { session } from "@/db/schema";
 import { AUTH_TOKEN_COOKIE, hashAuthToken } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { shouldUseSecureCookies } from "@/lib/secure-cookies";
+import { httpErrorResponse } from "@/lib/http";
 
 export async function POST() {
-  const token = (await cookies()).get(AUTH_TOKEN_COOKIE)?.value;
-  if (token) await db.delete(session).where(eq(session.token, hashAuthToken(token)));
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(AUTH_TOKEN_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: shouldUseSecureCookies(),
-    path: "/",
-    maxAge: 0,
-  });
+  try {
+    const token = (await cookies()).get(AUTH_TOKEN_COOKIE)?.value;
+    if (token) await db.delete(session).where(eq(session.token, hashAuthToken(token)));
+    const response = NextResponse.json({ ok: true });
+    response.cookies.set(AUTH_TOKEN_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: shouldUseSecureCookies(),
+      path: "/",
+      maxAge: 0,
+    });
 
-  return response;
+    return response;
+  } catch (error) {
+    return httpErrorResponse(error);
+  }
 }

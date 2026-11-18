@@ -1,13 +1,14 @@
 import { and, asc, desc, eq, exists, sql, type SQL } from "drizzle-orm";
 import { cache } from "react";
 
-import { company, fiscalYear, membership, tenant } from "@/db/schema";
+import { company, fiscalYear, membership, ocrCreditLedger, tenant } from "@/db/schema";
+import { WELCOME_OCR_CREDITS } from "@/lib/billing/catalog";
 import { db } from "@/lib/db";
 import { getActiveContextCookies, getActiveTenantCookie } from "@/lib/active-context";
 import { ForbiddenError } from "@/lib/http";
 import { getRequestGrant } from "@/lib/request-grant";
 import type { AppRole } from "@/lib/rbac";
-import { enforceModuleForRequest } from "@/server/modules/guard";
+import { enforceBillingForRequest, enforceModuleForRequest } from "@/server/modules/guard";
 import { ensureCashPaymentMethod } from "@/server/treasury/cash-payment-method";
 
 /** Nombre provisional de la empresa y del espacio hasta que el usuario lo indique en la puesta en marcha. */
@@ -131,8 +132,12 @@ async function ensureUserTenantUncached(user: { id: string; name: string }): Pro
   return withModuleGuard(context);
 }
 
-/** Módulos: una ruta de un módulo desactivado en la empresa activa no llega a ejecutarse. */
+/**
+ * Cobro y módulos: una cuenta suspendida o en solo lectura no hace lo que no puede, y una ruta de
+ * un módulo desactivado (o no contratado) en la empresa activa no llega a ejecutarse.
+ */
 async function withModuleGuard(context: UserTenantContext) {
+  await enforceBillingForRequest(context.tenant.id);
   await enforceModuleForRequest(context.company.id);
   return context;
 }
@@ -279,6 +284,8 @@ async function ensureUserTenantInternal(user: { id: string; name: string }, pref
       });
 
     const createdTenantRow = createdTenants[0];
+    // Créditos de bienvenida para probar la lectura de facturas con IA.
+    await tx.insert(ocrCreditLedger).values({ tenantId: createdTenantRow.id, kind: "TRIAL", delta: WELCOME_OCR_CREDITS, description: "Créditos de bienvenida para leer facturas con IA", actorUserId: user.id });
 
     const createdMemberships = await tx
       .insert(membership)
