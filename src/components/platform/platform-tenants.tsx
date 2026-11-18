@@ -130,6 +130,9 @@ export function PlatformTenants({ initialQuery, tenants }: { initialQuery: strin
                       {row.billingExempt ? "Quitar cortesía" : "Dar cortesía"}
                     </Button>
                     <Button disabled={busy} onClick={() => { const days = Number(window.prompt("¿Cuántos días más de prueba?", "14")); if (Number.isInteger(days) && days > 0) void tenantAction(row.id, { action: "extendTrial", days }, `Prueba ampliada ${days} días.`); }} size="sm" type="button" variant="outline">Ampliar prueba</Button>
+                    {row.deletionRequestedAt ? (
+                      <Button disabled={busy} onClick={() => { const confirmName = window.prompt(`Purga DEFINITIVA de todos los datos y documentos. Escribe el nombre exacto del espacio («${row.name}») para confirmar:`); if (confirmName) void tenantAction(row.id, { action: "purge", confirmName }, "Espacio purgado."); }} size="sm" type="button" variant="outline">Purgar datos</Button>
+                    ) : null}
                     <Button disabled={busy} onClick={() => { const credits = Number(window.prompt("Créditos a añadir (negativo para quitar):", "50")); if (Number.isInteger(credits) && credits !== 0) void tenantAction(row.id, { action: "grantCredits", credits, note: "Ajuste de soporte" }, "Créditos ajustados."); }} size="sm" type="button" variant="outline">Ajustar créditos</Button>
                   </div>
                   {detail ? (

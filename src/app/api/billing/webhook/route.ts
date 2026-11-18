@@ -5,6 +5,7 @@ import type Stripe from "stripe";
 import { jsonError, httpErrorResponse } from "@/lib/http";
 import { logger } from "@/lib/logger";
 import { stripe } from "@/server/billing/stripe";
+import { issuePlatformInvoice } from "@/server/billing/platform-invoices";
 import { processStripeWebhookEvent } from "@/server/billing/webhook";
 
 export async function POST(request: Request) {
@@ -27,6 +28,12 @@ export async function POST(request: Request) {
     }
 
     try {
+      // Factura legal (VERI*FACTU) del cobro, antes de dar el evento por procesado: si falla,
+      // Stripe lo reintenta. Es idempotente (no se emite dos veces la misma).
+      if (event.type === "invoice.paid") {
+        const issued = await issuePlatformInvoice(event.data.object);
+        logger.info({ eventId: event.id, issued }, "billing.webhook.platform_invoice");
+      }
       const outcome = await processStripeWebhookEvent(event);
       logger.info({ eventId: event.id, type: event.type, outcome }, "billing.webhook.handled");
       return NextResponse.json({ received: true, outcome });

@@ -63,6 +63,8 @@ export const RATE_LIMIT_RULES = {
   // un espacio no debe poder usarlo para enviar spam ni gastar la reputación de los demás.
   tenantInvitationEmails: { id: "tenant-invitation-emails", limit: 30, windowMs: 24 * 60 * MINUTE },
   tenantInvoiceEmails: { id: "tenant-invoice-emails", limit: 300, windowMs: 24 * 60 * MINUTE },
+  // Exportación completa: pesada (todas las tablas y documentos), pocas veces al día.
+  tenantExport: { id: "tenant-export", limit: 5, windowMs: 24 * 60 * MINUTE },
 } satisfies Record<string, RateLimitRule>;
 
 /** Gasta una unidad de una cuota por espacio; false si ya no queda. */

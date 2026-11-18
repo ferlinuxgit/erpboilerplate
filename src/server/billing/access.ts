@@ -18,7 +18,7 @@ export function billingEnforced() {
 
 async function loadTenantBillingAccess(tenantId: string): Promise<BillingAccess> {
   const [[row], [sub]] = await Promise.all([
-    db.select({ trialEndsAt: tenant.trialEndsAt, billingExempt: tenant.billingExempt, suspendedAt: tenant.suspendedAt, suspendedReason: tenant.suspendedReason }).from(tenant).where(eq(tenant.id, tenantId)).limit(1),
+    db.select({ trialEndsAt: tenant.trialEndsAt, billingExempt: tenant.billingExempt, suspendedAt: tenant.suspendedAt, suspendedReason: tenant.suspendedReason, deletionRequestedAt: tenant.deletionRequestedAt }).from(tenant).where(eq(tenant.id, tenantId)).limit(1),
     db.select({ status: subscription.status, addons: subscription.addons, pastDueSince: subscription.pastDueSince, currentPeriodEndsAt: subscription.currentPeriodEndsAt }).from(subscription).where(eq(subscription.tenantId, tenantId)).limit(1),
   ]);
   return computeBillingAccess({
@@ -27,6 +27,7 @@ async function loadTenantBillingAccess(tenantId: string): Promise<BillingAccess>
     billingExempt: row?.billingExempt ?? false,
     suspendedAt: row?.suspendedAt ?? null,
     suspendedReason: row?.suspendedReason ?? null,
+    deletionRequestedAt: row?.deletionRequestedAt ?? null,
     subscription: sub ?? null,
   });
 }

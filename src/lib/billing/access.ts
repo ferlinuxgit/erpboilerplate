@@ -1,4 +1,4 @@
-import { PAST_DUE_GRACE_DAYS, isPaidModule } from "@/lib/billing/catalog";
+import { PAST_DUE_GRACE_DAYS, TENANT_DELETION_GRACE_DAYS, isPaidModule } from "@/lib/billing/catalog";
 import { MODULE_IDS, type ModuleId } from "@/modules/registry";
 
 /**
@@ -13,7 +13,7 @@ import { MODULE_IDS, type ModuleId } from "@/modules/registry";
  * - Suspendido por la plataforma → nada.
  */
 
-export type BillingState = "disabled" | "exempt" | "trial" | "active" | "grace" | "past_due" | "trial_expired" | "canceled" | "suspended";
+export type BillingState = "disabled" | "exempt" | "trial" | "active" | "grace" | "past_due" | "trial_expired" | "canceled" | "suspended" | "closing";
 
 export type BillingAccessInput = {
   /** El cobro está activo en esta instalación (Stripe configurado). */
@@ -22,6 +22,8 @@ export type BillingAccessInput = {
   billingExempt: boolean;
   suspendedAt: Date | null;
   suspendedReason?: string | null;
+  /** Baja solicitada: solo lectura durante el periodo de gracia (se puede anular). */
+  deletionRequestedAt?: Date | null;
   subscription: { status: string; addons: readonly string[]; pastDueSince: Date | null; currentPeriodEndsAt: Date | null } | null;
 };
 
@@ -54,6 +56,14 @@ export function computeBillingAccess(input: BillingAccessInput, now = new Date()
   if (input.suspendedAt) {
     return access("suspended", NO_MODULES, { readOnly: true, blocked: true, message: `Esta cuenta está suspendida${input.suspendedReason ? `: ${input.suspendedReason}` : ""}. Escríbenos para resolverlo.` });
   }
+  if (input.deletionRequestedAt) {
+    const purgeAt = new Date(input.deletionRequestedAt.getTime() + TENANT_DELETION_GRACE_DAYS * 86_400_000);
+    return access("closing", ALL_MODULES, {
+      readOnly: true,
+      trialEndsAt,
+      message: `Has solicitado la baja: los datos se borrarán a partir del ${purgeAt.toLocaleDateString("es-ES")}. Descárgalos antes o anula la baja en Configuración › Cuenta y datos.`,
+    });
+  }
   if (!input.enforced) return access("disabled", ALL_MODULES, { trialEndsAt });
   if (input.billingExempt) return access("exempt", ALL_MODULES, { trialEndsAt });
 
@@ -83,7 +93,7 @@ export function computeBillingAccess(input: BillingAccessInput, now = new Date()
 }
 
 /** Rutas que se pueden usar aunque la cuenta esté en solo lectura (cobro, sesión, exportar…). */
-const READ_ONLY_ALLOWED = [/^\/api\/billing(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/context(\/|$)/, /^\/api\/oauth(\/|$)/, /^\/api\/mcp$/, /\/export(\/|$)/, /^\/api\/account(\/|$)/, /^\/api\/tenant\/export(\/|$)/];
+const READ_ONLY_ALLOWED = [/^\/api\/tenant\/deletion$/, /^\/api\/billing(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/context(\/|$)/, /^\/api\/oauth(\/|$)/, /^\/api\/mcp$/, /\/export(\/|$)/, /^\/api\/account(\/|$)/, /^\/api\/tenant\/export(\/|$)/];
 
 export function isUnsafeMethod(method: string | null | undefined) {
   return Boolean(method) && !["GET", "HEAD", "OPTIONS"].includes(method!.toUpperCase());

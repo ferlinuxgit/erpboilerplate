@@ -22,6 +22,8 @@ export const TRIAL_DAYS = 14;
 export const WELCOME_OCR_CREDITS = 25;
 /** Días que sigue funcionando todo tras un pago fallido antes de pasar a solo lectura. */
 export const PAST_DUE_GRACE_DAYS = 7;
+/** Días entre la solicitud de baja de un espacio y el borrado de sus datos (se puede anular). */
+export const TENANT_DELETION_GRACE_DAYS = 30;
 
 export const BASE_PLAN = {
   code: "base",

@@ -237,6 +237,17 @@ export const settingsSections: SettingsSection[] = [
     ],
   },
   {
+    id: "data",
+    label: "Cuenta y datos",
+    description: "Descarga todos tus datos, da de baja el espacio o borra tu usuario.",
+    href: "/settings/data",
+    items: [
+      { label: "Exportar todos los datos", description: "Un ZIP con todas las tablas y documentos del espacio.", href: "/settings/data#exportar", keywords: "exportar descargar datos copia rgpd portabilidad backup zip", permission: "settings.manage" },
+      { label: "Dar de baja el espacio", description: "Cierra el espacio: 30 días para arrepentirte y después se borran los datos.", href: "/settings/data#baja", keywords: "baja cancelar cerrar cuenta borrar espacio eliminar empresa", permission: "billing.write" },
+      { label: "Borrar mi usuario", description: "Elimina tu cuenta de usuario y tus datos personales.", href: "/settings/data#usuario", keywords: "borrar eliminar usuario cuenta rgpd olvido datos personales" },
+    ],
+  },
+  {
     id: "preferences",
     label: "Mis preferencias",
     description: "Tu cuenta y cómo ves la aplicación en este navegador.",

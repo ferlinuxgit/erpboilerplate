@@ -23,7 +23,7 @@ Plantillas versionables:
 
 ## Integraciones opcionales
 
-- Stripe (cobro del SaaS): `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` (webhook en `/api/billing/webhook` con los eventos `customer.subscription.*`, `checkout.session.completed` y `checkout.session.async_payment_succeeded`). Los productos y precios se crean solos desde `src/lib/billing/catalog.ts`; activa Stripe Tax y el portal de cliente en el panel de Stripe. `BILLING_ENFORCED=false` desactiva el cobro.
+- Stripe (cobro del SaaS): `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` (webhook en `/api/billing/webhook` con los eventos `customer.subscription.*`, `checkout.session.completed`, `checkout.session.async_payment_succeeded` e `invoice.paid`). `PLATFORM_INVOICE_COMPANY_ID` (id de la empresa de la plataforma en este ERP) emite la factura legal con VERI*FACTU de cada cobro. Los productos y precios se crean solos desde `src/lib/billing/catalog.ts`; activa Stripe Tax y el portal de cliente en el panel de Stripe. `BILLING_ENFORCED=false` desactiva el cobro.
 - Upstash: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 - SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`
   `SMTP_HOST` debe coincidir con un hostname incluido en el certificado TLS del servidor. No uses un alias MX si el certificado identifica otro nombre.

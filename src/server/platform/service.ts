@@ -94,6 +94,7 @@ export async function listPlatformTenants(input: { q?: string; limit?: number } 
       billingExempt: row.billingExempt,
       suspendedAt: row.suspendedAt,
       suspendedReason: row.suspendedReason,
+      deletionRequestedAt: row.deletionRequestedAt,
       subscription: row.status ? { status: row.status, addons: row.addons ?? [], pastDueSince: row.pastDueSince, currentPeriodEndsAt: row.currentPeriodEndsAt } : null,
     });
     const credit = credits.find((entry) => entry.tenantId === row.id);

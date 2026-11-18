@@ -84,7 +84,8 @@ export async function ensureStripeCustomer(input: { tenantId: string; email: str
 
 const taxCheckout = {
   automatic_tax: { enabled: true },
-  tax_id_collection: { enabled: true },
+  // NIF/VAT obligatorio donde Stripe lo admite: la factura legal (VERI*FACTU) lo necesita.
+  tax_id_collection: { enabled: true, required: "if_supported" },
   billing_address_collection: "required",
   customer_update: { address: "auto", name: "auto" },
   locale: "es",

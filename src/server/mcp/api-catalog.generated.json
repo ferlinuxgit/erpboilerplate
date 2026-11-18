@@ -1,5 +1,13 @@
 [
  {
+  "method": "DELETE",
+  "path": "/api/account",
+  "area": "account",
+  "summary": "Borra la cuenta del propio usuario (escribiendo BORRAR para confirmar) y cierra su sesión.",
+  "permissions": [],
+  "body": "const confirmSchema = z.object({ confirm: z.literal(\"BORRAR\") })"
+ },
+ {
   "method": "POST",
   "path": "/api/accounting/close-year",
   "area": "accounting",
@@ -1930,7 +1938,7 @@
   "area": "platform",
   "summary": "Suspender, reactivar, cortesía, ampliar la prueba o ajustar créditos de un espacio.",
   "permissions": [],
-  "body": "const actionSchema = z.discriminatedUnion(\"action\", [\n  z.object({ action: z.literal(\"suspend\"), reason: z.string().trim().min(3, \"Indica el motivo.\").max(300) }),\n  z.object({ action: z.literal(\"unsuspend\") }),\n  z.object({ action: z.literal(\"exempt\"), exempt: z.boolean() }),\n  z.object({ action: z.literal(\"extendTrial\"), days: z.number().int().min(1).max(365) }),\n  z.object({ action: z.literal(\"grantCredits\"), credits: z.number().int().min(-100_000).max(100_000).refine((value) => value !== 0), note: z.string().trim().max(200).default(\"\") }),\n])"
+  "body": "const actionSchema = z.discriminatedUnion(\"action\", [\n  z.object({ action: z.literal(\"suspend\"), reason: z.string().trim().min(3, \"Indica el motivo.\").max(300) }),\n  z.object({ action: z.literal(\"unsuspend\") }),\n  z.object({ action: z.literal(\"exempt\"), exempt: z.boolean() }),\n  z.object({ action: z.literal(\"extendTrial\"), days: z.number().int().min(1).max(365) }),\n  z.object({ action: z.literal(\"grantCredits\"), credits: z.number().int().min(-100_000).max(100_000).refine((value) => value !== 0), note: z.string().trim().max(200).default(\"\") }),\n  // Purga definitiva de un espacio dado de baja: hay que escribir su nombre exacto.\n  z.object({ action: z.literal(\"purge\"), confirmName: z.string() }),\n])"
  },
  {
   "method": "PATCH",
@@ -3348,6 +3356,33 @@
   "summary": "",
   "permissions": [
    "team.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/tenant/deletion",
+  "area": "tenant",
+  "summary": "El propietario da de baja el espacio (30 días para anularla).",
+  "permissions": [
+   "billing.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/tenant/deletion",
+  "area": "tenant",
+  "summary": "Anula la baja durante el periodo de gracia.",
+  "permissions": [
+   "billing.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/tenant/export",
+  "area": "tenant",
+  "summary": "Descarga de todos los datos del espacio (ZIP generado al vuelo). También en solo lectura.",
+  "permissions": [
+   "settings.manage"
   ]
  },
  {
