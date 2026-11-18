@@ -12,7 +12,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params;
     const renewed = await renewInvitation(ctx.tenant.id, user.id, id);
     if (!renewed) return jsonError(404, "La invitación ya no existe o ya se aceptó.");
-    const delivery = await deliverInvitation({ invitation: renewed, workspaceName: ctx.tenant.name, inviterName: user.name, request });
+    const delivery = await deliverInvitation({ invitation: renewed, workspaceName: ctx.tenant.name, inviterName: user.name, request, tenantId: ctx.tenant.id });
     return NextResponse.json({ id: renewed.id, expiresAt: renewed.expiresAt, ...delivery });
   } catch (error) {
     return handleRouteError(error, "invitation.resend", "No se pudo reenviar la invitación.");

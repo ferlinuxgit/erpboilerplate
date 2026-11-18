@@ -1,5 +1,3 @@
-import { Pool } from "pg";
-
 import { checkAuthRuntimeConfiguration, getBuildSha } from "@/lib/runtime-config";
 
 const SERVICE_NAME = "erpboilerplate";
@@ -10,30 +8,27 @@ type DatabaseReadiness = "ok" | "missing_configuration" | "unavailable";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-async function checkDatabaseReadiness(): Promise<DatabaseReadiness> {
-  const connectionString = process.env.DATABASE_URL;
+// Una sola comprobación en vuelo y su resultado reutilizado unos segundos: la sonda es pública y
+// sin límite de peticiones, así que nunca debe abrir conexiones nuevas por cada llamada.
+const READINESS_CACHE_MS = 5_000;
+let cached: { at: number; value: Promise<DatabaseReadiness> } | null = null;
 
-  if (!connectionString) {
-    return "missing_configuration";
-  }
-
-  const pool = new Pool({
-    connectionString,
-    connectionTimeoutMillis: READINESS_TIMEOUT_MS,
-    idleTimeoutMillis: READINESS_TIMEOUT_MS,
-    max: 1,
-    query_timeout: READINESS_TIMEOUT_MS,
-    statement_timeout: READINESS_TIMEOUT_MS,
-  });
-
+async function probeDatabase(): Promise<DatabaseReadiness> {
+  if (!process.env.DATABASE_URL) return "missing_configuration";
   try {
-    await pool.query("select 1 as ready");
+    const { db } = await import("@/lib/db");
+    const { sql } = await import("drizzle-orm");
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), READINESS_TIMEOUT_MS));
+    await Promise.race([db.execute(sql`select 1 as ready`), timeout]);
     return "ok";
   } catch {
     return "unavailable";
-  } finally {
-    await pool.end().catch(() => undefined);
   }
+}
+
+function checkDatabaseReadiness(): Promise<DatabaseReadiness> {
+  if (!cached || Date.now() - cached.at > READINESS_CACHE_MS) cached = { at: Date.now(), value: probeDatabase() };
+  return cached.value;
 }
 
 export async function GET() {

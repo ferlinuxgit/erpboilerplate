@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
     const created = await createInvitation(ctx.tenant.id, user.id, { email, role });
     // El correo es un extra: sin SMTP (o si falla) la invitación existe y el enlace se puede copiar.
-    const delivery = await deliverInvitation({ invitation: created, workspaceName: ctx.tenant.name, inviterName: user.name, request });
+    const delivery = await deliverInvitation({ invitation: created, workspaceName: ctx.tenant.name, inviterName: user.name, request, tenantId: ctx.tenant.id });
     return NextResponse.json(
       { id: created.id, email: created.email, role: created.role, expiresAt: created.expiresAt, ...delivery },
       { status: 201 },

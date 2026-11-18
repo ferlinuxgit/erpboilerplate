@@ -425,7 +425,7 @@
   "area": "auth",
   "summary": "",
   "permissions": [],
-  "body": "const authSignUpSchema = authSignInSchema.extend({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n})\n\nconst authSignInSchema = z.object({\n  email: z.string().trim().email(\"Debes indicar un email válido.\"),\n  password: z.string().min(8, \"La contraseña debe tener al menos 8 caracteres.\"),\n})"
+  "body": "const authSignUpSchema = authSignInSchema.extend({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\").max(100, \"El nombre no puede superar 100 caracteres.\"),\n})\n\nconst authSignInSchema = z.object({\n  email: z.string().trim().email(\"Debes indicar un email válido.\"),\n  password: z.string().min(8, \"La contraseña debe tener al menos 8 caracteres.\"),\n})"
  },
  {
   "method": "POST",

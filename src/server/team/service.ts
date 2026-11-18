@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import {
+  apiKey,
   company,
   invitation,
   membership,
@@ -8,7 +9,7 @@ import {
   tenantSecurityPolicy,
   user,
 } from "@/db/schema";
-import { db } from "@/lib/db";
+import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import { assignableRoles, canManageMemberWithRole, type AppRole } from "@/lib/rbac";
 import { recordAudit } from "@/server/audit";
@@ -36,55 +37,34 @@ export async function updateTeamMemberRole(input: {
   actorRole: AppRole;
   role: AppRole;
 }) {
-  const [target] = await db
-    .select()
-    .from(membership)
-    .where(
-      and(
-        eq(membership.id, input.membershipId),
-        eq(membership.tenantId, input.tenantId),
-      ),
-    )
-    .limit(1);
-  if (!target) return null;
-  if (!canManageMemberWithRole(input.actorRole, target.role) || !assignableRoles(input.actorRole).includes(input.role))
-    throw new HttpError(
-      403,
-      "Solo un propietario puede gestionar administradores y propietarios.",
-    );
-  if (target.role === "OWNER" && input.role !== "OWNER") {
-    const [owners] = await db
-      .select({ count: sql<number>`count(*)` })
+  // Bloqueo por espacio: dos propietarios que se quitan el rol a la vez no pueden dejarlo sin ninguno.
+  return db.transaction(async (tx) => {
+    await lockTeam(tx, input.tenantId);
+    const [target] = await tx
+      .select()
       .from(membership)
-      .where(
-        and(
-          eq(membership.tenantId, input.tenantId),
-          eq(membership.role, "OWNER"),
-          ne(membership.id, target.id),
-        ),
-      );
-    if (Number(owners?.count ?? 0) === 0)
+      .where(and(eq(membership.id, input.membershipId), eq(membership.tenantId, input.tenantId)))
+      .limit(1);
+    if (!target) return null;
+    if (!canManageMemberWithRole(input.actorRole, target.role) || !assignableRoles(input.actorRole).includes(input.role))
+      throw new HttpError(403, "Solo un propietario puede gestionar administradores y propietarios.");
+    if (target.role === "OWNER" && input.role !== "OWNER" && (await otherOwners(tx, input.tenantId, target.id)) === 0)
       throw new HttpError(409, "El espacio debe conservar al menos un propietario.");
-  }
-  const [updated] = await db
-    .update(membership)
-    .set({ role: input.role, updatedAt: new Date() })
-    .where(
-      and(
-        eq(membership.id, input.membershipId),
-        eq(membership.tenantId, input.tenantId),
-      ),
-    )
-    .returning();
-  await recordAudit({
-    tenantId: input.tenantId,
-    actorUserId: input.actorUserId,
-    action: "team.member.role.update",
-    entityName: "membership",
-    entityId: input.membershipId,
-    payload: { from: target.role, to: input.role },
+    const [updated] = await tx
+      .update(membership)
+      .set({ role: input.role, updatedAt: new Date() })
+      .where(and(eq(membership.id, input.membershipId), eq(membership.tenantId, input.tenantId)))
+      .returning();
+    await recordAudit({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      action: "team.member.role.update",
+      entityName: "membership",
+      entityId: input.membershipId,
+      payload: { from: target.role, to: input.role },
+    }, tx);
+    return updated;
   });
-  return updated;
 }
 
 export async function removeTeamMember(input: {
@@ -93,53 +73,48 @@ export async function removeTeamMember(input: {
   actorUserId: string;
   actorRole: AppRole;
 }) {
-  const [target] = await db
-    .select()
-    .from(membership)
-    .where(
-      and(
-        eq(membership.id, input.membershipId),
-        eq(membership.tenantId, input.tenantId),
-      ),
-    )
-    .limit(1);
-  if (!target) return false;
-  if (!canManageMemberWithRole(input.actorRole, target.role))
-    throw new HttpError(
-      403,
-      "Solo un propietario puede eliminar administradores o propietarios.",
-    );
-  if (target.role === "OWNER") {
-    const [owners] = await db
-      .select({ count: sql<number>`count(*)` })
+  return db.transaction(async (tx) => {
+    await lockTeam(tx, input.tenantId);
+    const [target] = await tx
+      .select()
       .from(membership)
-      .where(
-        and(
-          eq(membership.tenantId, input.tenantId),
-          eq(membership.role, "OWNER"),
-          ne(membership.id, target.id),
-        ),
-      );
-    if (Number(owners?.count ?? 0) === 0)
+      .where(and(eq(membership.id, input.membershipId), eq(membership.tenantId, input.tenantId)))
+      .limit(1);
+    if (!target) return false;
+    if (!canManageMemberWithRole(input.actorRole, target.role))
+      throw new HttpError(403, "Solo un propietario puede eliminar administradores o propietarios.");
+    if (target.role === "OWNER" && (await otherOwners(tx, input.tenantId, target.id)) === 0)
       throw new HttpError(409, "No puedes eliminar al único propietario del espacio.");
-  }
-  await db
-    .delete(membership)
-    .where(
-      and(
-        eq(membership.id, input.membershipId),
-        eq(membership.tenantId, input.tenantId),
-      ),
-    );
-  await recordAudit({
-    tenantId: input.tenantId,
-    actorUserId: input.actorUserId,
-    action: "team.member.remove",
-    entityName: "membership",
-    entityId: input.membershipId,
-    payload: { removedUserId: target.userId, role: target.role },
+    await tx.delete(membership).where(and(eq(membership.id, input.membershipId), eq(membership.tenantId, input.tenantId)));
+    // Las API keys que creó dejan de valer: ya no es del equipo.
+    const revoked = await tx
+      .update(apiKey)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(apiKey.tenantId, input.tenantId), eq(apiKey.createdByUserId, target.userId), isNull(apiKey.revokedAt)))
+      .returning({ id: apiKey.id });
+    await recordAudit({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      action: "team.member.remove",
+      entityName: "membership",
+      entityId: input.membershipId,
+      payload: { removedUserId: target.userId, role: target.role, revokedApiKeys: revoked.length },
+    }, tx);
+    return true;
   });
-  return true;
+}
+
+/** Serializa los cambios de roles y bajas de un mismo espacio (dura lo que la transacción). */
+async function lockTeam(tx: DbClient, tenantId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`team:${tenantId}`}))`);
+}
+
+async function otherOwners(tx: DbClient, tenantId: string, exceptMembershipId: string) {
+  const [owners] = await tx
+    .select({ count: sql<number>`count(*)` })
+    .from(membership)
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.role, "OWNER"), ne(membership.id, exceptMembershipId)));
+  return Number(owners?.count ?? 0);
 }
 
 export async function createInvitation(

@@ -63,6 +63,7 @@ export async function POST(request: Request) {
         name: user.name,
         email: user.email,
         emailVerified: user.emailVerified,
+        disabledAt: user.disabledAt,
         password: account.password,
       })
       .from(user)
@@ -75,6 +76,10 @@ export async function POST(request: Request) {
       return invalidCredentials();
     }
     await limiter.reset(RATE_LIMIT_RULES.loginEmail, email);
+
+    if (row.disabledAt) {
+      return NextResponse.json({ error: "Esta cuenta está bloqueada. Escríbenos si crees que es un error." }, { status: 403 });
+    }
 
     if (!row.emailVerified) {
       return NextResponse.json({

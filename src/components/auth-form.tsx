@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CaptchaWidget } from "@/components/captcha-widget";
 import { authSignInSchema, authSignUpSchema } from "@/server/schemas/forms";
 
 type AuthMode = "sign-in" | "sign-up";
@@ -40,8 +41,11 @@ type AuthPayload = {
   password: string;
 };
 
-export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthMode; nextPath?: string | null; notice?: string | null }) {
+export function AuthForm({ captchaSiteKey = null, mode, nextPath = null, notice = null }: { captchaSiteKey?: string | null; mode: AuthMode; nextPath?: string | null; notice?: string | null }) {
   const router = useRouter();
+  // Verificación anti-bots en el alta (si el servidor tiene Turnstile configurado).
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const needsCaptcha = mode === "sign-up" && Boolean(captchaSiteKey);
   const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [verifyingTwoFactor, setVerifyingTwoFactor] = useState(false);
@@ -104,6 +108,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
         password: parsed.password,
         name: parsed.name,
         next: safeNext,
+        captchaToken,
       });
 
       if (signUpError) {
@@ -327,6 +332,7 @@ export function AuthForm({ mode, nextPath = null, notice = null }: { mode: AuthM
                 <p className="text-xs text-muted-foreground">Durante 30 días en este dispositivo. No lo marques en un ordenador compartido.</p>
               </div>
             ) : null}
+            {needsCaptcha ? <CaptchaWidget onToken={setCaptchaToken} siteKey={captchaSiteKey!} /> : null}
             <Button aria-busy={isSubmitting || undefined} className="w-full" disabled={isSubmitting} type="submit">
               {isSubmitting ? content.pending : content.cta}
             </Button>

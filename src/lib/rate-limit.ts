@@ -59,7 +59,16 @@ export const RATE_LIMIT_RULES = {
   // Pedidos y avisos desde la mesa: muchos clientes comparten la wifi del local (misma IP).
   publicTableRequest: { id: "public-table-request", limit: 120, windowMs: 15 * MINUTE },
   publicRead: { id: "public-read", limit: 120, windowMs: MINUTE },
+  // Cuotas por espacio (no por IP): el correo sale por el servidor compartido de la plataforma y
+  // un espacio no debe poder usarlo para enviar spam ni gastar la reputación de los demás.
+  tenantInvitationEmails: { id: "tenant-invitation-emails", limit: 30, windowMs: 24 * 60 * MINUTE },
+  tenantInvoiceEmails: { id: "tenant-invoice-emails", limit: 300, windowMs: 24 * 60 * MINUTE },
 } satisfies Record<string, RateLimitRule>;
+
+/** Gasta una unidad de una cuota por espacio; false si ya no queda. */
+export async function consumeTenantQuota(rule: RateLimitRule, tenantId: string) {
+  return (await getRateLimiter().limit(rule, `tenant:${tenantId}`)).success;
+}
 
 const RATE_LIMIT_EXEMPT_PATHS = new Set(["/api/billing/webhook", "/api/health", "/api/readyz"]);
 /** Avisos de pago de Stripe y Redsys (servidor a servidor, firmados): sin límite por IP. */

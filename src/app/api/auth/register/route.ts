@@ -13,6 +13,9 @@ import { authSignUpSchema } from "@/server/schemas/forms";
 import { isEmailDeliveryConfigured } from "@/server/email/send";
 import { createVerificationToken, deliverVerificationEmail, replaceVerificationToken, VERIFICATION_LIFETIME_MS } from "@/server/auth/email-verification";
 import { respondWithNewSession } from "@/server/auth/session";
+import { getRateLimiter, RATE_LIMIT_RULES } from "@/lib/rate-limit";
+import { CAPTCHA_FAILED_MESSAGE, verifyCaptcha } from "@/lib/captcha";
+import { getClientIp } from "@/lib/ip-policy";
 
 function emailDeliveryFailedResponse(error: unknown, userId: string) {
   const smtpError = error instanceof Error
@@ -38,6 +41,9 @@ export async function POST(request: Request) {
 
     if (!parsed.success) {
       return NextResponse.json({ error: "Datos de registro inválidos." }, { status: 400 });
+    }
+    if (!(await verifyCaptcha((body as { captchaToken?: unknown } | null)?.captchaToken, getClientIp(request.headers)))) {
+      return NextResponse.json({ error: CAPTCHA_FAILED_MESSAGE }, { status: 400 });
     }
 
     // Ruta de retorno (p. ej. `/invitations/…`): se conserva en el enlace de verificación y al entrar.
@@ -67,6 +73,12 @@ export async function POST(request: Request) {
       }
       if (!isEmailDeliveryConfigured()) {
         return NextResponse.json({ error: "El correo de verificación no está configurado." }, { status: 503 });
+      }
+      // Mismo límite por dirección que «reenviar verificación»: el alta no sirve para inundar de
+      // correos un buzón ajeno.
+      const resend = await getRateLimiter().limit(RATE_LIMIT_RULES.resendVerificationEmail, existing.email);
+      if (!resend.success) {
+        return NextResponse.json({ error: "Ya te hemos enviado varios correos de verificación. Revisa tu bandeja (y el spam) o inténtalo más tarde." }, { status: 429 });
       }
 
       const verificationToken = createVerificationToken();

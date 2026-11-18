@@ -4,6 +4,8 @@ type AuthEmailPayload = {
   email: string;
   password: string;
   name?: string;
+  /** Verificación anti-bots (Turnstile), si el servidor la exige. */
+  captchaToken?: string | null;
   /** Ruta de retorno solicitada; el servidor la valida y decide el destino final. */
   next?: string | null;
   /** «Mantener la sesión iniciada» (30 días en lugar de 8 h). */
@@ -111,7 +113,7 @@ export const authClient = {
   },
   verifyTwoFactor: (payload: { challengeId: string; code: string; next?: string | null; remember?: boolean }) => authRequest("/api/auth/verify-two-factor", payload),
   resendVerification: (payload: { email: string; next?: string | null }) => authRequest("/api/auth/resend-verification", payload),
-  requestPasswordReset: (payload: { email: string }) => authRequest("/api/auth/forgot-password", payload),
+  requestPasswordReset: (payload: { email: string; captchaToken?: string | null }) => authRequest("/api/auth/forgot-password", payload),
   resetPassword: (payload: { token: string; password: string }) => authRequest("/api/auth/reset-password", payload),
   signOut: () => authRequest("/api/auth/logout"),
 };

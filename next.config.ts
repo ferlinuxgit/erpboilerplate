@@ -6,6 +6,8 @@ const scriptSrc = [
   "'unsafe-inline'",
   ...(process.env.NODE_ENV === "production" ? [] : ["'unsafe-eval'"]),
   "https://js.stripe.com",
+  // Verificación anti-bots del alta (Cloudflare Turnstile, opcional).
+  "https://challenges.cloudflare.com",
 ].join(" ");
 
 // Browser Sentry (instrumentation-client.ts) posts events straight to the
@@ -71,7 +73,7 @@ const nextConfig: NextConfig = {
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       {
         key: "Content-Security-Policy",
-        value: `default-src 'self'; base-uri 'self'; object-src 'none'; form-action ${formAction}; frame-ancestors ${frameAncestors}; img-src 'self' data: https:; connect-src ${connectSrc}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com;`,
+        value: `default-src 'self'; base-uri 'self'; object-src 'none'; form-action ${formAction}; frame-ancestors ${frameAncestors}; img-src 'self' data: https:; connect-src ${connectSrc}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com https://challenges.cloudflare.com;`,
       },
       { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
     ];

@@ -46,7 +46,7 @@ async function createApiKey(request: Request) {
   const keyHash = await argon2.hash(plainKey);
   const [created] = await db
     .insert(apiKey)
-    .values({ tenantId: ctx.tenant.id, companyId: ctx.company.id, keyPrefix, name: payload.name.trim(), scopes: JSON.stringify(scopes), keyHash })
+    .values({ tenantId: ctx.tenant.id, companyId: ctx.company.id, keyPrefix, name: payload.name.trim(), scopes: JSON.stringify(scopes), keyHash, createdByUserId: user.id })
     .returning({ id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes, createdAt: apiKey.createdAt, revokedAt: apiKey.revokedAt });
   await recordAudit({
     tenantId: ctx.tenant.id,

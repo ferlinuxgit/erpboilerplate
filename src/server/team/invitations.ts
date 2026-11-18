@@ -3,6 +3,7 @@ import { roleDescriptions, type AppRole } from "@/lib/rbac";
 import { roleLabels, statusLabel } from "@/lib/status-labels";
 import { isEmailDeliveryConfigured, sendEmail } from "@/server/email/send";
 import { appBaseUrl, invitationEmail } from "@/server/email/templates";
+import { consumeTenantQuota, RATE_LIMIT_RULES } from "@/lib/rate-limit";
 
 export function invitationPath(token: string) {
   return `/invitations/${encodeURIComponent(token)}`;
@@ -25,10 +26,15 @@ export async function deliverInvitation(input: {
   workspaceName: string;
   inviterName: string | null;
   request?: Request;
+  /** Espacio que invita: cuota diaria de correos de invitación. */
+  tenantId?: string;
 }): Promise<InvitationDelivery> {
   const url = `${appBaseUrl(input.request)}${invitationPath(input.invitation.token)}`;
   if (!isEmailDeliveryConfigured()) {
     return { url, emailSent: false, emailProblem: "El envío de correo no está configurado: copia el enlace y compártelo tú." };
+  }
+  if (input.tenantId && !(await consumeTenantQuota(RATE_LIMIT_RULES.tenantInvitationEmails, input.tenantId))) {
+    return { url, emailSent: false, emailProblem: "Has enviado muchas invitaciones hoy: copia el enlace y compártelo tú." };
   }
   try {
     const message = invitationEmail({

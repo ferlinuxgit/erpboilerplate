@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AuthForm } from "@/components/auth-form";
 import { AuthPageShell } from "@/components/auth-page-shell";
 import { safeNextPath } from "@/lib/auth-client";
+import { captchaSiteKey } from "@/lib/captcha";
 
 export const metadata: Metadata = { title: "Crear cuenta" };
 
@@ -18,7 +19,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
 
   return (
     <AuthPageShell>
-      <AuthForm mode="sign-up" nextPath={nextPath} notice={notice} />
+      <AuthForm captchaSiteKey={captchaSiteKey()} mode="sign-up" nextPath={nextPath} notice={notice} />
     </AuthPageShell>
   );
 }

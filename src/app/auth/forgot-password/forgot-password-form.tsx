@@ -8,9 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AccessibleField, FormErrorMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { CaptchaWidget } from "@/components/captcha-widget";
 
-export function ForgotPasswordForm() {
+export function ForgotPasswordForm({ captchaSiteKey = null }: { captchaSiteKey?: string | null }) {
   const [email, setEmail] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentMessage, setSentMessage] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export function ForgotPasswordForm() {
     }
     setPending(true);
     setError(null);
-    const { data, error: requestError } = await authClient.requestPasswordReset({ email: email.trim() });
+    const { data, error: requestError } = await authClient.requestPasswordReset({ email: email.trim(), captchaToken });
     setPending(false);
     if (requestError) {
       setError(requestError.message ?? "No se pudo enviar el enlace.");
@@ -63,6 +65,7 @@ export function ForgotPasswordForm() {
                 value={email}
               />
             </AccessibleField>
+            {captchaSiteKey ? <CaptchaWidget onToken={setCaptchaToken} siteKey={captchaSiteKey} /> : null}
             <Button aria-busy={pending || undefined} className="w-full" disabled={pending} type="submit">
               {pending ? "Enviando…" : "Enviarme el enlace"}
             </Button>

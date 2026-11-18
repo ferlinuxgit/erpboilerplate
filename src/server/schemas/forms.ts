@@ -9,7 +9,7 @@ export const authSignInSchema = z.object({
 });
 
 export const authSignUpSchema = authSignInSchema.extend({
-  name: z.string().trim().min(2, "El nombre debe tener al menos 2 caracteres."),
+  name: z.string().trim().min(2, "El nombre debe tener al menos 2 caracteres.").max(100, "El nombre no puede superar 100 caracteres."),
 });
 
 export const customerStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);

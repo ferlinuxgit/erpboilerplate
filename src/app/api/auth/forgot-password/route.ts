@@ -7,6 +7,8 @@ import { getRateLimiter, RATE_LIMIT_RULES, tooManyRequestsResponse } from "@/lib
 import { PASSWORD_RESET_TTL_MINUTES, requestPasswordReset } from "@/server/auth/password-reset";
 import { isEmailDeliveryConfigured, sendEmail } from "@/server/email/send";
 import { appBaseUrl, passwordResetEmail } from "@/server/email/templates";
+import { CAPTCHA_FAILED_MESSAGE, verifyCaptcha } from "@/lib/captcha";
+import { getClientIp } from "@/lib/ip-policy";
 
 const payloadSchema = z.object({ email: z.string().trim().email() });
 
@@ -18,8 +20,12 @@ const GENERIC_RESPONSE = {
 
 export async function POST(request: Request) {
   try {
-    const parsed = payloadSchema.safeParse(await readJsonBody(request));
+    const body = await readJsonBody(request);
+    const parsed = payloadSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: "Indica un email válido." }, { status: 400 });
+    if (!(await verifyCaptcha((body as { captchaToken?: unknown } | null)?.captchaToken, getClientIp(request.headers)))) {
+      return NextResponse.json({ error: CAPTCHA_FAILED_MESSAGE }, { status: 400 });
+    }
     if (process.env.NODE_ENV === "production" && !isEmailDeliveryConfigured()) {
       return NextResponse.json({ error: "La recuperación de contraseña no está disponible porque el correo no está configurado. Contacta con el administrador." }, { status: 503 });
     }

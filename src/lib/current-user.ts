@@ -4,8 +4,8 @@ import { cache } from "react";
 
 import { AUTH_TOKEN_COOKIE, hashAuthToken, REQUEST_PATH_HEADER, verifyAuthToken } from "@/lib/auth";
 import { loginPathWithNext, SESSION_EXPIRED_REASON } from "@/lib/auth-client";
-import { and, eq, gt } from "drizzle-orm";
-import { company, fiscalYear, membership, session, tenantSecurityPolicy } from "@/db/schema";
+import { and, eq, gt, isNull } from "drizzle-orm";
+import { company, fiscalYear, membership, session, tenantSecurityPolicy, user } from "@/db/schema";
 import { ACTIVE_TENANT_COOKIE } from "@/lib/active-context";
 import { db } from "@/lib/db";
 import { getClientIp, isIpAllowed } from "@/lib/ip-policy";
@@ -33,7 +33,13 @@ export const getUserSession = cache(async function getUserSession() {
 
   const verified = verifyAuthToken(token);
   if (!verified || !token) return null;
-  const [persisted] = await db.select({ id: session.id, createdAt: session.createdAt, expiresAt: session.expiresAt }).from(session).where(and(eq(session.token, hashAuthToken(token)), eq(session.userId, verified.user.id), gt(session.expiresAt, new Date()))).limit(1);
+  // Un usuario bloqueado por la plataforma pierde todas sus sesiones al instante.
+  const [persisted] = await db
+    .select({ id: session.id, createdAt: session.createdAt, expiresAt: session.expiresAt })
+    .from(session)
+    .innerJoin(user, eq(user.id, session.userId))
+    .where(and(eq(session.token, hashAuthToken(token)), eq(session.userId, verified.user.id), gt(session.expiresAt, new Date()), isNull(user.disabledAt)))
+    .limit(1);
   if (!persisted) return null;
   // Misma resolución de tenant que `ensureUserTenant`: la política aplicada es la
   // del tenant ACTIVO, no la de la primera membership.
@@ -43,8 +49,10 @@ export const getUserSession = cache(async function getUserSession() {
     .innerJoin(company, eq(company.tenantId, membership.tenantId))
     .innerJoin(fiscalYear, eq(fiscalYear.companyId, company.id))
     .leftJoin(tenantSecurityPolicy, eq(tenantSecurityPolicy.tenantId, membership.tenantId))
-    .where(eq(membership.userId, verified.user.id))
-    .orderBy(...activeMembershipOrder(requestCookies.get(ACTIVE_TENANT_COOKIE)?.value))
+    // Con un token de conector de IA o personal manda la política del espacio autorizado (no la
+    // de la cookie, que un token no lleva): si no, se podría saltar su lista de IPs o su caducidad.
+    .where(verified.grant ? and(eq(membership.userId, verified.user.id), eq(membership.tenantId, verified.grant.tenantId)) : eq(membership.userId, verified.user.id))
+    .orderBy(...activeMembershipOrder(verified.grant?.tenantId ?? requestCookies.get(ACTIVE_TENANT_COOKIE)?.value))
     .limit(1);
   if (policy?.allowedIpRanges?.trim()) {
     const clientIp = getClientIp(requestHeaders);

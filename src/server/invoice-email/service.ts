@@ -25,6 +25,7 @@ import {
 } from "@/server/invoice-email/templates";
 import { getMailTransport, SMTP_NOT_CONFIGURED_MESSAGE, type MailAttachment, type MailTransport } from "@/server/invoice-email/transport";
 import { daysBetween, formatScheduleDate } from "@/server/recurring/schedule";
+import { consumeTenantQuota, RATE_LIMIT_RULES } from "@/lib/rate-limit";
 
 /**
  * Envío de facturas y recordatorios de cobro por email: plantillas por empresa, PDF adjunto,
@@ -376,6 +377,10 @@ export async function sendInvoiceEmail(actor: EmailActor, input: SendInvoiceEmai
   const subject = input.subject?.trim() || template.subject;
   const body = input.body?.trim() || template.body;
   if (body.length > 20_000) throw new HttpError(400, "El mensaje es demasiado largo (máximo 20.000 caracteres).");
+  // Cuota diaria por espacio: el correo sale por el servidor compartido de la plataforma.
+  if (!(await consumeTenantQuota(RATE_LIMIT_RULES.tenantInvoiceEmails, actor.tenantId))) {
+    throw new HttpError(429, "Has alcanzado el máximo de envíos de facturas por correo de hoy. Vuelve a intentarlo mañana o escríbenos si necesitas más.");
+  }
   const result = await deliverInvoiceEmail(
     { actor, context, kind: input.kind, reminderLevel: input.kind === "REMINDER" ? (input.reminderLevel ?? 1) : null, to, cc, bcc, subject, body },
     { ...defaultDeliverDeps(transport), ...options.deps },

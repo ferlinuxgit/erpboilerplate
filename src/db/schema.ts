@@ -34,6 +34,10 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("emailVerified").notNull().default(false),
   image: text("image"),
+  // Administrador de la plataforma (panel interno /plataforma): ver y gestionar todos los espacios.
+  platformAdmin: boolean("platformAdmin").notNull().default(false),
+  // Usuario bloqueado por la plataforma (abuso): no puede iniciar sesión y sus sesiones dejan de valer.
+  disabledAt: timestamp("disabledAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -96,6 +100,9 @@ export const tenant = pgTable("tenant", {
   // Suspendido por la plataforma (abuso, impago grave): no se puede entrar ni usar la API.
   suspendedAt: timestamp("suspendedAt", { withTimezone: true, mode: "date" }),
   suspendedReason: text("suspendedReason"),
+  // Baja solicitada por el propietario: se puede anular durante el periodo de gracia; después se
+  // purga (conservando lo que la ley obliga a guardar).
+  deletionRequestedAt: timestamp("deletionRequestedAt", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -1292,6 +1299,8 @@ export const apiKey = pgTable("api_key", {
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   revokedAt: timestamp("revokedAt", { withTimezone: true, mode: "date" }),
   lastUsedAt: timestamp("lastUsedAt", { withTimezone: true, mode: "date" }),
+  // Quién la creó: si deja el equipo, sus claves se revocan.
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
 }, (table) => [unique("api_key_prefix_unique").on(table.keyPrefix), index("api_key_tenant_idx").on(table.tenantId)]);
 
 export const invitation = pgTable("invitation", {

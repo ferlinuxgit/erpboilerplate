@@ -26,7 +26,12 @@ vi.mock("argon2", () => ({
   hash: mocks.hashPassword,
 }));
 vi.mock("@/lib/db", () => ({ db: mocks.db }));
-vi.mock("@/lib/logger", () => ({ logger: { error: mocks.loggerError } }));
+// Los límites por email tienen sus propios tests: aquí no se acumulan entre casos.
+vi.mock("@/lib/rate-limit", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rate-limit")>()),
+  getRateLimiter: () => ({ limit: async () => ({ success: true, limit: 1, remaining: 1, resetAt: Date.now() }), reset: async () => undefined }),
+}));
+vi.mock("@/lib/logger", () => ({ logger: { error: mocks.loggerError, warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/auth", () => ({
   AUTH_TOKEN_COOKIE: "auth-token",
   AUTH_TOKEN_MAX_AGE_SECONDS: 28_800,

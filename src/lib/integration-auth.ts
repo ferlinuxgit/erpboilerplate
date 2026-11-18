@@ -11,6 +11,7 @@ import { isHttpError } from "@/lib/http";
 import { ensureUserTenant } from "@/lib/tenant";
 import { can, type AppRole, type PermissionKey } from "@/lib/rbac";
 import { enforceBillingForRequest, enforceModuleForRequest } from "@/server/modules/guard";
+import { getClientIp, isIpAllowed } from "@/lib/ip-policy";
 
 type IntegrationContext = {
   tenant: {
@@ -51,15 +52,20 @@ const API_KEY_FORMAT = /^ak_[a-z0-9]{12}_[a-z0-9]{32}$/i;
  * todas las filas en cada request (DoS/coste lineal). Deben regenerarse
  * ("Rotar" en Ajustes → API keys), lo que les asigna prefijo.
  */
-async function findApiKey(plainKey: string) {
+async function findApiKey(plainKey: string, requestHeaders: Headers) {
   if (!API_KEY_FORMAT.test(plainKey)) return null;
 
   const keyPrefix = plainKey.split("_").slice(0, 2).join("_");
   const [key] = await db.select().from(apiKey).where(and(isNull(apiKey.revokedAt), eq(apiKey.keyPrefix, keyPrefix))).limit(1);
   if (!key || !(await argon2.verify(key.keyHash, plainKey).catch(() => false))) return null;
 
-  const [policy] = await db.select({ rotationDays: tenantSecurityPolicy.apiKeyRotationDays }).from(tenantSecurityPolicy).where(eq(tenantSecurityPolicy.tenantId, key.tenantId)).limit(1);
+  const [policy] = await db.select({ rotationDays: tenantSecurityPolicy.apiKeyRotationDays, allowedIpRanges: tenantSecurityPolicy.allowedIpNotes }).from(tenantSecurityPolicy).where(eq(tenantSecurityPolicy.tenantId, key.tenantId)).limit(1);
   if (policy?.rotationDays && key.createdAt.getTime() + policy.rotationDays * 86_400_000 <= Date.now()) return null;
+  // La lista de IPs permitidas del espacio también vale para las API keys (sin IP conocida, no).
+  if (policy?.allowedIpRanges?.trim()) {
+    const clientIp = getClientIp(requestHeaders);
+    if (!clientIp || !isIpAllowed(clientIp, policy.allowedIpRanges)) return null;
+  }
   await db.update(apiKey).set({ lastUsedAt: new Date() }).where(eq(apiKey.id, key.id));
   return key;
 }
@@ -113,7 +119,7 @@ export async function authenticateApiActor(request: Request): Promise<Authentica
   const token = bearerToken(request.headers.get("authorization"));
 
   if (token?.startsWith("ak_")) {
-    const verifiedKey = await findApiKey(token);
+    const verifiedKey = await findApiKey(token, request.headers);
     if (!verifiedKey) {
       return NextResponse.json(
         { message: "API key inválida, caducada o revocada. Si es una clave antigua, regénerala en Ajustes → API keys." },

@@ -33,7 +33,7 @@ export async function POST(request: Request) {
         try {
           const created = await createInvitation(ctx.tenant.id, user.id, invite);
           const workspaceName = fields.legalName?.trim() || ctx.tenant.name;
-          const delivery = await deliverInvitation({ invitation: created, workspaceName, inviterName: user.name, request });
+          const delivery = await deliverInvitation({ invitation: created, workspaceName, inviterName: user.name, request, tenantId: ctx.tenant.id });
           invitation = { ...delivery, email: created.email, role: created.role };
         } catch (error) {
           // La empresa ya está configurada: el fallo de la invitación no deshace lo demás.
