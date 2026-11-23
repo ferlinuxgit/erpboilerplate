@@ -25,8 +25,9 @@ describe("VeriFactu QR", () => {
     expect(buildVerifactuQrUrl(input, { VERIFACTU_QR_BASE_URL: "https://simulador.local/qr" })).toMatch(/^https:\/\/simulador\.local\/qr\?nif=/);
   });
 
-  it("shows the VERI*FACTU legends only in VERI*FACTU mode", () => {
-    expect(verifactuLegends("VERIFACTU")).toEqual(["VERI*FACTU", "Factura verificable en la sede electrónica de la AEAT"]);
+  it("shows a single VERI*FACTU legend, only in VERI*FACTU mode and while sending is operational", () => {
+    expect(verifactuLegends("VERIFACTU")).toEqual(["VERI*FACTU"]);
+    expect(verifactuLegends("VERIFACTU", false)).toEqual([]);
     expect(verifactuLegends("NO_VERIFACTU")).toEqual([]);
   });
 

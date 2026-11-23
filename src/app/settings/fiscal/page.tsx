@@ -14,6 +14,7 @@ import { getFiscalSettings } from "@/server/fiscal/settings";
 import { getCompanySalesVatTreatments } from "@/server/invoices/vat-treatments";
 import { isValidIssuerNifFormat } from "@/server/verifactu/format";
 import { getVerifactuSettings } from "@/server/verifactu/settings";
+import { getVerifactuOverview } from "@/server/verifactu/service";
 
 export const metadata: Metadata = { title: "Fiscalidad" };
 
@@ -22,9 +23,10 @@ export default async function FiscalSettingsPage() {
   const canWrite = can(ctx.membership.role, "fiscal.write");
   const canManageTaxes = can(ctx.membership.role, "settings.manage");
   const country = getCountryFiscalProfile(await getCompanyTaxTerritory(ctx.company.id));
-  const [settings, verifactu, vatTreatments] = await Promise.all([
+  const [settings, verifactu, verifactuOverview, vatTreatments] = await Promise.all([
     getFiscalSettings(ctx.company.id),
     getVerifactuSettings(db, ctx.company.id),
+    getVerifactuOverview(ctx.company.id),
     getCompanySalesVatTreatments(ctx.company.id),
   ]);
 
@@ -74,6 +76,12 @@ export default async function FiscalSettingsPage() {
               initialSince={verifactu.since ? verifactu.since.toISOString().slice(0, 10) : ""}
               issuerTaxId={verifactu.issuerTaxId}
               issuerTaxIdValid={isValidIssuerNifFormat(verifactu.issuerTaxId)}
+              operational={verifactuOverview.transport.enabled}
+              notOperationalReason={verifactuOverview.transport.reason}
+              hasRecords={verifactuOverview.totalRecords > 0}
+              transportEnabled={verifactuOverview.transportActive}
+              certificate={verifactuOverview.certificate.own ? { fileName: verifactuOverview.certificate.own.fileName, uploadedAt: verifactuOverview.certificate.own.uploadedAt.toISOString() } : null}
+              systemCertificate={verifactuOverview.certificate.systemAvailable}
             />
           </PageSection>
           ) : null}

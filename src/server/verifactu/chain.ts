@@ -72,7 +72,13 @@ type BaseDraft = {
   systemInfo: VerifactuSystemInfo;
 };
 
-export type AltaDraft = BaseDraft & { content: VerifactuAltaContent };
+export type AltaDraft = BaseDraft & {
+  content: VerifactuAltaContent;
+  /** Alta que corrige un registro anterior de la misma factura. */
+  subsanacion?: "S" | null;
+  /** "X": el alta anterior fue rechazada; "S": la subsanación anterior fue rechazada. */
+  rechazoPrevio?: "S" | "X" | null;
+};
 
 function initialStatus(mode: VerifactuMode, now: Date) {
   return mode === "VERIFACTU"
@@ -147,6 +153,9 @@ export function appendAltaRecord(tx: DbClient, draft: AltaDraft, now = new Date(
         invoiceTypeCode: draft.content.invoiceTypeCode,
         rectificationKind: draft.content.rectificationKind,
         rectifiedInvoices: draft.content.rectifiedInvoices,
+        subsanacion: draft.subsanacion ?? null,
+        rechazoPrevio: draft.rechazoPrevio ?? null,
+        operationDate: draft.content.operationDate ?? null,
         description: draft.content.description,
         recipient: draft.content.recipient,
         breakdown: draft.content.breakdown,
@@ -158,7 +167,7 @@ export function appendAltaRecord(tx: DbClient, draft: AltaDraft, now = new Date(
 }
 
 /** Registro de facturación de anulación de un alta anterior. */
-export function appendAnulacionRecord(tx: DbClient, draft: BaseDraft, now = new Date()) {
+export function appendAnulacionRecord(tx: DbClient, draft: BaseDraft & { rechazoPrevio?: "S" | null }, now = new Date()) {
   return insertChained(tx, draft, (chain) => ({
     hash: computeAnulacionHash({
       issuerTaxId: draft.issuerTaxId,
@@ -167,7 +176,7 @@ export function appendAnulacionRecord(tx: DbClient, draft: BaseDraft, now = new 
       previousHash: chain.previousHash,
       generatedAtText: chain.generatedAtText,
     }),
-    values: { recordType: "ANULACION" },
+    values: { recordType: "ANULACION", rechazoPrevio: draft.rechazoPrevio ?? null },
   }), now);
 }
 
@@ -178,7 +187,8 @@ export type VerifactuEventType =
   | "ANOMALY_DETECTED"
   | "EXPORT"
   | "SUBMISSION"
-  | "SUBMISSION_ERROR";
+  | "SUBMISSION_ERROR"
+  | "SUBSANACION";
 
 /** Registro de eventos encadenado (misma cabeza de cadena, secuencia propia). */
 export async function appendEvent(

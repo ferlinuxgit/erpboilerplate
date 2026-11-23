@@ -27,6 +27,7 @@ import {
 } from "@/components/invoices/invoice-form-controls";
 import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { InvoiceFiscalExtrasFields } from "@/components/invoices/invoice-fiscal-extras-fields";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { countriesForSelect } from "@/lib/countries";
 import { formatSeriesNumber } from "@/lib/document-series-format";
@@ -158,6 +159,8 @@ export function CreateInvoiceForm({
       // Vencimiento automático: emisión + días de pago del cliente (o de la empresa).
       dueDate: defaultDueDateInput(defaultIssueDate, termsFor(initialCustomer)),
       totalAmount: 0,
+      operationDate: "",
+      vatExemptionCode: null,
       notes: "",
       paymentMethodIds: defaultPaymentMethodIds,
       seriesId: defaultSeries?.id ?? null,
@@ -511,6 +514,13 @@ export function CreateInvoiceForm({
             name="vatTreatment"
             onUserChange={() => setVatTreatmentTouched(true)}
             treatments={vatTreatments}
+          />
+          <InvoiceFiscalExtrasFields
+            control={control}
+            exemptionCodeName="vatExemptionCode"
+            operationDateError={errors.operationDate?.message}
+            operationDateName="operationDate"
+            treatmentName="vatTreatment"
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input

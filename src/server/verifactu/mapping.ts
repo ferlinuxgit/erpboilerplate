@@ -12,6 +12,10 @@
  *   las nuevas en positivo), así que "I" es la representación exacta de sus importes.
  * - ImporteTotal = bases + cuotas de IVA + recargo de equivalencia, sin restar retenciones de IRPF
  *   (la AEAT valida que coincida con la suma del desglose).
+ * - Una base al 0 % en una factura nacional con IVA o IPSI no es una operación sujeta (S1 con tipo
+ *   0 se rechaza): va como exenta con su causa. En el IGIC el tipo cero sí existe y se mantiene.
+ * - La causa de exención (E1–E6) o de no sujeción (N1, N2) es la que elige el usuario en la factura;
+ *   sin elección, la habitual del tratamiento (E1 exenta, E2 exportación, E5 intracomunitaria, N2).
  */
 import type { InvoiceTaxBucket } from "@/lib/invoice-totals";
 import { EU_COUNTRY_CODES } from "@/lib/fiscal-spain";
@@ -48,6 +52,8 @@ export type VerifactuAltaContent = {
   description: string;
   recipient: VerifactuRecipient | null;
   breakdown: VerifactuBreakdownLine[];
+  /** FechaOperacion (dd-mm-aaaa) si difiere de la de expedición. */
+  operationDate?: string | null;
   taxAmount: string;
   totalAmount: string;
   /** Aviso: sin NIF de cliente y total por encima del límite general de factura simplificada. */
@@ -82,11 +88,31 @@ export type MapInvoiceInput = {
   customer: { name: string; taxId: string | null; countryCode: string | null } | null;
   totals: { subtotal: number; taxBuckets: InvoiceTaxBucket[] };
   description: string;
+  /** Causa de exención (E1–E6) o de no sujeción (N1, N2) elegida en la factura. */
+  exemptionCode?: string | null;
+  operationDate?: string | null;
   /** Factura original de una rectificativa (datos tal y como constan en su registro). */
   original?: { issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string; invoiceTypeCode: string | null } | null;
 };
 
 export const SIMPLIFIED_INVOICE_LIMIT = 400;
+/** Por encima de este total la AEAT rechaza una F2 (límite del art. 4.2 RD 1619/2012). */
+export const SIMPLIFIED_INVOICE_HARD_LIMIT = 3000;
+
+export const EXEMPTION_CODES = ["E1", "E2", "E3", "E4", "E5", "E6"] as const;
+export const NOT_SUBJECT_CODES = ["N1", "N2"] as const;
+export const vatExemptionCodeLabels: Record<string, string> = {
+  E1: "E1 · Exenta por el art. 20 (sanidad, educación, seguros, alquiler de vivienda…)",
+  E2: "E2 · Exenta por el art. 21 (exportaciones)",
+  E3: "E3 · Exenta por el art. 22 (operaciones asimiladas a exportaciones)",
+  E4: "E4 · Exenta por los arts. 23 y 24 (zonas francas y regímenes aduaneros)",
+  E5: "E5 · Exenta por el art. 25 (entregas intracomunitarias)",
+  E6: "E6 · Exenta por otras causas",
+  N1: "N1 · No sujeta por los arts. 7, 14 y otros",
+  N2: "N2 · No sujeta por reglas de localización",
+};
+
+const pick = (code: string | null | undefined, allowed: readonly string[], fallback: string) => (code && allowed.includes(code) ? code : fallback);
 
 /** Recargo de equivalencia asociado a cada tipo de IVA (art. 161 LIVA). */
 const SURCHARGE_BY_VAT_RATE: Record<string, number[]> = {
@@ -108,24 +134,24 @@ function recipientFor(customer: MapInvoiceInput["customer"]): VerifactuRecipient
   return { name: customer.name, taxId, countryCode: country, idType: EU_COUNTRY_CODES.has(country) ? "02" : "04" };
 }
 
-function exemptLine(treatment: SalesTreatment, baseCents: number): VerifactuBreakdownLine {
+function exemptLine(treatment: SalesTreatment, baseCents: number, code?: string | null): VerifactuBreakdownLine {
   const base = fromCents(baseCents);
   switch (treatment) {
     case "INTRA_EU":
-      return { Impuesto: "01", ClaveRegimen: "01", OperacionExenta: "E5", BaseImponibleOimporteNoSujeto: base };
+      return { Impuesto: "01", ClaveRegimen: "01", OperacionExenta: pick(code, EXEMPTION_CODES, "E5"), BaseImponibleOimporteNoSujeto: base };
     case "EXPORT":
-      return { Impuesto: "01", ClaveRegimen: "02", OperacionExenta: "E2", BaseImponibleOimporteNoSujeto: base };
+      return { Impuesto: "01", ClaveRegimen: "02", OperacionExenta: pick(code, EXEMPTION_CODES, "E2"), BaseImponibleOimporteNoSujeto: base };
     case "REVERSE_CHARGE":
       return { Impuesto: "01", ClaveRegimen: "01", CalificacionOperacion: "S2", TipoImpositivo: "0.00", BaseImponibleOimporteNoSujeto: base, CuotaRepercutida: "0.00" };
     case "NOT_SUBJECT":
-      return { Impuesto: "01", ClaveRegimen: "01", CalificacionOperacion: "N2", BaseImponibleOimporteNoSujeto: base };
+      return { Impuesto: "01", ClaveRegimen: "01", CalificacionOperacion: pick(code, NOT_SUBJECT_CODES, "N2"), BaseImponibleOimporteNoSujeto: base };
     default:
-      return { Impuesto: "01", ClaveRegimen: "01", OperacionExenta: "E1", BaseImponibleOimporteNoSujeto: base };
+      return { Impuesto: "01", ClaveRegimen: "01", OperacionExenta: pick(code, EXEMPTION_CODES, "E1"), BaseImponibleOimporteNoSujeto: base };
   }
 }
 
 /** Desglose (DetalleDesglose) y totales CuotaTotal / ImporteTotal a partir del desglose por tipo de la factura. */
-export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInput["totals"], taxCode: VerifactuTaxCode = "01") {
+export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInput["totals"], taxCode: VerifactuTaxCode = "01", exemptionCode?: string | null) {
   const subtotalCents = cents(totals.subtotal);
   const vatBuckets = totals.taxBuckets.filter((bucket) => bucket.operation === "ADD" && (bucket.kind ?? "VAT").toUpperCase() === "VAT");
   const surchargeBuckets = totals.taxBuckets.filter((bucket) => bucket.operation === "ADD" && (bucket.kind ?? "").toUpperCase() === "SURCHARGE");
@@ -138,6 +164,8 @@ export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInpu
     for (const bucket of [...vatBuckets].sort((left, right) => right.rate - left.rate)) {
       const baseCents = cents(bucket.baseAmount);
       const amountCents = cents(bucket.amount);
+      // Tipo 0 sin cuota fuera del IGIC: no es S1; su base cae en la línea exenta de más abajo.
+      if (taxCode !== "03" && bucket.rate === 0 && amountCents === 0) continue;
       const surcharge = surchargeBuckets.find((candidate) => !usedSurcharges.has(candidate)
         && ((SURCHARGE_BY_VAT_RATE[String(bucket.rate)] ?? []).includes(candidate.rate) || cents(candidate.baseAmount) === baseCents));
       if (surcharge) usedSurcharges.add(surcharge);
@@ -165,7 +193,7 @@ export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInpu
   }
 
   const uncoveredCents = subtotalCents - coveredBaseCents;
-  if (uncoveredCents !== 0 || lines.length === 0) lines.push(exemptLine(treatment, uncoveredCents));
+  if (uncoveredCents !== 0 || lines.length === 0) lines.push(exemptLine(treatment, uncoveredCents, exemptionCode));
 
   return {
     lines: lines.map((line) => withTaxCode(line, taxCode)),
@@ -176,7 +204,7 @@ export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInpu
 
 export function mapInvoiceToAlta(input: MapInvoiceInput): VerifactuAltaContent {
   const recipient = recipientFor(input.customer);
-  const breakdown = buildBreakdown(input.vatTreatment, input.totals, input.taxCode ?? "01");
+  const breakdown = buildBreakdown(input.vatTreatment, input.totals, input.taxCode ?? "01", input.exemptionCode);
   const isCreditNote = input.invoiceType === "CREDIT_NOTE";
 
   let invoiceTypeCode: VerifactuInvoiceTypeCode;
@@ -200,6 +228,7 @@ export function mapInvoiceToAlta(input: MapInvoiceInput): VerifactuAltaContent {
     // Las simplificadas (F2) y sus rectificativas (R5) no identifican destinatario.
     recipient: invoiceTypeCode === "F2" || invoiceTypeCode === "R5" ? null : recipient,
     breakdown: breakdown.lines,
+    operationDate: input.operationDate || null,
     taxAmount: breakdown.taxAmount,
     totalAmount: breakdown.totalAmount,
     simplifiedOverLimit: invoiceTypeCode === "F2" && Math.abs(Number(breakdown.totalAmount)) > SIMPLIFIED_INVOICE_LIMIT,

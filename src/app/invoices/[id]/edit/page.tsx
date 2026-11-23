@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
 import { canManageCustomers } from "@/lib/rbac";
 import { invoiceLifecycle, isSalesVatTreatment, type RectificationReason, type RectificationType } from "@/server/invoices/lifecycle";
+import { vatExemptionCodeSchema } from "@/server/invoices/schemas";
 import { getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -209,6 +210,8 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
             defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
             defaultDueDate={data.dueDate ? dateInputValue(data.dueDate, ctx.company.timezone) : ""}
             defaultNotes={data.notes}
+            defaultOperationDate={data.operationDate ? dateInputValue(data.operationDate, ctx.company.timezone) : ""}
+            defaultVatExemptionCode={vatExemptionCodeSchema.safeParse(data.vatExemptionCode).data ?? null}
             defaultPaymentMethodIds={defaultPaymentMethodIds}
             defaultTotalAmount={Number(data.totalAmount)}
             defaultVatTreatment={isSalesVatTreatment(data.vatTreatment) ? data.vatTreatment : null}

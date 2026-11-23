@@ -84,6 +84,7 @@ export default async function TicketPrintPage({ params, searchParams }: { params
       ) : null}
       {ticket.verifactu ? (
         <div className="mt-2 flex flex-col items-center text-center">
+          <p>{ticket.verifactu.caption}</p>
           <div className="size-[32mm] [&_svg]:size-full" dangerouslySetInnerHTML={{ __html: ticket.verifactu.svg }} />
           {ticket.verifactu.legends.map((legend) => <p key={legend}>{legend}</p>)}
         </div>

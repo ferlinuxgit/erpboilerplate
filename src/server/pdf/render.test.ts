@@ -129,11 +129,16 @@ describe("renderInvoicePdf", () => {
   it("prints the VeriFactu QR and legend at the top of issued invoices", async () => {
     const { buildVerifactuQrUrl, renderQrPngDataUrl, verifactuLegends } = await import("@/server/verifactu/qr");
     const url = buildVerifactuQrUrl({ mode: "VERIFACTU", issuerTaxId: "B12345674", invoiceNumber: "FAC-TEST-1", invoiceIssueDate: "02-06-2026", totalAmount: "121.00" }, {});
-    const text = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), legends: verifactuLegends("VERIFACTU"), url } })));
+    const text = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), caption: "QR tributario:", legends: verifactuLegends("VERIFACTU"), url } })));
 
-    expect(text).toContain("VERI*FACTU");
-    expect(text).toContain("Factura verificable en la sede electrónica de la AEAT");
+    // «QR tributario:» encima del código y la leyenda debajo, antes del contenido de la factura.
+    expect(text).toContain("QR tributario:");
+    expect(text.indexOf("QR tributario:")).toBeLessThan(text.indexOf("VERI*FACTU"));
     expect(text.indexOf("VERI*FACTU")).toBeLessThan(text.indexOf("Servicio test"));
+    // Sin envío operativo no hay leyenda, pero el QR (y su rótulo) se mantiene.
+    const pending = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), caption: "QR tributario:", legends: verifactuLegends("VERIFACTU", false), url } })));
+    expect(pending).toContain("QR tributario:");
+    expect(pending).not.toContain("VERI*FACTU");
     expect(await pdfText(await renderInvoicePdf(createInput()))).not.toContain("VERI*FACTU");
   });
 

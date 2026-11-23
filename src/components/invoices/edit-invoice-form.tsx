@@ -26,6 +26,7 @@ import { decimalRegisterOptions, moneyRegisterOptions } from "@/components/ui/nu
 import { Dialog } from "@/components/ui/dialog";
 import { AccessibleField, FormActions, FormErrorMessage, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { FormTotalSummary } from "@/components/ui/form-total-summary";
+import { InvoiceFiscalExtrasFields } from "@/components/invoices/invoice-fiscal-extras-fields";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -61,6 +62,8 @@ export function EditInvoiceForm({
   defaultLines,
   defaultIssueDate,
   defaultNotes,
+  defaultOperationDate = "",
+  defaultVatExemptionCode = null,
   defaultPaymentMethodIds,
   defaultTotalAmount,
   defaultVatTreatment,
@@ -85,6 +88,8 @@ export function EditInvoiceForm({
   defaultLines: EditableInvoiceLine[];
   defaultIssueDate: string;
   defaultNotes: string | null;
+  defaultOperationDate?: string;
+  defaultVatExemptionCode?: UpdateInvoicePayload["vatExemptionCode"];
   defaultPaymentMethodIds: string[];
   defaultTotalAmount: number;
   defaultVatTreatment: SalesVatTreatmentCode | null;
@@ -121,6 +126,8 @@ export function EditInvoiceForm({
       vatTreatment: defaultVatTreatment ?? customerDefaultVatTreatment(customers.find((customer) => customer.id === defaultCustomerId), vatContext),
       issueDate: defaultIssueDate,
       dueDate: defaultDueDate,
+      operationDate: defaultOperationDate,
+      vatExemptionCode: defaultVatExemptionCode,
       notes: defaultNotes ?? "",
       paymentMethodIds: defaultPaymentMethodIds,
       totalAmount: defaultTotalAmount,
@@ -399,6 +406,13 @@ export function EditInvoiceForm({
             name="vatTreatment"
             onUserChange={() => setVatTreatmentTouched(true)}
             treatments={vatTreatments}
+          />
+          <InvoiceFiscalExtrasFields
+            control={control}
+            exemptionCodeName="vatExemptionCode"
+            operationDateError={errors.operationDate?.message}
+            operationDateName="operationDate"
+            treatmentName="vatTreatment"
           />
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input id="invoice-notes" placeholder="Observaciones" {...register("notes")} />

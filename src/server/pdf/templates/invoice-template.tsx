@@ -75,12 +75,12 @@ const styles = StyleSheet.create({
   noticeTitle: { fontSize: 8, fontWeight: 700, color: "#7c2d12", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
   noticeLine: { color: "#431407", marginBottom: 2 },
   draftBanner: { marginBottom: 14, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: "#fef2f2", borderLeft: "3 solid #b91c1c", color: "#7f1d1d", fontSize: 8.5, fontWeight: 700 },
-  verifactu: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  // «QR tributario:» encima, centrado; la leyenda VERI*FACTU debajo (documento técnico del QR de la AEAT).
+  verifactu: { flexDirection: "column", alignItems: "center", alignSelf: "flex-start", marginBottom: 14 },
+  verifactuCaption: { fontSize: 8.2, color: "#101b2c", marginBottom: 3 },
   // 90 pt ≈ 31,75 mm: dentro del rango 30–40 mm exigido para el QR.
   verifactuQr: { width: 90, height: 90 },
-  verifactuLegendBlock: { flex: 1 },
-  verifactuLegend: { fontSize: 10, fontWeight: 700, color: "#101b2c", marginBottom: 3, letterSpacing: 0.4 },
-  verifactuText: { fontSize: 8.2, color: "#354255" },
+  verifactuLegend: { fontSize: 9, fontWeight: 700, color: "#101b2c", marginTop: 3, letterSpacing: 0.4 },
   legalNotes: { marginTop: 14, paddingTop: 8, borderTop: "1 solid #dfe5e9" },
   legalNote: { fontSize: 8.2, color: "#354255", marginBottom: 2 },
 });
@@ -150,12 +150,10 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
 
         {verifactu ? (
           <View style={styles.verifactu} wrap={false}>
+            <Text style={styles.verifactuCaption}>{verifactu.caption ?? "QR tributario:"}</Text>
             {/* eslint-disable-next-line jsx-a11y/alt-text */}
             <Image src={verifactu.qrDataUrl} style={styles.verifactuQr} />
-            <View style={styles.verifactuLegendBlock}>
-              {verifactu.legends.map((legend) => <Text key={legend} style={styles.verifactuLegend}>{legend}</Text>)}
-              <Text style={styles.verifactuText}>Código QR de cotejo de la factura en la Agencia Tributaria.</Text>
-            </View>
+            {verifactu.legends.map((legend) => <Text key={legend} style={styles.verifactuLegend}>{legend}</Text>)}
           </View>
         ) : null}
 

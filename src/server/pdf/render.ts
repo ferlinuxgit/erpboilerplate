@@ -34,6 +34,8 @@ export type InvoicePdfInput = {
   /** Código QR de cotejo VeriFactu y leyendas (art. 20–21 Orden HAC/1177/2024). */
   verifactu?: {
     qrDataUrl: string;
+    /** Texto encima del QR ("QR tributario:"). */
+    caption?: string;
     legends: string[];
     url: string;
   } | null;

@@ -13,6 +13,37 @@ import { formatCount } from "@/lib/pluralize";
 type Anomaly = { sequence: number | null; code: string; message: string };
 type VerifyResult = { ok: boolean; recordCount: number; eventCount: number; anomalies: Anomaly[] };
 
+/**
+ * "Subsanar": vuelve a registrar una factura cuyo registro rechazó (o aceptó con errores) la AEAT,
+ * con los datos de cliente y empresa tal y como están ahora en sus fichas.
+ */
+export function VerifactuSubsanarButton({ invoiceId, invoiceNumber }: { invoiceId: string; invoiceNumber: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const subsanar = async () => {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/verifactu/subsanar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getCsrfHeader() },
+        body: JSON.stringify({ invoiceId }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo subsanar el registro."));
+      toast.success(`Registro de ${invoiceNumber} subsanado: se enviará a la AEAT con el próximo envío.`);
+      router.refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, "No se pudo subsanar el registro."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button aria-busy={busy} aria-label={`Subsanar el registro de la factura ${invoiceNumber}`} disabled={busy} onClick={subsanar} size="sm" type="button" variant="outline">
+      {busy ? "Subsanando…" : "Subsanar"}
+    </Button>
+  );
+}
+
 /** Botones "Verificar integridad", "Enviar ahora" y descargas de la pantalla VERI*FACTU. */
 export function VerifactuActions({ canWrite, transportEnabled, pendingCount }: { canWrite: boolean; transportEnabled: boolean; pendingCount: number }) {
   const router = useRouter();

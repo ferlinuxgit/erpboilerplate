@@ -184,13 +184,23 @@ type VerifactuSettingsFormProps = {
   initialSince: string;
   issuerTaxId: string | null;
   issuerTaxIdValid: boolean;
+  /** El envío a la AEAT funciona para esta empresa (transporte activo y certificado disponible). */
+  operational: boolean;
+  notOperationalReason: string | null;
+  /** Ya hay registros generados: la fecha de inicio no se puede cambiar. */
+  hasRecords: boolean;
+  /** El administrador del sistema ha activado el envío a la AEAT (falta, como mucho, el certificado). */
+  transportEnabled: boolean;
+  certificate: { fileName: string | null; uploadedAt: string } | null;
+  /** Hay un certificado del sistema (colaboración social o apoderamiento) para las empresas sin el suyo. */
+  systemCertificate: boolean;
 };
 
 /**
- * Interruptor "Modo VERI*FACTU" con explicación en lenguaje llano. Exige NIF de empresa válido y,
- * una vez activado, no se puede volver a "sin registros" (solo cambiar entre VERI*FACTU y NO VERI*FACTU).
+ * Activación de VERI*FACTU con explicación en lenguaje llano. Exige NIF de empresa válido y que el
+ * envío a la AEAT esté operativo. Una vez activado no se puede desactivar ni cambiar de modalidad.
  */
-export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, issuerTaxIdValid }: VerifactuSettingsFormProps) {
+export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, issuerTaxIdValid, operational, notOperationalReason, hasRecords, transportEnabled, certificate, systemCertificate }: VerifactuSettingsFormProps) {
   const router = useRouter();
   const [mode, setMode] = useState(initialMode);
   const [since, setSince] = useState(initialSince);
@@ -198,9 +208,10 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const enabled = mode === "verifactu";
-  const locked = initialMode !== "pending";
-
-  const activating = initialMode === "pending" && mode !== "pending";
+  const active = initialMode === "verifactu";
+  const legacy = initialMode === "non_verifactu";
+  const activating = !active && enabled;
+  const canActivate = issuerTaxIdValid && operational;
 
   const save = async () => {
     setLoading(true);
@@ -213,7 +224,7 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
       });
       if (!response.ok) throw new Error(await readError(response, "No se pudo guardar el modo VERI*FACTU."));
       setConfirmOpen(false);
-      toast.success(mode === "verifactu" ? "Modo VERI*FACTU activado." : "Configuración de VERI*FACTU guardada.");
+      toast.success(activating ? "VERI*FACTU activado." : "Configuración de VERI*FACTU guardada.");
       router.refresh();
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : "Error inesperado.";
@@ -236,83 +247,198 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
   };
 
   return (
-    <form className="space-y-3 rounded-surface border p-3" onSubmit={submit}>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="max-w-2xl space-y-1">
-          <h2 className="text-sm font-medium">Modo VERI*FACTU</h2>
-          <p className="text-sm text-muted-foreground">
-            La ley antifraude obliga a que el programa de facturación guarde cada factura con una &quot;huella&quot; encadenada que impide
-            modificarla a escondidas. En modo VERI*FACTU, además, cada factura se envía automáticamente a Hacienda y lleva un código QR
-            que tu cliente puede comprobar. Es la opción más sencilla: no tienes que custodiar nada más.
-          </p>
+    <div className="space-y-3">
+      <form className="space-y-3 rounded-surface border p-3" onSubmit={submit}>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="max-w-2xl space-y-1">
+            <h2 className="text-sm font-medium">VERI*FACTU</h2>
+            <p className="text-sm text-muted-foreground">
+              La ley antifraude obliga a que el programa de facturación guarde cada factura con una &quot;huella&quot; encadenada que impide
+              modificarla a escondidas. Con VERI*FACTU, además, cada factura se envía automáticamente a Hacienda y lleva un código QR
+              que tu cliente puede comprobar. No tienes que custodiar nada más.
+            </p>
+          </div>
+          <StatusBadge tone={active ? "success" : legacy ? "info" : "warning"}>
+            {active ? "Activado" : legacy ? "NO VERI*FACTU (heredado)" : "Sin activar"}
+          </StatusBadge>
         </div>
-        <StatusBadge tone={enabled ? "success" : mode === "non_verifactu" ? "info" : "warning"}>
-          {enabled ? "Activado" : mode === "non_verifactu" ? "NO VERI*FACTU" : "Sin activar"}
-        </StatusBadge>
-      </div>
 
-      {!issuerTaxIdValid ? (
-        <InlineAlert tone="warning" title="Falta el NIF de la empresa">
-          Para activarlo necesitamos un NIF válido en Configuración › Empresa{issuerTaxId ? ` (ahora: ${issuerTaxId})` : ""}.
-        </InlineAlert>
-      ) : null}
+        {!issuerTaxIdValid ? (
+          <InlineAlert tone="warning" title="Falta el NIF de la empresa">
+            Para activarlo necesitamos un NIF válido en Configuración › Empresa{issuerTaxId ? ` (ahora: ${issuerTaxId})` : ""}.
+          </InlineAlert>
+        ) : null}
 
-      <label className="flex items-center gap-3 rounded-surface border px-3 py-2 text-sm" htmlFor="verifactu-switch">
-        <input
-          aria-describedby="verifactu-switch-help"
-          checked={enabled}
-          className="size-4"
-          disabled={!issuerTaxIdValid && !enabled}
-          id="verifactu-switch"
-          onChange={(event) => setMode(event.target.checked ? "verifactu" : locked ? "non_verifactu" : "pending")}
-          role="switch"
-          type="checkbox"
-        />
-        <span>
-          <span className="font-medium">Enviar mis facturas a la AEAT (VERI*FACTU)</span>
-          <span className="block text-xs text-muted-foreground" id="verifactu-switch-help">
-            Las facturas que emitas desde la fecha indicada se registrarán y llevarán el QR y la leyenda &quot;VERI*FACTU&quot;.
+        {!operational && !active ? (
+          <InlineAlert tone="warning" title="El envío a la AEAT todavía no está operativo">
+            {notOperationalReason} Hasta entonces no se puede activar: una factura no puede anunciarse como «VERI*FACTU» si no se envía a Hacienda.
+            {transportEnabled ? " Sube el certificado electrónico de la empresa más abajo." : " Lo configura el administrador del sistema."}
+          </InlineAlert>
+        ) : null}
+
+        {!operational && active ? (
+          <InlineAlert tone="danger" title="Tus facturas no se están enviando a la AEAT">
+            {notOperationalReason} Los registros se siguen generando y quedan pendientes; mientras tanto las facturas llevan el QR pero no la leyenda «VERI*FACTU».
+          </InlineAlert>
+        ) : null}
+
+        {legacy ? (
+          <InlineAlert tone="warning" title="La modalidad NO VERI*FACTU ya no está disponible">
+            Este sistema solo funciona como VERI*FACTU. Tus facturas siguen registrándose y encadenándose, pero para cumplir la norma debes pasar a
+            VERI*FACTU (envío automático a la AEAT) activando el interruptor.
+          </InlineAlert>
+        ) : null}
+
+        <label className="flex items-center gap-3 rounded-surface border px-3 py-2 text-sm" htmlFor="verifactu-switch">
+          <input
+            aria-describedby="verifactu-switch-help"
+            checked={enabled}
+            className="size-4"
+            disabled={active || !canActivate}
+            id="verifactu-switch"
+            onChange={(event) => setMode(event.target.checked ? "verifactu" : initialMode)}
+            role="switch"
+            type="checkbox"
+          />
+          <span>
+            <span className="font-medium">Enviar mis facturas a la AEAT (VERI*FACTU)</span>
+            <span className="block text-xs text-muted-foreground" id="verifactu-switch-help">
+              Las facturas que emitas desde la fecha indicada se registrarán, se enviarán y llevarán el QR y la leyenda &quot;VERI*FACTU&quot;.
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <AccessibleField id="verifactu-since" label="Aplicar desde" helperText="Déjalo vacío para empezar con la próxima factura que emitas.">
-          <Input type="date" value={since} onChange={(event) => setSince(event.target.value)} />
+        <AccessibleField
+          id="verifactu-since"
+          label="Aplicar desde"
+          helperText={hasRecords ? "Ya hay registros generados: la fecha de inicio no se puede cambiar." : "Déjalo vacío para empezar con la próxima factura que emitas."}
+        >
+          <Input className="md:max-w-xs" disabled={hasRecords} type="date" value={since} onChange={(event) => setSince(event.target.value)} />
         </AccessibleField>
-        <details className="rounded-surface border px-3 py-2 text-sm">
-          <summary className="cursor-pointer font-medium">Opción avanzada: NO VERI*FACTU</summary>
-          <p className="mt-2 text-muted-foreground">
-            Las facturas se registran, encadenan y llevan el QR igual, pero no se envían a Hacienda. Obliga a firmar y custodiar los registros y a
-            atender requerimientos de la AEAT. Solo recomendable si tu asesor te lo indica.
-          </p>
-          <label className="mt-2 flex items-center gap-2" htmlFor="verifactu-non">
-            <input checked={mode === "non_verifactu"} disabled={!issuerTaxIdValid} id="verifactu-non" onChange={(event) => setMode(event.target.checked ? "non_verifactu" : locked ? "verifactu" : "pending")} type="checkbox" />
-            <span>Usar modo NO VERI*FACTU</span>
-          </label>
-        </details>
-      </div>
 
-      {locked ? (
-        <p className="text-xs text-muted-foreground">Una vez activado, el registro de facturas no se puede desactivar; solo puedes cambiar entre VERI*FACTU y NO VERI*FACTU.</p>
-      ) : null}
-      {error && !confirmOpen ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
-      <div className="flex justify-end">
-        <Button disabled={loading || (mode === initialMode && since === initialSince)} type="submit">
-          {loading ? "Guardando…" : activating ? "Activar el registro de facturas…" : "Guardar modo VERI*FACTU"}
-        </Button>
+        {active ? (
+          <p className="text-xs text-muted-foreground">Una vez activado, VERI*FACTU no se puede desactivar ni cambiar de modalidad.</p>
+        ) : null}
+        {error && !confirmOpen ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
+        <div className="flex justify-end">
+          <Button disabled={loading || (mode === initialMode && since === initialSince)} type="submit">
+            {loading ? "Guardando…" : activating ? "Activar VERI*FACTU…" : "Guardar"}
+          </Button>
+        </div>
+        <DestructiveActionDialog
+          confirmLabel="Sí, activar VERI*FACTU"
+          description="Desde la fecha indicada, cada factura que emitas se registrará con una huella encadenada, se enviará automáticamente a la AEAT y llevará el código QR. Esta decisión es irreversible: no se puede desactivar después."
+          errorMessage={error}
+          isSubmitting={loading}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={save}
+          open={confirmOpen}
+          title="¿Activar VERI*FACTU?"
+        />
+      </form>
+      {transportEnabled || certificate ? <VerifactuCertificateForm certificate={certificate} systemCertificate={systemCertificate} /> : null}
+    </div>
+  );
+}
+
+/** Certificado electrónico (.p12/.pfx) con el que la empresa remite sus registros a la AEAT. */
+function VerifactuCertificateForm({ certificate, systemCertificate }: { certificate: { fileName: string | null; uploadedAt: string } | null; systemCertificate: boolean }) {
+  const router = useRouter();
+  const [file, setFile] = useState<File | null>(null);
+  const [passphrase, setPassphrase] = useState("");
+  const [busy, setBusy] = useState<"save" | "delete" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const upload = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!file) {
+      setError("Selecciona el fichero del certificado (.p12 o .pfx).");
+      return;
+    }
+    setBusy("save");
+    setError(null);
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      body.set("passphrase", passphrase);
+      const response = await fetch("/api/verifactu/certificate", { method: "PUT", headers: { ...getCsrfHeader() }, body });
+      if (!response.ok) throw new Error(await readError(response, "No se pudo guardar el certificado."));
+      toast.success("Certificado guardado.");
+      setFile(null);
+      setPassphrase("");
+      form.reset();
+      router.refresh();
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : "Error inesperado.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    setBusy("delete");
+    setError(null);
+    try {
+      const response = await fetch("/api/verifactu/certificate", { method: "DELETE", headers: { ...getCsrfHeader() } });
+      if (!response.ok) throw new Error(await readError(response, "No se pudo quitar el certificado."));
+      toast.success("Certificado quitado.");
+      setConfirmDelete(false);
+      router.refresh();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Error inesperado.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <form className="space-y-3 rounded-surface border p-3" onSubmit={upload}>
+      <div className="max-w-2xl space-y-1">
+        <h2 className="text-sm font-medium">Certificado electrónico</h2>
+        <p className="text-sm text-muted-foreground">
+          Las facturas se envían a la AEAT firmando la conexión con el certificado electrónico de tu empresa (el mismo con el que presentas
+          impuestos). Se guarda cifrado y solo se usa para este envío.
+          {systemCertificate ? " Si no subes ninguno, se remite con el certificado del proveedor del sistema, que debe estar apoderado por tu empresa ante la AEAT." : ""}
+        </p>
+      </div>
+      {certificate ? (
+        <p className="text-sm">
+          <StatusBadge tone="success">Certificado instalado</StatusBadge>{" "}
+          <span className="text-muted-foreground">{certificate.fileName ?? "certificado"} · subido el {new Date(certificate.uploadedAt).toLocaleDateString("es-ES")}</span>
+        </p>
+      ) : (
+        <p className="text-sm"><StatusBadge tone={systemCertificate ? "info" : "warning"}>{systemCertificate ? "Se usa el certificado del sistema" : "Sin certificado"}</StatusBadge></p>
+      )}
+      <div className="grid gap-3 md:grid-cols-2">
+        <AccessibleField id="verifactu-certificate-file" label={certificate ? "Sustituir por otro fichero (.p12 o .pfx)" : "Fichero del certificado (.p12 o .pfx)"}>
+          <Input accept=".p12,.pfx,application/x-pkcs12" onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
+        </AccessibleField>
+        <AccessibleField id="verifactu-certificate-passphrase" label="Contraseña del certificado">
+          <Input autoComplete="off" onChange={(event) => setPassphrase(event.target.value)} type="password" value={passphrase} />
+        </AccessibleField>
+      </div>
+      {error && !confirmDelete ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
+      <div className="flex flex-wrap justify-end gap-2">
+        {certificate ? (
+          <Button disabled={busy !== null} onClick={() => { setError(null); setConfirmDelete(true); }} type="button" variant="outline">Quitar certificado</Button>
+        ) : null}
+        <Button disabled={busy !== null || !file} type="submit">{busy === "save" ? "Guardando…" : "Guardar certificado"}</Button>
       </div>
       <DestructiveActionDialog
-        confirmLabel={mode === "verifactu" ? "Sí, activar VERI*FACTU" : "Sí, activar NO VERI*FACTU"}
-        description={`${mode === "verifactu"
-          ? "Desde la fecha indicada, cada factura que emitas se registrará con una huella encadenada, se enviará automáticamente a la AEAT y llevará el código QR."
-          : "Desde la fecha indicada, cada factura que emitas se registrará con una huella encadenada que tendrás que firmar y custodiar."} Esta decisión es irreversible: el registro de facturas no se puede desactivar después; solo podrás cambiar entre VERI*FACTU y NO VERI*FACTU.`}
+        confirmLabel="Sí, quitar"
+        description={systemCertificate
+          ? "Los envíos a la AEAT pasarán a hacerse con el certificado del sistema."
+          : "Sin certificado las facturas dejarán de enviarse a la AEAT y quedarán pendientes hasta que subas otro."}
         errorMessage={error}
-        isSubmitting={loading}
-        onCancel={() => setConfirmOpen(false)}
-        onConfirm={save}
-        open={confirmOpen}
-        title="¿Activar el registro de facturas?"
+        isSubmitting={busy === "delete"}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={remove}
+        open={confirmDelete}
+        title="¿Quitar el certificado?"
       />
     </form>
   );

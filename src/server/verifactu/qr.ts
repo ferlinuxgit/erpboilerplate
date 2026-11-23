@@ -8,9 +8,11 @@ import { getQrBaseUrl } from "@/server/verifactu/config";
  * - URL del servicio de cotejo con los parámetros nif, numserie, fecha (dd-mm-aaaa) e importe
  *   (ImporteTotal con punto decimal), codificados en URL.
  * - QR ISO/IEC 18004 con nivel de corrección de errores M, de 30×30 a 40×40 mm, al inicio de la factura.
- * - En modo VERI*FACTU, junto al QR la frase "Factura verificable en la sede electrónica de la AEAT"
- *   o "VERI*FACTU". En modo NO VERI*FACTU no se puede usar esa leyenda.
+ * - Encima del QR, el texto "QR tributario:". Debajo, solo en facturas de un sistema VERI*FACTU,
+ *   la frase "Factura verificable en la sede electrónica de la AEAT" o "VERI*FACTU".
  */
+
+export const QR_CAPTION = "QR tributario:";
 
 export const VERIFACTU_LEGEND = "VERI*FACTU";
 export const VERIFIABLE_LEGEND = "Factura verificable en la sede electrónica de la AEAT";
@@ -37,8 +39,12 @@ export function buildVerifactuQrUrl(input: VerifactuQrInput, env: Record<string,
   return `${getQrBaseUrl(input.mode, env)}?${params}`;
 }
 
-export function verifactuLegends(mode: "VERIFACTU" | "NO_VERIFACTU") {
-  return mode === "VERIFACTU" ? [VERIFACTU_LEGEND, VERIFIABLE_LEGEND] : [];
+/**
+ * Leyenda bajo el QR. Solo si el registro es VERI*FACTU y el sistema lo está remitiendo de verdad
+ * (`operational`): una factura no puede anunciarse como verificable si no se envía a la AEAT.
+ */
+export function verifactuLegends(mode: "VERIFACTU" | "NO_VERIFACTU", operational = true) {
+  return mode === "VERIFACTU" && operational ? [VERIFACTU_LEGEND] : [];
 }
 
 /** PNG en data URL (para el PDF) con corrección de errores M. */

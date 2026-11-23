@@ -188,3 +188,31 @@ describe("AEAT response", () => {
     expect(retryDelayMs(50)).toBe(6 * 60 * 60_000);
   });
 });
+
+describe("VeriFactu XML · subsanación, fecha de operación e incidencia", () => {
+  it("emits Subsanacion / RechazoPrevio and FechaOperacion in XSD order", () => {
+    const xml = buildRegFactuSoapEnvelope({ issuer: { name: "Empresa", taxId: "89890001K" }, records: [{ ...first, subsanacion: "S", rechazoPrevio: "X", operationDate: "28-12-2023" }] });
+    const order = ["<sum1:NombreRazonEmisor>", "<sum1:Subsanacion>S<", "<sum1:RechazoPrevio>X<", "<sum1:TipoFactura>", "<sum1:FechaOperacion>28-12-2023<", "<sum1:DescripcionOperacion>"].map((tag) => xml.indexOf(tag));
+    expect(order.every((position) => position > 0)).toBe(true);
+    expect([...order].sort((left, right) => left - right)).toEqual(order);
+    const plain = buildRegFactuSoapEnvelope({ issuer: { name: "Empresa", taxId: "89890001K" }, records: [first] });
+    expect(plain).not.toContain("Subsanacion");
+    expect(plain).not.toContain("RechazoPrevio");
+    expect(plain).not.toContain("FechaOperacion");
+    expect(plain).not.toContain("RemisionVoluntaria");
+  });
+
+  it("marks late submissions with Incidencia in the header", () => {
+    const xml = buildRegFactuSoapEnvelope({ issuer: { name: "Empresa", taxId: "89890001K" }, records: [first], incident: true });
+    expect(xml).toMatch(/<\/sum1:ObligadoEmision>\s*<sum1:RemisionVoluntaria>\s*<sum1:Incidencia>S<\/sum1:Incidencia>/);
+  });
+
+  it("declares the system as VERI*FACTU only and requires the producer NIF to enable sending", async () => {
+    const { getVerifactuTransportConfig, getVerifactuDeclaration } = await import("@/server/verifactu/config");
+    expect(systemInfo).toMatchObject({ TipoUsoPosibleSoloVerifactu: "S", TipoUsoPosibleMultiOT: "S", IndicadorMultiplesOT: "S" });
+    expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat" })).toMatchObject({ kind: "disabled" });
+    expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat", VERIFACTU_PRODUCER_NIF: "B00000000" })).toMatchObject({ kind: "aeat", certPath: null });
+    expect(getVerifactuDeclaration({ VERIFACTU_PRODUCER_NIF: "B00000000" }).complete).toBe(false);
+    expect(getVerifactuDeclaration({ VERIFACTU_PRODUCER_NIF: "B00000000", VERIFACTU_PRODUCER_NAME: "Software SL", VERIFACTU_PRODUCER_ADDRESS: "Calle 1, Madrid", VERIFACTU_DECLARATION_DATE: "2026-11-23", VERIFACTU_DECLARATION_PLACE: "Madrid" })).toMatchObject({ complete: true, onlyVerifactu: true });
+  });
+});

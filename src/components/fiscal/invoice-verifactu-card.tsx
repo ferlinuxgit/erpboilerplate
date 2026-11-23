@@ -14,14 +14,20 @@ export async function InvoiceVerifactuCard({ companyId, invoiceId }: { companyId
     <PageSection title="VERI*FACTU" description="Registro de facturación de esta factura y código QR que tu cliente puede comprobar en la AEAT.">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         {/* SVG generado en el servidor a partir de la URL de cotejo (sin contenido del usuario sin escapar). */}
-        <div
-          aria-label="Código QR de cotejo en la sede electrónica de la AEAT"
-          className="size-36 shrink-0 bg-white p-1"
-          dangerouslySetInnerHTML={{ __html: svg }}
-          role="img"
-        />
-        <div className="min-w-0 space-y-2 text-sm">
+        <div className="flex shrink-0 flex-col items-center gap-1 text-xs">
+          <p>{info.caption}</p>
+          <div
+            aria-label="Código QR de cotejo en la sede electrónica de la AEAT"
+            className="size-36 bg-white p-1"
+            dangerouslySetInnerHTML={{ __html: svg }}
+            role="img"
+          />
           {info.legends.map((legend) => <p className="font-bold" key={legend}>{legend}</p>)}
+        </div>
+        <div className="min-w-0 space-y-2 text-sm">
+          {info.mode === "VERIFACTU" && info.legends.length === 0 && info.status !== "REJECTED" ? (
+            <p className="text-xs text-danger-text">El envío a la AEAT no está operativo: la factura no lleva la leyenda «VERI*FACTU» hasta que se resuelva.</p>
+          ) : null}
           <p className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={verifactuStatusTone[info.status] ?? "neutral"}>{info.statusLabel}</StatusBadge>
             <span className="text-muted-foreground">Registro n.º {info.sequence}{info.invoiceTypeCode ? ` · ${info.invoiceTypeCode}` : ""}</span>

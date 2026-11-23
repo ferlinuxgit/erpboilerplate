@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { VerifactuActions } from "@/components/fiscal/verifactu-actions";
+import { VerifactuActions, VerifactuSubsanarButton } from "@/components/fiscal/verifactu-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -24,14 +24,17 @@ const eventLabels: Record<string, string> = {
   EXPORT: "Exportación",
   SUBMISSION: "Envío AEAT",
   SUBMISSION_ERROR: "Error de envío",
+  SUBSANACION: "Subsanación",
 };
 
-const modeLabels = { pending: "Sin activar", verifactu: "VERI*FACTU", non_verifactu: "NO VERI*FACTU" } as const;
+const modeLabels = { pending: "Sin activar", verifactu: "VERI*FACTU", non_verifactu: "NO VERI*FACTU (heredado)" } as const;
 
 type VerifactuRecordRow = Awaited<ReturnType<typeof getVerifactuOverview>>["records"][number];
 
 function recordTypeLabel(record: VerifactuRecordRow) {
-  return record.recordType === "ANULACION" ? "Anulación" : verifactuInvoiceTypeLabels[record.invoiceTypeCode ?? ""] ?? record.invoiceTypeCode;
+  if (record.recordType === "ANULACION") return "Anulación";
+  const label = verifactuInvoiceTypeLabels[record.invoiceTypeCode ?? ""] ?? record.invoiceTypeCode;
+  return record.subsanacion === "S" ? `${label} · subsanación` : label;
 }
 
 function aeatErrorText(record: VerifactuRecordRow) {
@@ -57,7 +60,12 @@ export default async function VerifactuPage() {
         backHref="/fiscal"
         backLabel="Volver a fiscalidad"
         meta={<StatusBadge tone={overview.settings.mode === "verifactu" ? "success" : active ? "info" : "warning"}>{modeLabels[overview.settings.mode]}</StatusBadge>}
-        actions={<Link className={buttonVariants({ variant: "outline" })} href="/settings/fiscal#verifactu">Configurar</Link>}
+        actions={(
+          <>
+            <Link className={buttonVariants({ variant: "outline" })} href="/fiscal/verifactu/declaracion">Declaración responsable</Link>
+            <Link className={buttonVariants({ variant: "outline" })} href="/settings/fiscal#verifactu">Configurar</Link>
+          </>
+        )}
       />
 
       {!active ? (
@@ -69,16 +77,24 @@ export default async function VerifactuPage() {
       ) : null}
 
       {overview.settings.mode === "verifactu" && !overview.transport.enabled ? (
-        <InlineAlert tone="info" title="Registros guardados, envío pendiente de configurar">
-          Tus facturas ya se registran con su huella y su QR, y quedan <strong>pendientes de envío</strong>. Para enviarlas a la AEAT
-          el administrador del sistema debe instalar el certificado electrónico (ver documentación de despliegue). Mientras tanto no
-          se pierde nada: se enviarán todas, en orden, en cuanto se configure. Motivo: {overview.transport.reason}
+        <InlineAlert tone="danger" title="Tus facturas no se están enviando a la AEAT">
+          {overview.transport.reason} Las facturas se siguen registrando con su huella y quedan <strong>pendientes de envío</strong>, pero mientras
+          tanto no llevan la leyenda «VERI*FACTU». Se enviarán todas, en orden, en cuanto se resuelva
+          {overview.transportActive ? <>: sube el certificado en <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Configuración › Fiscalidad</Link>.</> : " (lo configura el administrador del sistema)."}
+        </InlineAlert>
+      ) : null}
+
+      {overview.settings.mode === "non_verifactu" ? (
+        <InlineAlert tone="warning" title="La modalidad NO VERI*FACTU ya no está disponible">
+          Este sistema solo funciona como VERI*FACTU. Tus facturas siguen registrándose, pero para cumplir la norma debes activar VERI*FACTU en{" "}
+          <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Configuración › Fiscalidad</Link>.
         </InlineAlert>
       ) : null}
 
       {rejected > 0 ? (
         <InlineAlert tone="danger" title={`${formatCount(rejected, "registro rechazado", "registros rechazados")} por la AEAT`}>
-          Revisa el motivo en la tabla. Normalmente se debe a datos del cliente (NIF) o de la empresa. Corrige el dato y emite una rectificativa si procede.
+          Revisa el motivo en la tabla. Normalmente se debe a datos del cliente (NIF o nombre) o de la empresa: corrígelos en su ficha y pulsa
+          «Subsanar» en el registro para volver a enviarlo. Si lo erróneo son los importes, emite una factura rectificativa.
         </InlineAlert>
       ) : null}
 
@@ -129,6 +145,7 @@ export default async function VerifactuPage() {
                     <TableCell>
                       <StatusBadge tone={verifactuStatusTone[record.status] ?? "neutral"}>{verifactuStatusLabels[record.status] ?? record.status}</StatusBadge>
                       {record.aeatErrorMessage ? <span className="mt-1 block max-w-xs text-xs text-muted-foreground">{aeatErrorText(record)}</span> : null}
+                      {canWrite && record.canSubsanar ? <span className="mt-1 block"><VerifactuSubsanarButton invoiceId={record.invoiceId} invoiceNumber={record.invoiceNumber} /></span> : null}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -151,6 +168,7 @@ export default async function VerifactuPage() {
                   <MobileRecordField label="Huella"><span title={record.hash}>{record.hash.slice(0, 12)}…</span></MobileRecordField>
                 </MobileRecordFields>
                 {record.aeatErrorMessage ? <p className="mt-2 border-t border-window-shadow pt-2 text-danger-text">{aeatErrorText(record)}</p> : null}
+                {canWrite && record.canSubsanar ? <div className="mt-2"><VerifactuSubsanarButton invoiceId={record.invoiceId} invoiceNumber={record.invoiceNumber} /></div> : null}
               </MobileRecord>
             ))}
           </MobileRecordList>

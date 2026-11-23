@@ -158,3 +158,25 @@ Las facturas y gastos recurrentes y los recordatorios de cobro automáticos se p
   - El consentimiento PSD2 dura 90 días: la pantalla avisa 14 días antes y el usuario lo renueva desde allí.
 - **Remesas de cobros (adeudos SEPA CORE, pain.008.001.02)**: cada empresa necesita su *identificador de acreedor SEPA* (Ajustes › Empresa) y un mandato firmado por cliente (ficha del cliente › Domiciliación bancaria). No requiere configuración del servidor.
 - Cambios de esquema de este bloque: columna `company.sepaCreditorId`, tablas `sepa_mandate`, `sepa_direct_debit_remittance`, `sepa_direct_debit_item`, `bank_connection`, `bank_connection_account` y el valor `PSD2` en el check `bank_transaction_import_source_valid`. Genera y aplica la migración (`npm run db:generate` + `npm run db:migrate`).
+
+## VERI*FACTU (envío a la AEAT)
+
+Sin configurar, el envío está desactivado y **ninguna empresa puede activar VERI*FACTU** (una factura no
+puede anunciarse como verificable si no se remite). Para ponerlo en marcha:
+
+1. **Productor y declaración responsable.** Define `VERIFACTU_PRODUCER_NAME`, `VERIFACTU_PRODUCER_NIF`,
+   `VERIFACTU_PRODUCER_ADDRESS`, `VERIFACTU_SYSTEM_NAME`, `VERIFACTU_SYSTEM_ID` (2 caracteres),
+   `VERIFACTU_SYSTEM_VERSION`, `VERIFACTU_DECLARATION_DATE` y `VERIFACTU_DECLARATION_PLACE`. Se muestran en
+   Fiscalidad › VERI*FACTU › Declaración responsable; sin NIF del productor el envío no se activa.
+2. **Entorno.** `VERIFACTU_ENVIRONMENT=test` remite a la preproducción de la AEAT (y el QR apunta a ella);
+   `production`, al servicio real. Prueba siempre primero en `test` con un certificado real.
+3. **Transporte y worker.** `VERIFACTU_TRANSPORT=aeat` y `VERIFACTU_WORKER_ENABLED=true` (el worker envía
+   los registros pendientes cada minuto y respeta el tiempo de espera que indica la AEAT).
+4. **Certificados.** Cada empresa sube su certificado (.p12/.pfx) en Configuración › Fiscalidad; se guarda
+   cifrado con `INTEGRATIONS_ENCRYPTION_KEY` (o `JWT_SECRET`): si esa clave cambia hay que volver a subirlos.
+   Opcionalmente, `VERIFACTU_CERT_PATH` / `VERIFACTU_CERT_PASSWORD` definen un certificado del sistema para
+   las empresas sin certificado propio; su titular debe ser colaborador social o estar apoderado por cada
+   empresa ante la AEAT, o la AEAT rechazará los envíos.
+
+El sistema solo funciona como VERI*FACTU (no hay modalidad de registros firmados sin remisión). Un registro
+rechazado o aceptado con errores se subsana desde Fiscalidad › VERI*FACTU tras corregir el dato en la ficha.

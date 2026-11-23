@@ -499,6 +499,8 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     totals,
     lineDescriptions: lines.map((line) => line.description ?? ""),
     original: original ? { id: original.id, number: original.number, issueDate: original.issueDate } : null,
+    operationDate: row.operationDate,
+    exemptionCode: row.vatExemptionCode,
   });
 
   await recordAudit({
@@ -537,6 +539,8 @@ export type DraftInvoiceInput = {
   paymentMethods: InvoicePaymentMethodSnapshot[];
   lines: CalculatedLine[];
   vatTreatment: SalesVatTreatmentCode | null;
+  operationDate?: Date | null;
+  vatExemptionCode?: string | null;
   notes?: string | null;
   /** Serie de numeración (ya validada); null = la serie por defecto. */
   seriesId?: string | null;
@@ -567,6 +571,8 @@ export async function createDraftInvoiceInTransaction(tx: DbClient, actor: Invoi
       totalAmount: money(totals.totalAmount),
       status: "DRAFT",
       vatTreatment: input.vatTreatment,
+      operationDate: input.operationDate ?? null,
+      vatExemptionCode: input.vatExemptionCode ?? null,
       notes: input.notes?.trim() || null,
       seriesId: input.seriesId || null,
       salesQuoteId: input.source?.salesQuoteId ?? null,
@@ -611,6 +617,7 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
   const mode = input.mode ?? "issue";
   const issueDate = parseDate(input.issueDate, "La fecha de emisión no es válida.");
   const dueDate = parseDate(input.dueDate, "La fecha de vencimiento no es válida.");
+  const operationDate = parseDate(input.operationDate, "La fecha de operación no es válida.");
   if (!issueDate) throw new HttpError(400, "La fecha de emisión no es válida.");
   if (dueDate && dueDate < issueDate) throw new HttpError(400, "El vencimiento no puede ser anterior a la fecha de emisión.");
 
@@ -655,6 +662,8 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
       paymentMethods,
       lines,
       vatTreatment: input.vatTreatment ?? null,
+      operationDate,
+      vatExemptionCode: input.vatExemptionCode ?? null,
       notes: input.notes,
       seriesId,
       auditPayload: { mode },
@@ -731,6 +740,7 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
 
   const issueDate = parseDate(input.issueDate, "La fecha de emisión no es válida.");
   const dueDate = parseDate(input.dueDate, "La fecha de vencimiento no es válida.");
+  const operationDate = parseDate(input.operationDate, "La fecha de operación no es válida.");
   if (input.lines) await assertItemsBelongToCompany(db, actor.companyId, input.lines.map((line) => line.itemId));
   const lines = input.lines ? await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: false }) : null;
   const totals = lines ? calculateInvoiceTotals(lines) : null;
@@ -763,6 +773,8 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
         ...(paymentMethods ? paymentMethodColumns(paymentMethods) : {}),
         ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
         ...(input.vatTreatment !== undefined ? { vatTreatment: input.vatTreatment ?? null } : {}),
+        ...(input.operationDate !== undefined ? { operationDate } : {}),
+        ...(input.vatExemptionCode !== undefined ? { vatExemptionCode: input.vatExemptionCode ?? null } : {}),
         ...(seriesId !== undefined ? { seriesId } : {}),
         ...(totals ? { totalAmount: money(totals.totalAmount) } : {}),
         updatedAt: new Date(),
@@ -953,6 +965,7 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
         rectificationType: type,
         rectificationDescription: reasonLabel,
         vatTreatment: original.vatTreatment,
+        vatExemptionCode: original.vatExemptionCode,
         notes: `Rectifica la factura ${original.number}. ${reasonLabel}`,
         seriesId,
       })
@@ -1025,6 +1038,7 @@ export async function duplicateInvoice(actor: InvoiceActor, invoiceId: string, o
         totalAmount: money(totals.totalAmount),
         status: "DRAFT",
         vatTreatment: source.vatTreatment,
+        vatExemptionCode: source.vatExemptionCode,
         notes: source.notes,
         // Misma serie que la original (al emitir se usa la del ejercicio de la nueva fecha).
         seriesId: source.seriesId,

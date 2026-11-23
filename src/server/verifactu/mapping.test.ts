@@ -76,6 +76,35 @@ describe("VeriFactu mapping", () => {
     expect(buildBreakdown("INTRA_EU", lines).totalAmount).toBe("200.00");
   });
 
+  it("uses the exemption or non-subject cause chosen on the invoice when it fits the treatment", () => {
+    const lines = totals([{ description: "Servicio", quantity: 1, unitPrice: 200, taxes: [] }]);
+    expect(buildBreakdown("EXEMPT", lines, "01", "E6").lines[0]).toMatchObject({ OperacionExenta: "E6" });
+    expect(buildBreakdown("NOT_SUBJECT", lines, "01", "N1").lines[0]).toMatchObject({ CalificacionOperacion: "N1" });
+    // Una causa que no corresponde al tratamiento se ignora.
+    expect(buildBreakdown("NOT_SUBJECT", lines, "01", "E3").lines[0]).toMatchObject({ CalificacionOperacion: "N2" });
+    expect(buildBreakdown("EXEMPT", lines, "01", "N1").lines[0]).toMatchObject({ OperacionExenta: "E1" });
+  });
+
+  it("declares a 0 % base as exempt instead of S1 with rate 0 (IVA / IPSI), keeping IGIC zero rate", () => {
+    const mixed = { subtotal: 150, taxBuckets: [
+      { name: "IVA 21", kind: "VAT", rate: 21, operation: "ADD" as const, baseAmount: 100, amount: 21 },
+      { name: "IVA 0", kind: "VAT", rate: 0, operation: "ADD" as const, baseAmount: 50, amount: 0 },
+    ] };
+    const iva = buildBreakdown("DOMESTIC", mixed, "01", "E6");
+    expect(iva.lines).toEqual([
+      { Impuesto: "01", ClaveRegimen: "01", CalificacionOperacion: "S1", TipoImpositivo: "21.00", BaseImponibleOimporteNoSujeto: "100.00", CuotaRepercutida: "21.00" },
+      { Impuesto: "01", ClaveRegimen: "01", OperacionExenta: "E6", BaseImponibleOimporteNoSujeto: "50.00" },
+    ]);
+    expect(iva.totalAmount).toBe("171.00");
+    expect(buildBreakdown("DOMESTIC", mixed, "03").lines[1]).toMatchObject({ Impuesto: "03", CalificacionOperacion: "S1", TipoImpositivo: "0.00" });
+  });
+
+  it("carries the operation date only when given", () => {
+    const base = { invoiceType: "INVOICE", rectificationReason: null, vatTreatment: "DOMESTIC" as const, description: "x", customer: null, totals: totals([{ description: "x", quantity: 1, unitPrice: 10, taxes: [vat21] }]) };
+    expect(mapInvoiceToAlta({ ...base, operationDate: "28-08-2026" }).operationDate).toBe("28-08-2026");
+    expect(mapInvoiceToAlta(base).operationDate).toBeNull();
+  });
+
   it("identifies EU customers with NIF-IVA (IDType 02) and others with IDType 04", () => {
     const base = { invoiceType: "INVOICE", rectificationReason: null, vatTreatment: "INTRA_EU" as const, description: "x", totals: totals([{ description: "x", quantity: 1, unitPrice: 10, taxes: [] }]) };
     expect(mapInvoiceToAlta({ ...base, customer: { name: "GmbH", taxId: "DE123456789", countryCode: "DE" } }).recipient).toMatchObject({ idType: "02", countryCode: "DE" });

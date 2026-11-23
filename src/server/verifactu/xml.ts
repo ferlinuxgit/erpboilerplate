@@ -22,6 +22,10 @@ export type XmlRecord = {
   invoiceTypeCode: string | null;
   rectificationKind: string | null;
   rectifiedInvoices: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> | null;
+  subsanacion?: string | null;
+  rechazoPrevio?: string | null;
+  /** FechaOperacion (dd-mm-aaaa), solo si difiere de la de expedición. */
+  operationDate?: string | null;
   description: string | null;
   recipient: { name: string; taxId: string | null; countryCode: string | null; idType: string | null } | null;
   breakdown: Array<Record<string, string>> | null;
@@ -119,6 +123,8 @@ function altaNodes(record: XmlRecord): Node[] {
       ["FechaExpedicionFactura", record.invoiceIssueDate],
     ]],
     ["NombreRazonEmisor", record.issuerName],
+    ["Subsanacion", record.subsanacion || null],
+    ["RechazoPrevio", record.rechazoPrevio || null],
     ["TipoFactura", record.invoiceTypeCode],
     ["TipoRectificativa", record.rectificationKind],
     ["FacturasRectificadas", record.rectifiedInvoices?.map((original) => [
@@ -129,6 +135,7 @@ function altaNodes(record: XmlRecord): Node[] {
         ["FechaExpedicionFactura", original.invoiceIssueDate],
       ],
     ] as Node) ?? null],
+    ["FechaOperacion", record.operationDate || null],
     ["DescripcionOperacion", record.description ?? ""],
     ["Destinatarios", recipient(record)],
     ["Desglose", (record.breakdown ?? []).map((line) => [
@@ -153,6 +160,7 @@ function anulacionNodes(record: XmlRecord): Node[] {
       ["NumSerieFacturaAnulada", record.invoiceNumber],
       ["FechaExpedicionFacturaAnulada", record.invoiceIssueDate],
     ]],
+    ["RechazoPrevio", record.rechazoPrevio === "S" ? "S" : null],
     ["Encadenamiento", chaining(record)],
     ["SistemaInformatico", systemInfo(record)],
     ["FechaHoraHusoGenRegistro", record.generatedAtText],
@@ -169,10 +177,18 @@ export function buildRecordXml(record: XmlRecord, indent = "") {
 }
 
 /** Mensaje SOAP completo de remisión para un obligado a expedir (todas las facturas del mismo NIF). */
-export function buildRegFactuSoapEnvelope(input: { issuer: { name: string; taxId: string }; records: XmlRecord[] }) {
+export function buildRegFactuSoapEnvelope(input: {
+  issuer: { name: string; taxId: string };
+  records: XmlRecord[];
+  /** Remisión tardía por una incidencia técnica (RemisionVoluntaria/Incidencia = S). */
+  incident?: boolean;
+}) {
   if (input.records.length === 0) throw new Error("No hay registros que enviar.");
   if (input.records.length > MAX_RECORDS_PER_SUBMISSION) throw new Error(`Máximo ${MAX_RECORDS_PER_SUBMISSION} registros por envío.`);
-  const header = render([["ObligadoEmision", [["NombreRazon", input.issuer.name.slice(0, 120)], ["NIF", input.issuer.taxId]]]], "sum1", "        ");
+  const header = render([
+    ["ObligadoEmision", [["NombreRazon", input.issuer.name.slice(0, 120)], ["NIF", input.issuer.taxId]]],
+    ["RemisionVoluntaria", input.incident ? [["Incidencia", "S"]] : null],
+  ], "sum1", "        ");
   const records = input.records
     .map((record) => `        <sum:RegistroFactura>\n${buildRecordXml(record, "          ")}\n        </sum:RegistroFactura>`)
     .join("\n");

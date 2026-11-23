@@ -1,13 +1,20 @@
 import { eq } from "drizzle-orm";
 
-import { company, companySettings } from "@/db/schema";
+import { company, companySettings, verifactuRecord } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { recordAudit } from "@/server/audit";
+import { getVerifactuReadiness } from "@/server/verifactu/certificates";
 import { appendEvent, type VerifactuMode } from "@/server/verifactu/chain";
 import { isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/format";
 
+/**
+ * "non_verifactu" es un modo heredado: ya no se puede elegir (el sistema solo funciona como
+ * VERI*FACTU; la modalidad sin remisión exige firma electrónica de cada registro y un registro de
+ * eventos con formato AEAT que no implementamos). Las empresas que lo tuvieran siguen generando
+ * registros encadenados y solo pueden pasar a VERI*FACTU.
+ */
 export type VerifactuModeSetting = "pending" | "verifactu" | "non_verifactu";
 
 export type VerifactuSettings = {
@@ -60,8 +67,10 @@ export type VerifactuSettingsInput = {
 };
 
 /**
- * Activa o cambia el modo VERI*FACTU. Exige un NIF español válido de la empresa (es el
- * IDEmisorFactura de todos los registros) y deja constancia en auditoría y en el registro de eventos.
+ * Activa VERI*FACTU. Exige un NIF español válido de la empresa (es el IDEmisorFactura de todos los
+ * registros) y que el envío a la AEAT esté operativo para ella: no se puede anunciar una factura
+ * como verificable si no se remite. Una vez activado no se desactiva ni se cambia de modalidad, y
+ * la fecha de inicio queda fijada con el primer registro. Deja constancia en auditoría y eventos.
  */
 export async function updateVerifactuSettings(
   actor: { tenantId: string; companyId: string; actorUserId: string },
@@ -79,10 +88,24 @@ export async function updateVerifactuSettings(
       );
     }
     if (current.mode !== "pending" && input.mode === "pending") {
-      throw new HttpError(
-        409,
-        "Una vez activado, el sistema debe seguir generando registros de facturación. Puedes cambiar entre VERI*FACTU y NO VERI*FACTU, pero no desactivarlo.",
-      );
+      throw new HttpError(409, "Una vez activado, el sistema debe seguir generando registros de facturación: no se puede desactivar.");
+    }
+    if (input.mode === "non_verifactu" && current.mode !== "non_verifactu") {
+      throw new HttpError(422, "La modalidad NO VERI*FACTU ya no está disponible: este sistema solo funciona como VERI*FACTU.");
+    }
+    if (current.mode === "verifactu" && input.mode !== "verifactu") {
+      throw new HttpError(409, "La opción por VERI*FACTU no se puede cambiar una vez activada.");
+    }
+    if (input.mode === "verifactu" && current.mode !== "verifactu") {
+      const readiness = await getVerifactuReadiness(tx, actor.companyId);
+      if (!readiness.operational) {
+        throw new HttpError(409, `Todavía no se puede activar VERI*FACTU porque el envío a la AEAT no está operativo: ${readiness.reason}`);
+      }
+    }
+    const sinceChanged = (current.since?.getTime() ?? null) !== (input.since?.getTime() ?? null);
+    if (current.mode !== "pending" && sinceChanged) {
+      const [existing] = await tx.select({ id: verifactuRecord.id }).from(verifactuRecord).where(eq(verifactuRecord.companyId, actor.companyId)).limit(1);
+      if (existing) throw new HttpError(409, "La fecha de inicio no se puede cambiar: ya hay registros de facturación generados.");
     }
     const values = { verifactuMode: input.mode, verifactuSince: input.since, updatedAt: new Date() };
     const [existing] = await tx
@@ -109,7 +132,7 @@ export async function updateVerifactuSettings(
         companyId: actor.companyId,
         eventType: current.mode === "pending" ? "SYSTEM_START" : "MODE_CHANGED",
         description: current.mode === "pending"
-          ? `Inicio del sistema de registro de facturación en modo ${input.mode === "verifactu" ? "VERI*FACTU" : "NO VERI*FACTU"}.`
+          ? "Inicio del sistema de registro de facturación en modo VERI*FACTU."
           : `Cambio de modo: ${current.mode} → ${input.mode}.`,
         payload: { from: current.mode, to: input.mode, since: input.since?.toISOString() ?? null },
         actorUserId: actor.actorUserId,

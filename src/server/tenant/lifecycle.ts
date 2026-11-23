@@ -9,6 +9,7 @@ import { recordAudit } from "@/server/audit";
 import { deletePrivateFile } from "@/server/storage/files";
 import { stripe } from "@/server/billing/stripe";
 import { buildTenantExportPlan } from "@/server/tenant/export";
+import { getVerifactuTransportConfig } from "@/server/verifactu/config";
 
 /**
  * Bajas: de un espacio (con periodo de gracia y purga final) y de un usuario (anonimizado, para
@@ -45,6 +46,16 @@ export async function purgeTenant(input: { tenantId: string; actorUserId: string
   const now = input.now ?? new Date();
   if (!row.deletionRequestedAt || row.deletionRequestedAt.getTime() + TENANT_DELETION_GRACE_DAYS * 86_400_000 > now.getTime()) {
     throw new HttpError(409, `Solo se puede purgar un espacio con la baja solicitada hace más de ${TENANT_DELETION_GRACE_DAYS} días.`);
+  }
+  // Registros VERI*FACTU sin remitir: purgarlos sería destruir registros de facturación que la AEAT
+  // aún no tiene. Con el envío activo, primero se remiten; sin él no hay forma de enviarlos y se avisa.
+  const unsent = await db.execute(sql`select count(*)::int as total from "verifactu_record" where "mode" = 'VERIFACTU' and "status" = 'PENDING_SEND' and "companyId" in (select "id" from "company" where "tenantId" = ${input.tenantId})`);
+  const unsentTotal = Number((unsent as unknown as { rows: Array<{ total: number }> }).rows[0]?.total ?? 0);
+  if (unsentTotal > 0) {
+    if (getVerifactuTransportConfig().kind === "aeat") {
+      throw new HttpError(409, `Este espacio tiene ${unsentTotal} registro(s) VERI*FACTU pendientes de enviar a la AEAT: deben remitirse antes de purgarlo.`);
+    }
+    logger.warn({ tenantId: input.tenantId, unsentTotal }, "tenant.purge.unsent_verifactu_records");
   }
   // Documentos guardados: fuera del almacén antes de borrar las filas que los apuntan.
   const plan = buildTenantExportPlan();

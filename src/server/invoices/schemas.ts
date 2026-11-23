@@ -12,6 +12,11 @@ const salesVatTreatmentValues = salesVatTreatmentOptions.map((option) => option.
 
 export const salesVatTreatmentSchema = z.enum(salesVatTreatmentValues, { error: "El tratamiento de IVA no es válido." });
 
+/** Causa de exención (E1–E6) o de no sujeción (N1, N2) que se comunica a VERI*FACTU. */
+export const vatExemptionCodeSchema = z.enum(["E1", "E2", "E3", "E4", "E5", "E6", "N1", "N2"], { error: "La causa de exención no es válida." });
+
+const operationDateSchema = z.string().trim().optional().or(z.literal(""));
+
 const paymentMethodReferenceSchema = z
   .string()
   .trim()
@@ -36,6 +41,9 @@ export const createInvoiceSchema = z.object({
   totalAmount: z.number().optional(),
   notes: z.string().trim().max(2000, "Las notas no pueden superar 2.000 caracteres.").optional().or(z.literal("")),
   vatTreatment: salesVatTreatmentSchema.optional().nullable(),
+  /** Fecha de la operación, solo si es distinta de la de emisión. */
+  operationDate: operationDateSchema,
+  vatExemptionCode: vatExemptionCodeSchema.optional().nullable(),
   seriesId: seriesIdSchema,
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea."),
   /** "draft" guarda un borrador editable; "issue" (por defecto, compatible con integraciones) emite. */
@@ -62,6 +70,8 @@ export const updateDraftInvoiceSchema = z.object({
   status: invoiceStatusSchema.optional(),
   notes: z.string().trim().max(2000, "Las notas no pueden superar 2.000 caracteres.").optional().or(z.literal("")),
   vatTreatment: salesVatTreatmentSchema.optional().nullable(),
+  operationDate: operationDateSchema,
+  vatExemptionCode: vatExemptionCodeSchema.optional().nullable(),
   seriesId: seriesIdSchema,
   totalAmount: z.number().optional(),
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea.").optional(),
@@ -82,7 +92,7 @@ export const issuedInvoiceEditSchema = z.object({
 
 /** Campos que siguen siendo editables en una factura emitida. */
 export const ISSUED_EDITABLE_FIELDS = ["notes", "paymentMethodIds", "paymentMethodId"] as const;
-export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "totalAmount", "seriesId"] as const;
+export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "operationDate", "vatExemptionCode", "totalAmount", "seriesId"] as const;
 
 export const creditNoteLineSchema = z.object({
   itemId: z.string().trim().optional().nullable(),

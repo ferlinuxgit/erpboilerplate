@@ -56,6 +56,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       amount: invoice.totalAmount,
       invoiceType: invoice.invoiceType,
       vatTreatment: invoice.vatTreatment,
+      operationDate: invoice.operationDate,
       rectifiedInvoiceId: invoice.rectifiedInvoiceId,
       rectificationReason: invoice.rectificationReason,
       rectificationType: invoice.rectificationType,
@@ -133,7 +134,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   const totals = calculateInvoiceTotals(lines, { allowNegative: isCreditNote });
   const verifactuInfo = lifecycle === "ISSUED" ? await getInvoiceVerifactuInfo(companyId, invoiceId) : null;
   const verifactu = verifactuInfo
-    ? { qrDataUrl: await getInvoiceVerifactuQrPng(verifactuInfo), legends: verifactuInfo.legends, url: verifactuInfo.url }
+    ? { qrDataUrl: await getInvoiceVerifactuQrPng(verifactuInfo), caption: verifactuInfo.caption, legends: verifactuInfo.legends, url: verifactuInfo.url }
     : null;
 
   const issuer: InvoicePartySnapshot = row.issuerSnapshot ?? {
@@ -163,7 +164,12 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   };
 
   const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode, issuer.countryCode);
-  const legalNotes = [vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer), row.fiscalRegime)].filter((note): note is string => Boolean(note));
+  // Fecha de la operación, cuando no coincide con la de expedición (art. 6.1.i RD 1619/2012).
+  const operationDate = row.operationDate && formatDate(row.operationDate) !== formatDate(row.issueDate) ? formatDate(row.operationDate) : null;
+  const legalNotes = [
+    operationDate ? `Fecha de la operación: ${operationDate}.` : null,
+    vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer), row.fiscalRegime),
+  ].filter((note): note is string => Boolean(note));
 
   const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
     ? rectificationReasonLabels[row.rectificationReason as RectificationReason]

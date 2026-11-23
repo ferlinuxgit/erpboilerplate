@@ -94,7 +94,7 @@ export const glossaryEntries = [
     id: "verifactu",
     term: "VERI*FACTU",
     short: "Sistema de la ley antifraude: cada factura se guarda con una huella encadenada que impide modificarla a escondidas y, en modo VERI*FACTU, se envía a la AEAT y lleva un código QR.",
-    long: "Una vez activado no se puede desactivar: solo se puede cambiar entre VERI*FACTU (con envío a la AEAT) y NO VERI*FACTU (sin envío, con más obligaciones de custodia).",
+    long: "Para activarlo hace falta el NIF de la empresa y su certificado electrónico, con el que se envían las facturas a la AEAT. Una vez activado no se puede desactivar. Si la AEAT rechaza un registro, se corrige el dato y se subsana desde Fiscalidad › VERI*FACTU.",
     category: "fiscal",
     href: "/fiscal/verifactu",
   },

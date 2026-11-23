@@ -585,6 +585,10 @@ export const invoice = pgTable(
     paymentStatus: paymentStatusEnum("paymentStatus").notNull().default("PENDING"),
     // Tratamiento IVA para modelos 303/390. null = automático según el país del cliente.
     vatTreatment: text("vatTreatment"),
+    // Fecha de la operación si es distinta de la de expedición (art. 6.1.i RD 1619/2012; FechaOperacion en VERI*FACTU).
+    operationDate: timestamp("operationDate", { withTimezone: true, mode: "date" }),
+    // Causa de exención (E1–E6) o de no sujeción (N1, N2) que se comunica a VERI*FACTU; null = la habitual del tratamiento.
+    vatExemptionCode: text("vatExemptionCode"),
     notes: text("notes"),
     // INVOICE (ordinaria) o CREDIT_NOTE (factura rectificativa, art. 15 RD 1619/2012).
     invoiceType: text("invoiceType").notNull().default("INVOICE"),
@@ -1397,6 +1401,12 @@ export const verifactuRecord = pgTable("verifactu_record", {
   // S (sustitución) o I (diferencias), solo rectificativas.
   rectificationKind: text("rectificationKind"),
   rectifiedInvoices: jsonb("rectifiedInvoices").$type<Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }>>(),
+  // Subsanación de un registro anterior de la misma factura: "S" o null (alta normal).
+  subsanacion: text("subsanacion"),
+  // "X" (el alta anterior fue rechazada: la factura no consta en la AEAT), "S" (la subsanación anterior fue rechazada) o null.
+  rechazoPrevio: text("rechazoPrevio"),
+  // FechaOperacion (dd-mm-aaaa) si es distinta de la de expedición.
+  operationDate: text("operationDate"),
   description: text("description"),
   recipient: jsonb("recipient").$type<{ name: string; taxId: string | null; countryCode: string | null; idType: string | null } | null>(),
   breakdown: jsonb("breakdown").$type<Array<Record<string, string>>>(),
@@ -1434,8 +1444,26 @@ export const verifactuRecord = pgTable("verifactu_record", {
   check("verifactu_record_mode_valid", sql`${table.mode} IN ('VERIFACTU', 'NO_VERIFACTU')`),
   check("verifactu_record_status_valid", sql`${table.status} IN ('PENDING_SEND', 'SENT', 'ACCEPTED', 'ACCEPTED_WITH_ERRORS', 'REJECTED', 'NOT_REQUIRED')`),
   check("verifactu_record_hash_format", sql`${table.hash} ~ '^[0-9A-F]{64}$'`),
+  check("verifactu_record_subsanacion_valid", sql`${table.subsanacion} IS NULL OR ${table.subsanacion} = 'S'`),
+  check("verifactu_record_rechazo_valid", sql`${table.rechazoPrevio} IS NULL OR ${table.rechazoPrevio} IN ('S', 'X')`),
   check("verifactu_record_chain_link", sql`(${table.sequence} = 1 AND ${table.previousRecordId} IS NULL AND ${table.previousHash} IS NULL) OR (${table.sequence} > 1 AND ${table.previousRecordId} IS NOT NULL AND ${table.previousHash} IS NOT NULL)`),
 ]);
+
+/**
+ * Certificado electrónico (.p12/.pfx) con el que una empresa remite sus registros a la AEAT.
+ * El fichero y su contraseña van cifrados (AES-256-GCM, `secret-box`). Sin certificado propio se
+ * usa el del sistema (colaboración social o apoderamiento), si está configurado.
+ */
+export const verifactuCertificate = pgTable("verifactu_certificate", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  pfxEncrypted: text("pfxEncrypted").notNull(),
+  passphraseEncrypted: text("passphraseEncrypted").notNull(),
+  fileName: text("fileName"),
+  subject: text("subject"),
+  validTo: timestamp("validTo", { withTimezone: true, mode: "date" }),
+  uploadedByUserId: text("uploadedByUserId"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
 
 /** Cabeza de la cadena VeriFactu de cada empresa: se bloquea (FOR UPDATE) para encadenar sin bifurcaciones. */
 export const verifactuChainHead = pgTable("verifactu_chain_head", {

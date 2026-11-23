@@ -2,9 +2,10 @@ import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 
 import { verifactuEvent, verifactuRecord } from "@/db/schema";
 import { db } from "@/lib/db";
+import { getCompanyCertificateInfo, getVerifactuReadiness } from "@/server/verifactu/certificates";
 import { appendEvent } from "@/server/verifactu/chain";
 import { getVerifactuEnvironment, getVerifactuTransportConfig } from "@/server/verifactu/config";
-import { buildVerifactuQrUrl, renderQrPngDataUrl, renderQrSvg, verifactuLegends } from "@/server/verifactu/qr";
+import { buildVerifactuQrUrl, QR_CAPTION, renderQrPngDataUrl, renderQrSvg, verifactuLegends } from "@/server/verifactu/qr";
 import { getVerifactuSettings } from "@/server/verifactu/settings";
 import { buildRecordsExportXml, type XmlRecord } from "@/server/verifactu/xml";
 
@@ -28,8 +29,10 @@ export const verifactuStatusTone: Record<string, "neutral" | "success" | "warnin
 
 /** Resumen para la pantalla Fiscalidad › VeriFactu. */
 export async function getVerifactuOverview(companyId: string) {
-  const [settings, statusCounts, records, events] = await Promise.all([
+  const [settings, readiness, certificate, statusCounts, records, events] = await Promise.all([
     getVerifactuSettings(db, companyId),
+    getVerifactuReadiness(db, companyId),
+    getCompanyCertificateInfo(db, companyId),
     db
       .select({ status: verifactuRecord.status, total: count() })
       .from(verifactuRecord)
@@ -45,6 +48,7 @@ export async function getVerifactuOverview(companyId: string) {
         invoiceNumber: verifactuRecord.invoiceNumber,
         invoiceIssueDate: verifactuRecord.invoiceIssueDate,
         invoiceTypeCode: verifactuRecord.invoiceTypeCode,
+        subsanacion: verifactuRecord.subsanacion,
         totalAmount: verifactuRecord.totalAmount,
         hash: verifactuRecord.hash,
         generatedAt: verifactuRecord.generatedAt,
@@ -72,14 +76,27 @@ export async function getVerifactuOverview(companyId: string) {
   ]);
   const counts = Object.fromEntries(statusCounts.map((row) => [row.status, Number(row.total)]));
   const lastVerification = events.find((event) => event.eventType === "CHAIN_VERIFIED" || event.eventType === "ANOMALY_DETECTED") ?? null;
+  // Solo el último registro de cada factura se puede subsanar (los anteriores ya están corregidos).
+  const latestByInvoice = new Map<string, number>();
+  for (const record of records) latestByInvoice.set(record.invoiceId, Math.max(latestByInvoice.get(record.invoiceId) ?? 0, record.sequence));
   const transport = getVerifactuTransportConfig();
   return {
     settings,
     environment: getVerifactuEnvironment(),
-    transport: transport.kind === "aeat" ? { enabled: true as const, reason: null } : { enabled: false as const, reason: transport.reason },
+    // "enabled": esta empresa puede remitir ahora (transporte activo y certificado disponible).
+    transport: readiness.operational ? { enabled: true as const, reason: null } : { enabled: false as const, reason: readiness.reason ?? "" },
+    /** El administrador ha activado el envío a la AEAT (a la empresa puede faltarle el certificado). */
+    transportActive: transport.kind === "aeat",
+    certificate: { own: certificate, source: readiness.certificate, systemAvailable: transport.kind === "aeat" && Boolean(transport.certPath) },
     counts,
     totalRecords: Object.values(counts).reduce((total, value) => total + value, 0),
-    records,
+    records: records.map((record) => ({
+      ...record,
+      canSubsanar: record.recordType === "ALTA"
+        && record.mode === "VERIFACTU"
+        && (record.status === "REJECTED" || record.status === "ACCEPTED_WITH_ERRORS")
+        && latestByInvoice.get(record.invoiceId) === record.sequence,
+    })),
     events,
     lastVerification,
   };
@@ -147,6 +164,9 @@ export type InvoiceVerifactuInfo = {
   hash: string;
   sequence: number;
   url: string;
+  /** Texto que va encima del QR ("QR tributario:"). */
+  caption: string;
+  /** Leyenda bajo el QR; vacía si el envío a la AEAT no está operativo. */
   legends: string[];
   errorMessage: string | null;
 };
@@ -161,6 +181,7 @@ export async function getInvoiceVerifactuInfo(companyId: string, invoiceId: stri
     .limit(1);
   if (!record) return null;
   const mode = record.mode === "NO_VERIFACTU" ? "NO_VERIFACTU" : "VERIFACTU";
+  const readiness = mode === "VERIFACTU" ? await getVerifactuReadiness(db, companyId) : null;
   return {
     mode,
     status: record.status,
@@ -175,7 +196,8 @@ export async function getInvoiceVerifactuInfo(companyId: string, invoiceId: stri
       invoiceIssueDate: record.invoiceIssueDate,
       totalAmount: record.totalAmount ?? "0.00",
     }),
-    legends: verifactuLegends(mode),
+    caption: QR_CAPTION,
+    legends: verifactuLegends(mode, Boolean(readiness?.operational) && record.status !== "REJECTED"),
     errorMessage: record.aeatErrorMessage,
   };
 }

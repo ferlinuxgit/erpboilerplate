@@ -1145,7 +1145,7 @@ export async function getTicketPrint(companyId: string, invoiceId: string) {
     },
     payment: ticket ? { kind: ticket.kind, cash: num(ticket.cashAmount), card: num(ticket.cardAmount), cashReceived: ticket.cashReceived === null ? null : num(ticket.cashReceived), change: ticket.changeGiven === null ? null : num(ticket.changeGiven), tip: num(ticket.tipAmount), registerName: ticket.registerName } : null,
     originalNumber: original?.number ?? null,
-    verifactu: verifactuInfo ? { svg: await getInvoiceVerifactuQrSvg(verifactuInfo), legends: verifactuInfo.legends } : null,
+    verifactu: verifactuInfo ? { svg: await getInvoiceVerifactuQrSvg(verifactuInfo), caption: verifactuInfo.caption, legends: verifactuInfo.legends } : null,
   };
 }
 
