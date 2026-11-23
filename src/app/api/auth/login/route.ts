@@ -13,6 +13,7 @@ import { authSignInSchema } from "@/server/schemas/forms";
 import { isEmailDeliveryConfigured, sendEmail } from "@/server/email/send";
 import { resolvePostAuthDestination, respondWithNewSession } from "@/server/auth/session";
 import { getClientIp } from "@/lib/ip-policy";
+import { userHasTotp } from "@/server/auth/two-factor-app";
 
 const INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos.";
 
@@ -92,6 +93,18 @@ export async function POST(request: Request) {
       }, { status: 403 });
     }
 
+    // Con app de autenticación activada se pide siempre (y cumple también la política del espacio).
+    if (await userHasTotp(row.id)) {
+      const challengeId = crypto.randomUUID();
+      await db.insert(verification).values({
+        id: crypto.randomUUID(),
+        identifier: `2fa-totp:${challengeId}:${row.id}`,
+        value: "0",
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      return NextResponse.json({ requiresTwoFactor: true, challengeId, method: "totp" }, { status: 202 });
+    }
+
     const [twoFactorPolicy] = await db
       .select({ id: tenantSecurityPolicy.id })
       .from(membership)
@@ -110,7 +123,7 @@ export async function POST(request: Request) {
       });
       await sendEmail({ to: row.email, subject: "Código de acceso a ERP", html: `<p>Tu código de verificación es <strong>${code}</strong>.</p><p>Caduca en 10 minutos.</p>` });
       // Los intentos no se perdonan hasta superar también el segundo factor.
-      return NextResponse.json({ requiresTwoFactor: true, challengeId }, { status: 202 });
+      return NextResponse.json({ requiresTwoFactor: true, challengeId, method: "email" }, { status: 202 });
     }
     await limiter.reset(RATE_LIMIT_RULES.loginEmail, emailIpKey);
 

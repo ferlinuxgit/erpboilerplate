@@ -180,7 +180,7 @@ async function insertSubaccount(
  * creándola si falta con su cadena de cuentas de grupo y el nombre de la cuenta del PGC.
  * Los asientos automáticos solo apuntan en subcuentas obtenidas aquí.
  */
-export async function ensureSubaccount(companyId: string, baseCode: string, client: DbClient = db): Promise<SubaccountRef> {
+export async function ensureSubaccount(companyId: string, baseCode: string, client: DbClient = db, name?: string): Promise<SubaccountRef> {
   const context = await loadChartContext(companyId, client);
   const code = canonicalSubaccountCode(baseCode, context.subaccountLength);
   if (!code) {
@@ -198,7 +198,7 @@ export async function ensureSubaccount(companyId: string, baseCode: string, clie
       }
       return { id: existing.id, code: existing.code, name: existing.name };
     }
-    return insertSubaccount(client, companyId, context, code, { baseLabel: baseCode });
+    return insertSubaccount(client, companyId, context, code, { baseLabel: baseCode, name });
   });
 }
 

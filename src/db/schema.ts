@@ -38,6 +38,12 @@ export const user = pgTable("user", {
   platformAdmin: boolean("platformAdmin").notNull().default(false),
   // Usuario bloqueado por la plataforma (abuso): no puede iniciar sesión y sus sesiones dejan de valer.
   disabledAt: timestamp("disabledAt", { withTimezone: true, mode: "date" }),
+  // Verificación en dos pasos con app (TOTP, RFC 6238): secreto cifrado, activación, último paso
+  // usado (un código no vale dos veces) y códigos de recuperación (SHA-256, de un solo uso).
+  totpSecretEncrypted: text("totpSecretEncrypted"),
+  totpEnabledAt: timestamp("totpEnabledAt", { withTimezone: true, mode: "date" }),
+  totpLastStep: integer("totpLastStep"),
+  totpRecoveryHashes: jsonb("totpRecoveryHashes").$type<string[]>().notNull().default([]),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });

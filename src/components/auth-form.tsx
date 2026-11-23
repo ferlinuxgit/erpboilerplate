@@ -48,6 +48,9 @@ export function AuthForm({ captchaSiteKey = null, mode, nextPath = null, notice 
   const needsCaptcha = mode === "sign-up" && Boolean(captchaSiteKey);
   const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState("");
+  // «email»: código enviado al correo; «totp»: app de autenticación (o un código de recuperación).
+  const [twoFactorMethod, setTwoFactorMethod] = useState<"email" | "totp">("email");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [verifyingTwoFactor, setVerifyingTwoFactor] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
@@ -143,10 +146,13 @@ export function AuthForm({ captchaSiteKey = null, mode, nextPath = null, notice 
       setResendMessage(null);
       return;
     }
-    const challenge = data as { requiresTwoFactor?: boolean; challengeId?: string } | null;
+    const challenge = data as { requiresTwoFactor?: boolean; challengeId?: string; method?: string } | null;
     if (challenge?.requiresTwoFactor && challenge.challengeId) {
       setTwoFactorChallenge(challenge.challengeId);
-      toast.success("Te hemos enviado un código de verificación por email.");
+      setTwoFactorMethod(challenge.method === "totp" ? "totp" : "email");
+      setUseRecoveryCode(false);
+      setTwoFactorCode("");
+      if (challenge.method !== "totp") toast.success("Te hemos enviado un código de verificación por email.");
       return;
     }
 
@@ -163,6 +169,9 @@ export function AuthForm({ captchaSiteKey = null, mode, nextPath = null, notice 
     if (error) {
       setVerifyingTwoFactor(false);
       setFormError(error.message ?? "No se pudo verificar el código.");
+      setTwoFactorCode("");
+      // Reto agotado o caducado: hay que volver a iniciar sesión.
+      if (twoFactorMethod === "email" || /inicia sesión de nuevo/i.test(error.message ?? "")) setTwoFactorChallenge(null);
       return;
     }
     toast.success("Sesión iniciada correctamente.");
@@ -232,24 +241,62 @@ export function AuthForm({ captchaSiteKey = null, mode, nextPath = null, notice 
           <form aria-describedby={formError ? "auth-form-error" : undefined} className="space-y-4" onSubmit={(event) => void verifyTwoFactor(event)}>
             {errorBanner}
             <div className="space-y-2">
-              <Label htmlFor="two-factor-code">Código de verificación</Label>
-              <Input
-                aria-describedby="two-factor-code-hint"
-                autoComplete="one-time-code"
-                autoFocus
-                id="two-factor-code"
-                inputMode="numeric"
-                maxLength={6}
-                onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, ""))}
-                pattern="[0-9]{6}"
-                required
-                value={twoFactorCode}
-              />
-              <p className="text-sm text-muted-foreground" id="two-factor-code-hint">Introduce el código de seis dígitos enviado a tu correo.</p>
+              <Label htmlFor="two-factor-code">{useRecoveryCode ? "Código de recuperación" : "Código de verificación"}</Label>
+              {useRecoveryCode ? (
+                <Input
+                  aria-describedby="two-factor-code-hint"
+                  autoComplete="off"
+                  autoFocus
+                  id="two-factor-code"
+                  maxLength={11}
+                  onChange={(event) => setTwoFactorCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))}
+                  required
+                  value={twoFactorCode}
+                />
+              ) : (
+                <Input
+                  aria-describedby="two-factor-code-hint"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  id="two-factor-code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, ""))}
+                  pattern="[0-9]{6}"
+                  required
+                  value={twoFactorCode}
+                />
+              )}
+              <p className="text-sm text-muted-foreground" id="two-factor-code-hint">
+                {useRecoveryCode
+                  ? "Introduce uno de los códigos de recuperación que guardaste (cada uno sirve una sola vez)."
+                  : twoFactorMethod === "totp"
+                    ? "Introduce el código de seis dígitos de tu app de autenticación."
+                    : "Introduce el código de seis dígitos enviado a tu correo."}
+              </p>
             </div>
-            <Button aria-busy={verifyingTwoFactor || undefined} className="w-full" disabled={verifyingTwoFactor || twoFactorCode.length !== 6} type="submit">
+            <Button
+              aria-busy={verifyingTwoFactor || undefined}
+              className="w-full"
+              disabled={verifyingTwoFactor || (useRecoveryCode ? twoFactorCode.replace(/-/g, "").length !== 10 : twoFactorCode.length !== 6)}
+              type="submit"
+            >
               {verifyingTwoFactor ? "Verificando…" : "Verificar y entrar"}
             </Button>
+            {twoFactorMethod === "totp" ? (
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setUseRecoveryCode((value) => !value);
+                  setTwoFactorCode("");
+                  setFormError(null);
+                }}
+                type="button"
+                variant="outline"
+              >
+                {useRecoveryCode ? "Usar el código de la app" : "No tengo el móvil: usar un código de recuperación"}
+              </Button>
+            ) : null}
           </form>
         ) : (
           <form aria-describedby={formError ? "auth-form-error" : undefined} className="space-y-4" noValidate onSubmit={onSubmit}>

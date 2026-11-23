@@ -97,7 +97,7 @@ export async function deleteUserAccount(userId: string) {
     await tx.update(invitation).set({ invitedByUserId: null }).where(eq(invitation.invitedByUserId, userId));
     await tx
       .update(user)
-      .set({ name: "Usuario eliminado", email: `eliminado-${userId}@cuentas.invalid`, image: null, emailVerified: false, platformAdmin: false, disabledAt: new Date(), updatedAt: new Date() })
+      .set({ name: "Usuario eliminado", email: `eliminado-${userId}@cuentas.invalid`, image: null, emailVerified: false, platformAdmin: false, disabledAt: new Date(), totpSecretEncrypted: null, totpEnabledAt: null, totpLastStep: null, totpRecoveryHashes: [], updatedAt: new Date() })
       .where(eq(user.id, userId));
     for (const { tenantId } of memberships) {
       await recordAudit({ tenantId, actorUserId: userId, action: "user.account.delete", entityName: "user", entityId: userId, payload: {} }, tx);

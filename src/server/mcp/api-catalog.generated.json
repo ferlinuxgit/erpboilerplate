@@ -473,6 +473,20 @@
   "permissions": []
  },
  {
+  "method": "GET",
+  "path": "/api/auth/totp",
+  "area": "auth",
+  "summary": "Estado de la verificación en dos pasos con app del usuario.",
+  "permissions": []
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/totp",
+  "area": "auth",
+  "summary": "Configurar (setup → enable), desactivar o renovar los códigos de recuperación.",
+  "permissions": []
+ },
+ {
   "method": "POST",
   "path": "/api/auth/verify-email",
   "area": "auth",
@@ -483,7 +497,7 @@
   "method": "POST",
   "path": "/api/auth/verify-two-factor",
   "area": "auth",
-  "summary": "",
+  "summary": "Intentos por reto con la app (un despiste al teclear no obliga a empezar de nuevo).",
   "permissions": []
  },
  {

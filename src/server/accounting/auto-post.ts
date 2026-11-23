@@ -4,7 +4,7 @@ import { igicExemptRegime } from "@/lib/country-packs/igic";
 import { usesPgcChart } from "@/lib/country-packs/profile";
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { standardVatRate } from "@/lib/country-packs/vat-rates";
-import { accountChart, bankAccount, company, companySettings, item, journalEntry, journalLine, partner, paymentMethod, supplierInvoice } from "@/db/schema";
+import { accountChart, bankAccount, company, companySettings, invoiceLine, invoiceLineTax, item, journalEntry, journalLine, partner, paymentMethod, supplierInvoice } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { getCompanyTemplate } from "@/lib/company-templates";
 import {
@@ -335,6 +335,42 @@ function toPostingLines(lines: Array<{ accountId: string; debitCents: number; cr
   return lines.map((line) => ({ accountId: line.accountId, debit: centsToAmount(line.debitCents), credit: centsToAmount(line.creditCents) }));
 }
 
+/** Subcuenta del AIEM repercutido (Canarias): se declara aparte (modelo 450), no con el IGIC de la 477. */
+export const AIEM_OUTPUT_ACCOUNT_CODE = "4777";
+
+/**
+ * Saca el AIEM de la línea de impuestos repercutidos (477) a su propia cuenta (función pura).
+ * `aiemCents` lleva el signo de las cuotas (negativo en un abono); el asiento sigue cuadrando.
+ */
+export function splitAiemOutput(lines: PostingLine[], vatOutputId: string, aiemAccountId: string, aiemCents: number): PostingLine[] {
+  if (aiemCents === 0) return lines;
+  const index = lines.findIndex((line) => line.accountId === vatOutputId);
+  if (index < 0) return lines;
+  const vatNet = toCents(lines[index].credit) - toCents(lines[index].debit) - aiemCents;
+  const side = (net: number) => ({ debit: net < 0 ? centsToAmount(-net) : "0.00", credit: net > 0 ? centsToAmount(net) : "0.00" });
+  const result = [...lines];
+  result.splice(index, 1, ...(vatNet !== 0 ? [{ ...lines[index], ...side(vatNet) }] : []), { ...lines[index], accountId: aiemAccountId, ...side(aiemCents) });
+  return result;
+}
+
+/** AIEM de una factura emitida (impuestos «Otro» cuyo nombre empieza por AIEM, como en el modelo 450). */
+async function invoiceAiemCents(client: DbClient, invoiceId: string) {
+  const [row] = await client
+    .select({ amount: sql<string>`coalesce(sum(${invoiceLineTax.amount}), 0)` })
+    .from(invoiceLineTax)
+    .innerJoin(invoiceLine, eq(invoiceLine.id, invoiceLineTax.invoiceLineId))
+    .where(and(eq(invoiceLine.invoiceId, invoiceId), eq(invoiceLineTax.kind, "OTHER"), eq(invoiceLineTax.operation, "ADD"), sql`upper(${invoiceLineTax.name}) LIKE 'AIEM%'`));
+  return toCents(row?.amount ?? 0);
+}
+
+async function withAiemAccount(client: DbClient, companyId: string, settings: PostingSettings, invoiceId: string, vatOutputId: string, lines: PostingLine[]) {
+  if (settings.taxTerritory !== "ES-CN") return lines;
+  const aiem = await invoiceAiemCents(client, invoiceId);
+  if (aiem === 0) return lines;
+  const account = await ensureSubaccount(companyId, AIEM_OUTPUT_ACCOUNT_CODE, client, "Hacienda Canaria, AIEM repercutido");
+  return splitAiemOutput(lines, vatOutputId, account.id, aiem);
+}
+
 /**
  * Aplica el documento de origen a todas las líneas del asiento. El vencimiento solo se guarda en
  * los apuntes del tercero (`partyAccountIds`: 430/400/410), que son los que se casan y puntean.
@@ -653,11 +689,11 @@ export async function postSalesInvoice(
   const customerId = await partyAccountId(client, input.companyId, context?.partnerId ?? null, "customer", ids.customer);
   const salesSplit = await resolveSalesSplit(client, input.companyId, settings, input.lines);
   // Sin retención la línea 473 queda a cero y se descarta; se usa la cuenta de cliente como marcador.
-  const lines = buildSalesInvoiceLines(
+  const lines = await withAiemAccount(client, input.companyId, settings, input.invoiceId, ids.vatOutput, buildSalesInvoiceLines(
     { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId },
     input,
     salesSplit,
-  );
+  ));
 
   await createAutomaticEntry({
     ...input,
@@ -932,11 +968,11 @@ export async function postCreditNote(
     action: "accounting.autopost.creditNote",
     entityName: "invoice",
     entityId: input.invoiceId,
-    lines: withLineDocument(buildCreditNoteLines(
+    lines: withLineDocument(await withAiemAccount(client, input.companyId, settings, input.invoiceId, ids.vatOutput, buildCreditNoteLines(
       { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId },
       input,
       salesSplit,
-    ), context ? invoiceLineDocument(context) : null, [customerId]),
+    )), context ? invoiceLineDocument(context) : null, [customerId]),
   });
 }
 

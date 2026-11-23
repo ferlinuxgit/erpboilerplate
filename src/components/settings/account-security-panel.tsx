@@ -8,6 +8,7 @@ import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate } from "@/lib/format";
+import { TotpPanel } from "@/components/settings/totp-panel";
 
 type SessionRow = { id: string; createdAt: string; expiresAt: string; ipAddress: string | null; userAgent: string | null; current: boolean };
 
@@ -105,6 +106,9 @@ export function AccountSecurityPanel() {
         <Button disabled={busy || others === 0} onClick={() => void revokeOthers()} type="button" variant="outline">
           Cerrar las demás sesiones{others ? ` (${others})` : ""}
         </Button>
+      </div>
+      <div className="lg:col-span-2">
+        <TotpPanel />
       </div>
     </div>
   );

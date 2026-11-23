@@ -50,6 +50,8 @@ type JwtPayload = {
   email: string;
   iat: number;
   exp: number;
+  /** Identificador aleatorio: dos sesiones del mismo usuario en el mismo segundo no comparten token. */
+  jti?: string;
   /** Autorización delegada (ver `AuthGrant`). */
   grt?: { id: string; tid: string; cid: string; scp: "read" | "write"; cli: string };
 };
@@ -95,6 +97,7 @@ export function createAuthToken(user: JwtUser, maxAgeSeconds = AUTH_TOKEN_MAX_AG
     email: user.email,
     iat: now,
     exp: now + maxAgeSeconds,
+    jti: randomBytes(12).toString("base64url"),
     ...(grant ? { grt: { id: grant.id, tid: grant.tenantId, cid: grant.companyId, scp: grant.scope, cli: grant.clientName } } : {}),
   };
 
