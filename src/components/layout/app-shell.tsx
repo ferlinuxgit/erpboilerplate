@@ -223,7 +223,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.clearTimeout(timer);
   }, [drawerState]);
 
-  const isPublicRoute = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/oauth/") || pathname.startsWith("/invitations/") || pathname.startsWith("/reservar/") || pathname.startsWith("/carta/") || pathname === "/asesor" || pathname.startsWith("/asesor/");
+  const isPublicRoute = pathname === "/" || pathname === "/design-system" || pathname.startsWith("/auth") || pathname.startsWith("/oauth/") || pathname.startsWith("/invitations/") || pathname.startsWith("/reservar/") || pathname.startsWith("/carta/") || pathname === "/asesor" || pathname.startsWith("/asesor/");
   const activeContext = useActiveContext(!isPublicRoute);
   const { keyboardMode } = useKeyboardPreferences();
   const visibleGroups = filterNavigationGroups(navGroups, { modules: activeContext?.modules, businessType: activeContext?.businessType, role: activeContext?.user.role, countryCode: activeContext?.countryCode });
