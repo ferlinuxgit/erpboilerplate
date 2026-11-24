@@ -100,7 +100,7 @@ describe("herramientas MCP", () => {
 describe("protocolo MCP", () => {
   it("initialize negocia la versión y anuncia herramientas", async () => {
     const response = await handleMcpMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }, context());
-    expect(response?.result).toMatchObject({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "erp" } });
+    expect(response?.result).toMatchObject({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "norpie" } });
     const unknownVersion = await handleMcpMessage({ jsonrpc: "2.0", id: 2, method: "initialize", params: { protocolVersion: "1999-01-01" } }, context());
     expect((unknownVersion?.result as { protocolVersion: string }).protocolVersion).toBe("2025-06-18");
   });

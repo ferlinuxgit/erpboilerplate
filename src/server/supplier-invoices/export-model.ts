@@ -156,7 +156,7 @@ function distinct(values: Array<string | null>) {
 
 export async function buildExpenseExportWorkbook(data: ExpenseExportData, options: { documentPaths?: Map<string, string[]> } = {}) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "ERP Suite";
+  workbook.creator = "Norpie";
   workbook.created = data.generatedAt;
   workbook.subject = `Facturas recibidas · ${data.companyName} · ${data.periodLabel}`;
 

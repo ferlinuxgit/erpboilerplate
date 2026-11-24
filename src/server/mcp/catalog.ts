@@ -115,7 +115,7 @@ export function buildOpenApi(origin: string) {
   return {
     openapi: "3.1.0",
     info: {
-      title: "ERP API",
+      title: "Norpie API",
       version: "1.0.0",
       description: "Toda la API del ERP. Autenticación: OAuth 2.1 (conectores de IA), token personal o API key con `Authorization: Bearer`. Las acciones respetan los permisos del rol del usuario y la empresa autorizada.",
     },

@@ -17,13 +17,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "ERP Suite",
-    template: "%s · ERP Suite",
+    default: "Norpie",
+    template: "%s · Norpie",
   },
   description: "Gestión multiempresa de ventas, facturación, compras, inventario, contabilidad y tesorería.",
-  applicationName: "ERP Suite",
+  applicationName: "Norpie",
   // Instalada en la pantalla de inicio (iPhone/iPad): a pantalla completa, como una aplicación.
-  appleWebApp: { capable: true, title: "ERP", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Norpie", statusBarStyle: "default" },
   icons: { icon: "/favicon.ico", apple: "/icons/erp.svg" },
 };
 

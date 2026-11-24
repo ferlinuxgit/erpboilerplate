@@ -15,7 +15,7 @@ import { themes } from "@/lib/theme-config";
 
 export const metadata: Metadata = {
   title: "Design system",
-  description: "Sistema de diseño de ERP Suite: principios, color, tipografía, relieves, componentes, accesibilidad y tono.",
+  description: "Sistema de diseño de Norpie: principios, color, tipografía, relieves, componentes, accesibilidad y tono.",
 };
 
 const SECTIONS = [
@@ -55,7 +55,7 @@ export default function DesignSystemPage() {
           <p className="font-mono text-xs font-bold uppercase tracking-[0.06em] text-link">[ Design system · v1 ]</p>
           <h1 className="mt-2 font-mono text-4xl font-bold leading-tight sm:text-5xl">Retro, claro y hecho para cifras</h1>
           <p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
-            Las reglas visuales y de texto de ERP Suite: la aplicación, la web y cualquier pieza nueva salen de aquí. Todo lo que ves en esta página está construido con los mismos tokens y componentes que la aplicación.
+            Las reglas visuales y de texto de Norpie: la aplicación, la web y cualquier pieza nueva salen de aquí. Todo lo que ves en esta página está construido con los mismos tokens y componentes que la aplicación.
           </p>
           <div className="mt-5 max-w-xs">
             <p className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground">Prueba los {themes.length} temas</p>

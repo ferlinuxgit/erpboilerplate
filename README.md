@@ -1,4 +1,4 @@
-# ERP SaaS Boilerplate
+# Norpie
 
 Base avanzada para un ERP SaaS multi-tenant con:
 

@@ -121,7 +121,7 @@ export async function POST(request: Request) {
         value: await argon2.hash(code),
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
-      await sendEmail({ to: row.email, subject: "Código de acceso a ERP", html: `<p>Tu código de verificación es <strong>${code}</strong>.</p><p>Caduca en 10 minutos.</p>` });
+      await sendEmail({ to: row.email, subject: "Código de acceso a Norpie", html: `<p>Tu código de verificación es <strong>${code}</strong>.</p><p>Caduca en 10 minutos.</p>` });
       // Los intentos no se perdonan hasta superar también el segundo factor.
       return NextResponse.json({ requiresTwoFactor: true, challengeId, method: "email" }, { status: 202 });
     }

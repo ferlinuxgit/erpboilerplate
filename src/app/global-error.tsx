@@ -19,9 +19,9 @@ export default function GlobalError({
   return (
     <html lang="es">
       <body className="flex min-h-dvh items-center justify-center bg-background p-3 text-foreground">
-        <title>Error · ERP Suite</title>
+        <title>Error · Norpie</title>
         <main className="win-bevel w-full max-w-xl bg-card" role="alert">
-          <p className="bg-chrome-active px-2 py-1 font-mono text-xs font-bold text-chrome-active-foreground">ERP_SUITE.EXE</p>
+          <p className="bg-chrome-active px-2 py-1 font-mono text-xs font-bold text-chrome-active-foreground">NORPIE.EXE</p>
           <div className="space-y-3 p-4">
             <h1 className="font-mono text-lg font-bold">La aplicación no ha podido cargarse</h1>
             <p className="text-sm text-muted-foreground">

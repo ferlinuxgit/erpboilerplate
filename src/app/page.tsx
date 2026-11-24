@@ -27,7 +27,7 @@ import { AUDIENCES, CORE_FEATURE_GROUPS, PROOF_POINTS, buildFaqs } from "@/lib/m
 import { MODULES, getModule, type ModuleCategory, type ModuleId } from "@/modules/registry";
 
 export const metadata: Metadata = {
-  title: { absolute: "ERP Suite · Facturación, contabilidad e impuestos con VERI*FACTU" },
+  title: { absolute: "Norpie · Facturación, contabilidad e impuestos con VERI*FACTU" },
   description: `Factura con VERI*FACTU, lleva la contabilidad y prepara los modelos de la AEAT en un solo sitio. Desde ${formatEuros(BASE_PLAN.monthlyCents)} al mes, ${TRIAL_DAYS} días gratis.`,
 };
 

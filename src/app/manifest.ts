@@ -7,8 +7,8 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ERP Suite",
-    short_name: "ERP",
+    name: "Norpie",
+    short_name: "Norpie",
     description: "Facturación, gastos, contabilidad y TPV.",
     start_url: "/dashboard",
     scope: "/",

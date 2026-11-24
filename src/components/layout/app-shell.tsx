@@ -303,9 +303,9 @@ export function AppShell({ children }: AppShellProps) {
         data-testid="desktop-sidebar"
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
-          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text shadow-raised">ER</div>
+          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text shadow-raised">N</div>
           <div className="min-w-0 leading-none">
-            <p className="truncate font-mono text-xs font-bold">ERP Suite</p>
+            <p className="truncate font-mono text-xs font-bold">Norpie</p>
             <p className="mt-0.5 truncate font-mono text-xs text-chrome-active-foreground/75" title={activeCompanyName ?? undefined}>{activeCompanyName ?? "Espacio de trabajo"}</p>
           </div>
         </div>
@@ -348,10 +348,10 @@ export function AppShell({ children }: AppShellProps) {
             <List aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1 font-mono leading-none">
-            <p className="truncate text-center text-xs font-bold uppercase">{currentLink?.label ?? contextGroup?.label ?? "ERP Suite"}</p>
+            <p className="truncate text-center text-xs font-bold uppercase">{currentLink?.label ?? contextGroup?.label ?? "Norpie"}</p>
             {/* Empresa y ejercicio activos siempre visibles en móvil. */}
             <p className="mt-1 truncate text-center text-xs text-chrome-active-foreground/75" data-testid="mobile-active-company">
-              {activeCompanyName ? `${activeCompanyName}${activeFiscalYearCode ? ` · ${activeFiscalYearCode}` : ""}` : "ERP Suite"}
+              {activeCompanyName ? `${activeCompanyName}${activeFiscalYearCode ? ` · ${activeFiscalYearCode}` : ""}` : "Norpie"}
             </p>
           </div>
           <span aria-hidden="true" className="size-9 shrink-0" />
@@ -388,9 +388,9 @@ export function AppShell({ children }: AppShellProps) {
             >
               <div className="flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
                 <div className="flex items-center gap-2">
-                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text">ER</div>
+                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text">N</div>
                   <div>
-                    <p className="font-mono text-xs font-bold">ERP Suite</p>
+                    <p className="font-mono text-xs font-bold">Norpie</p>
                     <p className="font-mono text-xs text-chrome-active-foreground/75">Menú principal</p>
                   </div>
                 </div>

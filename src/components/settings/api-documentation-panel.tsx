@@ -145,12 +145,12 @@ function buildDocumentationCopy(tokenName: string, token: string) {
     .join("\n\n");
 
   return [
-    "ERP API - Documentacion de integracion",
+    "Norpie API - Documentacion de integracion",
     `Token seleccionado: ${tokenName}`,
     "",
     "Base URL",
-    "https://erp.comodore.es",
-    "Ejemplo de endpoint completo: https://erp.comodore.es/api/invoices",
+    "https://norpie.com",
+    "Ejemplo de endpoint completo: https://norpie.com/api/invoices",
     "",
     "Autenticacion",
     `Authorization: Bearer ${token}`,
@@ -203,7 +203,7 @@ export function ApiDocumentationPanel({ tokens }: { tokens: ApiTokenOption[] }) 
     <div className="space-y-3">
       <div className="grid gap-3 border border-window-dark-shadow bg-window-panel p-3 shadow-bevel-top md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-end">
         <p className="text-xs text-muted-foreground md:col-span-3">
-          Base URL para integraciones: <code>https://erp.comodore.es</code>. Configura los endpoints como rutas relativas, por ejemplo <code>/api/customers</code> o <code>/api/invoices</code>.
+          Base URL para integraciones: <code>https://norpie.com</code>. Configura los endpoints como rutas relativas, por ejemplo <code>/api/customers</code> o <code>/api/invoices</code>.
         </p>
         <AccessibleField id="api-doc-token" label="Token seleccionado">
           <Select

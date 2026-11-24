@@ -2,13 +2,13 @@ import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
 
-export const BRAND_NAME = "ERP Suite";
+export const BRAND_NAME = "Norpie";
 
 /** Logotipo: cuadro biselado con las iniciales y el nombre en monoespaciada. */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span className={className ?? "flex items-center gap-2 whitespace-nowrap font-mono text-sm font-bold"}>
-      <span aria-hidden="true" className="grid size-7 place-items-center border border-white/70 bg-window-highlight text-xs font-black text-window-text shadow-raised">ER</span>
+      <span aria-hidden="true" className="grid size-7 place-items-center border border-white/70 bg-window-highlight text-xs font-black text-window-text shadow-raised">N</span>
       {BRAND_NAME}
     </span>
   );

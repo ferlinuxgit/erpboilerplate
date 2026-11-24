@@ -41,7 +41,7 @@ export async function handleMcpMessage(message: unknown, context: McpCallContext
         result: {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "erp", title: "ERP", version: SERVER_VERSION },
+          serverInfo: { name: "norpie", title: "Norpie", version: SERVER_VERSION },
           instructions: MCP_INSTRUCTIONS,
         },
       };

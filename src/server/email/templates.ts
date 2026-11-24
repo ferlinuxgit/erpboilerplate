@@ -7,7 +7,7 @@ import { escapeEmailHtml } from "@/server/email/send";
 
 export type EmailMessage = { subject: string; html: string };
 
-const APP_NAME = "ERP Suite";
+const APP_NAME = "Norpie";
 
 function singleLine(value: string) {
   return value.replace(/[\r\n]+/g, " ").trim();

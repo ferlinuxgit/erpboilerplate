@@ -117,7 +117,7 @@ describe("POST /api/auth/register recovery", () => {
     }));
     expect(mocks.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: "existing@example.com",
-      subject: "Confirma tu correo para empezar a usar ERP Suite",
+      subject: "Confirma tu correo para empezar a usar Norpie",
       html: expect.stringContaining("https://erp.example.com/auth/verify-email?token="),
     }));
   });

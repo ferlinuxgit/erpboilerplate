@@ -37,7 +37,7 @@ export type WorkbookMeta = { title: string; companyName: string; companyTaxId: s
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cada hoja tiene su propio tipo de fila
 export async function buildAdvisorWorkbook(meta: WorkbookMeta, sheets: Array<SheetSpec<any>>) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "ERP Suite · Portal del asesor";
+  workbook.creator = "Norpie · Portal del asesor";
   workbook.created = meta.generatedAt;
   workbook.title = `${meta.title} · ${meta.companyName} · ${meta.periodLabel}`;
   for (const spec of sheets) {

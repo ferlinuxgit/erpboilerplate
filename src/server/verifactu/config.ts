@@ -118,9 +118,9 @@ function clean(value: string | undefined, fallback: string, maxLength: number) {
 /** Bloque SistemaInformatico. `installationKey` identifica la instalación (por defecto, la empresa). */
 export function getVerifactuSystemInfo(installationKey: string, env: Env = process.env): VerifactuSystemInfo {
   return {
-    NombreRazon: clean(env.VERIFACTU_PRODUCER_NAME, "ERP Suite", 120),
+    NombreRazon: clean(env.VERIFACTU_PRODUCER_NAME, "Norpie", 120),
     NIF: clean(env.VERIFACTU_PRODUCER_NIF, "", 9).toUpperCase(),
-    NombreSistemaInformatico: clean(env.VERIFACTU_SYSTEM_NAME, "ERP Suite", 30),
+    NombreSistemaInformatico: clean(env.VERIFACTU_SYSTEM_NAME, "Norpie", 30),
     IdSistemaInformatico: clean(env.VERIFACTU_SYSTEM_ID, "ES", 2),
     Version: clean(env.VERIFACTU_SYSTEM_VERSION, "0.1.0", 50),
     NumeroInstalacion: clean(env.VERIFACTU_INSTALLATION_NUMBER, installationKey, 100),

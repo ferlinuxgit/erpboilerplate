@@ -76,7 +76,7 @@ function sheetWithHeader(workbook: ExcelJS.Workbook, name: string, columns: Arra
 
 function newWorkbook(data: GestorPackageData, title: string) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "ERP Suite";
+  workbook.creator = "Norpie";
   workbook.created = data.generatedAt;
   workbook.subject = `${title} · ${data.companyName} · ${data.periodLabel}`;
   return workbook;
