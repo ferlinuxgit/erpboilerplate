@@ -28,6 +28,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { useActiveContext } from "@/lib/active-context-client";
 import { cn } from "@/lib/utils";
+import { NorpieLogo } from "@/components/brand/norpie-logo";
 
 type AppShellProps = Readonly<{ children: ReactNode }>;
 
@@ -303,7 +304,7 @@ export function AppShell({ children }: AppShellProps) {
         data-testid="desktop-sidebar"
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
-          <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text shadow-raised">N</div>
+          <NorpieLogo />
           <div className="min-w-0 leading-none">
             <p className="truncate font-mono text-xs font-bold">Norpie</p>
             <p className="mt-0.5 truncate font-mono text-xs text-chrome-active-foreground/75" title={activeCompanyName ?? undefined}>{activeCompanyName ?? "Espacio de trabajo"}</p>
@@ -388,7 +389,7 @@ export function AppShell({ children }: AppShellProps) {
             >
               <div className="flex h-[3.25rem] shrink-0 items-center justify-between gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
                 <div className="flex items-center gap-2">
-                  <div className="grid size-7 place-items-center border border-white/70 bg-window-highlight font-mono text-xs font-black text-window-text">N</div>
+                  <NorpieLogo />
                   <div>
                     <p className="font-mono text-xs font-bold">Norpie</p>
                     <p className="font-mono text-xs text-chrome-active-foreground/75">Menú principal</p>

@@ -1,6 +1,7 @@
 import { Buildings, ChartLineUp, ShieldCheck } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { NorpieLogo } from "@/components/brand/norpie-logo";
 
 const highlights = [
   { icon: ChartLineUp, label: "Ventas, cobros y bancos conectados" },
@@ -15,7 +16,7 @@ export function AuthPageShell({ children }: { children: ReactNode }) {
       <div className="w-full max-w-md overflow-hidden rounded-surface border border-window-dark-shadow bg-window-surface shadow-window-lg lg:max-w-4xl">
         <div className="flex h-11 items-center gap-2 border-b border-window-dark-shadow bg-chrome-active px-2 text-chrome-active-foreground">
           <Link className="flex min-h-11 items-center gap-2 font-mono text-sm font-bold" href="/">
-            <span aria-hidden="true" className="grid size-7 place-items-center border border-white/70 bg-window-highlight text-xs font-black text-window-text shadow-raised">N</span>
+            <NorpieLogo />
             Norpie
           </Link>
           <span aria-hidden="true" className="ml-auto truncate font-mono text-xs text-chrome-active-foreground/75">Acceso</span>

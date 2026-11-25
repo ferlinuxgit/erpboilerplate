@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { AdvisorNav, type AdvisorNavItem } from "@/components/advisor/advisor-nav";
 import { AdvisorSessionControls } from "@/components/advisor/advisor-session-controls";
 import { requireAdvisorPage } from "@/server/advisor/auth";
+import { NorpieLogo } from "@/components/brand/norpie-logo";
 
 export const metadata: Metadata = { title: { default: "Portal del asesor", template: "%s · Portal del asesor" }, robots: { index: false, follow: false } };
 
@@ -22,7 +23,7 @@ export default async function AdvisorPortalLayout({ children }: { children: Reac
     <div className="min-h-dvh bg-background pb-8">
       <header className="border-b border-window-dark-shadow bg-chrome-active text-chrome-active-foreground">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-2 py-2 sm:px-4">
-          <span aria-hidden="true" className="grid size-7 place-items-center border border-white/70 bg-window-highlight text-xs font-black text-window-text shadow-raised">N</span>
+          <NorpieLogo />
           <div className="min-w-0">
             <p className="font-mono text-xs text-chrome-active-foreground/80">Portal del asesor</p>
             <p className="truncate font-mono text-sm font-bold" data-testid="advisor-company-name">

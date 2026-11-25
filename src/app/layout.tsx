@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   applicationName: "Norpie",
   // Instalada en la pantalla de inicio (iPhone/iPad): a pantalla completa, como una aplicación.
   appleWebApp: { capable: true, title: "Norpie", statusBarStyle: "default" },
-  icons: { icon: "/favicon.ico", apple: "/icons/erp.svg" },
+  icons: { icon: [{ url: "/favicon.ico", sizes: "16x16 32x32 64x64" }, { url: "/icons/norpie.svg", type: "image/svg+xml" }], apple: "/icons/apple-touch-icon.png" },
 };
 
 export default function RootLayout({

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
+import { NorpieLogo } from "@/components/brand/norpie-logo";
 
 export const BRAND_NAME = "Norpie";
 
@@ -8,7 +9,7 @@ export const BRAND_NAME = "Norpie";
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span className={className ?? "flex items-center gap-2 whitespace-nowrap font-mono text-sm font-bold"}>
-      <span aria-hidden="true" className="grid size-7 place-items-center border border-white/70 bg-window-highlight text-xs font-black text-window-text shadow-raised">N</span>
+      <NorpieLogo />
       {BRAND_NAME}
     </span>
   );
