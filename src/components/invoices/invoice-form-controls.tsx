@@ -52,6 +52,8 @@ export const discountRegisterOptions = {
 type InvoiceTotals = ReturnType<typeof calculateInvoiceTotals>;
 
 type LineBindings = {
+  /** Artículo del catálogo (opcional: solo si el editor recibe `itemOptions`). */
+  item?: UseFormRegisterReturn;
   description: UseFormRegisterReturn;
   quantity: UseFormRegisterReturn;
   unitPrice: UseFormRegisterReturn;
@@ -181,10 +183,13 @@ export function InvoiceLinesEditor<T extends FieldValues>({
   onAdd,
   onDuplicate,
   onMove,
+  itemOptions,
   onRemove,
   taxes,
   totals,
 }: {
+  /** Artículos que se pueden elegir en cada línea (columna «Artículo»). */
+  itemOptions?: ReadonlyArray<{ id: string; label: string }>;
   /** Control del formulario: registra los impuestos de cada línea (`lines.N.taxIds`). */
   control: Control<T>;
   errors: LineError[];
@@ -204,6 +209,7 @@ export function InvoiceLinesEditor<T extends FieldValues>({
     const lineTotal = totals.lines[index];
     return {
       key: field.id,
+      item: itemOptions?.length ? bindings.item : undefined,
       description: bindings.description,
       quantity: bindings.quantity,
       unitPrice: bindings.unitPrice,
@@ -220,6 +226,7 @@ export function InvoiceLinesEditor<T extends FieldValues>({
       <LinesEditor
         addTestId="invoice-add-line"
         idPrefix="invoice-line"
+        itemOptions={itemOptions?.length ? itemOptions : undefined}
         onAdd={onAdd}
         onDuplicate={onDuplicate}
         onMove={onMove}

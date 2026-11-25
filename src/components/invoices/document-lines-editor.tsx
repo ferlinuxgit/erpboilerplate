@@ -4,6 +4,7 @@ import { LinesEditor, type LinesEditorRow } from "@/components/invoices/lines-ed
 import { moveItem } from "@/components/invoices/lines-editor-model";
 import { parseDecimalInput } from "@/lib/format";
 import { calculateInvoiceTotals, type InvoiceTotals } from "@/lib/invoice-totals";
+import { resolveLinePrice, type CustomerPricing } from "@/lib/pricing";
 
 export { standardRetentionRates, standardVatRates } from "@/components/invoices/lines-editor-model";
 
@@ -28,7 +29,40 @@ export type DocumentCatalogItem = {
   label: string;
   description: string;
   unitPrice?: string | number | null;
+  /** Precio de venta base: con él, el precio de la línea sale de la tarifa del cliente (ver `pricing`). */
+  salePrice?: number;
 };
+
+/** Precio y descuento de un artículo del catálogo para el cliente (tarifa + descuento de grupo). */
+function catalogLinePatch(entry: DocumentCatalogItem, pricing: CustomerPricing | undefined, withDiscount: boolean): Partial<DocumentLineDraft> {
+  if (entry.salePrice !== undefined) {
+    const resolved = resolveLinePrice({ id: entry.id, salePrice: entry.salePrice }, pricing);
+    return {
+      unitPrice: String(resolved.unitPrice),
+      ...(withDiscount ? { discountPct: resolved.discountPct ? String(resolved.discountPct) : "" } : {}),
+    };
+  }
+  return entry.unitPrice !== null && entry.unitPrice !== undefined ? { unitPrice: String(entry.unitPrice) } : {};
+}
+
+/**
+ * Recalcula precio y descuento de las líneas con artículo (al cambiar de cliente). Devuelve las
+ * líneas y cuántas han cambiado.
+ */
+export function repriceDocumentLines(lines: DocumentLineDraft[], catalog: DocumentCatalogItem[], pricing: CustomerPricing, withDiscount: boolean) {
+  let changed = 0;
+  const next = lines.map((line) => {
+    const entry = line.itemId ? catalog.find((candidate) => candidate.id === line.itemId) : undefined;
+    if (!entry || entry.salePrice === undefined) return line;
+    const patch = catalogLinePatch(entry, pricing, withDiscount);
+    const differs = (patch.unitPrice !== undefined && parseDecimalInput(patch.unitPrice) !== parseDecimalInput(line.unitPrice))
+      || (patch.discountPct !== undefined && (parseDecimalInput(patch.discountPct) ?? 0) !== (parseDecimalInput(line.discountPct ?? "") ?? 0));
+    if (!differs) return line;
+    changed += 1;
+    return { ...line, ...patch };
+  });
+  return { lines: next, changed };
+}
 
 type TotalsOptions = { withTax: boolean; retentionRate?: number };
 
@@ -102,6 +136,8 @@ type DocumentLinesEditorProps = {
   retentionRate?: number;
   defaultTaxRate?: number;
   catalog?: DocumentCatalogItem[];
+  /** Tarifa y descuento del cliente para los artículos con `salePrice`. */
+  pricing?: CustomerPricing;
   currencyCode?: string;
 };
 
@@ -115,6 +151,7 @@ export function DocumentLinesEditor({
   idPrefix,
   lines,
   onChange,
+  pricing,
   retentionRate = 0,
   title,
   withDiscount = false,
@@ -145,9 +182,7 @@ export function DocumentLinesEditor({
               const selected = catalog?.find((entry) => entry.id === event.target.value);
               update(index, {
                 itemId: event.target.value,
-                ...(selected
-                  ? { description: selected.description, ...(selected.unitPrice !== null && selected.unitPrice !== undefined ? { unitPrice: String(selected.unitPrice) } : {}) }
-                  : {}),
+                ...(selected ? { description: selected.description, ...catalogLinePatch(selected, pricing, withDiscount) } : {}),
               });
             },
           }

@@ -1,8 +1,9 @@
 "use client";
 
-import { SalesDocumentForm, type SalesCustomerOption, type SalesDocumentFormValues } from "@/components/sales/sales-document-form";
+import { SalesDocumentForm, type SaleCatalogEntry, type SalesCustomerOption, type SalesDocumentFormValues } from "@/components/sales/sales-document-form";
 
 export function CreateSalesOrderForm({
+  catalog,
   currencyCode,
   customers,
   defaultTaxRate = 21,
@@ -10,6 +11,7 @@ export function CreateSalesOrderForm({
   initialValues,
   orderId,
 }: {
+  catalog?: SaleCatalogEntry[];
   currencyCode?: string;
   customers: SalesCustomerOption[];
   defaultTaxRate?: number;
@@ -20,6 +22,7 @@ export function CreateSalesOrderForm({
 }) {
   return (
     <SalesDocumentForm
+      catalog={catalog}
       currencyCode={currencyCode}
       customers={customers}
       defaultTaxRate={defaultTaxRate}

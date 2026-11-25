@@ -19,6 +19,7 @@ import { canManageCustomers } from "@/lib/rbac";
 import { invoiceLifecycle, isSalesVatTreatment, type RectificationReason, type RectificationType } from "@/server/invoices/lifecycle";
 import { vatExemptionCodeSchema } from "@/server/invoices/schemas";
 import { getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
+import { listSaleCatalog } from "@/server/pricing/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -207,6 +208,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
             defaultCustomerId={data.customerId}
             invoiceNumber={data.number}
             defaultLines={defaultLines}
+            catalog={await listSaleCatalog(ctx.company.id)}
             defaultIssueDate={dateInputValue(data.issueDate, ctx.company.timezone)}
             defaultDueDate={data.dueDate ? dateInputValue(data.dueDate, ctx.company.timezone) : ""}
             defaultNotes={data.notes}

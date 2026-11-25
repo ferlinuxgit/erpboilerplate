@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
 import { canManageCustomers, canManageInvoices } from "@/lib/rbac";
 import { listSelectableSeries } from "@/server/documents/series";
+import { listSaleCatalog } from "@/server/pricing/service";
 
 export const metadata: Metadata = { title: "Nueva factura" };
 
@@ -99,6 +100,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             defaultIssueDate={defaultIssueDate}
             initialCustomerId={initialCustomerId}
             invoiceSeries={invoiceSeries}
+            catalog={await listSaleCatalog(tenantContext.company.id)}
             paymentMethods={paymentMethods}
             taxes={taxes.map((configuredTax) => ({
               ...configuredTax,

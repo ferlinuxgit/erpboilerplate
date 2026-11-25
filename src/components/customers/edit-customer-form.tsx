@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
-import { CountrySelectField, CustomerBillingFields } from "@/components/customers/customer-billing-fields";
+import { CountrySelectField, CustomerBillingFields, type CustomerPricingOptions } from "@/components/customers/customer-billing-fields";
 import { DUNNING_OPT_OUT_HELP, DUNNING_OPT_OUT_LABEL, saveDunningOptOut } from "@/components/customers/dunning-opt-out-toggle";
 import { ViesCheck, type ViesSnapshot } from "@/components/customers/vies-check";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
@@ -35,6 +35,8 @@ export type EditCustomerDefaults = {
   invoiceEmail: string | null;
   iban: string | null;
   equivalenceSurcharge: boolean;
+  customerGroupId?: string | null;
+  priceListId?: string | null;
 };
 
 export function EditCustomerForm({
@@ -42,9 +44,12 @@ export function EditCustomerForm({
   dunningOptOut,
   homeCountryCode = "ES",
   id,
+  pricingOptions,
   vies,
 }: {
   id: string;
+  /** Grupos y tarifas de la empresa (selectores de grupo y tarifa propia). */
+  pricingOptions?: CustomerPricingOptions;
   /** País de la empresa: VIES solo aplica a clientes de otro país de la UE. */
   homeCountryCode?: string;
   defaults: EditCustomerDefaults;
@@ -80,6 +85,8 @@ export function EditCustomerForm({
       invoiceEmail: defaults.invoiceEmail ?? "",
       iban: defaults.iban ?? "",
       equivalenceSurcharge: defaults.equivalenceSurcharge,
+      customerGroupId: defaults.customerGroupId ?? null,
+      priceListId: defaults.priceListId ?? null,
     },
   });
   const countryCode = useWatch({ control, name: "countryCode" });
@@ -157,7 +164,7 @@ export function EditCustomerForm({
           <ViesCheck customerId={id} initial={vies ?? null} />
         </div>
       ) : null}
-      <CustomerBillingFields errors={errors} homeCountryCode={homeCountryCode} register={register} />
+      <CustomerBillingFields errors={errors} homeCountryCode={homeCountryCode} pricingOptions={pricingOptions} register={register} />
       {dunningOptOut !== undefined ? (
         <div className="space-y-1 md:col-span-6" data-testid="customer-edit-dunning-opt-out">
           <label className="flex items-center gap-2 font-mono text-xs font-bold" htmlFor="customer-dunning-opt-out">

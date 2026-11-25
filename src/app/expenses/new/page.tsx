@@ -7,7 +7,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
+import { db } from "@/lib/db";
+import { formatSeriesNumber } from "@/lib/document-series-format";
 import { listPostingAccounts } from "@/server/accounting/service";
+import { listSelectableSeries } from "@/server/documents/series";
 import { isModuleEnabled } from "@/server/modules/service";
 import { countExpenseInbox } from "@/server/ocr/expense-ocr";
 import { listSupplierInvoiceRelations, listSupplierPartners } from "@/server/supplier-invoices/service";
@@ -18,12 +21,20 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
   const ctx = await requireContext("expense.write");
   const query = await searchParams;
   const initialSupplierId = Array.isArray(query?.supplierId) ? query.supplierId[0] : query?.supplierId;
-  const [accounts, suppliers, relations, pendingInboxCount] = await Promise.all([
+  const [accounts, suppliers, relations, pendingInboxCount, seriesRows] = await Promise.all([
     listPostingAccounts(ctx.company.id),
     listSupplierPartners(ctx.company.id),
     listSupplierInvoiceRelations(ctx.company.id),
     countExpenseInbox(ctx.company.id),
+    listSelectableSeries(db, ctx.company.id, ctx.fiscalYear.id, "SUPPLIER_INVOICE"),
   ]);
+  const expenseSeries = seriesRows.map((series) => ({
+    id: series.id,
+    code: series.code,
+    name: series.name,
+    isDefault: series.isDefault,
+    preview: formatSeriesNumber({ format: series.format, nextNumber: series.nextNumber, prefix: series.prefix, referenceDate: new Date() }),
+  }));
   const expenseAccounts = accounts
     .filter((account) => account.type === "EXPENSE")
     .map((account) => ({ id: account.id, code: account.code, name: account.name }));
@@ -60,6 +71,7 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
             baseCurrencyCode={ctx.company.baseCurrencyCode}
             homeCountryCode={await getCompanyTaxTerritory(ctx.company.id)}
             expenseAccounts={expenseAccounts}
+            expenseSeries={expenseSeries}
             goodsReceipts={relations.receipts}
             initialSupplierId={initialSupplierId}
             pendingInboxCount={readingEnabled ? pendingInboxCount : 0}

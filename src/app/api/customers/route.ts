@@ -39,6 +39,8 @@ export async function GET(request: Request) {
       invoiceEmail: customer.invoiceEmail,
       iban: customer.iban,
       equivalenceSurcharge: customer.equivalenceSurcharge,
+      customerGroupId: customer.customerGroupId,
+      priceListId: customer.priceListId,
       viesStatus: customer.viesStatus,
       viesCheckedAt: customer.viesCheckedAt,
       createdAt: customer.createdAt,

@@ -71,6 +71,17 @@ export const settingsSections: SettingsSection[] = [
     ],
   },
   {
+    id: "pricing",
+    label: "Tarifas y descuentos",
+    description: "Listas de precios de venta y grupos de clientes con su tarifa y su descuento.",
+    href: "/settings/pricing",
+    permission: "settings.manage",
+    items: [
+      { label: "Tarifas de precios", description: "Precios de venta por artículo para mayoristas, hostelería, distribuidores…", href: "/settings/pricing#tarifas", keywords: "tarifa tarifas lista de precios precio especial mayorista distribuidor pvp catalogo" },
+      { label: "Grupos de clientes", description: "Agrupa clientes para darles una tarifa y un descuento automáticos.", href: "/settings/pricing#grupos", keywords: "grupo grupos clientes descuento dto rappel socios distribuidores tarifa" },
+    ],
+  },
+  {
     id: "fiscal",
     label: "Fiscalidad",
     description: "Cómo tributas, VERI*FACTU y los tipos de impuesto que usas.",

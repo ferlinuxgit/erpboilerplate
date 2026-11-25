@@ -110,6 +110,8 @@ export type CreateExpenseInvoiceInput = {
   purchaseOrderId?: string;
   goodsReceiptId?: string;
   number?: string;
+  /** Serie de numeración elegida para el número de registro. Sin ella, la serie por defecto. */
+  seriesId?: string;
   supplierDocumentNumber?: string;
   issueDate: Date;
   /** Fecha de registro (periodo de IVA y asiento); por defecto la de la factura. */
@@ -529,6 +531,8 @@ async function createSupplierInvoiceHeader(input: {
   purchaseOrderId?: string | null;
   goodsReceiptId?: string | null;
   number?: string;
+  /** Serie de numeración elegida (registro de facturas recibidas). Sin ella, la serie por defecto. */
+  seriesId?: string | null;
   supplierDocumentNumber?: string;
   issueDate: Date;
   accountingDate?: Date;
@@ -593,6 +597,7 @@ async function createSupplierInvoiceHeader(input: {
       companyId: input.companyId,
       fiscalYearId: input.fiscalYearId,
       type: "SUPPLIER_INVOICE",
+      seriesId: input.seriesId,
     }));
   const supplierIdentityKey = input.supplierIdentityKey ?? buildSupplierIdentityKey({
     partnerId: input.supplierPartnerId,

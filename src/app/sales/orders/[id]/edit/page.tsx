@@ -52,6 +52,7 @@ export default async function EditSalesOrderPage({ params }: { params: Promise<{
           </InlineAlert>
         ) : (
           <CreateSalesOrderForm
+            catalog={formData.catalog}
             currencyCode={ctx.company.baseCurrencyCode}
             customers={formData.customers}
             defaultTaxRate={formData.defaultTaxRate}
@@ -60,6 +61,7 @@ export default async function EditSalesOrderPage({ params }: { params: Promise<{
               number: record.number,
               issueDate: dateInputValue(record.issueDate, ctx.company.timezone),
               lines: lines.map((line) => ({
+                itemId: line.itemId,
                 description: line.description,
                 quantity: line.quantity,
                 unitPrice: line.unitPrice,

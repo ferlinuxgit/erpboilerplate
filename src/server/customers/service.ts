@@ -11,6 +11,7 @@ import { isSalesVatTreatment } from "@/server/invoices/lifecycle";
 import { creditedByInvoiceSubquery, invoiceIsDraftSql, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
 import { syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { reservePartnerNumber } from "@/server/partners/numbers";
+import { assertCustomerPricingRefs } from "@/server/pricing/service";
 import { createCustomerSchema, updateCustomerSchema } from "@/server/schemas/forms";
 
 type BillingInput = Partial<z.infer<typeof customerBillingSchema>>;
@@ -29,6 +30,8 @@ export function billingValues(input: BillingInput) {
     ...(input.invoiceEmail !== undefined ? { invoiceEmail: input.invoiceEmail?.trim() || null } : {}),
     ...(input.iban !== undefined ? { iban: normalizeIban(input.iban) || null } : {}),
     ...(input.equivalenceSurcharge !== undefined ? { equivalenceSurcharge: input.equivalenceSurcharge } : {}),
+    ...(input.customerGroupId !== undefined ? { customerGroupId: input.customerGroupId || null } : {}),
+    ...(input.priceListId !== undefined ? { priceListId: input.priceListId || null } : {}),
   };
 }
 
@@ -65,6 +68,7 @@ function partnerTypeForCustomer(currentType: "CUSTOMER" | "SUPPLIER" | "BOTH") {
 }
 
 export async function createCustomerWithPartner(dbClient: DbClient, companyId: string, input: CreateCustomerInput) {
+  await assertCustomerPricingRefs(companyId, input, dbClient);
   const values = fiscalValues(input);
   const existingPartners = await dbClient
     .select({ id: partner.id, number: partner.number, type: partner.type })
@@ -150,6 +154,7 @@ export async function updateCustomerWithPartner(
   currentPartnerId: string | null,
   input: UpdateCustomerInput,
 ) {
+  await assertCustomerPricingRefs(companyId, input, dbClient);
   const values = fiscalValues(input);
   let partnerId = currentPartnerId;
   let fiscalIdentityChanged = !partnerId;

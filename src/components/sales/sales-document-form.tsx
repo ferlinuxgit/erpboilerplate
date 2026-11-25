@@ -9,12 +9,15 @@ import {
   DocumentLinesEditor,
   createDocumentLine,
   documentLinesPayload,
+  repriceDocumentLines,
   documentLinesTotals,
   standardRetentionRates,
   validateDocumentLines,
+  type DocumentCatalogItem,
   type DocumentLineDraft,
   type DocumentLineErrors,
 } from "@/components/invoices/document-lines-editor";
+import { useCustomerPricing } from "@/components/invoices/use-customer-pricing";
 import { InvoiceTotalsSummary } from "@/components/invoices/invoice-form-controls";
 import { retentionRateLabel } from "@/components/invoices/lines-editor-model";
 import { buttonVariants } from "@/components/ui/button";
@@ -26,11 +29,19 @@ import { EmptyState } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { parseDecimalInput } from "@/lib/format";
+import { describeCustomerPricing, type SaleCatalogEntry } from "@/lib/pricing";
 import { addDaysToDateInput, todayDateInput } from "@/server/invoices/due-dates";
 
 export type SalesCustomerOption = { id: string; number?: string | null; name: string; defaultRetentionRate?: number | null };
 
+export type { SaleCatalogEntry };
+
+export function toDocumentCatalog(entries: SaleCatalogEntry[]): DocumentCatalogItem[] {
+  return entries.map((entry) => ({ id: entry.id, label: `${entry.sku} · ${entry.name}`, description: entry.name, salePrice: entry.salePrice }));
+}
+
 export type SalesDocumentLineValues = {
+  itemId?: string | null;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -93,6 +104,7 @@ type HeaderErrors = Partial<Record<"customerId" | "issueDate" | "validUntil", st
  * shared line editor (discount, IVA, IRPF) and live totals as invoices.
  */
 export function SalesDocumentForm({
+  catalog: catalogEntries = [],
   crmOpportunityId,
   currencyCode = "EUR",
   customers,
@@ -102,6 +114,8 @@ export function SalesDocumentForm({
   initialValues,
   kind,
 }: {
+  /** Artículos activos: al elegir uno, la línea toma su precio de la tarifa del cliente. */
+  catalog?: SaleCatalogEntry[];
   /** Presupuesto creado desde una oportunidad del CRM (se vincula al guardarlo). */
   crmOpportunityId?: string;
   currencyCode?: string;
@@ -133,6 +147,7 @@ export function SalesDocumentForm({
     initialValues?.lines.length
       ? initialValues.lines.map((line) =>
           createDocumentLine({
+            itemId: line.itemId ?? undefined,
             description: line.description,
             quantity: line.quantity,
             unitPrice: line.unitPrice,
@@ -142,6 +157,19 @@ export function SalesDocumentForm({
         )
       : [createDocumentLine({ taxRate: String(defaultTaxRate) })],
   );
+  const catalog = toDocumentCatalog(catalogEntries);
+  // Al cambiar de cliente, las líneas con artículo se recalculan con su tarifa y su descuento.
+  const [repriceFor, setRepriceFor] = useState<string | null>(null);
+  const { pricing } = useCustomerPricing(customerId, (loaded, loadedFor) => {
+    if (repriceFor !== loadedFor) return;
+    setRepriceFor(null);
+    setLines((current) => {
+      const result = repriceDocumentLines(current, catalog, loaded, true);
+      if (result.changed) toast.info(`Precios de ${result.changed} línea(s) actualizados para este cliente.`);
+      return result.changed ? result.lines : current;
+    });
+  });
+  const pricingHint = describeCustomerPricing(pricing);
   const [headerErrors, setHeaderErrors] = useState<HeaderErrors>({});
   const [lineErrors, setLineErrors] = useState<DocumentLineErrors[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -196,7 +224,7 @@ export function SalesDocumentForm({
           issueDate,
           ...(kind === "quote" ? { validUntil } : {}),
           ...(kind === "quote" && crmOpportunityId && !documentId ? { crmOpportunityId } : {}),
-          lines: documentLinesPayload(lines, { retentionRate, withDiscount: true, withTax: true }),
+          lines: documentLinesPayload(lines, { retentionRate, withDiscount: true, withItem: catalog.length > 0, withTax: true }),
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response, fallback));
@@ -225,6 +253,7 @@ export function SalesDocumentForm({
             autoFocus={!isEdit}
             onChange={(event) => {
               setCustomerId(event.target.value);
+              setRepriceFor(event.target.value || null);
               // La retención habitual del cliente se aplica mientras no se cambie a mano.
               if (!retentionTouched) setRetentionRate(customerRetention(event.target.value));
             }}
@@ -277,7 +306,9 @@ export function SalesDocumentForm({
         ) : null}
       </div>
 
+      {pricingHint ? <p className="text-xs text-muted-foreground" data-testid={`${idPrefix}-pricing-hint`}>{pricingHint} Se aplican al elegir un artículo en la línea.</p> : null}
       <DocumentLinesEditor
+        catalog={catalog}
         currencyCode={currencyCode}
         defaultTaxRate={defaultTaxRate}
         errors={lineErrors}
@@ -287,6 +318,7 @@ export function SalesDocumentForm({
           setLines(next);
           if (lineErrors.length) setLineErrors([]);
         }}
+        pricing={pricing}
         retentionRate={retentionRate}
         title={text.linesTitle}
         withDiscount

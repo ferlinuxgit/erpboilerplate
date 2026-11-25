@@ -10,6 +10,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { customerLineTaxIds, type CustomerOption } from "@/components/create-invoice-form";
 import { DueDateHint } from "@/components/invoices/due-date-hint";
+import { useInvoiceLinePricing } from "@/components/invoices/use-invoice-line-pricing";
 import { CustomerSearchDialog } from "@/components/invoices/customer-search-dialog";
 import { InvoiceCustomerPicker } from "@/components/invoices/invoice-customer-picker";
 import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
@@ -32,6 +33,7 @@ import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney } from "@/lib/format";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import type { SaleCatalogEntry } from "@/lib/pricing";
 import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
 import type { VatTreatmentContext } from "@/lib/country-packs/vat-treatment";
 import { customerDefaultVatTreatment, type SalesVatTreatmentCode } from "@/server/invoices/lifecycle";
@@ -55,6 +57,7 @@ function firstFormErrorMessage(error: unknown): string | null {
 
 export function EditInvoiceForm({
   canCreateCustomer,
+  catalog = [],
   companyPaymentTermsDays,
   customers,
   defaultCustomerId,
@@ -74,6 +77,8 @@ export function EditInvoiceForm({
   vatContext,
   vatTreatments,
 }: {
+  /** Artículos activos: al elegir uno, la línea toma su precio de la tarifa del cliente y su descuento de grupo. */
+  catalog?: SaleCatalogEntry[];
   /** País de la empresa y qué vende: deciden el tratamiento de IVA propuesto para cada cliente. */
   vatContext?: VatTreatmentContext;
   /** Tratamientos de IVA que usa la empresa (Configuración › Fiscalidad). */
@@ -115,6 +120,7 @@ export function EditInvoiceForm({
   const activeTaxes = useMemo(() => taxes.filter((configuredTax) => configuredTax.isActive), [taxes]);
   const {
     control,
+    getValues,
     register,
     handleSubmit,
     setValue,
@@ -139,6 +145,7 @@ export function EditInvoiceForm({
   const { fields, append, insert, move, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
   const selectedCustomerId = useWatch({ control, name: "customerId" });
+  const { itemBinding, itemOptions, pricingHint } = useInvoiceLinePricing({ catalog, customerId: selectedCustomerId, getValues, initialCustomerId: defaultCustomerId, register, setValue });
   const watchedIssueDate = useWatch({ control, name: "issueDate" });
   const watchedDueDate = useWatch({ control, name: "dueDate" });
   const calculatedLines = (watchedLines ?? []).map((line) => ({
@@ -360,6 +367,7 @@ export function EditInvoiceForm({
         />
       </AccessibleField>
       <div className="md:col-span-3">
+        {pricingHint ? <p className="mb-2 text-xs text-muted-foreground" data-testid="invoice-pricing-hint">{pricingHint} Se aplican al elegir un artículo en la línea.</p> : null}
         <InvoiceLinesEditor
           control={control}
           errors={fields.map((_, index) => {
@@ -373,7 +381,9 @@ export function EditInvoiceForm({
             };
           })}
           fields={fields}
+          itemOptions={itemOptions}
           getBindings={(index) => ({
+            item: itemBinding(index),
             description: register(`lines.${index}.description`),
             quantity: register(`lines.${index}.quantity`, decimalRegisterOptions),
             unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),

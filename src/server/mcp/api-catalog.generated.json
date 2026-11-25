@@ -888,12 +888,59 @@
   "body": "const stagesSchema = z.object({\n  stages: z.array(z.object({\n    id: z.string().trim().optional(),\n    name: z.string().trim().min(1).max(60),\n    probability: z.number().int().min(0).max(100),\n    kind: z.enum(CRM_STAGE_KINDS),\n  })).min(3).max(20),\n})"
  },
  {
+  "method": "PATCH",
+  "path": "/api/customer-groups/{id}",
+  "area": "customer-groups",
+  "summary": "",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const updateSchema = z.object({\n  name: z.string().trim().min(1, \"Indica el nombre del grupo.\").max(80, \"El nombre no puede superar 80 caracteres.\").optional(),\n  priceListId: z.string().trim().nullable().optional(),\n  discountPct: z.number().min(0, \"El descuento debe estar entre 0 y 100 %.\").max(100, \"El descuento debe estar entre 0 y 100 %.\").optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/customer-groups/{id}",
+  "area": "customer-groups",
+  "summary": "Borra el grupo: sus clientes se quedan sin grupo (sin tarifa ni descuento de grupo).",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/customer-groups",
+  "area": "customer-groups",
+  "summary": "Grupos de clientes con su tarifa, descuento y número de clientes.",
+  "permissions": [
+   "customer.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/customer-groups",
+  "area": "customer-groups",
+  "summary": "Grupos de clientes con su tarifa, descuento y número de clientes.",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const createSchema = z.object({\n  code: z.string().trim().min(1, \"Indica un código corto (por ejemplo, DIST).\").max(12, \"El código no puede superar 12 caracteres.\"),\n  name: z.string().trim().min(1, \"Indica el nombre del grupo.\").max(80, \"El nombre no puede superar 80 caracteres.\"),\n  priceListId: z.string().trim().nullable().optional(),\n  discountPct: z.number().min(0, \"El descuento debe estar entre 0 y 100 %.\").max(100, \"El descuento debe estar entre 0 y 100 %.\").optional(),\n})"
+ },
+ {
   "method": "POST",
   "path": "/api/customers/{id}/deactivate",
   "area": "customers",
   "summary": "Marca un cliente como Inactivo (alternativa a eliminar un cliente con documentos).",
   "permissions": [
    "customer.create"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/customers/{id}/pricing",
+  "area": "customers",
+  "summary": "Tarifa y descuento de grupo del cliente, para calcular los precios de las líneas de venta.",
+  "permissions": [
+   "customer.read"
   ]
  },
  {
@@ -913,7 +960,7 @@
   "permissions": [
    "customer.create"
   ],
-  "body": "const customerUpdateFormSchema = createCustomerSchema\n  .safeExtend({ ...customerBillingSchema.shape, status: customerStatusSchema.optional() })\n  .superRefine(refineCountry)\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})\n\nconst customerBillingSchema = z.object({\n  paymentTermsDays: z\n    .number({ error: \"Indica los días de pago (0 = al contado).\" })\n    .int(\"Los días de pago deben ser un número entero.\")\n    .min(0, \"Los días de pago no pueden ser negativos.\")\n    .max(365, \"Los días de pago no pueden superar 365.\")\n    .nullable()\n    .optional(),\n  defaultRetentionRate: z\n    .number({ error: \"La retención debe ser un porcentaje.\" })\n    .min(0, \"La retención no puede ser negativa.\")\n    .max(50, \"La retención no puede superar el 50 %.\")\n    .nullable()\n    .optional(),\n  defaultVatTreatment: z.enum(vatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" }).nullable().optional().or(z.literal(\"\")),\n  invoiceEmail: z.string().trim().email(\"Indica un correo válido para enviar las facturas.\").optional().or(z.literal(\"\")),\n  iban: z\n    .string()\n    .trim()\n    .optional()\n    .or(z.literal(\"\"))\n    .refine((value) => !value || isValidIban(value), \"El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332).\"),\n  equivalenceSurcharge: z.boolean().optional(),\n})\n\nconst customerStatusSchema = z.enum([\"ACTIVE\", \"INACTIVE\"])"
+  "body": "const customerUpdateFormSchema = createCustomerSchema\n  .safeExtend({ ...customerBillingSchema.shape, status: customerStatusSchema.optional() })\n  .superRefine(refineCountry)\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})\n\nconst customerBillingSchema = z.object({\n  paymentTermsDays: z\n    .number({ error: \"Indica los días de pago (0 = al contado).\" })\n    .int(\"Los días de pago deben ser un número entero.\")\n    .min(0, \"Los días de pago no pueden ser negativos.\")\n    .max(365, \"Los días de pago no pueden superar 365.\")\n    .nullable()\n    .optional(),\n  defaultRetentionRate: z\n    .number({ error: \"La retención debe ser un porcentaje.\" })\n    .min(0, \"La retención no puede ser negativa.\")\n    .max(50, \"La retención no puede superar el 50 %.\")\n    .nullable()\n    .optional(),\n  defaultVatTreatment: z.enum(vatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" }).nullable().optional().or(z.literal(\"\")),\n  invoiceEmail: z.string().trim().email(\"Indica un correo válido para enviar las facturas.\").optional().or(z.literal(\"\")),\n  iban: z\n    .string()\n    .trim()\n    .optional()\n    .or(z.literal(\"\"))\n    .refine((value) => !value || isValidIban(value), \"El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332).\"),\n  equivalenceSurcharge: z.boolean().optional(),\n  /** Grupo de clientes (tarifa y descuento habituales). null o \"\" = sin grupo. * …"
  },
  {
   "method": "DELETE",
@@ -950,7 +997,7 @@
   "permissions": [
    "customer.create"
   ],
-  "body": "const customerFormSchema = createCustomerSchema.safeExtend(customerBillingSchema.shape).superRefine(refineCountry)\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})\n\nconst customerBillingSchema = z.object({\n  paymentTermsDays: z\n    .number({ error: \"Indica los días de pago (0 = al contado).\" })\n    .int(\"Los días de pago deben ser un número entero.\")\n    .min(0, \"Los días de pago no pueden ser negativos.\")\n    .max(365, \"Los días de pago no pueden superar 365.\")\n    .nullable()\n    .optional(),\n  defaultRetentionRate: z\n    .number({ error: \"La retención debe ser un porcentaje.\" })\n    .min(0, \"La retención no puede ser negativa.\")\n    .max(50, \"La retención no puede superar el 50 %.\")\n    .nullable()\n    .optional(),\n  defaultVatTreatment: z.enum(vatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" }).nullable().optional().or(z.literal(\"\")),\n  invoiceEmail: z.string().trim().email(\"Indica un correo válido para enviar las facturas.\").optional().or(z.literal(\"\")),\n  iban: z\n    .string()\n    .trim()\n    .optional()\n    .or(z.literal(\"\"))\n    .refine((value) => !value || isValidIban(value), \"El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332).\"),\n  equivalenceSurcharge: z.boolean().optional(),\n})"
+  "body": "const customerFormSchema = createCustomerSchema.safeExtend(customerBillingSchema.shape).superRefine(refineCountry)\n\nconst createCustomerSchema = z.object({\n  name: z.string().trim().min(2, \"El nombre debe tener al menos 2 caracteres.\"),\n  taxId: z.string().trim().min(1, \"Debes indicar CIF/NIF/VAT.\"),\n  address: z.string().trim().min(1, \"Debes indicar la dirección fiscal.\"),\n  addressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  postalCode: z.string().trim().min(1, \"Debes indicar el código postal.\"),\n  city: z.string().trim().min(1, \"Debes indicar la ciudad.\"),\n  province: z.string().trim().min(1, \"Debes indicar la provincia.\"),\n  countryCode: z.string().trim().length(2, \"El país debe ser un código ISO de 2 letras.\"),\n  email: z\n    .string()\n    .trim()\n    .email(\"Debes indicar un email válido.\")\n    .optional()\n    .or(z.literal(\"\")),\n  phone: z.string().trim().optional().or(z.literal(\"\")),\n}).superRefine((value, ctx) => {\n  const taxIdProblem = value.countryCode.toUpperCase() === \"ES\" ? describeSpanishTaxIdProblem(value.taxId) : null;\n  if (taxIdProblem) {\n    ctx.addIssue({ code: \"custom\", message: taxIdProblem, path: [\"taxId\"] });\n  }\n})\n\nconst customerBillingSchema = z.object({\n  paymentTermsDays: z\n    .number({ error: \"Indica los días de pago (0 = al contado).\" })\n    .int(\"Los días de pago deben ser un número entero.\")\n    .min(0, \"Los días de pago no pueden ser negativos.\")\n    .max(365, \"Los días de pago no pueden superar 365.\")\n    .nullable()\n    .optional(),\n  defaultRetentionRate: z\n    .number({ error: \"La retención debe ser un porcentaje.\" })\n    .min(0, \"La retención no puede ser negativa.\")\n    .max(50, \"La retención no puede superar el 50 %.\")\n    .nullable()\n    .optional(),\n  defaultVatTreatment: z.enum(vatTreatmentValues, { error: \"El tratamiento de IVA no es válido.\" }).nullable().optional().or(z.literal(\"\")),\n  invoiceEmail: z.string().trim().email(\"Indica un correo válido para enviar las facturas.\").optional().or(z.literal(\"\")),\n  iban: z\n    .string()\n    .trim()\n    .optional()\n    .or(z.literal(\"\"))\n    .refine((value) => !value || isValidIban(value), \"El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332).\"),\n  equivalenceSurcharge: z.boolean().optional(),\n  /** Grupo de clientes (tarifa y descuento habituales). null o \"\" = sin grupo. */\n  customerGroupId: z.string().trim().max(64).nullable().op …"
  },
  {
   "method": "GET",
@@ -1298,7 +1345,7 @@
    "expense.write",
    "purchase.write"
   ],
-  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierName: z.string().trim().optional().or(z.literal(\"\")),\n  supplierTaxId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierEmail: z.string().trim().email().optional().or(z.literal(\"\")),\n  supplierPhone: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddress: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPostalCode: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCity: z.string().trim().optional().or(z.literal(\"\")),\n  supplierProvince: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCountryCode: z.string().trim().length(2).optional().or(z.literal(\"\")),\n  purchaseOrderId: z.string().trim().optional().or(z.literal(\"\")),\n  goodsReceiptId: z.string().trim().optional().or(z.literal(\"\")),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  ocrJobId: z.string().trim().optional().or(z.literal(\"\")),\n  currencyCode: z.string().trim().length(3).optional(),\n  idempotencyKey: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  vatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).optional(),\n  attachments: z\n    .array(\n      z.object({\n        fileName: z.string().trim().min(1),\n        fileUrl: z.string().trim().refine(isSafeAttachmentUrl, \"La URL del adjunto debe ser https://, http:// o una ruta interna.\"),\n        storageKey: z.string().trim().optional().or(z.literal(\"\")),\n        contentType: z.string().trim().optional().or(z.literal(\"\")),\n        sizeBytes: z.number().nonnegative().optional(),\n      }),\n    )\n    .optional(),\n  lines: z\n    .array(\n      z.object({\n        expenseAccountId: z.string().trim().optional().or(z.literal(\"\")),\n        description: z.string().trim().min(1),\n        quantity: z.number().positive(),\n        unitPrice: z.number().nonnegative(),\n        taxRate: z.number().min(0).max(100).default(21),\n        taxDeductiblePct: z.number().min(0).max(100).default(100),\n        retentionRate …"
+  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierName: z.string().trim().optional().or(z.literal(\"\")),\n  supplierTaxId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierEmail: z.string().trim().email().optional().or(z.literal(\"\")),\n  supplierPhone: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddress: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPostalCode: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCity: z.string().trim().optional().or(z.literal(\"\")),\n  supplierProvince: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCountryCode: z.string().trim().length(2).optional().or(z.literal(\"\")),\n  purchaseOrderId: z.string().trim().optional().or(z.literal(\"\")),\n  goodsReceiptId: z.string().trim().optional().or(z.literal(\"\")),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  seriesId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  ocrJobId: z.string().trim().optional().or(z.literal(\"\")),\n  currencyCode: z.string().trim().length(3).optional(),\n  idempotencyKey: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  vatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).optional(),\n  attachments: z\n    .array(\n      z.object({\n        fileName: z.string().trim().min(1),\n        fileUrl: z.string().trim().refine(isSafeAttachmentUrl, \"La URL del adjunto debe ser https://, http:// o una ruta interna.\"),\n        storageKey: z.string().trim().optional().or(z.literal(\"\")),\n        contentType: z.string().trim().optional().or(z.literal(\"\")),\n        sizeBytes: z.number().nonnegative().optional(),\n      }),\n    )\n    .optional(),\n  lines: z\n    .array(\n      z.object({\n        expenseAccountId: z.string().trim().optional().or(z.literal(\"\")),\n        description: z.string().trim().min(1),\n        quantity: z.number().positive(),\n        unitPrice: z.number().nonnegative(),\n        taxRate: z.number().min(0).max(100).default(21),\n        taxDeductibl …"
  },
  {
   "method": "PUT",
@@ -2576,6 +2623,53 @@
   "query": [
    "q"
   ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/price-lists/{id}",
+  "area": "price-lists",
+  "summary": "Tarifa con los artículos y su precio propio (null = sin precio propio).",
+  "permissions": [
+   "customer.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/price-lists/{id}",
+  "area": "price-lists",
+  "summary": "Tarifa con los artículos y su precio propio (null = sin precio propio).",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const updateSchema = z.object({\n  name: z.string().trim().min(1, \"Indica el nombre de la tarifa.\").max(80, \"El nombre no puede superar 80 caracteres.\").optional(),\n  adjustmentPct: z.number().min(-100, \"El ajuste no puede bajar del −100 %.\").max(1000, \"El ajuste no puede superar el 1000 %.\").optional(),\n  isActive: z.boolean().optional(),\n  /** Precios propios por artículo: `price: null` quita el precio propio (vuelve al precio de venta con el ajuste). */\n  prices: z\n    .array(z.object({ itemId: z.string().trim().min(1), price: z.number().min(0, \"Los precios no pueden ser negativos.\").max(99_999_999).nullable() }))\n    .max(5000, \"Guarda como mucho 5000 precios de una vez.\")\n    .optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/price-lists/{id}",
+  "area": "price-lists",
+  "summary": "Borra la tarifa: los clientes y grupos que la usaban vuelven al precio de venta.",
+  "permissions": [
+   "settings.manage"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/price-lists",
+  "area": "price-lists",
+  "summary": "Tarifas de precios de venta de la empresa, con el número de artículos con precio propio.",
+  "permissions": [
+   "customer.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/price-lists",
+  "area": "price-lists",
+  "summary": "Tarifas de precios de venta de la empresa, con el número de artículos con precio propio.",
+  "permissions": [
+   "settings.manage"
+  ],
+  "body": "const createSchema = z.object({\n  code: z.string().trim().min(1, \"Indica un código corto (por ejemplo, MAY).\").max(12, \"El código no puede superar 12 caracteres.\"),\n  name: z.string().trim().min(1, \"Indica el nombre de la tarifa.\").max(80, \"El nombre no puede superar 80 caracteres.\"),\n  adjustmentPct: z.number().min(-100, \"El ajuste no puede bajar del −100 %.\").max(1000, \"El ajuste no puede superar el 1000 %.\").optional(),\n})"
  },
  {
   "method": "GET",

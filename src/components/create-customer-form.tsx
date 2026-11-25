@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { CountrySelectField, CustomerBillingFields } from "@/components/customers/customer-billing-fields";
+import { CountrySelectField, CustomerBillingFields, type CustomerPricingOptions } from "@/components/customers/customer-billing-fields";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { getCsrfHeader } from "@/lib/csrf-client";
@@ -17,9 +17,11 @@ type CreateCustomerFormProps = {
   defaultCountryCode?: string;
   /** Territorio fiscal de la empresa (ES-CN…): decide qué condiciones de facturación existen. */
   homeTerritory?: string;
+  /** Grupos y tarifas de la empresa (selectores de grupo y tarifa propia). */
+  pricingOptions?: CustomerPricingOptions;
 };
 
-export function CreateCustomerForm({ defaultCountryCode = "ES", homeTerritory, redirectHref }: CreateCustomerFormProps = {}) {
+export function CreateCustomerForm({ defaultCountryCode = "ES", homeTerritory, pricingOptions, redirectHref }: CreateCustomerFormProps = {}) {
   type CreateCustomerPayload = CustomerUpdateFormInput;
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -47,6 +49,8 @@ export function CreateCustomerForm({ defaultCountryCode = "ES", homeTerritory, r
       invoiceEmail: "",
       iban: "",
       equivalenceSurcharge: false,
+      customerGroupId: null,
+      priceListId: null,
     },
   });
 
@@ -111,7 +115,7 @@ export function CreateCustomerForm({ defaultCountryCode = "ES", homeTerritory, r
       <AccessibleField id="customer-phone" label="Teléfono" error={errors.phone?.message} helperText="Opcional; incluye prefijo si aplica.">
         <Input autoComplete="tel" data-testid="customer-phone-input" id="customer-phone" placeholder="+34 600 000 000" type="tel" {...register("phone")} />
       </AccessibleField>
-      <CustomerBillingFields errors={errors} homeCountryCode={homeTerritory ?? defaultCountryCode} register={register} />
+      <CustomerBillingFields errors={errors} homeCountryCode={homeTerritory ?? defaultCountryCode} pricingOptions={pricingOptions} register={register} />
       <FormErrorMessage className="md:col-span-6">{submitError}</FormErrorMessage>
       <FormActions className="md:col-span-6">
         <SubmitButton data-testid="customer-create-submit" pending={isSubmitting} pendingLabel="Creando…">

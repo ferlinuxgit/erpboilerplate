@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { isCustomerDunningOptedOut } from "@/server/dunning/service";
+import { customerPricingOptions } from "@/server/pricing/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -53,6 +54,8 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
       invoiceEmail: customer.invoiceEmail,
       iban: customer.iban,
       equivalenceSurcharge: customer.equivalenceSurcharge,
+      customerGroupId: customer.customerGroupId,
+      priceListId: customer.priceListId,
       viesStatus: customer.viesStatus,
       viesName: customer.viesName,
       viesCheckedAt: customer.viesCheckedAt,
@@ -81,6 +84,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
       <PageSection title="Datos del cliente" description="Actualiza identidad fiscal, contacto y condiciones de facturación.">
         <EditCustomerForm
           homeCountryCode={await getCompanyTaxTerritory(ctx.company.id)}
+          pricingOptions={await customerPricingOptions(ctx.company.id)}
           id={data.id}
           defaults={{
             name: data.name,
@@ -100,6 +104,8 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
             invoiceEmail: data.invoiceEmail,
             iban: data.iban,
             equivalenceSurcharge: data.equivalenceSurcharge,
+            customerGroupId: data.customerGroupId,
+            priceListId: data.priceListId,
           }}
           vies={{ status: data.viesStatus, name: data.viesName, checkedAt: data.viesCheckedAt }}
           dunningOptOut={dunningOptOut}

@@ -491,6 +491,10 @@ export const customer = pgTable("customer", {
   iban: text("iban"),
   // Cliente en recargo de equivalencia (comerciante minorista).
   equivalenceSurcharge: boolean("equivalenceSurcharge").notNull().default(false),
+  // Grupo de clientes (tarifa y descuento habituales). null = sin grupo.
+  customerGroupId: text("customerGroupId").references((): AnyPgColumn => customerGroup.id, { onDelete: "set null" }),
+  // Tarifa propia del cliente: manda sobre la de su grupo. null = la del grupo o el precio de venta.
+  priceListId: text("priceListId").references((): AnyPgColumn => priceList.id, { onDelete: "set null" }),
   // Última comprobación del NIF-IVA en VIES (UE): VALID | INVALID | UNAVAILABLE.
   viesStatus: text("viesStatus"),
   viesName: text("viesName"),
@@ -522,6 +526,56 @@ export const item = pgTable("item", {
   minimumStock: numeric("minimumStock", { precision: 12, scale: 3 }).notNull().default("0"),
   isActive: boolean("isActive").notNull().default(true),
 }, (table) => [unique("item_company_sku_unique").on(table.companyId, table.sku)]);
+
+/**
+ * Tarifa de precios de venta ("Mayoristas", "Hostelería"…). Fija un precio propio por artículo y,
+ * para los artículos sin precio propio, un ajuste en % sobre su precio de venta (−10 = 10 % menos).
+ */
+export const priceList = pgTable("price_list", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  adjustmentPct: numeric("adjustmentPct", { precision: 6, scale: 3 }).notNull().default("0"),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("price_list_company_code_unique").on(table.companyId, table.code),
+  check("price_list_adjustment_valid", sql`${table.adjustmentPct} >= -100 AND ${table.adjustmentPct} <= 1000`),
+]);
+
+/** Precio propio de un artículo en una tarifa (sin impuestos, como `item.salePrice`). */
+export const priceListItem = pgTable("price_list_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  priceListId: text("priceListId").notNull().references(() => priceList.id, { onDelete: "cascade" }),
+  itemId: text("itemId").notNull().references(() => item.id, { onDelete: "cascade" }),
+  price: numeric("price", { precision: 12, scale: 2 }).notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("price_list_item_list_item_unique").on(table.priceListId, table.itemId),
+  index("price_list_item_company_item_idx").on(table.companyId, table.itemId),
+  check("price_list_item_price_valid", sql`${table.price} >= 0`),
+]);
+
+/**
+ * Grupo de clientes ("Distribuidores", "Socios"…): tarifa que se aplica a sus clientes y descuento
+ * de línea que se propone en sus documentos de venta.
+ */
+export const customerGroup = pgTable("customer_group", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  priceListId: text("priceListId").references(() => priceList.id, { onDelete: "set null" }),
+  discountPct: numeric("discountPct", { precision: 6, scale: 3 }).notNull().default("0"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("customer_group_company_code_unique").on(table.companyId, table.code),
+  check("customer_group_discount_valid", sql`${table.discountPct} >= 0 AND ${table.discountPct} <= 100`),
+]);
 
 export const warehouse = pgTable("warehouse", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

@@ -38,6 +38,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       invoiceEmail: customer.invoiceEmail,
       iban: customer.iban,
       equivalenceSurcharge: customer.equivalenceSurcharge,
+      customerGroupId: customer.customerGroupId,
+      priceListId: customer.priceListId,
       viesStatus: customer.viesStatus,
       viesName: customer.viesName,
       viesCheckedAt: customer.viesCheckedAt,

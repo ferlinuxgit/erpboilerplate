@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "Nuevo pedido de venta" };
 
 export default async function NewSalesOrderPage() {
   const ctx = await requireContext("invoice.create");
-  const { customers, defaultTaxRate } = await loadSalesFormData(ctx.company.id);
+  const { catalog, customers, defaultTaxRate } = await loadSalesFormData(ctx.company.id);
   return (
     <PageShell>
       <PageHeader
@@ -33,7 +33,7 @@ export default async function NewSalesOrderPage() {
         description="Selecciona cliente, fecha y líneas. Los totales se calculan en el servidor."
       >
         {customers.length ? (
-          <CreateSalesOrderForm customers={customers} defaultTaxRate={defaultTaxRate} />
+          <CreateSalesOrderForm catalog={catalog} customers={customers} defaultTaxRate={defaultTaxRate} />
         ) : (
           <EmptyState
             title="Falta un cliente"

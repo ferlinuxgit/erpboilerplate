@@ -8,6 +8,7 @@ import { customer, partner, salesQuote, salesQuoteLine } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
 import { dateInputValue } from "@/lib/date-input";
+import { listSaleCatalog } from "@/server/pricing/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -37,7 +38,7 @@ export default async function EditSalesQuotePage({
     .where(and(eq(salesQuote.id, id), eq(salesQuote.companyId, ctx.company.id)))
     .limit(1);
   if (!record || record.status !== "DRAFT") notFound();
-  const [customers, lines] = await Promise.all([
+  const [customers, lines, catalog] = await Promise.all([
     db
       .select({ id: customer.id, number: partner.number, name: customer.name })
       .from(customer)
@@ -45,6 +46,7 @@ export default async function EditSalesQuotePage({
       .where(eq(customer.companyId, ctx.company.id))
       .orderBy(asc(customer.name)),
     db.select().from(salesQuoteLine).where(eq(salesQuoteLine.salesQuoteId, id)),
+    listSaleCatalog(ctx.company.id),
   ]);
   return (
     <PageShell>
@@ -63,6 +65,7 @@ export default async function EditSalesQuotePage({
         description="Los importes e impuestos se recalculan al guardar."
       >
         <CreateSalesQuoteForm
+          catalog={catalog}
           customers={customers}
           quoteId={id}
           initialValues={{
@@ -71,6 +74,7 @@ export default async function EditSalesQuotePage({
             issueDate: dateInputValue(record.issueDate, ctx.company.timezone),
             validUntil: record.validUntil ? dateInputValue(record.validUntil, ctx.company.timezone) : "",
             lines: lines.map((line) => ({
+              itemId: line.itemId,
               description: line.description,
               quantity: line.quantity,
               unitPrice: line.unitPrice,

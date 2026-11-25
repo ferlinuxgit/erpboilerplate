@@ -65,16 +65,26 @@ export function CountrySelectField({
  * Condiciones de facturación del cliente: se aplican solas en cada factura nueva
  * (vencimiento, retención, tratamiento de IVA, recargo de equivalencia).
  */
+export type CustomerPricingOptions = {
+  groups: Array<{ id: string; name: string; discountPct: number; priceListName?: string | null }>;
+  priceLists: Array<{ id: string; name: string }>;
+};
+
+const emptyToNull = { setValueAs: (value: unknown) => (value === "" ? null : value) } as const;
+
 export function CustomerBillingFields({
   errors,
   homeCountryCode = "ES",
   idPrefix = "customer",
+  pricingOptions,
   register,
 }: {
   errors: FieldErrors<Values>;
   /** País de la empresa: la retención IRPF y el recargo de equivalencia solo existen en España. */
   homeCountryCode?: string;
   idPrefix?: string;
+  /** Grupos y tarifas de la empresa: solo se muestran los selectores si existe alguno. */
+  pricingOptions?: CustomerPricingOptions;
   register: UseFormRegister<Values>;
 }) {
   const { features } = getCountryFiscalProfile(homeCountryCode);
@@ -118,6 +128,40 @@ export function CustomerBillingFields({
           {salesVatTreatmentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </Select>
       </AccessibleField>
+      {pricingOptions && pricingOptions.groups.length > 0 ? (
+        <AccessibleField
+          className="md:col-span-2"
+          error={errors.customerGroupId?.message}
+          helperText="Su tarifa y su descuento se aplican al elegir artículos en presupuestos, pedidos y facturas."
+          id={`${idPrefix}-group`}
+          label="Grupo de clientes"
+        >
+          <Select data-testid={`${idPrefix}-group-select`} id={`${idPrefix}-group`} {...register("customerGroupId", emptyToNull)}>
+            <option value="">Sin grupo</option>
+            {pricingOptions.groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+                {group.discountPct > 0 ? ` · ${String(group.discountPct).replace(".", ",")} % dto.` : ""}
+                {group.priceListName ? ` · tarifa ${group.priceListName}` : ""}
+              </option>
+            ))}
+          </Select>
+        </AccessibleField>
+      ) : null}
+      {pricingOptions && pricingOptions.priceLists.length > 0 ? (
+        <AccessibleField
+          className="md:col-span-2"
+          error={errors.priceListId?.message}
+          helperText="Solo si este cliente tiene precios distintos a los de su grupo."
+          id={`${idPrefix}-price-list`}
+          label="Tarifa propia"
+        >
+          <Select data-testid={`${idPrefix}-price-list-select`} id={`${idPrefix}-price-list`} {...register("priceListId", emptyToNull)}>
+            <option value="">La de su grupo (o precio de venta)</option>
+            {pricingOptions.priceLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
+          </Select>
+        </AccessibleField>
+      ) : null}
       <AccessibleField error={errors.invoiceEmail?.message} helperText="Opcional; si el cliente recibe las facturas en otro buzón (p. ej. administración)." id={`${idPrefix}-invoice-email`} label="Correo para facturas">
         <Input autoComplete="off" data-testid={`${idPrefix}-invoice-email-input`} id={`${idPrefix}-invoice-email`} placeholder="facturas@cliente.com" type="email" {...register("invoiceEmail")} />
       </AccessibleField>

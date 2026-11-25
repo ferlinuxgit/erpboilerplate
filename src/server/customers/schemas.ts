@@ -57,6 +57,10 @@ export const customerBillingSchema = z.object({
     .or(z.literal(""))
     .refine((value) => !value || isValidIban(value), "El IBAN no es válido. Revisa los dígitos (ej.: ES91 2100 0418 4502 0005 1332)."),
   equivalenceSurcharge: z.boolean().optional(),
+  /** Grupo de clientes (tarifa y descuento habituales). null o "" = sin grupo. */
+  customerGroupId: z.string().trim().max(64).nullable().optional(),
+  /** Tarifa propia del cliente: manda sobre la del grupo. null o "" = la del grupo. */
+  priceListId: z.string().trim().max(64).nullable().optional(),
 });
 
 function refineCountry(value: { countryCode: string }, ctx: z.RefinementCtx) {

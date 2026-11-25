@@ -449,6 +449,13 @@
       "when": 1795454755285,
       "tag": "0063_verifactu_compliance",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1795609188615,
+      "tag": "0064_price_lists_customer_groups",
+      "breakpoints": true
     }
   ]
 }

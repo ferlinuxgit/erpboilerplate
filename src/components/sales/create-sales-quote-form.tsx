@@ -1,11 +1,12 @@
 "use client";
 
-import { SalesDocumentForm, type SalesCustomerOption, type SalesDocumentFormValues, type SalesDocumentLineValues } from "@/components/sales/sales-document-form";
+import { SalesDocumentForm, type SaleCatalogEntry, type SalesCustomerOption, type SalesDocumentFormValues, type SalesDocumentLineValues } from "@/components/sales/sales-document-form";
 
 export type QuoteLine = SalesDocumentLineValues;
 export type SalesQuoteFormValues = SalesDocumentFormValues & { validUntil: string };
 
 export function CreateSalesQuoteForm({
+  catalog,
   crmOpportunityId,
   currencyCode,
   customers,
@@ -14,6 +15,7 @@ export function CreateSalesQuoteForm({
   initialValues,
   quoteId,
 }: {
+  catalog?: SaleCatalogEntry[];
   crmOpportunityId?: string;
   currencyCode?: string;
   customers: SalesCustomerOption[];
@@ -24,6 +26,7 @@ export function CreateSalesQuoteForm({
 }) {
   return (
     <SalesDocumentForm
+      catalog={catalog}
       crmOpportunityId={crmOpportunityId}
       currencyCode={currencyCode}
       customers={customers}

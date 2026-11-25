@@ -74,7 +74,11 @@ type CreateExpenseInvoiceFormProps = {
   pendingInboxCount?: number;
   /** Módulo de lectura con IA activo: si no, se escribe directamente a mano. */
   readingEnabled?: boolean;
+  /** Series activas del registro de facturas recibidas (la de por defecto primero). Con más de una se puede elegir. */
+  expenseSeries?: ExpenseSeriesOption[];
 };
+
+export type ExpenseSeriesOption = { id: string; code: string; name: string; isDefault: boolean; preview: string };
 
 const MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024;
 
@@ -118,7 +122,7 @@ function lineTotals(line: ExpenseLineDraft) {
   return { subtotal, tax, retention, total: subtotal + tax - retention };
 }
 
-export function CreateExpenseInvoiceForm({ baseCurrencyCode, homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [], homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
   const initialSupplier = suppliers.find((supplier) => supplier.id === initialSupplierId);
   const [creationMode, setCreationMode] = useState<"manual" | null>(initialSupplier || !readingEnabled ? "manual" : null);
@@ -129,6 +133,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, homeCountryCode = "
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [supplierDocumentNumber, setSupplierDocumentNumber] = useState("");
+  const [seriesId, setSeriesId] = useState(() => (expenseSeries.find((series) => series.isDefault) ?? expenseSeries[0])?.id ?? "");
+  const selectedSeries = expenseSeries.find((series) => series.id === seriesId);
   const [issueDate, setIssueDate] = useState(todayInputValue);
   // Vacía = la fecha de la factura. Solo se indica si la factura llega tarde (periodo ya presentado).
   const [accountingDate, setAccountingDate] = useState("");
@@ -373,6 +379,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, homeCountryCode = "
           supplierProvince: supplierPartnerId ? undefined : newSupplier?.province,
           supplierCountryCode: supplierPartnerId ? undefined : newSupplier?.countryCode,
           supplierDocumentNumber,
+          seriesId: expenseSeries.length > 1 && seriesId ? seriesId : undefined,
           purchaseOrderId: purchaseOrderId || undefined,
           goodsReceiptId: goodsReceiptId || undefined,
           issueDate: toIsoDate(issueDate),
@@ -468,6 +475,21 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, homeCountryCode = "
         </section>
 
         <div className="grid gap-3 lg:grid-cols-4">
+          {expenseSeries.length > 1 ? (
+            <AccessibleField
+              helperText={selectedSeries ? `Se registrará como ${selectedSeries.preview}.` : "Numeración interna del registro de facturas recibidas."}
+              id="expense-series"
+              label="Serie"
+            >
+              <Select data-testid="expense-series-select" id="expense-series" onChange={(event) => setSeriesId(event.target.value)} value={seriesId}>
+                {expenseSeries.map((series) => (
+                  <option key={series.id} value={series.id}>
+                    {series.name} ({series.code}){series.isDefault ? " · por defecto" : ""}
+                  </option>
+                ))}
+              </Select>
+            </AccessibleField>
+          ) : null}
           <AccessibleField helperText="El número que aparece en la factura recibida. Sirve para detectar duplicados." id="expense-supplier-number" label="N.º de factura del proveedor">
             <Input onChange={(event) => { setSupplierDocumentNumber(event.target.value); resetDuplicate(); }} placeholder="Ej. F-2026-0123" value={supplierDocumentNumber} />
           </AccessibleField>

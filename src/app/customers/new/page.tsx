@@ -6,6 +6,7 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { requireContext } from "@/lib/current-context";
 import { requireUserSession } from "@/lib/current-user";
 import { canManageCustomers } from "@/lib/rbac";
+import { customerPricingOptions } from "@/server/pricing/service";
 
 export const metadata: Metadata = { title: "Nuevo cliente" };
 
@@ -28,7 +29,7 @@ export default async function NewCustomerPage() {
 
       <PageSection title="Datos del cliente" description="Informa identidad fiscal, domicilio y contacto. El número de cliente se asignará automáticamente.">
         {canCreateCustomer ? (
-          <CreateCustomerForm defaultCountryCode={tenantContext.company.countryCode} homeTerritory={await getCompanyTaxTerritory(tenantContext.company.id)} redirectHref="/customers" />
+          <CreateCustomerForm defaultCountryCode={tenantContext.company.countryCode} homeTerritory={await getCompanyTaxTerritory(tenantContext.company.id)} pricingOptions={await customerPricingOptions(tenantContext.company.id)} redirectHref="/customers" />
         ) : (
           <EmptyState title="Solo lectura" description="Tu rol actual no permite crear clientes." />
         )}
