@@ -39,6 +39,7 @@ import { ensureSubaccount, syncPartnerSubaccounts } from "@/server/accounting/su
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen, resolveOpenPostingDate } from "@/server/fiscal/locks";
+import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
 
@@ -801,6 +802,8 @@ export async function createPurchaseSupplierInvoice(input: CreatePurchaseSupplie
       }
       return line;
     });
+    // El artículo de una línea puede venir de la petición: tiene que ser de la empresa.
+    await assertItemsBelongToCompany(tx, input.companyId, lines.map((line) => line.itemId));
 
     const toRecord = (line: { purchaseOrderLineId?: string | null; itemId?: string | null; quantity: string | number }) => ({
       purchaseOrderLineId: line.purchaseOrderLineId ?? null,
