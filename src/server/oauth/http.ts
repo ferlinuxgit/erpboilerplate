@@ -43,7 +43,7 @@ export function protectedResourceMetadata(request: Request) {
   const origin = publicOrigin(request);
   return {
     resource: `${origin}/api/mcp`,
-    resource_name: "ERP",
+    resource_name: "Norpie",
     authorization_servers: [origin],
     scopes_supported: [...OAUTH_SCOPES],
     bearer_methods_supported: ["header"],
