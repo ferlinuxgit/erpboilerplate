@@ -1277,6 +1277,16 @@ export const subscription = pgTable(
     addons: jsonb("addons").$type<string[]>().notNull().default([]),
     /** Desde cuándo está impagada: pasado el periodo de gracia, la cuenta queda en solo lectura. */
     pastDueSince: timestamp("pastDueSince", { withTimezone: true, mode: "date" }),
+    /**
+     * Suscripción mensual de los módulos. El plan base es anual y Stripe no mezcla periodos en una
+     * suscripción, así que los módulos van en otra. null en las suscripciones antiguas (plan y
+     * módulos mensuales en la misma) o sin módulos.
+     */
+    stripeModulesSubscriptionId: text("stripeModulesSubscriptionId").unique(),
+    /** Estado de Stripe de la suscripción de módulos (ACTIVE, INCOMPLETE, PAST_DUE…). */
+    modulesStatus: text("modulesStatus"),
+    /** `created` del último evento de la suscripción de módulos (orden independiente del plan). */
+    modulesLastStripeEventAt: timestamp("modulesLastStripeEventAt", { withTimezone: true, mode: "date" }),
   },
   (table) => [unique("subscription_tenant_unique").on(table.tenantId), index("subscription_customer_idx").on(table.stripeCustomerId)],
 );

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { completeOnboarding, registerAndSignIn } from "./helpers/authenticated-session";
 
-test("plan y facturación: plan base de 9 €, módulos con precio y créditos de IA", async ({ page }) => {
+test("plan y facturación: plan base de 12 €/año, módulos al mes con precio y créditos de IA", async ({ page }) => {
   test.setTimeout(120_000);
   await registerAndSignIn(page, "Billing E2E");
   await completeOnboarding(page, "Empresa facturación S.L.");
@@ -18,14 +18,15 @@ test("plan y facturación: plan base de 9 €, módulos con precio y créditos d
     const box = modules.getByRole("checkbox", { name: new RegExp(name) });
     if (await box.isChecked()) await box.uncheck();
   }
-  await expect(page.getByTestId("billing-total")).toHaveText("9 €");
-  // Hostelería necesita el TPV: se marca con ella. 9 + 9 + 12 = 30 €.
+  await expect(page.getByTestId("billing-plan-total")).toHaveText(/^12\s€/);
+  await expect(page.getByTestId("billing-total")).toHaveText(/^0\s€/);
+  // Hostelería necesita el TPV: se marca con ella. 9 + 12 = 21 € al mes (el plan va aparte, al año).
   await modules.getByRole("checkbox", { name: /Hostelería/ }).check();
   await expect(modules.getByRole("checkbox", { name: /^TPV/ })).toBeChecked();
-  await expect(page.getByTestId("billing-total")).toHaveText("30 €");
+  await expect(page.getByTestId("billing-total")).toHaveText(/^21\s€/);
   await modules.getByRole("checkbox", { name: /^TPV/ }).uncheck();
   await expect(modules.getByRole("checkbox", { name: /Hostelería/ })).not.toBeChecked();
-  await expect(page.getByTestId("billing-total")).toHaveText("9 €");
+  await expect(page.getByTestId("billing-total")).toHaveText(/^0\s€/);
 
   // Configuración › Módulos muestra el precio de cada uno.
   await page.goto("/settings/modules");

@@ -27,7 +27,7 @@ import * as schema from "@/db/schema";
 import { company, companySettings, subscription, tenant, user } from "@/db/schema";
 import { getTenantBillingAccess } from "@/server/billing/access";
 import { assertOcrCreditsAvailable, chargeOcrUsage, getOcrCreditBalance } from "@/server/billing/credits";
-import { handleStripeEvent } from "@/server/billing/webhook";
+import { handleStripeEvent, type WebhookDeps } from "@/server/billing/webhook";
 import { isModuleEnabled, listModuleStates, setCompanyModule } from "@/server/modules/service";
 
 const USER = "user-1";
@@ -52,9 +52,13 @@ async function createTenant(id: string, trialEndsAt: Date | null) {
 }
 
 let eventSeq = 0;
-function subscriptionEvent(type: string, input: { tenantId: string; id?: string; status?: string; modules?: string[]; created: number; customer?: string }): Stripe.Event {
+function subscriptionEvent(
+  type: string,
+  input: { tenantId: string; id?: string; status?: string; modules?: string[]; created: number; customer?: string; kind?: "plan" | "modules"; requestedModules?: string[] },
+): Stripe.Event {
   eventSeq += 1;
-  const items = ["base", ...(input.modules ?? []).map((moduleId) => `module:${moduleId}`)].map((code, index) => ({
+  const codes = [...(input.kind === "modules" ? [] : ["base"]), ...(input.modules ?? []).map((moduleId) => `module:${moduleId}`)];
+  const items = codes.map((code, index) => ({
     id: `si_${index}`,
     current_period_end: input.created + 30 * 86_400,
     price: { id: `price_${code}`, metadata: { code } },
@@ -63,11 +67,11 @@ function subscriptionEvent(type: string, input: { tenantId: string; id?: string;
     id: `evt_${eventSeq}`,
     type,
     created: input.created,
-    data: { object: { id: input.id ?? `sub_${input.tenantId}`, customer: input.customer ?? `cus_${input.tenantId}`, status: input.status ?? "active", cancel_at_period_end: false, metadata: { tenantId: input.tenantId }, items: { data: items } } },
+    data: { object: { id: input.id ?? `sub_${input.tenantId}`, customer: input.customer ?? `cus_${input.tenantId}`, status: input.status ?? "active", cancel_at_period_end: false, metadata: { tenantId: input.tenantId, ...(input.kind ? { kind: input.kind } : {}), ...(input.requestedModules ? { modules: input.requestedModules.join(",") } : {}) }, items: { data: items } } },
   } as unknown as Stripe.Event;
 }
 
-const handle = (event: Stripe.Event) => state.db.transaction((tx: never) => handleStripeEvent(event, tx));
+const handle = (event: Stripe.Event, deps: WebhookDeps = {}) => state.db.transaction((tx: never) => handleStripeEvent(event, tx, deps));
 const subscriptionOf = async (tenantId: string) => (await state.db.select().from(subscription).where(eq(subscription.tenantId, tenantId)))[0];
 const now = Math.floor(Date.now() / 1000);
 
@@ -101,6 +105,41 @@ describe("webhook de suscripciones", () => {
     expect((await getTenantBillingAccess("t1")).state).toBe("grace");
     await handle(subscriptionEvent("customer.subscription.deleted", { tenantId: "t1", created: now + 240 }));
     expect(await subscriptionOf("t1")).toMatchObject({ status: "CANCELED", plan: "free", pastDueSince: null });
+  });
+});
+
+describe("plan anual y módulos en su propia suscripción mensual", () => {
+  it("al activarse el plan crea la suscripción de los módulos elegidos (una sola vez)", async () => {
+    await createTenant("t4", new Date(Date.now() - 86_400_000));
+    const createModulesSubscription = vi.fn(async () => undefined);
+    const plan = (created: number) => subscriptionEvent("customer.subscription.updated", { tenantId: "t4", id: "sub_plan_t4", kind: "plan", requestedModules: ["crm", "pos"], created });
+    expect(await handle(plan(now), { createModulesSubscription })).toBe("processed");
+    expect(createModulesSubscription).toHaveBeenCalledWith({ tenantId: "t4", customerId: "cus_t4", planSubscriptionId: "sub_plan_t4", modules: ["crm", "pos"], idempotencyKey: "modules-from-plan-sub_plan_t4" });
+    expect(await subscriptionOf("t4")).toMatchObject({ status: "ACTIVE", plan: "base", addons: [] });
+
+    // La suscripción de módulos llega por su propio evento y solo toca los módulos.
+    expect(await handle(subscriptionEvent("customer.subscription.created", { tenantId: "t4", id: "sub_mod_t4", kind: "modules", modules: ["crm", "pos"], created: now + 10 }))).toBe("processed");
+    expect(await subscriptionOf("t4")).toMatchObject({ stripeSubscriptionId: "sub_plan_t4", stripeModulesSubscriptionId: "sub_mod_t4", modulesStatus: "ACTIVE", addons: ["crm", "pos"], status: "ACTIVE" });
+
+    // Un nuevo aviso del plan no vuelve a crearla ni borra los módulos.
+    await handle(plan(now + 20), { createModulesSubscription });
+    expect(createModulesSubscription).toHaveBeenCalledTimes(1);
+    expect((await subscriptionOf("t4")).addons).toEqual(["crm", "pos"]);
+  });
+
+  it("los módulos pendientes de pago no se activan; al cancelar su suscripción se quitan", async () => {
+    await handle(subscriptionEvent("customer.subscription.updated", { tenantId: "t4", id: "sub_mod_t4", kind: "modules", status: "incomplete", modules: ["crm", "pos"], created: now + 30 }));
+    expect(await subscriptionOf("t4")).toMatchObject({ modulesStatus: "INCOMPLETE", addons: [], stripeModulesSubscriptionId: "sub_mod_t4" });
+    await handle(subscriptionEvent("customer.subscription.deleted", { tenantId: "t4", id: "sub_mod_t4", kind: "modules", modules: ["crm", "pos"], created: now + 40 }));
+    expect(await subscriptionOf("t4")).toMatchObject({ modulesStatus: null, addons: [], stripeModulesSubscriptionId: null, status: "ACTIVE", plan: "base" });
+  });
+
+  it("si termina el plan, se cancela también la suscripción de módulos", async () => {
+    await handle(subscriptionEvent("customer.subscription.created", { tenantId: "t4", id: "sub_mod2_t4", kind: "modules", modules: ["crm"], created: now + 50 }));
+    const cancelModulesSubscription = vi.fn(async () => undefined);
+    await handle(subscriptionEvent("customer.subscription.deleted", { tenantId: "t4", id: "sub_plan_t4", kind: "plan", created: now + 60 }), { cancelModulesSubscription });
+    expect(cancelModulesSubscription).toHaveBeenCalledWith("sub_mod2_t4");
+    expect(await subscriptionOf("t4")).toMatchObject({ status: "CANCELED", plan: "free" });
   });
 });
 

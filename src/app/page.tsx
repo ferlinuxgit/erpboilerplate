@@ -28,7 +28,7 @@ import { MODULES, getModule, type ModuleCategory, type ModuleId } from "@/module
 
 export const metadata: Metadata = {
   title: { absolute: "Norpie · Facturación, contabilidad e impuestos con VERI*FACTU" },
-  description: `Factura con VERI*FACTU, lleva la contabilidad y prepara los modelos de la AEAT en un solo sitio. Desde ${formatEuros(BASE_PLAN.monthlyCents)} al mes, ${TRIAL_DAYS} días gratis.`,
+  description: `Factura con VERI*FACTU, lleva la contabilidad y prepara los modelos de la AEAT en un solo sitio. Desde ${formatEuros(BASE_PLAN.monthlyCents)} al mes (${formatEuros(BASE_PLAN.yearlyCents)} al año), ${TRIAL_DAYS} días gratis.`,
 };
 
 const GROUP_ICONS = { facturacion: Receipt, gastos: ShoppingCart, contabilidad: Scales, impuestos: Calculator, maestros: UsersThree, ia: Robot } as const;
@@ -79,7 +79,7 @@ export default function Home() {
                 </Link>
                 <Link className={buttonVariants({ variant: "outline", size: "lg" })} href="#precios">Ver precios</Link>
               </div>
-              <p className="mt-3 text-sm text-muted-foreground">Sin tarjeta · Todo incluido durante la prueba · Desde {formatEuros(BASE_PLAN.monthlyCents)}/mes + IVA</p>
+              <p className="mt-3 text-sm text-muted-foreground">Sin tarjeta · Todo incluido durante la prueba · Desde {formatEuros(BASE_PLAN.yearlyCents)}/año + IVA</p>
             </div>
 
             {/* Ilustración: no es interactiva. */}
@@ -138,7 +138,7 @@ export default function Home() {
         {/* Núcleo */}
         <section className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
           <SectionHeading
-            description={`Todo esto entra en el plan base de ${formatEuros(BASE_PLAN.monthlyCents)} al mes, para todos los usuarios de tu empresa.`}
+            description={`Todo esto entra en el plan base de ${formatEuros(BASE_PLAN.yearlyCents)} al año (${formatEuros(BASE_PLAN.monthlyCents)} al mes), para todos los usuarios de tu empresa.`}
             eyebrow="Incluido en el plan base"
             id="funciones"
             title="Lo esencial para llevar tu empresa al día"
@@ -255,7 +255,7 @@ export default function Home() {
         {/* Precios */}
         <section className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
           <SectionHeading
-            description="Un plan base con todo lo esencial y módulos sueltos. Precios al mes, sin IVA y sin permanencia."
+            description="Un plan base anual con todo lo esencial y módulos sueltos mes a mes. Precios sin IVA."
             eyebrow="Precios"
             id="precios"
             title="Pagas por lo que usas. Nada más."
@@ -267,6 +267,7 @@ export default function Home() {
                 <span className="font-mono text-5xl font-bold tabular-nums">{formatEuros(BASE_PLAN.monthlyCents)}</span>
                 <span className="text-sm text-muted-foreground">/mes + IVA</span>
               </p>
+              <p className="text-sm font-bold">Pago anual: {formatEuros(BASE_PLAN.yearlyCents)} al año.</p>
               <p className="mt-1 text-sm text-muted-foreground">{BASE_PLAN.description}</p>
               <ul className="mt-4 space-y-1.5">
                 {BASE_PLAN.features.map((feature) => (

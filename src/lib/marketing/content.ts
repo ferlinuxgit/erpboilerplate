@@ -116,11 +116,11 @@ export function buildFaqs(input: { trialDays: number; graceDays: number; welcome
     },
     {
       question: "¿Los precios llevan IVA?",
-      answer: "No. Los precios son mensuales y sin IVA; al pagar se añade el que corresponda según tu país y tus datos fiscales. Recibes una factura legal con VERI*FACTU de cada cobro.",
+      answer: "No. Los precios no llevan IVA; al pagar se añade el que corresponda según tu país y tus datos fiscales. Recibes una factura legal con VERI*FACTU de cada cobro.",
     },
     {
       question: "¿Hay permanencia?",
-      answer: "No. Pagas mes a mes y puedes cancelar cuando quieras desde la propia aplicación. Si añades o quitas un módulo a mitad de mes, se ajusta la parte proporcional en la siguiente factura.",
+      answer: "El plan base se paga por años (1 € al mes, 12 € al año por adelantado) y se renueva cada año; puedes cancelar la renovación cuando quieras. Los módulos se pagan mes a mes, sin permanencia: si añades o quitas uno a mitad de mes, se ajusta la parte proporcional en la siguiente factura.",
     },
     {
       question: "¿Qué pasa con mis datos si dejo de pagar?",

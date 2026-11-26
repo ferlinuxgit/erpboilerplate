@@ -9,6 +9,9 @@ const stripeMocks = vi.hoisted(() => ({
   createCreditsCheckout: vi.fn(),
   createPortalSession: vi.fn(),
   updateSubscriptionModules: vi.fn(),
+  isCombinedMonthlySubscription: vi.fn(),
+  createModulesSubscription: vi.fn(),
+  cancelModulesSubscription: vi.fn(),
 }));
 const dbRows = vi.hoisted(() => ({ current: [] as unknown[] }));
 
@@ -71,13 +74,46 @@ describe("rutas de cobro", () => {
     expect((await POST(post({ modules: [] }))).status).toBe(403);
   });
 
-  it("cambiar módulos necesita una suscripción en curso y la actualiza en Stripe", async () => {
+  it("cambiar módulos necesita una suscripción en curso; las antiguas (plan y módulos al mes) se cambian en la misma", async () => {
     const { POST } = await import("@/app/api/billing/modules/route");
     expect((await POST(post({ modules: ["crm"] }))).status).toBe(409);
-    dbRows.current = [{ status: "ACTIVE", addons: [], stripeSubscriptionId: "sub_1" }];
+    dbRows.current = [{ status: "ACTIVE", addons: [], stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_1", stripeModulesSubscriptionId: null }];
+    stripeMocks.isCombinedMonthlySubscription.mockResolvedValue(true);
     const response = await POST(post({ modules: ["crm"] }));
     expect(response.status).toBe(200);
     expect(stripeMocks.updateSubscriptionModules).toHaveBeenCalledWith({ stripeSubscriptionId: "sub_1", modules: ["crm"] });
+    expect(stripeMocks.createModulesSubscription).not.toHaveBeenCalled();
+  });
+
+  it("con el plan anual, el primer módulo crea la suscripción mensual de módulos con la tarjeta del plan", async () => {
+    const { POST } = await import("@/app/api/billing/modules/route");
+    dbRows.current = [{ status: "ACTIVE", addons: [], stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_plan", stripeModulesSubscriptionId: null }];
+    stripeMocks.isCombinedMonthlySubscription.mockResolvedValue(false);
+    stripeMocks.createModulesSubscription.mockResolvedValue({ subscription: { id: "sub_mod", status: "active" }, payUrl: null });
+    const response = await POST(post({ modules: ["crm"] }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ modules: ["crm"] });
+    expect(stripeMocks.createModulesSubscription).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant_1", customerId: "cus_1", planSubscriptionId: "sub_plan", modules: ["crm"] }));
+    expect(stripeMocks.updateSubscriptionModules).not.toHaveBeenCalled();
+  });
+
+  it("si el banco pide confirmar el pago de los módulos, devuelve el enlace para pagarlo", async () => {
+    const { POST } = await import("@/app/api/billing/modules/route");
+    dbRows.current = [{ status: "ACTIVE", addons: [], stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_plan", stripeModulesSubscriptionId: null }];
+    stripeMocks.isCombinedMonthlySubscription.mockResolvedValue(false);
+    stripeMocks.createModulesSubscription.mockResolvedValue({ subscription: { id: "sub_mod", status: "incomplete" }, payUrl: "https://invoice.stripe.example.com/i_1" });
+    const response = await POST(post({ modules: ["crm"] }));
+    await expect(response.json()).resolves.toEqual({ modules: ["crm"], url: "https://invoice.stripe.example.com/i_1" });
+  });
+
+  it("con suscripción de módulos: cambiarlos la actualiza y quitarlos todos la cancela", async () => {
+    const { POST } = await import("@/app/api/billing/modules/route");
+    dbRows.current = [{ status: "ACTIVE", addons: ["crm"], stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_plan", stripeModulesSubscriptionId: "sub_mod" }];
+    await POST(post({ modules: ["crm", "timesheets"] }));
+    expect(stripeMocks.updateSubscriptionModules).toHaveBeenCalledWith({ stripeSubscriptionId: "sub_mod", modules: ["crm", "timesheets"] });
+    await POST(post({ modules: [] }));
+    expect(stripeMocks.cancelModulesSubscription).toHaveBeenCalledWith("sub_mod");
+    expect(stripeMocks.isCombinedMonthlySubscription).not.toHaveBeenCalled();
   });
 
   it("comprar créditos abre el pago del pack elegido", async () => {

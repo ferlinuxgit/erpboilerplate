@@ -71,10 +71,12 @@ test("series de gastos: elegir la serie del registro de facturas recibidas", asy
   const series = await postJson<{ id: string }>(page, "/api/document-series", { type: "SUPPLIER_INVOICE", code: "IMP", name: "Importaciones", prefix: "IMP-" });
 
   await page.goto("/expenses/new");
-  const manual = page.getByRole("button", { name: /a mano/i });
-  if (await manual.isVisible().catch(() => false)) await manual.click();
   const select = page.getByTestId("expense-series-select");
-  await expect(select).toBeVisible();
+  // Un clic antes de que la página esté hidratada se pierde: se reintenta hasta ver el formulario.
+  await expect(async () => {
+    await page.getByRole("button", { name: /Escribirla a mano/ }).click();
+    await expect(select).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(select.locator("option:checked")).toContainText("por defecto");
 
   const created = await postJson<{ number: string }>(page, "/api/expenses", {

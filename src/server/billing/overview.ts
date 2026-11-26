@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { subscription } from "@/db/schema";
-import { BASE_PLAN, MODULE_MONTHLY_CENTS, OCR_PACKS, monthlyTotalCents, isPaidModule } from "@/lib/billing/catalog";
+import { BASE_PLAN, MODULE_MONTHLY_CENTS, OCR_PACKS, modulesMonthlyCents, isPaidModule } from "@/lib/billing/catalog";
 import { db } from "@/lib/db";
 import { MODULES, type ModuleId } from "@/modules/registry";
 import { billingEnforced, getTenantBillingAccess } from "@/server/billing/access";
@@ -43,7 +43,8 @@ export async function getBillingOverview(tenantId: string, companyId: string) {
     },
     enforced: billingEnforced(),
     stripeConfigured: Boolean(stripe),
-    base: { name: BASE_PLAN.name, priceCents: BASE_PLAN.monthlyCents, features: [...BASE_PLAN.features], description: BASE_PLAN.description },
+    // El plan se cobra por años; el equivalente mensual solo se muestra.
+    base: { name: BASE_PLAN.name, yearlyCents: BASE_PLAN.yearlyCents, monthlyEquivalentCents: BASE_PLAN.monthlyCents, features: [...BASE_PLAN.features], description: BASE_PLAN.description },
     subscription: sub
       ? {
           live,
@@ -51,10 +52,12 @@ export async function getBillingOverview(tenantId: string, companyId: string) {
           currentPeriodEndsAt: sub.currentPeriodEndsAt?.toISOString() ?? null,
           cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
           hasCustomer: Boolean(sub.stripeCustomerId),
+          /** Suscripción de módulos creada pero sin pagar (el banco pidió confirmación o falló el cobro). */
+          modulesPaymentPending: Boolean(sub.stripeModulesSubscriptionId && sub.modulesStatus && !["ACTIVE", "TRIALING"].includes(sub.modulesStatus)),
         }
       : null,
     modules,
-    monthlyTotalCents: live ? monthlyTotalCents([...contracted]) : null,
+    modulesMonthlyCents: live ? modulesMonthlyCents([...contracted]) : null,
     credits: {
       balance,
       packs: OCR_PACKS.map((pack) => ({ ...pack })),

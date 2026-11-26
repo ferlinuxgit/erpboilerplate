@@ -4,9 +4,11 @@ import { MODULE_IDS, type ModuleId } from "@/modules/registry";
  * Catálogo de precios del SaaS (código puro: lo usan servidor, pantallas y tests). Precios en
  * céntimos de euro al mes, IVA no incluido (Stripe Tax añade el que corresponda al cliente).
  *
- * - Plan base «Contabilidad y facturación» (9 €/mes): el núcleo de la aplicación (facturas, gastos,
- *   contabilidad, impuestos, clientes, proveedores, artículos, cuentas bancarias…).
- * - Cada módulo opcional (src/modules/registry.ts) se contrata aparte por un precio mensual.
+ * - Plan base «Contabilidad y facturación» (12 €/año, equivale a 1 €/mes): el núcleo de la aplicación
+ *   (facturas, gastos, contabilidad, impuestos, clientes, proveedores, artículos, cuentas bancarias…).
+ *   Se paga por años: es una suscripción anual de Stripe.
+ * - Cada módulo opcional (src/modules/registry.ts) se contrata aparte por un precio mensual, en una
+ *   segunda suscripción mensual (Stripe no admite periodos distintos en la misma suscripción).
  * - La lectura de facturas con IA consume créditos prepagados (packs), que cubren el coste real de
  *   la API de OpenAI con margen. Ver `creditsForUsage`.
  *
@@ -28,7 +30,10 @@ export const TENANT_DELETION_GRACE_DAYS = 30;
 export const BASE_PLAN = {
   code: "base",
   name: "Contabilidad y facturación",
-  monthlyCents: 900,
+  /** Lo que se cobra: un año entero por adelantado. */
+  yearlyCents: 1200,
+  /** Equivalente mensual (solo para mostrar «1 €/mes»). */
+  monthlyCents: 100,
   description: "Todo lo esencial para facturar y llevar la contabilidad de tu empresa.",
   features: [
     "Facturas, abonos y facturas recurrentes con VERI*FACTU",
@@ -103,9 +108,14 @@ export function isPaidModule(value: string): value is ModuleId {
   return (MODULE_IDS as readonly string[]).includes(value);
 }
 
-/** Total mensual en céntimos de un plan base con estos módulos. */
+/** Cuota mensual de estos módulos, en céntimos (la suscripción mensual de módulos). */
+export function modulesMonthlyCents(modules: readonly ModuleId[]) {
+  return [...new Set(modules)].reduce((total, moduleId) => total + MODULE_MONTHLY_CENTS[moduleId], 0);
+}
+
+/** Coste equivalente al mes (plan base prorrateado + módulos), en céntimos. Solo para mostrar. */
 export function monthlyTotalCents(modules: readonly ModuleId[]) {
-  return BASE_PLAN.monthlyCents + [...new Set(modules)].reduce((total, moduleId) => total + MODULE_MONTHLY_CENTS[moduleId], 0);
+  return BASE_PLAN.monthlyCents + modulesMonthlyCents(modules);
 }
 
 export function formatEuros(cents: number) {

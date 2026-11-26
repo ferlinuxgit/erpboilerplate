@@ -91,7 +91,7 @@ export const SHADOW_TOKENS: readonly ShadowToken[] = [
 export type TypeStep = { name: string; className: string; sample: string; usage: string };
 
 export const TYPE_SCALE: readonly TypeStep[] = [
-  { name: "Display", className: "font-mono text-5xl font-bold leading-[1.1]", sample: "9 €/mes", usage: "Precios y titular de la landing. Geist Mono 700, 48 px." },
+  { name: "Display", className: "font-mono text-5xl font-bold leading-[1.1]", sample: "12 €/año", usage: "Precios y titular de la landing. Geist Mono 700, 48 px." },
   { name: "Título 1", className: "font-mono text-3xl font-bold leading-tight", sample: "Facturas de noviembre", usage: "Título de página. Geist Mono 700, 30 px." },
   { name: "Título 2", className: "font-mono text-xl font-bold", sample: "Resumen del trimestre", usage: "Sección y ventana. Geist Mono 700, 20 px." },
   { name: "Etiqueta", className: "font-mono text-xs font-bold uppercase tracking-[0.06em]", sample: "Pendiente de cobro", usage: "Rótulos, cabeceras de tabla, eyebrows. Mono 700, 12 px, mayúsculas." },

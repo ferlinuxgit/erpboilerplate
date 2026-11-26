@@ -456,6 +456,13 @@
       "when": 1795609188615,
       "tag": "0064_price_lists_customer_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795711358863,
+      "tag": "0065_billing_modules_subscription",
+      "breakpoints": true
     }
   ]
 }

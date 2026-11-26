@@ -16,10 +16,11 @@ function requireStripe() {
   return stripe;
 }
 
-type PriceSpec = { code: string; name: string; description?: string; amountCents: number; interval: "month" | null };
+type PriceSpec = { code: string; name: string; description?: string; amountCents: number; interval: "month" | "year" | null };
 
 export function basePriceSpec(): PriceSpec {
-  return { code: BASE_PLAN.code, name: `Plan ${BASE_PLAN.name}`, description: BASE_PLAN.description, amountCents: BASE_PLAN.monthlyCents, interval: "month" };
+  // Anual: se paga un año entero por adelantado.
+  return { code: BASE_PLAN.code, name: `Plan ${BASE_PLAN.name}`, description: BASE_PLAN.description, amountCents: BASE_PLAN.yearlyCents, interval: "year" };
 }
 
 export function modulePriceSpec(moduleId: ModuleId): PriceSpec {
@@ -91,28 +92,80 @@ const taxCheckout = {
   locale: "es",
 } as const;
 
-/** Alta de la suscripción: plan base más los módulos elegidos, con IVA según el cliente. */
+/**
+ * Alta del plan base (suscripción anual). Los módulos elegidos viajan en los metadatos: cuando el
+ * plan queda activo, el webhook crea con ellos la suscripción mensual de módulos.
+ */
 export async function createSubscriptionCheckout(input: { tenantId: string; customerId: string; modules: readonly ModuleId[]; returnUrl: string }) {
   const client = requireStripe();
-  const prices = [await ensureStripePrice(basePriceSpec())];
-  for (const moduleId of [...new Set(input.modules)]) prices.push(await ensureStripePrice(modulePriceSpec(moduleId)));
+  const price = await ensureStripePrice(basePriceSpec());
+  const modules = [...new Set(input.modules)].sort();
   return client.checkout.sessions.create({
     mode: "subscription",
     customer: input.customerId,
-    line_items: prices.map((price) => ({ price, quantity: 1 })),
+    line_items: [{ price, quantity: 1 }],
     success_url: `${input.returnUrl}?checkout=ok&session={CHECKOUT_SESSION_ID}`,
     cancel_url: `${input.returnUrl}?checkout=cancel`,
     client_reference_id: input.tenantId,
     allow_promotion_codes: true,
     metadata: { tenantId: input.tenantId, kind: "subscription" },
-    subscription_data: { metadata: { tenantId: input.tenantId } },
+    subscription_data: {
+      metadata: { tenantId: input.tenantId, kind: "plan", ...(modules.length ? { modules: modules.join(",") } : {}) },
+    },
+    payment_method_collection: "always",
     ...taxCheckout,
   });
 }
 
+/** Suscripción antigua con el plan y los módulos juntos, cobrados al mes. */
+export async function isCombinedMonthlySubscription(stripeSubscriptionId: string) {
+  const current = await requireStripe().subscriptions.retrieve(stripeSubscriptionId);
+  for (const item of current.items.data) {
+    if ((await priceCodeFor(item.price.id)) === BASE_PLAN.code && item.price.recurring?.interval === "month") return true;
+  }
+  return false;
+}
+
+/**
+ * Crea la suscripción mensual de módulos con la tarjeta del plan. Si el banco pide confirmar el
+ * pago (SCA), queda incompleta y se devuelve el enlace de la factura para pagarla.
+ */
+export async function createModulesSubscription(input: { tenantId: string; customerId: string; planSubscriptionId: string; modules: readonly ModuleId[]; idempotencyKey: string }) {
+  const client = requireStripe();
+  const modules = [...new Set(input.modules)].sort();
+  if (modules.length === 0) throw new HttpError(400, "Elige al menos un módulo.");
+  const plan = await client.subscriptions.retrieve(input.planSubscriptionId);
+  const paymentMethod = typeof plan.default_payment_method === "string" ? plan.default_payment_method : plan.default_payment_method?.id;
+  const items: Stripe.SubscriptionCreateParams.Item[] = [];
+  for (const moduleId of modules) items.push({ price: await ensureStripePrice(modulePriceSpec(moduleId)), quantity: 1 });
+  const created = await client.subscriptions.create(
+    {
+      customer: input.customerId,
+      items,
+      ...(paymentMethod ? { default_payment_method: paymentMethod } : {}),
+      automatic_tax: { enabled: true },
+      payment_behavior: "allow_incomplete",
+      metadata: { tenantId: input.tenantId, kind: "modules" },
+      expand: ["latest_invoice"],
+    },
+    { idempotencyKey: input.idempotencyKey },
+  );
+  const invoice = typeof created.latest_invoice === "object" ? created.latest_invoice : null;
+  return { subscription: created, payUrl: created.status === "incomplete" ? invoice?.hosted_invoice_url ?? null : null };
+}
+
+/** Quita todos los módulos: cancela su suscripción y abona la parte no usada del mes. */
+export async function cancelModulesSubscription(stripeSubscriptionId: string) {
+  const client = requireStripe();
+  const current = await client.subscriptions.retrieve(stripeSubscriptionId);
+  if (current.status === "canceled" || current.status === "incomplete_expired") return current;
+  return client.subscriptions.cancel(stripeSubscriptionId, { prorate: true, invoice_now: true });
+}
+
 /**
  * Cambia los módulos de una suscripción en curso: añade y quita líneas con prorrateo (se cobra o
- * abona la parte proporcional en la siguiente factura).
+ * abona la parte proporcional en la siguiente factura). Sirve para la suscripción de módulos y para
+ * las antiguas que llevan el plan y los módulos juntos (sus líneas que no son módulos no se tocan).
  */
 export async function updateSubscriptionModules(input: { stripeSubscriptionId: string; modules: readonly ModuleId[] }) {
   const client = requireStripe();

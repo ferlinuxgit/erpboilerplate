@@ -40,7 +40,8 @@ export function BillingDashboard({ canManage, overview }: { canManage: boolean; 
   const [selected, setSelected] = useState<Set<ModuleId>>(() => new Set(overview.modules.filter((entry) => (live ? entry.contracted : entry.selected)).map((entry) => entry.id)));
   const [busy, setBusy] = useState<string | null>(null);
   const status = STATE_LABEL[overview.access.state] ?? STATE_LABEL.disabled;
-  const total = overview.base.priceCents + overview.modules.filter((entry) => selected.has(entry.id)).reduce((sum, entry) => sum + entry.priceCents, 0);
+  // El plan se paga por años; los módulos, cada mes en su propia suscripción.
+  const modulesTotal = overview.modules.filter((entry) => selected.has(entry.id)).reduce((sum, entry) => sum + entry.priceCents, 0);
   const contracted = new Set(overview.modules.filter((entry) => entry.contracted).map((entry) => entry.id));
   const changed = live && (selected.size !== contracted.size || [...selected].some((id) => !contracted.has(id)));
   const canPay = canManage && overview.stripeConfigured;
@@ -75,8 +76,13 @@ export function BillingDashboard({ canManage, overview }: { canManage: boolean; 
     if (url) window.location.href = url;
   });
   const saveModules = () => run("modules", async () => {
-    await postForUrl("/api/billing/modules", { modules: [...selected] });
-    toast.success("Módulos actualizados: el cambio se prorratea en tu próxima factura.");
+    const { url } = await postForUrl("/api/billing/modules", { modules: [...selected] });
+    // El banco pide confirmar el pago de los módulos: se abre la factura de Stripe para pagarla.
+    if (url) {
+      window.location.href = url;
+      return;
+    }
+    toast.success(contracted.size === 0 ? "Módulos contratados: se cobran cada mes con la tarjeta del plan." : "Módulos actualizados: el cambio se prorratea en tu próxima factura mensual.");
     window.location.reload();
   });
   const buyCredits = (packCode: string) => run(packCode, async () => {
@@ -102,13 +108,22 @@ export function BillingDashboard({ canManage, overview }: { canManage: boolean; 
         )}
       </InlineAlert>
 
-      <PageSection title="Tu plan" description="Precios al mes, IVA no incluido. Sin permanencia: cambia o cancela cuando quieras.">
+      {overview.subscription?.modulesPaymentPending ? (
+        <InlineAlert data-testid="billing-modules-pending" title="Pago de módulos pendiente" tone="warning">
+          Los módulos se activarán cuando se pague su primera cuota. Revísalo en «Gestionar pago y facturas».
+        </InlineAlert>
+      ) : null}
+
+      <PageSection title="Tu plan" description="IVA no incluido. El plan base se paga por años; los módulos, mes a mes y sin permanencia.">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.45fr)]">
           <div className="space-y-3">
             <div className="rounded-surface border-2 border-primary bg-card p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="font-mono text-sm font-bold">{overview.base.name}</h3>
-                <p className="font-mono text-lg font-bold">{formatEuros(overview.base.priceCents)}<span className="text-xs font-normal text-muted-foreground"> /mes</span></p>
+                <p className="text-right font-mono text-lg font-bold">
+                  {formatEuros(overview.base.yearlyCents)}<span className="text-xs font-normal text-muted-foreground"> /año</span>
+                  <span className="block text-xs font-normal text-muted-foreground">equivale a {formatEuros(overview.base.monthlyEquivalentCents)}/mes · pago anual</span>
+                </p>
               </div>
               <ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
                 {overview.base.features.map((feature) => (
@@ -117,7 +132,7 @@ export function BillingDashboard({ canManage, overview }: { canManage: boolean; 
               </ul>
             </div>
             <fieldset className="space-y-1.5">
-              <legend className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.04em]">Módulos opcionales</legend>
+              <legend className="mb-1 font-mono text-xs font-bold uppercase tracking-[0.04em]">Módulos opcionales · al mes</legend>
               <ul className="divide-y divide-window-shadow rounded-surface border border-window-dark-shadow" data-testid="billing-modules">
                 {overview.modules.map((entry) => (
                   <li className={cn("p-2.5", selected.has(entry.id) && "bg-window-panel")} key={entry.id}>
@@ -143,9 +158,13 @@ export function BillingDashboard({ canManage, overview }: { canManage: boolean; 
             </fieldset>
           </div>
           <aside aria-label="Resumen del plan" className="h-fit space-y-2 border-l-4 border-l-primary bg-window-panel p-3 lg:sticky lg:top-4">
-            <p className="font-mono text-xs font-bold uppercase">Total al mes</p>
-            <p className="font-mono text-2xl font-bold" data-testid="billing-total">{formatEuros(total)}</p>
-            <p className="text-xs text-muted-foreground">+ IVA. {selected.size === 0 ? "Solo el plan base." : `Plan base y ${selected.size} módulo${selected.size === 1 ? "" : "s"}.`}</p>
+            <p className="font-mono text-xs font-bold uppercase">Plan base</p>
+            <p className="font-mono text-2xl font-bold" data-testid="billing-plan-total">{formatEuros(overview.base.yearlyCents)}<span className="text-sm font-normal text-muted-foreground"> /año</span></p>
+            <p className="font-mono text-xs font-bold uppercase">Módulos</p>
+            <p className="font-mono text-2xl font-bold" data-testid="billing-total">{formatEuros(modulesTotal)}<span className="text-sm font-normal text-muted-foreground"> /mes</span></p>
+            <p className="text-xs text-muted-foreground">
+              + IVA. {selected.size === 0 ? "Sin módulos." : `${selected.size} módulo${selected.size === 1 ? "" : "s"}, cobrado${selected.size === 1 ? "" : "s"} cada mes aparte con la misma tarjeta.`}
+            </p>
             {live ? (
               <Button className="w-full" disabled={!canPay || !changed || busy !== null} onClick={() => void saveModules()} type="button">
                 {busy === "modules" ? "Guardando…" : "Guardar cambios de módulos"}
@@ -153,9 +172,10 @@ export function BillingDashboard({ canManage, overview }: { canManage: boolean; 
             ) : (
               <Button className="w-full" data-testid="billing-subscribe" disabled={!canPay || busy !== null} onClick={() => void subscribe()} type="button">
                 <Lightning aria-hidden="true" />
-                {busy === "checkout" ? "Abriendo el pago…" : `Contratar por ${formatEuros(total)}/mes`}
+                {busy === "checkout" ? "Abriendo el pago…" : `Contratar el plan por ${formatEuros(overview.base.yearlyCents)}/año`}
               </Button>
             )}
+            {!live && selected.size > 0 ? <p className="text-xs text-muted-foreground">Primero pagas el año del plan; al confirmarse, los módulos elegidos empiezan a cobrarse al mes con la misma tarjeta.</p> : null}
             {!overview.stripeConfigured ? <p className="text-xs text-muted-foreground">El pago se activará cuando el servidor tenga Stripe configurado.</p> : null}
             {!canManage ? <p className="text-xs text-muted-foreground">Solo el propietario del espacio puede contratar.</p> : null}
           </aside>
