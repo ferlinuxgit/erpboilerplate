@@ -96,6 +96,9 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
                       {entry.requirement === "if-applicable" ? "Solo si aplica. " : ""}
                       {entry.reason}
                     </span>
+                    {entry.directDebitDate && entry.state !== "filed" ? (
+                      <span className="block text-xs text-muted-foreground">Si domicilias el pago, preséntalo antes: hasta el {formatDate(entry.directDebitDate)}.</span>
+                    ) : null}
                   </span>
                   <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
                   <span className="flex flex-wrap items-center gap-2 text-sm md:justify-end">

@@ -2,6 +2,7 @@ import { igicExemptRegime } from "@/lib/country-packs/igic";
 import {
   getDaysUntilDue,
   getFiscalDueStatus,
+  getSpanishFiscalDirectDebitDate,
   getSpanishFiscalDueDate,
   getSpanishFiscalModel,
   parseSpanishFiscalPeriod,
@@ -25,6 +26,8 @@ export type FiscalCalendarEntry = {
   period: string;
   periodLabel: string;
   dueDate: string;
+  /** Último día para presentar con domiciliación bancaria; null en modelos sin ingreso o de la ATC. */
+  directDebitDate: string | null;
   daysUntilDue: number;
   dueStatus: FiscalDueStatus;
   requirement: FiscalCalendarRequirement;
@@ -123,6 +126,7 @@ export function buildFiscalCalendar(input: FiscalCalendarInput): FiscalCalendarE
       period: entry.period,
       periodLabel: range.label,
       dueDate: dueDate.toISOString(),
+      directDebitDate: getSpanishFiscalDirectDebitDate(entry.period, entry.code)?.toISOString() ?? null,
       daysUntilDue: getDaysUntilDue(dueDate, now),
       dueStatus,
       requirement: entry.requirement,

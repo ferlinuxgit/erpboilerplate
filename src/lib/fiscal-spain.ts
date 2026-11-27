@@ -267,6 +267,101 @@ export function parseSpanishFiscalPeriod(period: string, modelCode: SpanishFisca
   return null;
 }
 
+/**
+ * HORA LOCAL DE LOS PERIODOS FISCALES
+ *
+ * Las fechas se guardan de dos formas: como fecha civil (lo elegido en un formulario: las 00:00:00
+ * UTC exactas de ese día) o como instante real (tickets del TPV, rectificativas y duplicados, que
+ * usan «ahora»). Regla única para decidir a qué periodo pertenece una fecha:
+ *
+ *   los límites de un periodo son la medianoche local de la empresa (Europe/Madrid; Atlantic/Canary
+ *   en Canarias), no la medianoche UTC.
+ *
+ * Con esa regla las dos formas caen en su día civil: España va siempre entre UTC+0 y UTC+2, así
+ * que las 00:00 UTC de un día son las 00:00, 01:00 o 02:00 locales de ese mismo día (la fecha civil
+ * guardada a medianoche UTC no cambia de día), y un ticket del 1 de abril a las 00:30 de Madrid
+ * (31-03 22:30 UTC) queda ya en el segundo trimestre.
+ */
+export const FISCAL_TIME_ZONE_PENINSULA = "Europe/Madrid";
+export const FISCAL_TIME_ZONE_CANARY = "Atlantic/Canary";
+
+/** Zona horaria fiscal según el territorio de la empresa (ES-CN → Canarias; resto → península). */
+export function fiscalTimeZoneFor(territory?: string | null) {
+  return territory === "ES-CN" ? FISCAL_TIME_ZONE_CANARY : FISCAL_TIME_ZONE_PENINSULA;
+}
+
+const civilDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function civilDateFormatter(timeZone: string) {
+  let formatter = civilDateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    civilDateFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function localParts(instant: Date, timeZone: string) {
+  const parts: Record<string, number> = {};
+  for (const part of civilDateFormatter(timeZone).formatToParts(instant)) {
+    if (part.type !== "literal") parts[part.type] = Number(part.value);
+  }
+  return parts as { year: number; month: number; day: number; hour: number; minute: number; second: number };
+}
+
+/** Fecha civil (año, mes 1-12, día) de un instante en la zona horaria fiscal. */
+export function fiscalCivilDate(instant: Date, timeZone: string = FISCAL_TIME_ZONE_PENINSULA) {
+  const { year, month, day } = localParts(instant, timeZone);
+  return { year, month, day };
+}
+
+/** Instante en que empieza (medianoche local) el día civil indicado; `monthIndex` de 0 a 11 y admite desbordes como `Date.UTC`. */
+export function localMidnightInstant(year: number, monthIndex: number, day: number, timeZone: string = FISCAL_TIME_ZONE_PENINSULA) {
+  const utcMidnight = Date.UTC(year, monthIndex, day);
+  const offsetAt = (instant: number) => {
+    const local = localParts(new Date(instant), timeZone);
+    return Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second) - Math.floor(instant / 1000) * 1000;
+  };
+  // Dos pasadas por si el desfase cambia entre la medianoche UTC y la local (cambio de hora).
+  const first = utcMidnight - offsetAt(utcMidnight);
+  return new Date(utcMidnight - offsetAt(first));
+}
+
+/**
+ * Límite de periodo como instante real. Un límite expresado como fecha civil (00:00:00.000 UTC, lo
+ * que devuelve `parseSpanishFiscalPeriod`) pasa a la medianoche local de ese día; cualquier otro
+ * valor ya es un instante y se deja igual (la conversión es idempotente).
+ */
+export function fiscalBoundaryInstant(boundary: Date, timeZone: string = FISCAL_TIME_ZONE_PENINSULA) {
+  if (boundary.getTime() % 86_400_000 !== 0) return boundary;
+  return localMidnightInstant(boundary.getUTCFullYear(), boundary.getUTCMonth(), boundary.getUTCDate(), timeZone);
+}
+
+/** Rango [inicio, fin) de un periodo en instantes reales (medianoche local). */
+export function fiscalRangeInstants(range: { start: Date; endExclusive: Date }, timeZone: string = FISCAL_TIME_ZONE_PENINSULA) {
+  return { start: fiscalBoundaryInstant(range.start, timeZone), endExclusive: fiscalBoundaryInstant(range.endExclusive, timeZone) };
+}
+
+/** Trimestre (0-3) de un instante según su fecha civil local. */
+export function fiscalQuarterIndex(instant: Date, timeZone: string = FISCAL_TIME_ZONE_PENINSULA) {
+  return Math.floor((fiscalCivilDate(instant, timeZone).month - 1) / 3);
+}
+
+/** Último periodo de liquidación del ejercicio (4T o mes 12). */
+export function isLastVatPeriodOfYear(period: string) {
+  return /^(20\d{2})-(Q4|12)$/.test(period.trim().toUpperCase());
+}
+
+/** Periodos anteriores del mismo ejercicio y con la misma forma (trimestres o meses) que el indicado. */
+export function previousPeriodsOfYear(period: string): string[] {
+  const value = period.trim().toUpperCase();
+  const quarter = /^(20\d{2})-Q([1-4])$/.exec(value);
+  if (quarter) return Array.from({ length: Number(quarter[2]) - 1 }, (_, index) => `${quarter[1]}-Q${index + 1}`);
+  const month = /^(20\d{2})-(0[1-9]|1[0-2])$/.exec(value);
+  if (month) return Array.from({ length: Number(month[2]) - 1 }, (_, index) => `${month[1]}-${String(index + 1).padStart(2, "0")}`);
+  return [];
+}
+
 export type FiscalPeriodPart = { value: string; label: string };
 
 const MONTH_LABELS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -322,6 +417,37 @@ export function nextBusinessDay(date: Date) {
 export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {
   const nominal = nominalSpanishFiscalDueDate(period, modelCode);
   return nominal ? nextBusinessDay(nominal) : null;
+}
+
+/** Modelos con ingreso que admiten domiciliación bancaria en la AEAT (los informativos y los de la ATC, no). */
+const DIRECT_DEBIT_MODELS = new Set<SpanishFiscalModelCode>(["303", "111", "115", "130"]);
+
+/**
+ * Último día para presentar con domiciliación bancaria: tres días hábiles antes del fin del plazo
+ * de presentación (ya trasladado si cae en fin de semana). Da el 15 cuando el plazo acaba el 20 y
+ * el 25 cuando acaba el 30, y los traslada como la AEAT cuando esos días no son hábiles.
+ *
+ * CONTRASTADO con «Plazos de presentación de autoliquidaciones con domiciliación bancaria» del
+ * calendario del contribuyente 2026 de la AEAT (actualizado el 17-12-2025) para el 303 trimestral:
+ * 4T 2025 del 1 al 27 de enero (presentación hasta el 30); 1T, 2T y 3T de 2026 hasta el 15 de
+ * abril, julio y octubre (presentación hasta el 20). La página dice que entre el fin de la
+ * domiciliación y el del plazo debe haber al menos tres días hábiles o cinco naturales; la fórmula
+ * de «tres días hábiles» reproduce las cuatro fechas publicadas.
+ *
+ * NO CONTRASTADO: que el 111, el 115 y el 130 sigan la misma regla (es la general de la Orden
+ * EHA/1658/2009, pero la página consultada solo lista el 303), el 303 mensual, y los festivos
+ * (solo se descuentan sábados y domingos).
+ */
+export function getSpanishFiscalDirectDebitDate(period: string, modelCode: SpanishFiscalModelCode) {
+  if (!DIRECT_DEBIT_MODELS.has(modelCode)) return null;
+  const dueDate = getSpanishFiscalDueDate(period, modelCode);
+  if (!dueDate) return null;
+  let date = dueDate;
+  for (let businessDays = 0; businessDays < 3;) {
+    date = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - 1));
+    if (date.getUTCDay() !== 0 && date.getUTCDay() !== 6) businessDays += 1;
+  }
+  return date;
 }
 
 function nominalSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {

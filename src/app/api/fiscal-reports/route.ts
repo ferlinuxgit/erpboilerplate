@@ -19,7 +19,8 @@ const payloadSchema = z.object({
 export async function GET() {
   const ctx = await requireApiContext("fiscal.read");
   if (ctx instanceof NextResponse) return ctx;
-  return NextResponse.json(await listFiscalReports(ctx.company.id));
+  // Sin la foto de lo presentado (voluminosa): se consulta en la vista o en la exportación del modelo.
+  return NextResponse.json((await listFiscalReports(ctx.company.id)).map((report) => ({ ...report, filedSnapshot: undefined })));
 }
 
 export async function POST(request: Request) {

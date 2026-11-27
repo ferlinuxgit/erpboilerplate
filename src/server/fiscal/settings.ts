@@ -4,6 +4,7 @@ import type { FiscalSettingsFormValues } from "@/components/fiscal/fiscal-settin
 import { companySettings } from "@/db/schema";
 import { db } from "@/lib/db";
 import { normalizeTaxpayerType } from "@/lib/fiscal-spain";
+import { normalizeVatCompensationOpening } from "@/server/fiscal/spain";
 
 export function defaultFiscalSettings(): FiscalSettingsFormValues {
   return {
@@ -15,6 +16,7 @@ export function defaultFiscalSettings(): FiscalSettingsFormValues {
     verifactuMode: "pending",
     prorrataPct: 100,
     taxpayerType: "company",
+    vatCompensationOpening: {},
     defaultCustomerAccountCode: "4300",
     defaultSupplierAccountCode: "4100",
     defaultSalesAccountCode: "700",
@@ -44,6 +46,7 @@ export async function getFiscalSettings(
       settings.verifactuMode as FiscalSettingsFormValues["verifactuMode"],
     prorrataPct: Number(settings.prorrataPct),
     taxpayerType: normalizeTaxpayerType(settings.taxpayerType),
+    vatCompensationOpening: normalizeVatCompensationOpening(settings.vatCompensationOpening),
     defaultCustomerAccountCode: settings.defaultCustomerAccountCode,
     defaultSupplierAccountCode: settings.defaultSupplierAccountCode,
     defaultSalesAccountCode: settings.defaultSalesAccountCode,

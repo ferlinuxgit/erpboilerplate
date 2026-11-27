@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
 import { AccessibleField } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { PercentInput } from "@/components/ui/number-input";
+import { MoneyInput, PercentInput } from "@/components/ui/number-input";
 import { InlineAlert } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -26,6 +26,8 @@ export type FiscalSettingsFormValues = {
   verifactuMode: "pending" | "verifactu" | "non_verifactu";
   prorrataPct: number;
   taxpayerType: "company" | "individual";
+  /** Cuotas de IVA a compensar que vienen de ejercicios anteriores, por ejercicio ("2026" → importe). */
+  vatCompensationOpening: Record<string, number>;
   defaultCustomerAccountCode: string;
   defaultSupplierAccountCode: string;
   defaultSalesAccountCode: string;
@@ -60,6 +62,8 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
   const [values, setValues] = useState(initialValues);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Saldo inicial del ejercicio en curso y del anterior (el que aún puede estar presentándose en enero).
+  const [openingYears] = useState(() => { const year = new Date().getFullYear(); return [year - 1, year]; });
 
   const setValue = <Key extends keyof FiscalSettingsFormValues>(key: Key, value: FiscalSettingsFormValues[Key]) => {
     setValues((current) => ({ ...current, [key]: value }));
@@ -71,12 +75,18 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
       setError("La prorrata tiene que estar entre 0 y 100 %.");
       return;
     }
+    if (openingYears.some((year) => { const amount = values.vatCompensationOpening[String(year)] ?? 0; return !Number.isFinite(amount) || amount < 0; })) {
+      setError("El IVA a compensar de ejercicios anteriores tiene que ser un importe positivo (o cero).");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       // Solo el perfil fiscal: el modo VERI*FACTU se guarda aparte (VerifactuSettingsForm).
       const { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct } = values;
-      const payload = { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct };
+      // Solo los ejercicios que se enseñan en el formulario; el resto se conserva en el servidor.
+      const vatCompensationOpening = Object.fromEntries(openingYears.map((year) => [String(year), values.vatCompensationOpening[String(year)] ?? 0]));
+      const payload = { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct, ...(showVatRegimes ? { vatCompensationOpening } : {}) };
       const response = await fetch("/api/fiscal-profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -171,6 +181,20 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
           <input checked={values.siiEnabled} id="fiscal-sii" onChange={(event) => setValue("siiEnabled", event.target.checked)} type="checkbox" />
           <span>Empresa obligada o adscrita al SII</span>
         </label>
+
+        {openingYears.map((year) => (
+          <AccessibleField
+            id={`fiscal-vat-opening-${year}`}
+            key={year}
+            label={`IVA a compensar al empezar ${year}`}
+            helperText={`Saldo a tu favor que dejaste «a compensar» en el último 303 de ${year - 1} (su casilla 87 más lo generado en ese periodo). Se descuenta solo en los 303 de ${year}: casillas 110 y 78. Déjalo a 0 si no había o si pediste la devolución.`}
+          >
+            <MoneyInput
+              value={values.vatCompensationOpening[String(year)] ?? 0}
+              onValueChange={(value) => setValue("vatCompensationOpening", { ...values.vatCompensationOpening, [String(year)]: value ?? Number.NaN })}
+            />
+          </AccessibleField>
+        ))}
         </>
         ) : null}
       </div>
