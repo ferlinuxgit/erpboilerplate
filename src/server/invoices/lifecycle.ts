@@ -33,18 +33,47 @@ export type SalesVatTreatmentCode = "DOMESTIC" | "INTRA_EU" | "INTRA_EU_SERVICES
 export const RECTIFICATION_REASONS: RectificationReason[] = ["R1", "R2", "R3", "R4", "R5"];
 export const RECTIFICATION_TYPES: RectificationType[] = ["DIFFERENCES", "SUBSTITUTION"];
 
-/** Causas de rectificación (art. 15 RD 1619/2012 y claves VeriFactu/SII). */
+/** Motivo comercial de una rectificativa: decide la cuenta contable del abono. */
+export type CommercialReason = "RETURN" | "DISCOUNT" | "ERROR";
+export const COMMERCIAL_REASONS: CommercialReason[] = ["ERROR", "RETURN", "DISCOUNT"];
+export const commercialReasonLabels: Record<CommercialReason, string> = {
+  ERROR: "Error en la factura (precio, cantidad, datos…) o anulación",
+  RETURN: "Devolución de mercancía",
+  DISCOUNT: "Descuento, bonificación o rappel posterior",
+};
+/** Dónde se contabiliza cada motivo (Plan General de Contabilidad, grupo 70). */
+export const commercialReasonAccountingHelp: Record<CommercialReason, string> = {
+  ERROR: "Corrige la misma cuenta de ventas de la factura original (700, 705…).",
+  RETURN: "Se contabiliza en la cuenta 708 «Devoluciones de ventas y operaciones similares».",
+  DISCOUNT: "Se contabiliza en la cuenta 709 «Rappels sobre ventas».",
+};
+export function isCommercialReason(value: unknown): value is CommercialReason {
+  return typeof value === "string" && (COMMERCIAL_REASONS as string[]).includes(value);
+}
+
+/**
+ * Causas de rectificación (art. 15 RD 1619/2012 y claves L2 de VERI*FACTU). R1 reúne el error
+ * fundado en derecho y las causas del art. 80.Uno, Dos y Seis de la Ley del IVA: devolución de
+ * envases, descuentos y bonificaciones posteriores (80.Uno) y operaciones que quedan sin efecto o
+ * cuyo precio se altera, como las devoluciones (80.Dos). R4 es «resto de causas».
+ */
 export const rectificationReasonLabels: Record<RectificationReason, string> = {
-  R1: "R1 · Error fundado en derecho o causas del art. 80.Uno, Dos y Seis LIVA",
+  R1: "R1 · Devoluciones, descuentos y rappels posteriores, o error fundado en derecho (art. 80.Uno, Dos y Seis LIVA)",
   R2: "R2 · Concurso de acreedores del cliente (art. 80.Tres LIVA)",
   R3: "R3 · Crédito incobrable (art. 80.Cuatro LIVA)",
-  R4: "R4 · Otras causas (errores, descuentos, devoluciones…)",
+  R4: "R4 · Resto de causas (errores en los datos, el precio, la cantidad o el tipo de IVA…)",
   R5: "R5 · Rectificación de factura simplificada",
 };
 
+/**
+ * Todas nuestras rectificativas se expresan POR DIFERENCIAS (TipoRectificativa = I en VERI*FACTU):
+ * también la que anula las líneas originales y añade las correctas (valor histórico SUBSTITUTION),
+ * que lleva las originales en negativo y las nuevas en positivo. No se emite la modalidad «por
+ * sustitución» (S) del registro, así que ninguna etiqueta la nombra.
+ */
 export const rectificationTypeLabels: Record<RectificationType, string> = {
   DIFFERENCES: "Por diferencias",
-  SUBSTITUTION: "Por sustitución",
+  SUBSTITUTION: "Por diferencias (anula las líneas originales e incluye las correctas)",
 };
 
 export const salesVatTreatmentOptions: Array<{ value: SalesVatTreatmentCode; label: string; help: string }> = [

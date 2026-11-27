@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { RECTIFICATION_REASONS, RECTIFICATION_TYPES, salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
+import { INVOICE_DOCUMENT_CLASSES } from "@/server/invoices/document-class";
+import { COMMERCIAL_REASONS, RECTIFICATION_REASONS, RECTIFICATION_TYPES, salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
 import { createCustomerSchema, invoiceLineFormSchema, invoiceStatusSchema } from "@/server/schemas/forms";
 
 /** Esquemas de facturas emitidas compartidos por API y formularios (sin dependencias de servidor). */
@@ -16,6 +17,12 @@ export const salesVatTreatmentSchema = z.enum(salesVatTreatmentValues, { error: 
 export const vatExemptionCodeSchema = z.enum(["E1", "E2", "E3", "E4", "E5", "E6", "N1", "N2"], { error: "La causa de exención no es válida." });
 
 const operationDateSchema = z.string().trim().optional().or(z.literal(""));
+
+/** Clase de documento elegida (vacío o null = automática: con NIF completa, sin NIF simplificada). */
+export const documentClassSchema = z.enum(INVOICE_DOCUMENT_CLASSES as [string, ...string[]], { error: "La clase de documento no es válida." });
+
+/** Menciones legales propias de la factura (se imprimen en el PDF). */
+const legalMentionsSchema = z.string().trim().max(1500, "Las menciones legales no pueden superar 1.500 caracteres.").optional().nullable().or(z.literal(""));
 
 const paymentMethodReferenceSchema = z
   .string()
@@ -44,6 +51,10 @@ export const createInvoiceSchema = z.object({
   /** Fecha de la operación, solo si es distinta de la de emisión. */
   operationDate: operationDateSchema,
   vatExemptionCode: vatExemptionCodeSchema.optional().nullable(),
+  documentClass: documentClassSchema.optional().nullable().or(z.literal("")),
+  legalMentions: legalMentionsSchema,
+  /** Operación intracomunitaria sin comprobación reciente en VIES: confirmación expresa de quien emite. */
+  confirmVies: z.boolean().optional(),
   seriesId: seriesIdSchema,
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea."),
   /** "draft" guarda un borrador editable; "issue" (por defecto, compatible con integraciones) emite. */
@@ -72,6 +83,9 @@ export const updateDraftInvoiceSchema = z.object({
   vatTreatment: salesVatTreatmentSchema.optional().nullable(),
   operationDate: operationDateSchema,
   vatExemptionCode: vatExemptionCodeSchema.optional().nullable(),
+  documentClass: documentClassSchema.optional().nullable().or(z.literal("")),
+  legalMentions: legalMentionsSchema,
+  confirmVies: z.boolean().optional(),
   seriesId: seriesIdSchema,
   totalAmount: z.number().optional(),
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea.").optional(),
@@ -92,7 +106,7 @@ export const issuedInvoiceEditSchema = z.object({
 
 /** Campos que siguen siendo editables en una factura emitida. */
 export const ISSUED_EDITABLE_FIELDS = ["notes", "paymentMethodIds", "paymentMethodId"] as const;
-export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "operationDate", "vatExemptionCode", "totalAmount", "seriesId"] as const;
+export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "operationDate", "vatExemptionCode", "documentClass", "legalMentions", "totalAmount", "seriesId"] as const;
 
 export const creditNoteLineSchema = z.object({
   itemId: z.string().trim().optional().nullable(),
@@ -114,7 +128,17 @@ export const createCreditNoteSchema = z.object({
   description: z.string().trim().min(3, "Explica brevemente el motivo de la rectificación.").max(500, "El motivo no puede superar 500 caracteres."),
   issueDate: z.string().trim().optional().or(z.literal("")),
   /**
-   * PARTIAL + DIFFERENCES: importes (positivos) que se abonan.
+   * Sentido de una rectificación parcial: DECREASE (por defecto) abona los importes indicados;
+   * INCREASE los añade (rectificación al alza: se facturó de menos por error).
+   */
+  direction: z.enum(["DECREASE", "INCREASE"]).optional(),
+  /**
+   * Motivo comercial, que decide la cuenta del abono: RETURN (devolución de mercancía, 708),
+   * DISCOUNT (descuento o rappel posterior, 709) o ERROR (corrige la cuenta de ventas; por defecto).
+   */
+  commercialReason: z.enum(COMMERCIAL_REASONS as [string, ...string[]]).optional().nullable(),
+  /**
+   * PARTIAL + DIFFERENCES: importes (positivos) que se abonan (o que se añaden, con INCREASE).
    * SUBSTITUTION: líneas correctas que sustituyen a las de la factura original.
    */
   lines: z.array(creditNoteLineSchema).max(200).optional(),
@@ -126,8 +150,25 @@ export const createCreditNoteSchema = z.object({
   if ((value.scope === "PARTIAL" || value.type === "SUBSTITUTION") && (!value.lines || value.lines.length === 0)) {
     ctx.addIssue({ code: "custom", message: "Indica al menos una línea para la rectificación.", path: ["lines"] });
   }
+  if (value.direction === "INCREASE" && (value.scope !== "PARTIAL" || value.type === "SUBSTITUTION")) {
+    ctx.addIssue({ code: "custom", message: "La rectificación al alza se hace indicando los importes que faltaban (alcance parcial).", path: ["direction"] });
+  }
+  if (value.direction === "INCREASE" && (value.commercialReason === "RETURN" || value.commercialReason === "DISCOUNT")) {
+    ctx.addIssue({ code: "custom", message: "Una devolución o un descuento no pueden aumentar el importe de la factura.", path: ["commercialReason"] });
+  }
+});
+
+/** Canje: factura completa que sustituye a una o varias facturas simplificadas del mismo cliente. */
+export const substituteSimplifiedSchema = z.object({
+  /** Otras simplificadas que entran en la misma factura, además de la de la ruta. */
+  invoiceIds: z.array(z.string().trim().min(1)).max(50).optional(),
+  /** Cliente (con NIF) al que se expide la factura completa. */
+  customerId: z.string().trim().min(1, "Elige el cliente al que se expide la factura."),
+  issueDate: z.string().trim().optional().or(z.literal("")),
+  seriesId: seriesIdSchema,
 });
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type UpdateDraftInvoiceInput = z.infer<typeof updateDraftInvoiceSchema>;
 export type CreateCreditNoteInput = z.infer<typeof createCreditNoteSchema>;
+export type SubstituteSimplifiedInput = z.infer<typeof substituteSimplifiedSchema>;
