@@ -14,6 +14,7 @@ const SOURCE_JOURNALS: Record<string, JournalCode> = {
   supplierInvoice: "COM",
   payment: "BAN",
   supplierPayment: "BAN",
+  supplierCreditRefund: "BAN",
   bankTransaction: "BAN",
   bankTransactionAssignment: "BAN",
   fiscalYearRegularization: "CIE",

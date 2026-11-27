@@ -76,6 +76,8 @@ export type PostingLineMeta = {
   documentNumber?: string | null;
   documentId?: string | null;
   dueDate?: Date | null;
+  /** Centro de coste del apunte (analítica). */
+  costCenterId?: string | null;
 };
 
 export type PostingLine = { accountId: string; debit: number | string; credit: number | string } & PostingLineMeta;
@@ -283,7 +285,7 @@ export function normalizePostingLines(lines: PostingLine[]): NormalizedPostingLi
   }));
 }
 
-const META_KEYS = ["concept", "partnerId", "documentType", "documentNumber", "documentId", "dueDate"] as const;
+const META_KEYS = ["concept", "partnerId", "documentType", "documentNumber", "documentId", "dueDate", "costCenterId"] as const;
 
 /** Solo las claves de información presentes (una línea sin ellas se queda como { accountId, debit, credit }). */
 function lineMeta(line: PostingLineMeta): PostingLineMeta {
@@ -456,6 +458,7 @@ export async function createAutomaticEntry(
       documentNumber: line.documentNumber ?? null,
       documentId: line.documentId ?? null,
       dueDate: line.dueDate ?? null,
+      costCenterId: line.costCenterId ?? null,
     })),
   );
   await client
