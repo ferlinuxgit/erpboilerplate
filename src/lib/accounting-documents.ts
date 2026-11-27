@@ -7,6 +7,7 @@ const DOCUMENT_LABELS: Record<string, string> = {
   supplierPayment: "Pago",
   bankTransaction: "Mov. banco",
   fiscalYear: "Ejercicio",
+  fixedAsset: "Inmovilizado",
 };
 
 export function accountingDocumentLabel(documentType: string | null | undefined) {
@@ -17,6 +18,7 @@ export function accountingDocumentHref(documentType: string | null | undefined, 
   if (!documentType || !documentId) return null;
   if (documentType === "invoice") return `/invoices/${documentId}`;
   if (documentType === "supplierInvoice") return `/expenses/${documentId}`;
+  if (documentType === "fixedAsset") return `/accounting/assets/${documentId}`;
   if (documentType === "bankTransaction") return `/treasury/bank-transactions/${documentId}`;
   return null;
 }
