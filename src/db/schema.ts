@@ -1377,6 +1377,107 @@ export const fiscalReport = pgTable(
   (table) => [unique("fiscal_report_company_code_period_unique").on(table.companyId, table.code, table.period)],
 );
 
+/**
+ * Impuesto sobre Sociedades (Ley 27/2014). Lo que decide el usuario en la liquidación de un
+ * ejercicio; los saldos contables se leen del libro en cada cálculo. Importes en céntimos.
+ */
+export type CorporateTaxReturnInputs = {
+  /** general | micro | reduced | newCompany | custom (ver `@/server/corporate-tax/rates`). */
+  regime: string;
+  customRatePct: number | null;
+  /** Cifra de negocios del periodo anterior indicada a mano; null = la del libro. */
+  priorYearRevenueCents: number | null;
+  adjustments: Array<{ id: string; kind: string; concept: string; sign: "increase" | "decrease"; amountCents: number; nature: "permanent" | "temporaryOrigin" | "temporaryReversal" }>;
+  capitalizationReserveCents: number;
+  /** null = compensar el máximo de bases negativas que permita la ley. */
+  lossCompensationCents: number | null;
+  levelingReductionCents: number;
+  levelingAdditionCents: number;
+  credits: Array<{ id: string; concept: string; amountCents: number }>;
+  /** null = saldo de la cuenta 473 y pagos fraccionados registrados en el programa. */
+  withholdingsOverrideCents: number | null;
+  installmentsOverrideCents: number | null;
+};
+
+/** Liquidación del modelo 200 de un ejercicio: datos, asiento del impuesto y foto de lo presentado. */
+export const corporateTaxReturn = pgTable("corporate_tax_return", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
+  inputs: jsonb("inputs").$type<CorporateTaxReturnInputs>().notNull(),
+  // draft | filed (presentado en Sociedades WEB; el programa no presenta).
+  status: text("status").notNull().default("draft"),
+  filedAt: timestamp("filedAt", { withTimezone: true, mode: "date" }),
+  filingReceiptNumber: text("filingReceiptNumber"),
+  // Liquidación completa en el momento de marcarla como presentada (de ahí salen las bases negativas a compensar).
+  filedSnapshot: jsonb("filedSnapshot").$type<Record<string, unknown>>(),
+  // Asiento del impuesto en vigor (null = sin contabilizar) y los importes con los que se hizo.
+  journalEntryId: text("journalEntryId").references(() => journalEntry.id, { onDelete: "set null" }),
+  postedAt: timestamp("postedAt", { withTimezone: true, mode: "date" }),
+  postedSnapshot: jsonb("postedSnapshot").$type<Record<string, number>>(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("corporate_tax_return_company_year_unique").on(table.companyId, table.fiscalYearId),
+  index("corporate_tax_return_entry_idx").on(table.journalEntryId),
+  check("corporate_tax_return_status_valid", sql`${table.status} IN ('draft', 'filed')`),
+]);
+
+/** Bases imponibles negativas anteriores al uso del programa, por ejercicio de origen (art. 26). */
+export const corporateTaxLoss = pgTable("corporate_tax_loss", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  originYear: integer("originYear").notNull(),
+  // Importe pendiente de compensar al empezar a usar el programa.
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("corporate_tax_loss_company_year_unique").on(table.companyId, table.originYear),
+  check("corporate_tax_loss_valid", sql`${table.amount} > 0 AND ${table.originYear} BETWEEN 1990 AND 2100`),
+]);
+
+/** Pago fraccionado (modelo 202) de un ejercicio: periodo 1P, 2P o 3P, modalidad, importe y asiento del pago. */
+export const corporateTaxInstallment = pgTable("corporate_tax_installment", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // Ejercicio a cuenta del cual se ingresa.
+  fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
+  period: text("period").notNull(),
+  // quota (art. 40.2) | base (art. 40.3).
+  method: text("method").notNull().default("quota"),
+  // Datos introducidos por el usuario (ajustes del periodo, bonificaciones, base indicada a mano…), en céntimos.
+  inputs: jsonb("inputs").$type<Record<string, number | null>>().notNull(),
+  // Importe a ingresar según el último cálculo guardado, y su desglose.
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>(),
+  status: text("status").notNull().default("draft"),
+  filedAt: timestamp("filedAt", { withTimezone: true, mode: "date" }),
+  filingReceiptNumber: text("filingReceiptNumber"),
+  // Pago contabilizado: (473) a banco.
+  paidAt: date("paidAt", { mode: "string" }),
+  paidAmount: numeric("paidAmount", { precision: 14, scale: 2 }),
+  journalEntryId: text("journalEntryId").references(() => journalEntry.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("corporate_tax_installment_company_year_period_unique").on(table.companyId, table.fiscalYearId, table.period),
+  index("corporate_tax_installment_entry_idx").on(table.journalEntryId),
+  check("corporate_tax_installment_period_valid", sql`${table.period} IN ('1P', '2P', '3P')`),
+  check("corporate_tax_installment_method_valid", sql`${table.method} IN ('quota', 'base')`),
+  check("corporate_tax_installment_status_valid", sql`${table.status} IN ('draft', 'filed')`),
+  check("corporate_tax_installment_amount_valid", sql`${table.amount} >= 0`),
+]);
+
+/** Recordatorios informativos de la sociedad en el calendario fiscal (modelo 232, libros y cuentas anuales). */
+export const corporateTaxSettings = pgTable("corporate_tax_settings", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  remindRelatedParties: boolean("remindRelatedParties").notNull().default(false),
+  remindBooks: boolean("remindBooks").notNull().default(true),
+  remindAnnualAccounts: boolean("remindAnnualAccounts").notNull().default(true),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
 export const kpiSnapshot = pgTable("kpi_snapshot", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
