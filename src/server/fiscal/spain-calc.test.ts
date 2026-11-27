@@ -350,7 +350,8 @@ describe("Modelo 390: numeración oficial (instrucciones y diseño de registro d
     // Volumen: 99 régimen general, 653 criterio de caja por la regla general, 108 total.
     expect([annualBox(rows, "99"), annualBox(rows, "653"), annualBox(rows, "108")]).toEqual([100, 1000, 1100]);
     expect([annualBox(rows, "654"), annualBox(rows, "655"), annualBox(rows, "656")]).toEqual([1000, 210, undefined]);
-    expect([annualBox(rows, "115"), annualBox(rows, "116"), annualBox(rows, "118")]).toEqual([1100, 1100, 100]);
+    expect([annualBox(rows, "115"), annualBox(rows, "116")]).toEqual([1100, 1100]);
+    expect(rows.find((row) => row.box === "115")?.label).toContain("casilla 118: 100 %");
   });
 });
 

@@ -18,6 +18,8 @@ import { describeDaysUntil } from "@/lib/pluralize";
 import { can } from "@/lib/rbac";
 import { getFiscalReportView } from "@/server/fiscal/service";
 
+import { ProrrataFinalForm } from "./prorrata-final-form";
+
 const statusTone = { DRAFT: "neutral", READY: "warning", FILED: "success" } as const;
 
 export default async function FiscalReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -37,7 +39,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
   // Operadores del 349: los del periodo y después las rectificaciones de periodos anteriores.
   const operators349 = summary?.modelo349
     ? [
-        ...summary.modelo349.operators.map((operator) => ({ ...operator, originalPeriod: null as string | null, rowKey: `${operator.key}-${operator.taxId}` })),
+        ...summary.modelo349.operators.map((operator) => ({ ...operator, originalPeriod: null as string | null, previousAmount: undefined as number | undefined, rectifiedAmount: undefined as number | undefined, rowKey: `${operator.key}-${operator.taxId}` })),
         ...summary.modelo349.rectifications.map((operator) => ({ ...operator, rowKey: `r-${operator.key}-${operator.taxId}-${operator.originalPeriod}` })),
       ]
     : [];
@@ -48,6 +50,16 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
   const thirdParties = summary?.thirdPartyOperations;
   const isWithholdingModel = summary?.code === "111" || summary?.code === "115";
   const differences = report.snapshotDifferences ?? [];
+  const prorrata = summary?.prorrata;
+  const cashAccounting = summary?.cashAccounting;
+  const thirdPartyMarks = (operation: NonNullable<typeof thirdParties>[number]) => [
+    operation.flags?.lease ? "Posible arrendamiento de local" : null,
+    operation.flags?.cashAccounting ? "Criterio de caja" : null,
+    operation.flags?.reverseCharge ? "Inversión del sujeto pasivo" : null,
+  ].filter((mark): mark is string => mark !== null);
+  const thirdPartyRowKey = (operation: NonNullable<typeof thirdParties>[number]) => `${operation.type}-${operation.taxId}-${operation.name}-${thirdPartyMarks(operation).join("+")}`;
+  const hasCashAccrual = thirdParties?.some((operation) => operation.cashAccrualAmount !== undefined) ?? false;
+  const hasRectified349 = summary?.modelo349?.rectifications.some((operator) => operator.rectifiedAmount !== undefined) ?? false;
 
   return (
     <PageShell>
@@ -171,7 +183,62 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
         </InlineAlert>
       ) : null}
 
+      {cashAccounting?.ownRegime ? (
+        <InlineAlert title="Criterio de caja" tone="info">
+          Este modelo declara el IVA de tus ventas nacionales cuando las cobras y el de tus compras nacionales cuando las pagas (o, como tarde, el 31 de diciembre del año siguiente al de la operación). Según la regla general, en este periodo habrías declarado {formatMoney(cashAccounting.salesTax, currency)} de IVA repercutido sobre {formatMoney(cashAccounting.salesBase, currency)}, y {formatMoney(cashAccounting.purchaseTax, currency)} de IVA soportado sobre {formatMoney(cashAccounting.purchaseBase, currency)}.
+        </InlineAlert>
+      ) : cashAccounting && (cashAccounting.purchaseBase !== 0 || cashAccounting.purchaseTax !== 0) ? (
+        <InlineAlert title="Proveedores en criterio de caja" tone="info">
+          En este periodo has registrado {formatMoney(cashAccounting.purchaseBase, currency)} ({formatMoney(cashAccounting.purchaseTax, currency)} de IVA) en facturas de proveedores acogidos al criterio de caja: esa cuota se deduce cuando pagas cada factura, no al registrarla.
+        </InlineAlert>
+      ) : null}
+
       {summary?.warnings.map((warning) => <InlineAlert key={warning} tone="warning">{warning}</InlineAlert>)}
+
+      {prorrata ? (
+        <PageSection
+          title="Prorrata definitiva"
+          description={`Si haces operaciones exentas sin derecho a deducción, durante el año deduces el IVA con un porcentaje provisional (${prorrata.provisionalPct} %) y en el último periodo lo ajustas al definitivo del año.`}
+          contentClassName="space-y-3"
+        >
+          <div className="grid gap-3 md:grid-cols-4">
+            <MetricCard label="Operaciones del año" value={formatMoney(prorrata.totalOperations, currency)} helper="Sin IVA, por fecha de la operación" />
+            <MetricCard label="Con derecho a deducción" value={formatMoney(prorrata.deductibleOperations, currency)} helper={`Exentas sin derecho: ${formatMoney(prorrata.exemptOperations, currency)}`} />
+            <MetricCard label="Porcentaje calculado" value={prorrata.computedPct === null ? "—" : `${prorrata.computedPct} %`} helper="Redondeado a la unidad superior (art. 104 LIVA)" />
+            <MetricCard
+              label={prorrata.confirmedPct === null ? "Regularización estimada" : "Regularización (casilla 44)"}
+              value={formatMoney(prorrata.regularizationAmount ?? prorrata.previewRegularizationAmount ?? 0, currency)}
+              helper={prorrata.confirmedPct === null ? "No incluida en el resultado hasta que confirmes" : `Con el ${prorrata.confirmedPct} % confirmado · negativa = devuelves deducción`}
+              tone={prorrata.confirmedPct === null ? "warning" : "success"}
+            />
+          </div>
+          {canWrite && report.status !== "FILED" ? (
+            <ProrrataFinalForm computedPct={prorrata.computedPct} confirmedPct={prorrata.confirmedPct} year={prorrata.year} />
+          ) : null}
+          <p className="text-sm text-muted-foreground">
+            El porcentaje calculado no descuenta las ventas de bienes de inversión ni las operaciones inmobiliarias o financieras que no sean tu actividad habitual (art. 104.Tres LIVA): si las tienes, corrígelo antes de confirmar. Las líneas sin IVA de facturas nacionales cuentan como exentas sin derecho a deducción.
+          </p>
+          {prorrata.investmentGoods.length > 0 ? (
+            <TableContainer>
+              <Table className="[&_td:nth-child(n+3)]:whitespace-nowrap">
+                <TableHeader><TableRow><TableHead>Bien de inversión</TableHead><TableHead>Año de compra</TableHead><TableHead className="text-right">Cuota de IVA</TableHead><TableHead className="text-right">Prorrata de la compra</TableHead><TableHead className="text-right">Diferencia</TableHead><TableHead className="text-right">Regularización (casilla 43)</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {prorrata.investmentGoods.map((good, index) => (
+                    <TableRow key={`${good.number}-${index}`}>
+                      <TableCell>{good.number} · {good.description}</TableCell>
+                      <TableCell>{good.purchaseYear} (año {good.yearNumber} de {good.years})</TableCell>
+                      <TableCell className="text-right">{formatMoney(good.tax, currency)}</TableCell>
+                      <TableCell className="text-right">{good.purchasePct} %{good.purchasePctConfirmed ? "" : " (provisional)"}</TableCell>
+                      <TableCell className="text-right">{good.differencePoints > 0 ? "+" : ""}{good.differencePoints} puntos</TableCell>
+                      <TableCell className="text-right">{formatMoney(good.regularizationAmount, currency)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : null}
+        </PageSection>
+      ) : null}
 
       {summary?.modelo130 ? (
         <PageSection title="Casillas del modelo 130" description="Cálculo acumulado desde el 1 de enero. Copia estos importes en la sede electrónica de la AEAT.">
@@ -180,14 +247,14 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
       ) : null}
 
       {summary?.modelo349 ? (
-        <PageSection title="Operadores intracomunitarios" description="Un registro por NIF-IVA y clave. E: ventas de bienes · S: servicios prestados · A: compras de bienes · I: servicios recibidos.">
+        <PageSection title="Operadores intracomunitarios" description="Un registro por NIF-IVA y clave. E: ventas de bienes · S: servicios prestados · A: compras de bienes · I: servicios recibidos. En las rectificaciones de periodos anteriores el modelo pide la base declarada entonces y la base rectificada (el total correcto, no la diferencia).">
           {summary.modelo349.operators.length === 0 && summary.modelo349.rectifications.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay operaciones intracomunitarias en el periodo: no tienes que presentar el 349.</p>
           ) : (
             <>
               <TableContainer className="hidden md:block">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Clave</TableHead><TableHead>NIF-IVA</TableHead><TableHead>Nombre</TableHead><TableHead>Periodo rectificado</TableHead><TableHead className="text-right">Base</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Clave</TableHead><TableHead>NIF-IVA</TableHead><TableHead>Nombre</TableHead><TableHead>Periodo rectificado</TableHead>{hasRectified349 ? <><TableHead className="text-right">Declarada antes</TableHead><TableHead className="text-right">Base rectificada</TableHead></> : null}<TableHead className="text-right">{hasRectified349 ? "Base (o diferencia)" : "Base"}</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {operators349.map((operator) => (
                       <TableRow key={operator.rowKey}>
@@ -195,6 +262,12 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
                         <TableCell>{operator.taxId}</TableCell>
                         <TableCell>{operator.name}</TableCell>
                         <TableCell>{operator.originalPeriod ?? "—"}</TableCell>
+                        {hasRectified349 ? (
+                          <>
+                            <TableCell className="whitespace-nowrap text-right">{operator.previousAmount !== undefined ? formatMoney(operator.previousAmount, currency) : "—"}</TableCell>
+                            <TableCell className="whitespace-nowrap text-right">{operator.rectifiedAmount !== undefined ? formatMoney(operator.rectifiedAmount, currency) : "—"}</TableCell>
+                          </>
+                        ) : null}
                         <TableCell className="whitespace-nowrap text-right">{formatMoney(operator.amount, currency)}</TableCell>
                       </TableRow>
                     ))}
@@ -208,6 +281,8 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
                       <MobileRecordField label="Clave">{operator.key}{modelo349KeyLabels[operator.key] ? ` · ${modelo349KeyLabels[operator.key]}` : ""}</MobileRecordField>
                       <MobileRecordField label="NIF-IVA">{operator.taxId}</MobileRecordField>
                       {operator.originalPeriod ? <MobileRecordField label="Periodo rectificado">{operator.originalPeriod}</MobileRecordField> : null}
+                      {operator.previousAmount !== undefined ? <MobileRecordField label="Declarada antes">{formatMoney(operator.previousAmount, currency)}</MobileRecordField> : null}
+                      {operator.rectifiedAmount !== undefined ? <MobileRecordField label="Base rectificada">{formatMoney(operator.rectifiedAmount, currency)}</MobileRecordField> : null}
                     </MobileRecordFields>
                   </MobileRecord>
                 ))}
@@ -218,22 +293,26 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
       ) : null}
 
       {thirdParties ? (
-        <PageSection title="Terceros a declarar" description="Un registro por NIF: clientes y proveedores con más de 3.005,06 € en el año, IVA incluido y repartido por trimestres naturales.">
+        <PageSection title="Terceros a declarar" description="Clientes y proveedores con más de 3.005,06 € en el año, IVA incluido y repartido por trimestres naturales. Un tercero puede salir en varias filas: las operaciones con inversión del sujeto pasivo, en criterio de caja o de arrendamiento de local se declaran en registro separado.">
           {thirdParties.length === 0 ? (
             <p className="text-sm text-muted-foreground">Ningún cliente ni proveedor supera 3.005,06 € en el año: no tienes que presentar el 347.</p>
           ) : (
             <>
               <TableContainer className="hidden md:block">
                 <Table className="[&_td:nth-child(n+4)]:whitespace-nowrap">
-                  <TableHeader><TableRow><TableHead>Tipo</TableHead><TableHead>NIF</TableHead><TableHead>Nombre</TableHead><TableHead className="text-right">1T</TableHead><TableHead className="text-right">2T</TableHead><TableHead className="text-right">3T</TableHead><TableHead className="text-right">4T</TableHead><TableHead className="text-right">Total año</TableHead><TableHead className="text-right">En metálico</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Tipo</TableHead><TableHead>NIF</TableHead><TableHead>Nombre</TableHead><TableHead className="text-right">1T</TableHead><TableHead className="text-right">2T</TableHead><TableHead className="text-right">3T</TableHead><TableHead className="text-right">4T</TableHead><TableHead className="text-right">Total año</TableHead>{hasCashAccrual ? <TableHead className="text-right">Devengado en criterio de caja</TableHead> : null}<TableHead className="text-right">En metálico</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {thirdParties.map((operation) => (
-                      <TableRow key={`${operation.type}-${operation.taxId}-${operation.name}`}>
+                      <TableRow key={thirdPartyRowKey(operation)}>
                         <TableCell>{operation.type === "customer" ? "Cliente" : "Proveedor"}</TableCell>
                         <TableCell>{operation.taxId}</TableCell>
-                        <TableCell>{operation.name}</TableCell>
+                        <TableCell>
+                          {operation.name}
+                          {thirdPartyMarks(operation).length > 0 ? <span className="block text-xs text-muted-foreground">Registro aparte: {thirdPartyMarks(operation).join(" · ")}</span> : null}
+                        </TableCell>
                         {(operation.quarters ?? [0, 0, 0, 0]).map((amount, index) => <TableCell className="text-right" key={index}>{formatMoney(amount, currency)}</TableCell>)}
                         <TableCell className="text-right font-semibold">{formatMoney(operation.amount, currency)}</TableCell>
+                        {hasCashAccrual ? <TableCell className="text-right">{operation.cashAccrualAmount !== undefined ? formatMoney(operation.cashAccrualAmount, currency) : "—"}</TableCell> : null}
                         <TableCell className="text-right">{operation.cashAmount !== undefined ? formatMoney(operation.cashAmount, currency) : "—"}</TableCell>
                       </TableRow>
                     ))}
@@ -242,10 +321,12 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
               </TableContainer>
               <MobileRecordList aria-label="Terceros a declarar en el 347">
                 {thirdParties.map((operation) => (
-                  <MobileRecord aside={formatMoney(operation.amount, currency)} key={`${operation.type}-${operation.taxId}-${operation.name}`} title={operation.name}>
+                  <MobileRecord aside={formatMoney(operation.amount, currency)} key={thirdPartyRowKey(operation)} title={operation.name}>
                     <MobileRecordFields>
                       <MobileRecordField label="Tipo">{operation.type === "customer" ? "Cliente" : "Proveedor"}</MobileRecordField>
                       <MobileRecordField label="NIF">{operation.taxId}</MobileRecordField>
+                      {thirdPartyMarks(operation).length > 0 ? <MobileRecordField label="Registro aparte">{thirdPartyMarks(operation).join(" · ")}</MobileRecordField> : null}
+                      {operation.cashAccrualAmount !== undefined ? <MobileRecordField label="Devengado en criterio de caja">{formatMoney(operation.cashAccrualAmount, currency)}</MobileRecordField> : null}
                       {(operation.quarters ?? []).map((amount, index) => amount !== 0 ? <MobileRecordField key={index} label={`${index + 1}T`}>{formatMoney(amount, currency)}</MobileRecordField> : null)}
                       {operation.cashAmount !== undefined ? <MobileRecordField label="En metálico">{formatMoney(operation.cashAmount, currency)}</MobileRecordField> : null}
                     </MobileRecordFields>
@@ -258,8 +339,13 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
       ) : null}
 
       {summary?.annualSummaryBoxes ? (
-        <PageSection title="Resumen anual del IVA" description="Importes del año para preparar el 390. Van sin número de casilla: la numeración oficial del 390 no está contrastada, así que busca en el formulario el apartado con el mismo concepto.">
-          <FiscalBoxesTable boxes={summary.annualSummaryBoxes} caption="Resumen anual del IVA (modelo 390)" currencyCode={currency} />
+        <PageSection
+          title="Casillas del modelo 390"
+          description={summary.annualSummaryBoxes.every((box) => !box.box)
+            ? "Este resumen se guardó antes de que el programa numerase las casillas del 390: los importes van identificados por su concepto. Si reabres el modelo, se recalcula con la numeración oficial."
+            : "Importes del año con la numeración oficial del modelo 390 (ejercicio 2025 y siguientes). Solo aparecen las casillas que el programa calcula; revísalas antes de copiarlas en la sede electrónica."}
+        >
+          <FiscalBoxesTable boxes={summary.annualSummaryBoxes} caption="Casillas del modelo 390" currencyCode={currency} reviewBoxes={["REV"]} />
         </PageSection>
       ) : null}
 
@@ -303,7 +389,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
         </PageSection>
       ) : null}
       {summary && summary.code === "303" ? (
-        <PageSection title="Casillas del modelo 303" description="Borrador por casillas según las instrucciones de la AEAT. Revísalas antes de copiarlas en la sede electrónica. Las de «volumen del año» (80 a 88) solo se rellenan en el último periodo si estás exonerado de presentar el 390.">
+        <PageSection title="Casillas del modelo 303" description="Borrador por casillas según las instrucciones de la AEAT. Revísalas antes de copiarlas en la sede electrónica. Las de «volumen del año» (80 a 88) solo se rellenan en el último periodo si estás exonerado de presentar el 390. Las de criterio de caja (62, 63, 74 y 75) son informativas: no cambian el resultado.">
           <FiscalBoxesTable boxes={summary.modelo303Boxes} caption="Casillas del modelo 303" currencyCode={currency} reviewBoxes={["REV", "EXE"]} />
         </PageSection>
       ) : null}
@@ -324,8 +410,8 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
       {summary ? (
         <PageSection title="Documentos incluidos" description={report.summarySource === "snapshot" ? "Facturas que hay hoy en el periodo (la copia de lo presentado guarda los importes, no la lista de facturas)." : "Facturas que alimentan el cálculo del periodo."}>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="space-y-2"><p className="text-sm font-medium">Facturas emitidas</p>{summary.sourceDocuments.salesInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas emitidas en el periodo.</p> : summary.sourceDocuments.salesInvoices.map((document) => <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/invoices/${document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}{document.accrualDate ? ` · operación del ${formatDate(document.accrualDate)}` : ""}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
-            <div className="space-y-2"><p className="text-sm font-medium">Facturas recibidas</p>{summary.sourceDocuments.supplierInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas recibidas en el periodo.</p> : summary.sourceDocuments.supplierInvoices.map((document) => <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/expenses/${document.sourceId ?? document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
+            <div className="space-y-2"><p className="text-sm font-medium">Facturas emitidas</p>{summary.sourceDocuments.salesInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas emitidas en el periodo.</p> : summary.sourceDocuments.salesInvoices.map((document) => <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/invoices/${document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}{document.cashAccounting ? ` · cobrado el ${formatDate(document.accrualDate ?? document.issueDate)}: ${formatMoney(document.taxAmount, currency)} de IVA` : document.accrualDate ? ` · operación del ${formatDate(document.accrualDate)}` : ""}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
+            <div className="space-y-2"><p className="text-sm font-medium">Facturas recibidas</p>{summary.sourceDocuments.supplierInvoices.length === 0 ? <p className="text-sm text-muted-foreground">No hay facturas recibidas en el periodo.</p> : summary.sourceDocuments.supplierInvoices.map((document) => <Link className="flex items-center justify-between rounded-surface border p-3 text-sm hover:bg-accent" href={`/expenses/${document.sourceId ?? document.id}`} key={document.id}><span><span className="font-medium">{document.number}</span><span className="block text-xs text-muted-foreground">{formatDate(document.issueDate)}{document.cashAccounting ? ` · pagado el ${formatDate(document.accrualDate ?? document.issueDate)}: ${formatMoney(document.taxAmount, currency)} de IVA deducible` : ""}</span></span><span className="font-mono font-semibold">{formatMoney(document.totalAmount, ctx.company.baseCurrencyCode)}</span></Link>)}</div>
           </div>
         </PageSection>
       ) : null}

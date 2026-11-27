@@ -1455,6 +1455,16 @@
   ]
  },
  {
+  "method": "PUT",
+  "path": "/api/fiscal/prorrata",
+  "area": "fiscal",
+  "summary": "Confirma (o retira) el porcentaje definitivo de prorrata de un ejercicio. Con él, el último 303 del año y el 390 regularizan las deducciones provisionales (casillas 44 y 43; 522 y 63). Solo toca ese ejercicio dentro de `company_settings.vatProrataFinal`.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  year: z.number().int().min(2000).max(2099),\n  // Porcentaje definitivo de prorrata del ejercicio (entero, art. 104.Dos LIVA); null lo quita.\n  pct: z.number().int().min(0).max(100).nullable(),\n})"
+ },
+ {
   "method": "GET",
   "path": "/api/fiscal/summary",
   "area": "fiscal",

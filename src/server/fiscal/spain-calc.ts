@@ -932,9 +932,9 @@ export function buildModelo390Summary(issued: IssuedVatResult, supplier: Supplie
     }
   }
   if (options.prorrata) {
-    push("115", "Prorrata · importe total de las operaciones", options.prorrata.totalCents, "info");
-    push("116", "Prorrata · importe de las operaciones con derecho a deducción", options.prorrata.deductibleCents, "info");
-    rows.push({ box: "118", label: "Prorrata · porcentaje definitivo (%)", amount: options.prorrata.pct, kind: "info" });
+    // El porcentaje (casilla 118) no es un importe: va en el texto para no mostrarlo como euros.
+    push("115", `Prorrata general (porcentaje definitivo, casilla 118: ${options.prorrata.pct} %) · importe total de las operaciones`, options.prorrata.totalCents, "info");
+    push("116", "Prorrata general · importe de las operaciones con derecho a deducción", options.prorrata.deductibleCents, "info");
   }
   return rows;
 }
