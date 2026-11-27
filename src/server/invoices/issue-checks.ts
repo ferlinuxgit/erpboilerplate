@@ -108,3 +108,23 @@ export function chronologicalOrderProblem(input: { issueDate: Date; lastIssued: 
   const [year, month, day] = last.split("-");
   return `La última factura de esta serie (${input.lastIssued.number}) es del ${day}/${month}/${year}: no puedes emitir otra con fecha anterior. Usa la fecha de hoy (y, si hace falta, indica la fecha de la operación) o una serie distinta.`;
 }
+
+/** Art. 7 de la Ley 7/2012: operaciones de 1.000 € o más (10.000 € si el pagador es un particular no residente). */
+export const CASH_PAYMENT_LIMIT = 1000;
+export const CASH_PAYMENT_LIMIT_NON_RESIDENT = 10_000;
+
+/**
+ * Cobro en efectivo de una operación en la que interviene un empresario: prohibido desde 1.000 €
+ * (cuenta el importe de la operación, no el de cada pago). La multa es del 25 % de lo pagado y
+ * responden cobrador y pagador.
+ */
+export function cashPaymentProblem(input: { methodType: string | null | undefined; invoiceTotal: number; customerCountry: string | null | undefined; customerTaxId?: string | null }): string | null {
+  if ((input.methodType ?? "").toUpperCase() !== "CASH") return null;
+  const country = (input.customerCountry ?? "ES").toUpperCase();
+  // Particular con domicilio fiscal fuera de España: límite de 10.000 €.
+  const nonResidentIndividual = country !== "ES" && !isEntityTaxId(input.customerTaxId);
+  const limit = nonResidentIndividual ? CASH_PAYMENT_LIMIT_NON_RESIDENT : CASH_PAYMENT_LIMIT;
+  if (Math.abs(input.invoiceTotal) < limit) return null;
+  const formatted = new Intl.NumberFormat("es-ES", { useGrouping: "always" }).format(limit);
+  return `Esta factura es de ${formatted} € o más y no se puede cobrar en efectivo, ni siquiera en parte (art. 7 de la Ley 7/2012). Regístralo con transferencia, tarjeta u otro medio bancario.`;
+}

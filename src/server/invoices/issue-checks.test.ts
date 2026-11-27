@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { InvoicePartySnapshot } from "@/db/schema";
 import {
+  cashPaymentProblem,
   chronologicalOrderProblem,
   civilDateKey,
   equivalenceSurchargeProblem,
@@ -70,5 +71,13 @@ describe("comprobaciones antes de emitir", () => {
     expect(civilDateKey(new Date("2026-03-31T22:30:00.000Z"))).toBe("2026-04-01");
     expect(civilDateKey(new Date("2026-04-01T00:00:00.000Z"))).toBe("2026-04-01");
     expect(civilDateKey(new Date("2026-12-31T23:30:00.000Z"))).toBe("2027-01-01");
+  });
+
+  it("no deja cobrar en efectivo operaciones de 1.000 € o más (10.000 € si es un particular no residente)", () => {
+    expect(cashPaymentProblem({ methodType: "CASH", invoiceTotal: 999.99, customerCountry: "ES" })).toBeNull();
+    expect(cashPaymentProblem({ methodType: "CASH", invoiceTotal: 1000, customerCountry: "ES" })).toContain("1.000 €");
+    expect(cashPaymentProblem({ methodType: "TRANSFER", invoiceTotal: 50_000, customerCountry: "ES" })).toBeNull();
+    expect(cashPaymentProblem({ methodType: "CASH", invoiceTotal: 5_000, customerCountry: "FR", customerTaxId: null })).toBeNull();
+    expect(cashPaymentProblem({ methodType: "CASH", invoiceTotal: 12_000, customerCountry: "FR", customerTaxId: null })).toContain("10.000 €");
   });
 });

@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 
-import { invoice, invoicePayment, payment, paymentMethod } from "@/db/schema";
+import { company, invoice, invoicePayment, payment, paymentMethod } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { postCustomerPayment, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
@@ -9,6 +9,7 @@ import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { invoiceLifecycle } from "@/server/invoices/lifecycle";
+import { cashPaymentProblem } from "@/server/invoices/issue-checks";
 import { getInvoiceBalance, refreshInvoicePaymentStatus } from "@/server/invoices/service";
 import { paymentMethodForBankAccount } from "@/server/treasury/payment-methods";
 import { reconcileBankTransaction } from "@/server/treasury/reconciliation";
@@ -56,6 +57,7 @@ export async function registerInvoicePayment(actor: PaymentActor, input: Registe
         status: invoice.status,
         issuedAt: invoice.issuedAt,
         invoiceType: invoice.invoiceType,
+        customerSnapshot: invoice.customerSnapshot,
       })
       .from(invoice)
       .where(and(eq(invoice.id, input.invoiceId), eq(invoice.companyId, actor.companyId)))
@@ -71,11 +73,22 @@ export async function registerInvoicePayment(actor: PaymentActor, input: Registe
     let methodId: string | null = null;
     if (input.paymentMethodId) {
       const [ownedPaymentMethod] = await tx
-        .select({ id: paymentMethod.id })
+        .select({ id: paymentMethod.id, type: paymentMethod.type })
         .from(paymentMethod)
         .where(and(eq(paymentMethod.id, input.paymentMethodId), eq(paymentMethod.companyId, actor.companyId)))
         .limit(1);
       if (!ownedPaymentMethod) throw new AccountingRuleError(404, "PAYMENT_METHOD_NOT_FOUND", "Forma de pago no encontrada.");
+      // Límite de pagos en efectivo (empresas españolas).
+      const [issuerCompany] = await tx.select({ countryCode: company.countryCode }).from(company).where(eq(company.id, actor.companyId)).limit(1);
+      const cashProblem = (issuerCompany?.countryCode ?? "ES").toUpperCase() === "ES"
+        ? cashPaymentProblem({
+            methodType: ownedPaymentMethod.type,
+            invoiceTotal: Number(ownedInvoice.totalAmount),
+            customerCountry: ownedInvoice.customerSnapshot?.countryCode,
+            customerTaxId: ownedInvoice.customerSnapshot?.taxId,
+          })
+        : null;
+      if (cashProblem) throw new AccountingRuleError(422, "CASH_LIMIT", cashProblem);
       methodId = ownedPaymentMethod.id;
     } else if (input.bankAccountId) {
       methodId = await paymentMethodForBankAccount(tx, actor.companyId, input.bankAccountId);
