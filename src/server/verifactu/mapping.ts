@@ -3,9 +3,19 @@
  * (RegistroAlta del esquema SuministroInformacion.xsd). Código puro, sin base de datos.
  *
  * Decisiones (documentadas también en el informe de implantación):
- * - TipoFactura F1 si el cliente tiene NIF / NIF-IVA; F2 (simplificada, art. 4 y 7.2 RD 1619/2012)
- *   si no lo tiene. Las facturas a clientes sin NIF por encima del límite de simplificada (400 € o
- *   3.000 € según actividad) se marcan igualmente F2 y la UI avisa (`simplifiedOverLimit`).
+ * - TipoFactura según la clase de documento de la factura (`documentClass`), contrastado con el
+ *   documento de validaciones de la AEAT (v1.2.2, apartados 8, 9 y 13 del registro de alta):
+ *   · completa → F1 con Destinatarios;
+ *   · simplificada (art. 7.1) → F2, que NO puede llevar Destinatarios (apdo. 13: «Si TipoFactura
+ *     es F2 o R5, la agrupación Destinatarios no puede estar cumplimentada»);
+ *   · simplificada con los datos del destinatario (arts. 7.2 y 7.3) → F1 con Destinatarios y
+ *     `FacturaSimplificadaArt7273 = S` (apdo. 8: «Sólo se podrá rellenar con S si TipoFactura = F1
+ *     o F3 o R1 o R2 o R3 o R4»). No es una F2: esa nunca identifica al destinatario.
+ *   `FacturaSinIdentifDestinatarioArt61d` (apdo. 9, solo con F2 o R5) es otra cosa: la factura
+ *   completa sin identificar al destinatario del art. 6.1.d; este sistema no la emite.
+ *   Sin clase (facturas antiguas): F1 si el cliente tiene NIF / NIF-IVA y F2 si no lo tiene.
+ * - F3: factura expedida en sustitución de facturas simplificadas (canje), con la agrupación
+ *   `FacturasSustituidas` (apdo. 5: solo con F3) y Destinatarios obligatorio (apdo. 13).
  * - Rectificativas: R1–R4 según la causa guardada; R5 si la factura original era simplificada (F2).
  * - TipoRectificativa "I" (por diferencias): nuestras rectificativas siempre expresan importes por
  *   diferencia (también las de tipo "sustitución", que llevan las líneas originales en negativo y
@@ -49,6 +59,10 @@ export type VerifactuAltaContent = {
   invoiceTypeCode: VerifactuInvoiceTypeCode;
   rectificationKind: "S" | "I" | null;
   rectifiedInvoices: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> | null;
+  /** FacturasSustituidas: simplificadas a las que sustituye una F3 (null en el resto). */
+  substitutedInvoices?: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> | null;
+  /** FacturaSimplificadaArt7273 = S: simplificada que identifica al destinatario (F1, F3 o R1–R4). */
+  simplifiedArt7273?: boolean;
   description: string;
   recipient: VerifactuRecipient | null;
   breakdown: VerifactuBreakdownLine[];
@@ -99,6 +113,10 @@ export type MapInvoiceInput = {
   /** Causa de exención (E1–E6) o de no sujeción (N1, N2) elegida en la factura. */
   exemptionCode?: string | null;
   operationDate?: string | null;
+  /** Clase de documento con la que se emite (null = se deduce del NIF del cliente). */
+  documentClass?: "FULL" | "SIMPLIFIED" | "SIMPLIFIED_QUALIFIED" | null;
+  /** Simplificadas a las que sustituye esta factura (canje): la convierte en F3. */
+  substituted?: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> | null;
   /** Factura original de una rectificativa (datos tal y como constan en su registro). */
   original?: { issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string; invoiceTypeCode: string | null } | null;
 };
@@ -218,11 +236,18 @@ export function mapInvoiceToAlta(input: MapInvoiceInput): VerifactuAltaContent {
   let invoiceTypeCode: VerifactuInvoiceTypeCode;
   if (isCreditNote) {
     const reason = ["R1", "R2", "R3", "R4", "R5"].includes(input.rectificationReason ?? "") ? (input.rectificationReason as VerifactuInvoiceTypeCode) : "R4";
-    const originalSimplified = input.original?.invoiceTypeCode === "F2" || input.original?.invoiceTypeCode === "R5";
-    invoiceTypeCode = originalSimplified ? "R5" : reason === "R5" ? "R4" : reason;
+    // Sin registro de la original (anterior a VERI*FACTU) manda la clase heredada de ella.
+    const originalSimplified = input.original?.invoiceTypeCode
+      ? input.original.invoiceTypeCode === "F2" || input.original.invoiceTypeCode === "R5"
+      : input.documentClass === "SIMPLIFIED";
+    // R1–R4 exigen Destinatarios (apdo. 13): sin NIF solo cabe R5.
+    invoiceTypeCode = originalSimplified || !recipient ? "R5" : reason === "R5" ? "R4" : reason;
+  } else if (input.substituted?.length && recipient) {
+    invoiceTypeCode = "F3";
   } else {
-    invoiceTypeCode = recipient ? "F1" : "F2";
+    invoiceTypeCode = recipient && input.documentClass !== "SIMPLIFIED" ? "F1" : "F2";
   }
+  const identifiesRecipient = invoiceTypeCode !== "F2" && invoiceTypeCode !== "R5";
 
   const description = input.description.trim().replace(/\s+/g, " ").slice(0, 500) || "Prestación de servicios / entrega de bienes";
 
@@ -232,9 +257,11 @@ export function mapInvoiceToAlta(input: MapInvoiceInput): VerifactuAltaContent {
     rectifiedInvoices: isCreditNote && input.original
       ? [{ issuerTaxId: input.original.issuerTaxId, invoiceNumber: input.original.invoiceNumber, invoiceIssueDate: input.original.invoiceIssueDate }]
       : null,
+    substitutedInvoices: invoiceTypeCode === "F3" ? input.substituted ?? null : null,
+    simplifiedArt7273: identifiesRecipient && input.documentClass === "SIMPLIFIED_QUALIFIED",
     description,
     // Las simplificadas (F2) y sus rectificativas (R5) no identifican destinatario.
-    recipient: invoiceTypeCode === "F2" || invoiceTypeCode === "R5" ? null : recipient,
+    recipient: identifiesRecipient ? recipient : null,
     breakdown: breakdown.lines,
     operationDate: input.operationDate || null,
     taxAmount: breakdown.taxAmount,

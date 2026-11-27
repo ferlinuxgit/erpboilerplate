@@ -7,6 +7,7 @@
 import type { InvoicePartySnapshot } from "@/db/schema";
 import { companyInvoiceReadiness } from "@/lib/company-readiness";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
+import { isSimplifiedClass, type InvoiceDocumentClass } from "@/server/invoices/document-class";
 
 /** Límite general de la factura simplificada (art. 4.1) y el de las actividades del art. 4.2. */
 export const SIMPLIFIED_INVOICE_GENERAL_LIMIT = 400;
@@ -53,15 +54,25 @@ export function recipientDataProblem(customer: InvoicePartySnapshot, issuerCount
 }
 
 /**
- * Arts. 4 y 7: sin NIF del destinatario el documento es una factura simplificada, que solo cabe
- * hasta 400 € (IVA incluido) o hasta 3.000 € en las actividades del art. 4.2 (venta al por menor,
- * hostelería, transporte de personas…). `limit` es el configurado por la empresa o por la caja.
+ * Arts. 4 y 7: la factura simplificada (con o sin los datos del destinatario) solo cabe hasta 400 €
+ * (IVA incluido) o hasta 3.000 € en las actividades del art. 4.2 (venta al por menor, hostelería,
+ * transporte de personas…). `limit` es el configurado por la empresa o por la caja.
+ * `documentClass` es la clase con la que se emite; sin ella se deduce del NIF (sin NIF, simplificada).
  */
-export function simplifiedLimitProblem(input: { customerTaxId: string | null | undefined; totalAmount: number; limit: number }): string | null {
-  if (input.customerTaxId?.trim()) return null;
+export function simplifiedLimitProblem(input: {
+  documentClass?: InvoiceDocumentClass | null;
+  customerTaxId?: string | null;
+  totalAmount: number;
+  limit: number;
+}): string | null {
+  const documentClass = input.documentClass ?? (input.customerTaxId?.trim() ? "FULL" : "SIMPLIFIED");
+  if (!isSimplifiedClass(documentClass)) return null;
   const limit = Math.min(Math.max(input.limit, 0), SIMPLIFIED_INVOICE_EXTENDED_LIMIT);
   if (Math.abs(input.totalAmount) <= limit) return null;
   const formatted = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, useGrouping: "always" }).format(limit);
+  if (documentClass === "SIMPLIFIED_QUALIFIED" || input.customerTaxId?.trim()) {
+    return `Una factura simplificada no puede superar ${formatted} €. Emítela como factura completa (el cliente ya tiene NIF).`;
+  }
   return `Sin el NIF del cliente esto es una factura simplificada y supera su límite de ${formatted} €. Completa el NIF en la ficha del cliente para emitir una factura completa.`;
 }
 

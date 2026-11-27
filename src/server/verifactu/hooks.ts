@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { verifactuRecord, type InvoicePartySnapshot } from "@/db/schema";
+import { invoice, verifactuRecord, type InvoicePartySnapshot } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
@@ -32,6 +32,10 @@ export type IssuedInvoiceHookInput = {
   totals: Pick<InvoiceTotals, "subtotal" | "taxBuckets">;
   lineDescriptions: string[];
   original: { id: string; number: string; issueDate: Date } | null;
+  /** Clase de documento con la que se emite (completa, simplificada o simplificada con destinatario). */
+  documentClass?: "FULL" | "SIMPLIFIED" | "SIMPLIFIED_QUALIFIED" | null;
+  /** Simplificadas a las que sustituye esta factura (canje): el registro es de tipo F3. */
+  substituted?: Array<{ id: string; number: string; issueDate: Date }> | null;
   /** Fecha de la operación, si es distinta de la de expedición. */
   operationDate?: Date | null;
   /** Causa de exención o de no sujeción elegida en la factura (E1–E6, N1, N2). */
@@ -131,8 +135,30 @@ export async function registerSubsanacionRecord(tx: DbClient, input: IssuedInvoi
       .limit(1);
     rechazoPrevio = known ? "S" : "X";
   }
-  // El registro conserva la identificación con la que la factura se registró la primera vez.
-  return appendAltaFor(tx, { ...input, number: latest.invoiceNumber }, settings, "VERIFACTU", { subsanacion: "S", rechazoPrevio });
+  // El registro conserva la identificación con la que la factura se registró la primera vez, y su
+  // tipo: la clase de documento y las simplificadas sustituidas se leen de la factura emitida.
+  const frozen = input.documentClass === undefined && input.substituted === undefined ? await frozenDocumentKind(tx, input.companyId, input.invoiceId) : {};
+  return appendAltaFor(tx, { ...input, ...frozen, number: latest.invoiceNumber }, settings, "VERIFACTU", { subsanacion: "S", rechazoPrevio });
+}
+
+/** Clase de documento y simplificadas sustituidas tal y como quedaron al emitir la factura. */
+async function frozenDocumentKind(tx: DbClient, companyId: string, invoiceId: string): Promise<Pick<IssuedInvoiceHookInput, "documentClass" | "substituted">> {
+  const [row] = await tx
+    .select({ documentClass: invoice.documentClass, substitutesInvoiceIds: invoice.substitutesInvoiceIds })
+    .from(invoice)
+    .where(and(eq(invoice.id, invoiceId), eq(invoice.companyId, companyId)))
+    .limit(1);
+  const ids = row?.substitutesInvoiceIds ?? [];
+  const substituted = ids.length > 0
+    ? await tx
+        .select({ id: invoice.id, number: invoice.number, issueDate: invoice.issueDate })
+        .from(invoice)
+        .where(and(eq(invoice.companyId, companyId), inArray(invoice.id, ids)))
+    : [];
+  return {
+    documentClass: row?.documentClass === "FULL" || row?.documentClass === "SIMPLIFIED" || row?.documentClass === "SIMPLIFIED_QUALIFIED" ? row.documentClass : null,
+    substituted: substituted.length > 0 ? substituted : null,
+  };
 }
 
 async function appendAltaFor(
@@ -160,6 +186,16 @@ async function appendAltaFor(
       : { issuerTaxId, invoiceNumber: input.original.number, invoiceIssueDate: formatAeatDate(input.original.issueDate), invoiceTypeCode: null };
   }
 
+  // Canje: cada simplificada se identifica tal y como consta en su registro (o, si es anterior a
+  // VERI*FACTU, con su número y fecha).
+  const substituted: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> = [];
+  for (const entry of input.substituted ?? []) {
+    const record = await latestRecordForInvoice(tx, input.companyId, entry.id);
+    substituted.push(record && record.recordType === "ALTA"
+      ? { issuerTaxId: record.issuerTaxId, invoiceNumber: record.invoiceNumber, invoiceIssueDate: record.invoiceIssueDate }
+      : { issuerTaxId, invoiceNumber: entry.number, invoiceIssueDate: formatAeatDate(entry.issueDate) });
+  }
+
   const content = mapInvoiceToAlta({
     // Canarias (IGIC, 03), Ceuta y Melilla (IPSI, 02): según el domicilio fiscal del emisor.
     taxCode: verifactuTaxCodeFor(taxTerritoryOf(input.issuer)),
@@ -170,9 +206,14 @@ async function appendAltaFor(
     totals: input.totals,
     description: operationDescription(input),
     exemptionCode: input.exemptionCode,
+    documentClass: input.documentClass ?? null,
+    substituted: substituted.length > 0 ? substituted : null,
     operationDate: input.operationDate && formatAeatDate(input.operationDate) !== formatAeatDate(input.issueDate) ? formatAeatDate(input.operationDate) : null,
     original,
   });
+  if (substituted.length > 0 && content.invoiceTypeCode !== "F3") {
+    throw new HttpError(422, "La factura que sustituye a una simplificada debe identificar al destinatario: completa el NIF del cliente.");
+  }
   assertAltaContentSendable(content, formatAeatDate(input.issueDate));
   // La AEAT rechaza una simplificada por encima del límite legal: mejor avisar antes de emitir.
   if (content.invoiceTypeCode === "F2" && Math.abs(Number(content.totalAmount)) > SIMPLIFIED_INVOICE_HARD_LIMIT) {

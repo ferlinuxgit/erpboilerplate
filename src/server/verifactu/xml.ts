@@ -22,6 +22,10 @@ export type XmlRecord = {
   invoiceTypeCode: string | null;
   rectificationKind: string | null;
   rectifiedInvoices: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> | null;
+  /** FacturasSustituidas (solo F3). */
+  substitutedInvoices?: Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }> | null;
+  /** FacturaSimplificadaArt7273: "S" o null. */
+  simplifiedArt7273?: string | null;
   subsanacion?: string | null;
   rechazoPrevio?: string | null;
   /** FechaOperacion (dd-mm-aaaa), solo si difiere de la de expedición. */
@@ -135,8 +139,18 @@ function altaNodes(record: XmlRecord): Node[] {
         ["FechaExpedicionFactura", original.invoiceIssueDate],
       ],
     ] as Node) ?? null],
+    // Solo en F3 (canje de simplificadas); va tras FacturasRectificadas en la secuencia del XSD.
+    ["FacturasSustituidas", record.invoiceTypeCode === "F3" ? record.substitutedInvoices?.map((substituted) => [
+      "IDFacturaSustituida",
+      [
+        ["IDEmisorFactura", substituted.issuerTaxId],
+        ["NumSerieFactura", substituted.invoiceNumber],
+        ["FechaExpedicionFactura", substituted.invoiceIssueDate],
+      ],
+    ] as Node) ?? null : null],
     ["FechaOperacion", record.operationDate || null],
     ["DescripcionOperacion", record.description ?? ""],
+    ["FacturaSimplificadaArt7273", record.simplifiedArt7273 === "S" ? "S" : null],
     ["Destinatarios", recipient(record)],
     ["Desglose", (record.breakdown ?? []).map((line) => [
       "DetalleDesglose",
