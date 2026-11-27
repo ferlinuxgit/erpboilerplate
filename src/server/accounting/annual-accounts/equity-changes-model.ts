@@ -166,7 +166,7 @@ export type EquityStatementRow = {
 
 export type EquityYearStatement = { label: string; opening: EquityStatementRow; movements: EquityStatementRow[]; closing: EquityStatementRow };
 
-const euros = (cents: number) => Math.round(cents) / 100;
+const euros = (cents: number) => Math.round(cents) / 100 + 0;
 
 function toRow(id: string, label: string, kind: EquityStatementRow["kind"], cents: Deltas, columns: EquityColumnId[]): EquityStatementRow {
   const values: Partial<Record<EquityColumnId, number>> = {};
