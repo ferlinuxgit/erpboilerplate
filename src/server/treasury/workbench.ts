@@ -54,6 +54,7 @@ import {
 } from "@/server/treasury/matching";
 import { returnedItemForMovement } from "@/server/sepa/direct-debits";
 import { unreconcileBankTransaction } from "@/server/treasury/reconciliation";
+import { supplierInvoiceOutstandingSql } from "@/server/supplier-invoices/outstanding";
 import { createReconciliationRule, type RulePayload } from "@/server/treasury/rules";
 
 /*
@@ -132,18 +133,9 @@ export async function listOpenCustomerInvoices(companyId: string, limit = 500): 
   return rows.map((row) => ({ ...row, kind: "customer" as const, altNumber: null, href: `/invoices/${row.id}` }));
 }
 
-/** Facturas de proveedor no anuladas con pendiente (total − pagos) > 0. */
+/** Facturas de proveedor no anuladas con pendiente (total − pagos − abonos compensados) > 0. */
 export async function listOpenSupplierInvoices(companyId: string, limit = 500): Promise<WorkbenchInvoiceOption[]> {
-  const paid = db
-    .select({
-      supplierInvoiceId: supplierInvoicePayment.supplierInvoiceId,
-      paidAmount: sql<string>`coalesce(sum(${supplierInvoicePayment.amountApplied}), 0)`.as("paidAmount"),
-    })
-    .from(supplierInvoicePayment)
-    .where(eq(supplierInvoicePayment.companyId, companyId))
-    .groupBy(supplierInvoicePayment.supplierInvoiceId)
-    .as("supplier_paid");
-  const outstanding = sql<string>`greatest(${supplierInvoice.totalAmount} - coalesce(${paid.paidAmount}, 0), 0)`;
+  const outstanding = supplierInvoiceOutstandingSql;
   const rows = await db
     .select({
       id: supplierInvoice.id,
@@ -158,7 +150,6 @@ export async function listOpenSupplierInvoices(companyId: string, limit = 500): 
     })
     .from(supplierInvoice)
     .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
-    .leftJoin(paid, eq(paid.supplierInvoiceId, supplierInvoice.id))
     .where(and(eq(supplierInvoice.companyId, companyId), ne(supplierInvoice.status, "VOID"), sql`${outstanding} > 0`))
     .orderBy(sql`${supplierInvoice.dueDate} asc nulls last`, asc(supplierInvoice.issueDate), asc(supplierInvoice.id))
     .limit(limit);

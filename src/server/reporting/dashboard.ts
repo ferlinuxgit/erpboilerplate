@@ -48,6 +48,7 @@ import {
  */
 const groupByFirstColumn = sql`1`;
 import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
+import { supplierInvoiceCreditedSql } from "@/server/supplier-invoices/outstanding";
 
 /*
  * Dashboard and reporting aggregates. Every figure is computed in Postgres with
@@ -277,7 +278,8 @@ async function payables(companyId: string, now: Date) {
     .where(eq(supplierInvoicePayment.companyId, companyId))
     .groupBy(supplierInvoicePayment.supplierInvoiceId)
     .as("paid_by_supplier_invoice");
-  const outstanding = sql<string>`greatest(${supplierInvoice.totalAmount} - coalesce(${paidBySupplierInvoice.paid}, 0), 0)`;
+  // Pendiente = total − pagos − abonos del proveedor compensados (misma regla que pagos y tesorería).
+  const outstanding = sql<string>`greatest(${supplierInvoice.totalAmount} - coalesce(${paidBySupplierInvoice.paid}, 0) - ${supplierInvoiceCreditedSql}, 0)`;
   const open = and(
     eq(supplierInvoice.companyId, companyId),
     notInArray(supplierInvoice.status, ["VOID", "DRAFT"]),

@@ -3,6 +3,7 @@ import { count, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { goodsReceipt, partner, paymentStatusEnum, purchaseOrder, supplierInvoice, supplierInvoicePayment } from "@/db/schema";
 import { db } from "@/lib/db";
 import type { ListParams, ListParamsConfig } from "@/lib/list-params";
+import { supplierInvoiceCreditedSql } from "@/server/supplier-invoices/outstanding";
 import {
   countRows,
   listOrderBy,
@@ -44,14 +45,16 @@ export function paidByInvoice(companyId: string) {
 export function expenseExpressions(paid: ReturnType<typeof paidByInvoice>, now: Date) {
   const paidAmount = sql<string>`coalesce(${paid.paidAmount}, 0)`;
   const isVoid = sql`(${supplierInvoice.status} = 'VOID')`;
-  const outstanding = sql<string>`case when ${isVoid} then 0 else greatest(${supplierInvoice.totalAmount} - ${paidAmount}, 0) end`;
+  // Liquidado = pagos + abonos del proveedor compensados contra la factura.
+  const settled = sql<string>`(${paidAmount} + ${supplierInvoiceCreditedSql})`;
+  const outstanding = sql<string>`case when ${isVoid} then 0 else greatest(${supplierInvoice.totalAmount} - ${settled}, 0) end`;
   // Same rules as supplierPaymentStatus(): VOID, PAID, PARTIAL, OVERDUE, PENDING. Un abono
   // (total ≤ 0) no tiene nada que pagar: nunca sale pendiente ni vencido.
   const paymentStatus = sql<string>`case
     when ${isVoid} then 'VOID'
     when ${supplierInvoice.totalAmount} <= 0 then 'PAID'
-    when ${paidAmount} >= ${supplierInvoice.totalAmount} then 'PAID'
-    when ${paidAmount} > 0 then 'PARTIAL'
+    when ${settled} >= ${supplierInvoice.totalAmount} then 'PAID'
+    when ${settled} > 0 then 'PARTIAL'
     when ${supplierInvoice.dueDate} is not null and ${supplierInvoice.dueDate} < ${now} then 'OVERDUE'
     else 'PENDING'
   end`;

@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { accountChart, purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment, partner } from "@/db/schema";
+import { accountChart, purchaseOrder, supplierCreditApplication, supplierInvoice, supplierPayment, partner } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { HttpError } from "@/lib/http";
@@ -9,6 +9,8 @@ import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { calculateSupplierBalance } from "@/lib/supplier-balance";
 import { syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { reservePartnerNumber } from "@/server/partners/numbers";
+import { supplierOutstandingCents } from "@/server/supplier-invoices/document-rules";
+import { supplierInvoiceCreditedSql, supplierInvoicePaidSql } from "@/server/supplier-invoices/outstanding";
 import { createSupplierSchema, updateSupplierSchema } from "@/server/schemas/forms";
 
 type CreateSupplierInput = z.infer<typeof createSupplierSchema>;
@@ -283,7 +285,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
 }
 
 export async function getSupplierActivity(dbClient: DbClient, companyId: string, supplierId: string) {
-  const [invoices, payments, purchaseOrders] = await Promise.all([
+  const [invoices, refunds, purchaseOrders] = await Promise.all([
     dbClient
       .select({
         id: supplierInvoice.id,
@@ -295,18 +297,23 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
         dueDate: supplierInvoice.dueDate,
         paymentStatus: supplierInvoice.paymentStatus,
         totalAmount: supplierInvoice.totalAmount,
+        paid: supplierInvoicePaidSql.mapWith(Number),
+        credited: supplierInvoiceCreditedSql.mapWith(Number),
       })
       .from(supplierInvoice)
       .leftJoin(purchaseOrder, eq(purchaseOrder.id, supplierInvoice.purchaseOrderId))
       .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.supplierPartnerId, supplierId)))
       .orderBy(desc(supplierInvoice.issueDate)),
+    // Devoluciones de abonos cobradas por banco: dinero que el proveedor ya nos devolvió.
     dbClient
-      .select({
-        supplierInvoiceId: supplierInvoicePayment.supplierInvoiceId,
-        amountApplied: supplierInvoicePayment.amountApplied,
-      })
-      .from(supplierInvoicePayment)
-      .where(eq(supplierInvoicePayment.companyId, companyId)),
+      .select({ amount: sql<string>`coalesce(sum(${supplierCreditApplication.amount}), 0)` })
+      .from(supplierCreditApplication)
+      .innerJoin(supplierInvoice, eq(supplierInvoice.id, supplierCreditApplication.creditInvoiceId))
+      .where(and(
+        eq(supplierCreditApplication.companyId, companyId),
+        eq(supplierInvoice.supplierPartnerId, supplierId),
+        sql`${supplierCreditApplication.supplierInvoiceId} is null`,
+      )),
     dbClient
       .select({
         id: purchaseOrder.id,
@@ -319,16 +326,16 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
       .orderBy(desc(purchaseOrder.createdAt)),
   ]);
 
-  const paidByInvoice = new Map<string, number>();
-  for (const payment of payments) {
-    paidByInvoice.set(payment.supplierInvoiceId, (paidByInvoice.get(payment.supplierInvoiceId) ?? 0) + Number(payment.amountApplied));
-  }
-
-  const invoiceRows = invoices.map((invoice) => {
+  // Pendiente por factura = total − pagos − abonos compensados (regla única de compras).
+  const invoiceRows = invoices.map(({ paid, credited, ...invoice }) => {
     const totalAmount = Number(invoice.totalAmount);
-    const paidAmount = paidByInvoice.get(invoice.id) ?? 0;
-    const outstandingAmount = invoice.paymentStatus === "VOID" ? 0 : Math.max(totalAmount - paidAmount, 0);
-    return { ...invoice, totalAmount, paidAmount, outstandingAmount };
+    const outstandingAmount = supplierOutstandingCents({
+      totalCents: Math.round(totalAmount * 100),
+      paidCents: Math.round(paid * 100),
+      creditedCents: Math.round(credited * 100),
+      isVoid: invoice.paymentStatus === "VOID",
+    }) / 100;
+    return { ...invoice, totalAmount, paidAmount: paid, creditedAmount: credited, outstandingAmount };
   });
 
   const balanceInvoices = invoiceRows.filter((invoice) => invoice.paymentStatus !== "VOID");
@@ -352,7 +359,10 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
 
   const totalPaid = recentPayments.reduce((total, payment) => total + Number(payment.amount), 0);
   const unappliedAmount = Math.max(totalPaid - allocatedAmount, 0);
-  const balance = calculateSupplierBalance(totalInvoiced, totalPaid);
+  // Los abonos ya restan en lo facturado (total negativo); lo que el proveedor devolvió por banco
+  // deja de ser saldo a favor.
+  const refundedAmount = Number(refunds[0]?.amount ?? 0);
+  const balance = calculateSupplierBalance(totalInvoiced + refundedAmount, totalPaid);
 
   return {
     metrics: {

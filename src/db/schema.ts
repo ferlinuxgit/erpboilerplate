@@ -945,6 +945,9 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   // Importaciones: número y fecha del DUA (documento aduanero) que se anota en el libro registro.
   importDuaNumber: text("importDuaNumber"),
   importDuaDate: timestamp("importDuaDate", { withTimezone: true, mode: "date" }),
+  // Proveedor acogido al régimen especial del criterio de caja (art. 163 terdecies LIVA): el IVA
+  // soportado se deduce al pagar (o el 31/12 del año siguiente), no al recibir la factura.
+  supplierCashAccounting: boolean("supplierCashAccounting").notNull().default(false),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -1564,6 +1567,32 @@ export const supplierInvoicePayment = pgTable("supplier_invoice_payment", {
   amountApplied: numeric("amountApplied", { precision: 12, scale: 2 }).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [index("supplier_invoice_payment_invoice_idx").on(table.companyId, table.supplierInvoiceId), check("supplier_invoice_payment_amount_positive", sql`${table.amountApplied} > 0`)]);
+
+/**
+ * Aplicación de un abono de proveedor (rectificativa de total negativo):
+ * - con `supplierInvoiceId`: compensa esa factura (lo pendiente = total − pagos − abonos aplicados).
+ *   No genera asiento: los dos documentos ya están en la subcuenta 400/410 del proveedor.
+ * - sin `supplierInvoiceId`: el proveedor devolvió el dinero por banco (asiento banco a 400/410 con
+ *   `sourceType = 'supplierCreditRefund'` y `sourceId` = id de esta fila).
+ * Lo que queda sin aplicar del abono es el saldo a favor frente al proveedor.
+ */
+export const supplierCreditApplication = pgTable("supplier_credit_application", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  creditInvoiceId: text("creditInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  supplierInvoiceId: text("supplierInvoiceId").references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  appliedAt: timestamp("appliedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  // Solo en devoluciones por banco.
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
+  reference: text("reference"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("supplier_credit_application_credit_idx").on(table.companyId, table.creditInvoiceId),
+  index("supplier_credit_application_invoice_idx").on(table.supplierInvoiceId),
+  check("supplier_credit_application_amount_positive", sql`${table.amount} > 0`),
+  check("supplier_credit_application_distinct", sql`${table.supplierInvoiceId} IS NULL OR ${table.supplierInvoiceId} <> ${table.creditInvoiceId}`),
+]);
 
 /**
  * VeriFactu (RD 1007/2023 y Orden HAC/1177/2024): registros de facturación de alta y anulación.

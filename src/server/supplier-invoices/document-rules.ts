@@ -147,3 +147,28 @@ export function rectificationLinesFrom(lines: readonly RectificationSourceLine[]
 export function looksLikeRectification(text: string) {
   return /factura[ \t]+rectificativa|rectificativa[ \t]+de|nota[ \t]+de[ \t]+(?:abono|cr[eé]dito)|factura[ \t]+de[ \t]+abono|\babono[ \t]+(?:n[ºo°.]|de[ \t]+factura)|credit[ \t]+(?:note|memo)|corrective[ \t]+invoice/i.test(text);
 }
+
+/**
+ * Pendiente de pago de una factura recibida, en céntimos: total − pagos − abonos compensados.
+ * Nunca negativo; un abono (total ≤ 0) o una factura anulada no tienen nada pendiente.
+ * Es la única regla de «pendiente» de compras: pagos, remesas, tesorería, ficha y panel la comparten
+ * (en SQL, `supplierInvoiceOutstandingSql` de `outstanding.ts` hace el mismo cálculo).
+ */
+export function supplierOutstandingCents(input: { totalCents: number; paidCents: number; creditedCents?: number; isVoid?: boolean }) {
+  if (input.isVoid || input.totalCents <= 0) return 0;
+  return Math.max(input.totalCents - input.paidCents - (input.creditedCents ?? 0), 0);
+}
+
+/** Saldo a favor que le queda a un abono, en céntimos: |total| − lo ya compensado o devuelto. */
+export function supplierCreditRemainingCents(input: { totalCents: number; appliedCents: number; isVoid?: boolean }) {
+  if (input.isVoid || input.totalCents >= 0) return 0;
+  return Math.max(-input.totalCents - input.appliedCents, 0);
+}
+
+/**
+ * Cuánto de un abono se compensa contra una factura: lo menor entre el saldo del abono y lo
+ * pendiente de la factura. El resto del abono queda como saldo a favor del proveedor.
+ */
+export function supplierCreditAllocationCents(creditRemainingCents: number, invoiceOutstandingCents: number) {
+  return Math.max(Math.min(creditRemainingCents, invoiceOutstandingCents), 0);
+}
