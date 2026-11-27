@@ -7,7 +7,9 @@ export function normalizeSpanishTaxId(value: string | null | undefined) {
 }
 
 export function isValidSpanishTaxId(value: string | null | undefined) {
-  const taxId = normalizeSpanishTaxId(value);
+  const normalized = normalizeSpanishTaxId(value);
+  // Con prefijo de país (NIF-IVA «ESB12345674») se valida el NIF que sigue.
+  const taxId = normalized.startsWith("ES") && normalized.length === 11 ? normalized.slice(2) : normalized;
   if (!taxId) return false;
 
   if (/^\d{8}[A-Z]$/.test(taxId)) return isValidNif(taxId);

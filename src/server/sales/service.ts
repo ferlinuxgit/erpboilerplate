@@ -1,4 +1,4 @@
-import { and, count, eq, ne } from "drizzle-orm";
+import { and, count, eq, inArray, ne } from "drizzle-orm";
 
 import {
   auditLog,
@@ -12,6 +12,7 @@ import {
   salesQuoteLine,
   stockMovement,
   stockLocation,
+  item,
   tax,
   warehouse,
 } from "@/db/schema";
@@ -21,7 +22,7 @@ import type { InvoiceCalculationTax } from "@/lib/invoice-totals";
 import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { refreshStockLocation } from "@/server/inventory/stock-location";
-import { findRetentionTaxByRate, findVatTaxByRate } from "@/server/invoices/default-taxes";
+import { findRetentionTaxByRate, findSurchargeTaxForVat, findVatTaxByRate } from "@/server/invoices/default-taxes";
 import { computeDueDate } from "@/server/invoices/due-dates";
 import { resolveInvoicePaymentMethods } from "@/server/invoices/payment-methods";
 import {
@@ -333,13 +334,22 @@ type CompanyTaxRow = { id: string; name: string; rate: string | number; kind: st
  * los modelos y VERI*FACTU sean idénticos a una factura hecha a mano) y, si no existe, se congela
  * un impuesto equivalente con el mismo tipo.
  */
-export function mapSalesLineTaxes(line: Pick<InvoiceSourceLine, "taxRate" | "retentionRate">, taxes: CompanyTaxRow[]): InvoiceCalculationTax[] {
+export function mapSalesLineTaxes(
+  line: Pick<InvoiceSourceLine, "taxRate" | "retentionRate">,
+  taxes: CompanyTaxRow[],
+  /** `equivalenceSurcharge`: entrega de bienes a un cliente en recargo de equivalencia. */
+  options: { equivalenceSurcharge?: boolean } = {},
+): InvoiceCalculationTax[] {
   const result: InvoiceCalculationTax[] = [];
   if (line.taxRate > 0) {
     const vat = findVatTaxByRate(taxes, line.taxRate);
     result.push(vat
       ? { id: vat.id, name: vat.name, rate: Number(vat.rate), kind: "VAT", operation: "ADD" }
       : { id: null, name: `IVA ${line.taxRate.toLocaleString("es-ES")} %`, rate: line.taxRate, kind: "VAT", operation: "ADD" });
+    // Recargo que corresponde a ese IVA (5,2 / 1,4 / 0,5 %). Si la empresa no lo tiene configurado
+    // no se inventa: la emisión avisará de que falta.
+    const surcharge = options.equivalenceSurcharge ? findSurchargeTaxForVat(taxes, line.taxRate) : null;
+    if (surcharge) result.push({ id: surcharge.id, name: surcharge.name, rate: Number(surcharge.rate), kind: "SURCHARGE", operation: "ADD" });
   }
   if (line.retentionRate > 0) {
     const retention = findRetentionTaxByRate(taxes, line.retentionRate);
@@ -350,11 +360,16 @@ export function mapSalesLineTaxes(line: Pick<InvoiceSourceLine, "taxRate" | "ret
   return result;
 }
 
-async function toInvoiceLines(tx: DbClient, companyId: string, lines: InvoiceSourceLine[]) {
+async function toInvoiceLines(tx: DbClient, companyId: string, lines: InvoiceSourceLine[], customer: { equivalenceSurcharge: boolean }) {
   const taxes = await tx
     .select({ id: tax.id, name: tax.name, rate: tax.rate, kind: tax.kind, operation: tax.operation, isDefault: tax.isDefault, isActive: tax.isActive })
     .from(tax)
     .where(eq(tax.companyId, companyId));
+  // El recargo de equivalencia solo grava las entregas de bienes (artículos que no son servicios).
+  const itemIds = customer.equivalenceSurcharge ? [...new Set(lines.map((line) => line.itemId).filter((id): id is string => Boolean(id)))] : [];
+  const goods = new Set(itemIds.length > 0
+    ? (await tx.select({ id: item.id, isService: item.isService }).from(item).where(and(eq(item.companyId, companyId), inArray(item.id, itemIds)))).filter((row) => !row.isService).map((row) => row.id)
+    : []);
   return lines.map((line) => ({
     itemId: line.itemId,
     description: line.description,
@@ -363,7 +378,7 @@ async function toInvoiceLines(tx: DbClient, companyId: string, lines: InvoiceSou
     discountPct: line.discountPct,
     taxRate: line.taxRate,
     retentionRate: line.retentionRate,
-    taxes: mapSalesLineTaxes(line, taxes),
+    taxes: mapSalesLineTaxes(line, taxes, { equivalenceSurcharge: Boolean(line.itemId && goods.has(line.itemId)) }),
   }));
 }
 
@@ -388,7 +403,7 @@ async function createInvoiceDraftFromSales(
   const billing = await resolveCustomerBillingDefaults(tx, actor.companyId, input.customerId);
   const issueDate = new Date();
   const paymentMethods = (await resolveInvoicePaymentMethods(actor.companyId, billing.paymentMethodIds)) ?? [];
-  const lines = await toInvoiceLines(tx, actor.companyId, input.lines);
+  const lines = await toInvoiceLines(tx, actor.companyId, input.lines, { equivalenceSurcharge: billing.equivalenceSurcharge && billing.vatTreatment === "DOMESTIC" });
   return createDraftInvoiceInTransaction(tx, actor, {
     customerId: input.customerId,
     issueDate,

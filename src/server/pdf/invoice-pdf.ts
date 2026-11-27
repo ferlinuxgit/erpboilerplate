@@ -15,14 +15,21 @@ import {
   type RectificationReason,
   type RectificationType,
 } from "@/server/invoices/lifecycle";
+import { civilDateKey } from "@/server/invoices/issue-checks";
 import { loadStoredLines } from "@/server/invoices/service";
 import type { InvoicePdfInput } from "@/server/pdf/render";
 import { getInvoiceVerifactuInfo, getInvoiceVerifactuQrPng } from "@/server/verifactu/service";
 import { formatRate, lineTaxColumns, taxTotalRows } from "@/server/pdf/invoice-tax-labels";
 
+/**
+ * Fecha impresa: el mismo día civil que consta en el registro VERI*FACTU. Una fecha de formulario
+ * (00:00 UTC) es ya su día; un instante (ticket del TPV…) se lee en hora peninsular, no en la zona
+ * del servidor.
+ */
 function formatDate(value: Date | null) {
   if (!value) return null;
-  return new Intl.DateTimeFormat("es-ES", { dateStyle: "short" }).format(value);
+  const [year, month, day] = civilDateKey(value).split("-");
+  return `${Number(day)}/${Number(month)}/${year.slice(2)}`;
 }
 
 function formatMoney(value: number | string, currency: string) {
@@ -169,6 +176,8 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   const legalNotes = [
     operationDate ? `Fecha de la operación: ${operationDate}.` : null,
     vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer), row.fiscalRegime),
+    // Art. 6.1.p del Reglamento de facturación (también en el IGIC, art. 163 decies LIVA y Ley 20/1991).
+    row.fiscalRegime === "cash_accounting" ? "Régimen especial del criterio de caja." : null,
   ].filter((note): note is string => Boolean(note));
 
   const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
@@ -181,7 +190,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   return {
     filename: safeInvoiceFilename(row.number, isCreditNote),
     input: {
-      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : isCreditNote ? "Factura rectificativa" : "Factura",
+      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : isCreditNote ? "Factura rectificativa" : customerParty.taxId?.trim() ? "Factura" : "Factura simplificada",
       documentEyebrow: lifecycle === "DRAFT" ? "Documento sin validez fiscal" : lifecycle === "VOID" ? "Documento anulado" : "Documento comercial",
       number: row.number,
       issueDate: formatDate(row.issueDate) ?? "",

@@ -22,8 +22,14 @@ const documentTypes = [
   "RECEIPT",
 ] as const;
 
-const prefixSchema = z.string().trim().min(1, "Indica el prefijo (por ejemplo, FA).").max(20, "El prefijo no puede superar 20 caracteres.");
-const formatSchema = z.string().trim().min(1, "Indica el formato.").max(80, "El formato no puede superar 80 caracteres.");
+// El número de factura viaja a la AEAT (VERI*FACTU): solo admite ASCII imprimible sin " ' < > =.
+const prefixSchema = z.string().trim().min(1, "Indica el prefijo (por ejemplo, FA).").max(20, "El prefijo no puede superar 20 caracteres.")
+  .regex(/^[\x20-\x7E]+$/, "El prefijo solo puede llevar letras sin tilde, números y signos básicos (sin ñ, º, € ni acentos): la Agencia Tributaria rechaza el resto.")
+  .regex(/^[^"'<>=]+$/, "El prefijo no puede llevar comillas ni los signos < > =.");
+const formatSchema = z.string().trim().min(1, "Indica el formato.").max(80, "El formato no puede superar 80 caracteres.")
+  .regex(/\{NUMBER(?::\d{1,2})?\}/, "El formato debe incluir {NUMBER}: sin él todas las facturas tendrían el mismo número.")
+  .regex(/^[\x20-\x7E]+$/, "El formato solo puede llevar letras sin tilde, números y signos básicos.")
+  .regex(/^[^"'<>=]+$/, "El formato no puede llevar comillas ni los signos < > =.");
 const nameSchema = z.string().trim().min(1, "Indica el nombre de la serie (por ejemplo, Tickets).").max(60, "El nombre no puede superar 60 caracteres.");
 const gapSchema = {
   /** Confirmación explícita para saltar números (deja huecos): exige motivo y queda auditado. */

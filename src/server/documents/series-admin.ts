@@ -260,6 +260,9 @@ export async function createDocumentSeries(actor: SeriesActor, input: CreateSeri
   });
 }
 
+/** Series cuyos números son números de factura. */
+const FISCAL_SERIES_TYPES = new Set(["SALES_INVOICE", "CREDIT_NOTE"]);
+
 /**
  * Edita una serie: nombre, prefijo, formato, siguiente número (con la regla de huecos), marcarla por
  * defecto o (des)activarla. El código no cambia: identifica la serie entre ejercicios.
@@ -283,6 +286,12 @@ export async function updateDocumentSeries(actor: SeriesActor, seriesId: string,
     }
     if (willBeDefault && !willBeActive) {
       throw new HttpError(409, "No puedes desactivar la serie por defecto. Marca antes otra serie como predeterminada.");
+    }
+    // Una serie de facturas con números ya emitidos conserva su prefijo y su formato: cambiarlos
+    // rompería la correlación de la serie (art. 6.1.a del Reglamento de facturación).
+    const changesIdentity = (input.prefix !== undefined && input.prefix !== existing.prefix) || (input.format !== undefined && input.format !== existing.format);
+    if (changesIdentity && FISCAL_SERIES_TYPES.has(existing.type) && existing.nextNumber > 1) {
+      throw new HttpError(409, "Esta serie ya tiene facturas emitidas: su prefijo y su formato no se pueden cambiar. Crea una serie nueva con la numeración que necesites y márcala como predeterminada.");
     }
     const decision = checkNextNumber(input, existing.nextNumber, effectiveNextNumber(sameType, existing));
     if (willBeDefault && !existing.isDefault) await clearOtherDefaults(tx, actor.companyId, existing.fiscalYearId, existing.type, existing.id);

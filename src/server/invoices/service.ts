@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 
 import {
   companySettings,
@@ -10,9 +10,11 @@ import {
   invoiceLineTax,
   invoicePayment,
   invoicePaymentMethod,
+  item,
   partner,
   paymentMethod,
   tax,
+  type InvoicePartySnapshot,
 } from "@/db/schema";
 import { getCompanyTemplate } from "@/lib/company-templates";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
@@ -52,6 +54,7 @@ import {
   type CreateInvoiceInput,
   type UpdateDraftInvoiceInput,
 } from "@/server/invoices/schemas";
+import { chronologicalOrderProblem, equivalenceSurchargeProblem, issuerDataProblem, recipientDataProblem, simplifiedLimitProblem, SIMPLIFIED_INVOICE_GENERAL_LIMIT } from "@/server/invoices/issue-checks";
 import { loadCustomerSnapshot, loadIssuerSnapshot } from "@/server/invoices/snapshot";
 import { toCents } from "@/server/accounting/money";
 import { applyCompanyTemplate } from "@/server/seeds/apply";
@@ -385,10 +388,79 @@ type IssueResult = { id: string; number: string; status: string; invoiceType: st
 const FUTURE_ISSUE_DATE_TOLERANCE_MS = 24 * 60 * 60_000;
 
 /**
+ * Contenido obligatorio de la factura (Reglamento de facturación) que depende de las fichas:
+ * datos del emisor y del destinatario, límite de la simplificada y recargo de equivalencia.
+ * Una rectificativa hereda la clase de su original: solo se le exigen los datos del emisor.
+ */
+async function assertInvoiceLegalContent(
+  tx: DbClient,
+  companyId: string,
+  input: {
+    issuer: InvoicePartySnapshot;
+    customer: InvoicePartySnapshot;
+    customerId: string;
+    vatTreatment: SalesVatTreatmentCode;
+    totals: InvoiceTotals;
+    lines: Array<CalculatedLine & { lineId: string }>;
+    original: boolean;
+    simplifiedLimit?: number;
+  },
+) {
+  const issuerProblem = issuerDataProblem(input.issuer);
+  if (issuerProblem) throw new HttpError(422, issuerProblem);
+  if (input.original) return;
+
+  const fiscal = await getCompanyFiscalContext(companyId, tx);
+  const recipientProblem = recipientDataProblem(input.customer, input.issuer.countryCode);
+  if (recipientProblem) throw new HttpError(422, recipientProblem);
+
+  // Simplificada y recargo de equivalencia: reglas españolas (territorio del IVA, IGIC e IPSI).
+  if (fiscal.profile.features.eInvoicing !== "verifactu") return;
+  const [settings] = input.simplifiedLimit === undefined
+    ? await tx
+        .select({ simplifiedInvoiceLimit: companySettings.simplifiedInvoiceLimit })
+        .from(companySettings)
+        .where(eq(companySettings.companyId, companyId))
+        .limit(1)
+    : [];
+  const limitProblem = simplifiedLimitProblem({
+    customerTaxId: input.customer.taxId,
+    totalAmount: input.totals.totalAmount,
+    limit: input.simplifiedLimit ?? Number(settings?.simplifiedInvoiceLimit ?? SIMPLIFIED_INVOICE_GENERAL_LIMIT),
+  });
+  if (limitProblem) throw new HttpError(422, limitProblem);
+
+  if (input.vatTreatment !== "DOMESTIC" || !fiscal.profile.features.equivalenceSurcharge) return;
+  const [customerRow] = await tx
+    .select({ equivalenceSurcharge: customer.equivalenceSurcharge })
+    .from(customer)
+    .where(and(eq(customer.id, input.customerId), eq(customer.companyId, companyId)))
+    .limit(1);
+  if (!customerRow?.equivalenceSurcharge) return;
+  const itemIds = [...new Set(input.lines.map((line) => line.itemId).filter((id): id is string => Boolean(id)))];
+  const items = itemIds.length > 0
+    ? await tx.select({ id: item.id, isService: item.isService }).from(item).where(and(eq(item.companyId, companyId), inArray(item.id, itemIds)))
+    : [];
+  const serviceById = new Map(items.map((entry) => [entry.id, entry.isService]));
+  const surchargeProblem = equivalenceSurchargeProblem(input.lines.map((line) => ({
+    description: line.description,
+    isService: line.itemId ? serviceById.get(line.itemId) ?? null : null,
+    taxes: (line.taxes ?? []).map((tax) => ({ kind: tax.kind, operation: tax.operation, rate: Number(tax.rate) })),
+  })));
+  if (surchargeProblem) throw new HttpError(422, surchargeProblem);
+}
+
+/**
  * Emite un borrador dentro de la transacción: número definitivo de la serie del ejercicio de la
  * fecha de emisión, snapshot fiscal de emisor y cliente, asiento contable y auditoría.
  */
-export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: InvoiceActor, invoiceId: string): Promise<IssueResult> {
+export async function issueInvoiceInTransaction(
+  tx: AppDbTransaction,
+  actor: InvoiceActor,
+  invoiceId: string,
+  /** `simplifiedLimit`: límite de la simplificada de la caja del TPV (sustituye al de la empresa). */
+  options: { simplifiedLimit?: number } = {},
+): Promise<IssueResult> {
   const row = await lockInvoice(tx, actor.companyId, invoiceId);
   if (!row) throw new HttpError(404, "Factura no encontrada.");
   const lifecycle = invoiceLifecycle(row);
@@ -420,6 +492,7 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     : null;
   const vatTreatment = (row.vatTreatment as SalesVatTreatmentCode | null) ?? billing?.vatTreatment ?? customerDefaultVatTreatment({ countryCode: customerSnapshot.countryCode, taxId: customerSnapshot.taxId }, await getCompanyFiscalContext(actor.companyId, tx));
   assertVatTreatmentConsistency({ vatTreatment, customerTaxId: customerSnapshot.taxId, totals });
+  await assertInvoiceLegalContent(tx, actor.companyId, { issuer, customer: customerSnapshot, customerId: row.customerId, vatTreatment, totals, lines, original: isCreditNote, simplifiedLimit: options.simplifiedLimit });
   // Sin vencimiento: fecha de emisión + días de pago del cliente (o de la empresa).
   const dueDate = row.dueDate ?? (billing ? computeDueDate(row.issueDate, billing.termsDays) : null);
 
@@ -450,6 +523,15 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
     seriesId: row.seriesId,
     ...(isCreditNote ? { createIfMissing: { prefix: "R-" } } : {}),
   });
+  // Orden cronológico dentro de la serie (la reserva del número ya tiene bloqueada la serie).
+  const [lastIssued] = await tx
+    .select({ number: invoice.number, issueDate: invoice.issueDate })
+    .from(invoice)
+    .where(and(eq(invoice.companyId, actor.companyId), eq(invoice.seriesId, seriesId), isNotNull(invoice.issuedAt), ne(invoice.id, row.id)))
+    .orderBy(desc(invoice.issueDate))
+    .limit(1);
+  const orderProblem = chronologicalOrderProblem({ issueDate: row.issueDate, lastIssued: lastIssued ?? null });
+  if (orderProblem) throw new HttpError(422, orderProblem);
 
   const issuedAt = new Date();
   const [issued] = await tx

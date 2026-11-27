@@ -60,11 +60,13 @@ export async function purgeTenant(input: { tenantId: string; actorUserId: string
   // Documentos guardados: fuera del almacén antes de borrar las filas que los apuntan.
   const plan = buildTenantExportPlan();
   for (const entry of plan) {
-    const hasStorage = await db.execute(sql`select 1 from information_schema.columns where table_name = ${entry.table} and column_name = 'storageKey'`);
-    if (!(hasStorage as unknown as { rows: unknown[] }).rows.length || entry.scope.kind !== "company") continue;
-    const stored = await db.execute(sql`select "storageKey" from ${sql.raw(`"${entry.table}"`)} where "storageKey" is not null and "companyId" in (select "id" from "company" where "tenantId" = ${input.tenantId})`);
-    for (const document of (stored as unknown as { rows: Array<{ storageKey: string }> }).rows) {
-      await deletePrivateFile(document.storageKey).catch((error) => logger.warn({ err: error, storageKey: document.storageKey }, "tenant.purge.file_failed"));
+    if (entry.scope.kind !== "company") continue;
+    const columns = await db.execute(sql`select column_name from information_schema.columns where table_name = ${entry.table} and column_name in ('storageKey', 'pdfStorageKey')`);
+    for (const { column_name: column } of (columns as unknown as { rows: Array<{ column_name: string }> }).rows) {
+      const stored = await db.execute(sql`select ${sql.raw(`"${column}"`)} as "storageKey" from ${sql.raw(`"${entry.table}"`)} where ${sql.raw(`"${column}"`)} is not null and "companyId" in (select "id" from "company" where "tenantId" = ${input.tenantId})`);
+      for (const document of (stored as unknown as { rows: Array<{ storageKey: string }> }).rows) {
+        await deletePrivateFile(document.storageKey).catch((error) => logger.warn({ err: error, storageKey: document.storageKey }, "tenant.purge.file_failed"));
+      }
     }
   }
   await db.transaction(async (tx) => {

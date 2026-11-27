@@ -397,6 +397,10 @@ export const companySettings = pgTable("company_settings", {
   pdfShowTaxBreakdown: boolean("pdfShowTaxBreakdown").notNull().default(true),
   // Qué vende la empresa: "products", "services" o "both". Adapta navegación y avisos del panel.
   businessType: text("businessType").notNull().default("both"),
+  // Límite de la factura simplificada (sin NIF del destinatario), IVA incluido: 400 € con carácter
+  // general o 3.000 € en las actividades del art. 4.2 del Reglamento de facturación (comercio al por
+  // menor, hostelería, transporte de personas…).
+  simplifiedInvoiceLimit: numeric("simplifiedInvoiceLimit", { precision: 10, scale: 2 }).notNull().default("400"),
   // Tratamientos de IVA que usa en sus ventas (los demás no se ofrecen al facturar). Null = automático
   // según lo que vende (ver `defaultSalesVatTreatments`).
   salesVatTreatments: jsonb("salesVatTreatments").$type<string[]>(),
@@ -410,6 +414,7 @@ export const companySettings = pgTable("company_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   check("company_settings_subaccount_length_valid", sql`${table.subaccountLength} BETWEEN 8 AND 12`),
+  check("company_settings_simplified_limit_valid", sql`${table.simplifiedInvoiceLimit} BETWEEN 0 AND 3000`),
 ]);
 
 export const partner = pgTable("partner", {

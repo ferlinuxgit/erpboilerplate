@@ -123,9 +123,10 @@ export function streamTenantExport(tenantId: string): ReadableStream<Uint8Array>
           manifest.push({ table: entry.table, rows });
           // Documentos guardados (facturas de proveedor, adjuntos…): junto a los datos.
           if (rows > 0 && scopes.get(entry.table)?.kind !== "tenant-root") {
-            const columns = await db.execute(sql`select column_name from information_schema.columns where table_name = ${entry.table} and column_name = 'storageKey'`);
-            if ((columns as unknown as { rows: unknown[] }).rows.length) {
-              const stored = await db.execute(sql`select t."id", t."storageKey" from ${sql.raw(`"${entry.table}" t`)} where t."storageKey" is not null and ${scopeCondition(scopes, entry.table, tenantId, "t")}`);
+            // `storageKey` (documentos adjuntos) y `pdfStorageKey` (copia del PDF de cada factura emitida).
+            const columns = await db.execute(sql`select column_name from information_schema.columns where table_name = ${entry.table} and column_name in ('storageKey', 'pdfStorageKey')`);
+            for (const { column_name: column } of (columns as unknown as { rows: Array<{ column_name: string }> }).rows) {
+              const stored = await db.execute(sql`select t."id", ${sql.raw(`t."${column}"`)} as "storageKey" from ${sql.raw(`"${entry.table}" t`)} where ${sql.raw(`t."${column}"`)} is not null and ${scopeCondition(scopes, entry.table, tenantId, "t")}`);
               for (const document of (stored as unknown as { rows: Array<{ id: string; storageKey: string }> }).rows) {
                 try {
                   const body = await readPrivateFile(document.storageKey);
@@ -144,7 +145,7 @@ export function streamTenantExport(tenantId: string): ReadableStream<Uint8Array>
           "Exportación completa de tu espacio de trabajo.",
           "",
           "- datos/: una tabla por fichero, en JSON Lines (un registro JSON por línea).",
-          "- documentos/: los documentos guardados (facturas de proveedor, adjuntos…).",
+          "- documentos/: los documentos guardados (PDF de las facturas emitidas, facturas de proveedor, adjuntos…).",
           "- manifiesto.json: tablas y número de registros.",
           "",
           "Los libros oficiales (diario, IVA, cuentas anuales) también se descargan en su formato legal desde la aplicación.",

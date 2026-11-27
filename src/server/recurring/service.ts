@@ -15,6 +15,7 @@ import {
   type RecurringTemplateLine,
 } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
+import { civilDateKey } from "@/server/invoices/issue-checks";
 import { HttpError } from "@/lib/http";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { logger } from "@/lib/logger";
@@ -560,7 +561,7 @@ async function lockDueTemplate(tx: DbClient, templateId: string, periodDate: str
 
 export type GenerationOutcome = { templateId: string; periodDate: string; status: "GENERATED" | "PENDING_REVIEW" | "SKIPPED"; runId: string | null; message: string | null };
 
-async function generateInvoicePeriod(template: TemplateRow, periodDate: string, companyContext: CompanyContext, options: { transport?: MailTransport | null }): Promise<GenerationOutcome> {
+async function generateInvoicePeriod(template: TemplateRow, periodDate: string, companyContext: CompanyContext, options: { transport?: MailTransport | null; today?: string }): Promise<GenerationOutcome> {
   const fiscalYearId = await resolveFiscalYearId(db, companyContext.companyId, periodDate);
   const actor = workerActor(template, companyContext, fiscalYearId);
   const wantsIssue = template.issueMode === "ISSUE" || template.issueMode === "ISSUE_AND_EMAIL";
@@ -591,7 +592,13 @@ async function generateInvoicePeriod(template: TemplateRow, periodDate: string, 
       .select({ id: tax.id, name: tax.name, rate: tax.rate, kind: tax.kind, operation: tax.operation, isDefault: tax.isDefault, isActive: tax.isActive })
       .from(tax)
       .where(and(eq(tax.companyId, locked.companyId), eq(tax.isActive, true)));
-    const issueDate = new Date(`${periodDate}T00:00:00.000Z`);
+    // Una factura atrasada (plantilla pausada, tarea caída) se expide hoy y lleva la fecha del
+    // periodo como fecha de operación: no se puede expedir con una fecha ya pasada (orden de la
+    // serie, registro VERI*FACTU), pero el devengo sigue siendo el del periodo.
+    const periodStart = new Date(`${periodDate}T00:00:00.000Z`);
+    const today = new Date(`${options.today ?? civilDateKey(new Date())}T00:00:00.000Z`);
+    const issueDate = periodStart.getTime() < today.getTime() ? today : periodStart;
+    const operationDate = issueDate.getTime() === periodStart.getTime() ? null : periodStart;
     const lines = renderLines(locked.lines, periodDate).map((line) => ({
       itemId: line.itemId ?? null,
       description: line.description,
@@ -606,6 +613,7 @@ async function generateInvoicePeriod(template: TemplateRow, periodDate: string, 
     const draft = await createDraftInvoiceInTransaction(tx, actor, {
       customerId,
       issueDate,
+      operationDate,
       dueDate: computeDueDate(issueDate, billing.termsDays),
       paymentMethods,
       lines,
@@ -790,7 +798,7 @@ export async function runDueRecurringTemplates(options: { now?: Date; transport?
       try {
         const outcome = template.kind === "EXPENSE"
           ? await generateExpensePeriod(template, periodDate, companyContext)
-          : await generateInvoicePeriod(template, periodDate, companyContext, { transport: options.transport });
+          : await generateInvoicePeriod(template, periodDate, companyContext, { transport: options.transport, today });
         if (outcome.status === "GENERATED") summary.generated += 1;
         if (outcome.status === "PENDING_REVIEW") summary.pendingReview += 1;
       } catch (error) {

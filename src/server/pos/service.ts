@@ -651,7 +651,7 @@ export async function createSale(actor: PosActor, input: SaleInput, options: Sal
       seriesId,
       auditPayload: { origin: "pos", registerId: register.id, sessionId: session.id },
     });
-    const issued = await issueInvoiceInTransaction(tx, actor, draft.id);
+    const issued = await issueInvoiceInTransaction(tx, actor, draft.id, { simplifiedLimit: num(register.simplifiedLimit) });
     const total = num(issued.totalAmount);
     if (amountToCents(total) !== amountToCents(totals.total)) throw new HttpError(409, "El total del ticket ha cambiado: vuelve a cobrarlo.");
 

@@ -183,7 +183,8 @@ describe("runDueRecurringTemplates", () => {
     expect(mocks.createDraftInvoiceInTransaction).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ companyId: "c-1", actorUserId: "u-1", activeFiscalYearId: "fy-2026" }),
-      expect.objectContaining({ customerId: "cus-1", issueDate: new Date("2026-09-01T00:00:00.000Z"), lines: [expect.objectContaining({ description: "Mantenimiento septiembre" })] }),
+      // El periodo (1 de septiembre) ya pasó: se expide hoy (25) con el periodo como fecha de operación.
+      expect.objectContaining({ customerId: "cus-1", issueDate: new Date("2026-09-25T00:00:00.000Z"), operationDate: new Date("2026-09-01T00:00:00.000Z"), lines: [expect.objectContaining({ description: "Mantenimiento septiembre" })] }),
     );
     const runUpdate = updateSets().find((set) => "invoiceId" in set);
     expect(runUpdate).toMatchObject({ invoiceId: "inv-new" });
