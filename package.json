@@ -20,6 +20,7 @@
     "test:e2e:changed": "node scripts/e2e-fast.mjs --only-changed=origin/main",
     "ocr:worker": "tsx scripts/ocr-worker.ts",
     "verifactu:worker": "tsx scripts/verifactu-worker.ts",
+    "sii:worker": "tsx scripts/sii-worker.ts",
     "recurring:worker": "tsx scripts/recurring-worker.ts",
     "accounting:reclassify": "tsx scripts/accounting-reclassify.ts",
     "accounting:bank-subaccounts": "tsx scripts/accounting-bank-subaccounts.ts",

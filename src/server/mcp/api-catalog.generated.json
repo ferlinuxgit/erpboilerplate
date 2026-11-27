@@ -3416,6 +3416,62 @@
  },
  {
   "method": "GET",
+  "path": "/api/sii/export",
+  "area": "sii",
+  "summary": "Descarga (CSV) de todo lo comunicado al SII.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sii/refresh",
+  "area": "sii",
+  "summary": "\"Revisar ahora\": busca facturas expedidas y recibidas sin suministrar, modificadas o anuladas.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sii/resend",
+  "area": "sii",
+  "summary": "Vuelve a poner en la bandeja un registro rechazado, aceptado con errores o sin confirmar.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({ recordId: z.string().trim().min(1).max(80) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/sii",
+  "area": "sii",
+  "summary": "Estado del SII de la empresa activa: pendientes (con su plazo), rechazados, aceptados y configuración.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/sii/send",
+  "area": "sii",
+  "summary": "\"Enviar ahora\": revisa las facturas y envía a la AEAT lo pendiente de la empresa activa.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/sii/settings",
+  "area": "sii",
+  "summary": "Fecha desde la que se suministran las facturas al SII.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const payloadSchema = z.object({ since: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) })"
+ },
+ {
+  "method": "GET",
   "path": "/api/stock-movements",
   "area": "stock-movements",
   "summary": "",
