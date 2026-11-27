@@ -6,6 +6,7 @@ import { AccountingRuleError } from "@/server/accounting/errors";
 import { evaluateCloseChecklist, type CloseChecklist } from "@/server/accounting/close-checklist-model";
 import { toCents } from "@/server/accounting/money";
 import { fiscalYearEndExclusive } from "@/server/fiscal/locks";
+import { getDepreciationYearStatus } from "@/server/fixed-assets/service";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
@@ -40,7 +41,7 @@ export async function getCloseChecklist(companyId: string, fiscalYearId: string)
   const vatPeriod = lastVatPeriodOfYear(year.endsAt, settings?.taxPeriodicity === "monthly" ? "monthly" : "quarterly");
 
   const notClosingOrOpening = sql`coalesce(${journalEntry.sourceType}, '') not in ('fiscalYearClosing', 'fiscalYearOpening')`;
-  const [vatReport, drafts, account555, pendingBank, ledger] = await Promise.all([
+  const [vatReport, drafts, account555, pendingBank, ledger, fixedAssetBalance, depreciation] = await Promise.all([
     filesVat
       ? db
           .select({ id: fiscalReport.id, status: fiscalReport.status })
@@ -71,6 +72,14 @@ export async function getCloseChecklist(companyId: string, fiscalYearId: string)
       .from(journalLine)
       .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
       .where(and(eq(journalEntry.companyId, companyId), lt(journalEntry.postedAt, endExclusive))),
+    // Saldo del inmovilizado (grupos 20, 21 y 22) al cierre, sin los asientos de cierre y apertura.
+    db
+      .select({ balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)` })
+      .from(journalLine)
+      .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
+      .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
+      .where(and(eq(journalEntry.companyId, companyId), lt(journalEntry.postedAt, endExclusive), sql`${accountChart.code} ~ '^2[012]'`, notClosingOrOpening)),
+    getDepreciationYearStatus(companyId, year.endsAt.toISOString().slice(0, 10)),
   ]);
 
   const report = vatReport[0] ?? null;
@@ -81,6 +90,7 @@ export async function getCloseChecklist(companyId: string, fiscalYearId: string)
     account555Cents: toCents(account555[0]?.balance ?? 0),
     pendingBankTransactions: Number(pendingBank[0]?.value ?? 0),
     ledgerDifferenceCents: toCents(ledger[0]?.debit ?? 0) - toCents(ledger[0]?.credit ?? 0),
+    depreciation: { ...depreciation, fixedAssetBalanceCents: toCents(fixedAssetBalance[0]?.balance ?? 0) },
   });
   return { ...checklist, yearCode: year.code };
 }

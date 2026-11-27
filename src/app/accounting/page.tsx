@@ -34,6 +34,11 @@ const areas = [
     description: "Libro diario y movimientos contables.",
   },
   {
+    href: "/accounting/assets",
+    title: "Inmovilizado",
+    description: "Bienes de inversión y amortizaciones automáticas.",
+  },
+  {
     href: "/accounting/reports",
     title: "Estados financieros",
     description: "Balance, cuenta de resultados y sumas y saldos por periodo.",
@@ -135,7 +140,7 @@ export default async function AccountingPage() {
         title="Áreas contables"
         description="Cada función dispone de su propio espacio de trabajo."
       >
-        <AreaLinkGrid className="md:grid-cols-3 xl:grid-cols-5">
+        <AreaLinkGrid className="md:grid-cols-3 xl:grid-cols-3">
           {areas.map((area) => (
             <AreaLink description={area.description} href={area.href} key={area.href} title={area.title} />
           ))}

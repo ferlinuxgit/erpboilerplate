@@ -1186,6 +1186,86 @@ export const journalLine = pgTable("journal_line", {
   check("journal_line_valid_amounts", sql`${table.debit} >= 0 AND ${table.credit} >= 0 AND ((${table.debit} > 0 AND ${table.credit} = 0) OR (${table.credit} > 0 AND ${table.debit} = 0))`),
 ]);
 
+// --- Inmovilizado y amortizaciones (src/server/fixed-assets) ---
+
+/** Bien de inmovilizado (grupos 20, 21 y 22) con sus cuentas y su plan de amortización lineal. */
+export const fixedAsset = pgTable("fixed_asset", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // Código correlativo por empresa (BI-0001).
+  code: text("code").notNull(),
+  description: text("description").notNull(),
+  notes: text("notes"),
+  // Subcuentas: inmovilizado (20/21/22), amortización acumulada (280/281/282) y dotación (680/681/682).
+  // Las dos últimas son null en los bienes no amortizables (terrenos).
+  assetAccountId: text("assetAccountId").notNull().references(() => accountChart.id, { onDelete: "restrict" }),
+  accumulatedAccountId: text("accumulatedAccountId").references(() => accountChart.id, { onDelete: "restrict" }),
+  expenseAccountId: text("expenseAccountId").references(() => accountChart.id, { onDelete: "restrict" }),
+  acquisitionDate: date("acquisitionDate", { mode: "string" }).notNull(),
+  inServiceDate: date("inServiceDate", { mode: "string" }).notNull(),
+  acquisitionCost: numeric("acquisitionCost", { precision: 12, scale: 2 }).notNull(),
+  residualValue: numeric("residualValue", { precision: 12, scale: 2 }).notNull().default("0"),
+  isDepreciable: boolean("isDepreciable").notNull().default(true),
+  // Lineal por porcentaje anual ("percent") o por años de vida útil ("years").
+  method: text("method").notNull().default("percent"),
+  annualPct: numeric("annualPct", { precision: 7, scale: 4 }),
+  usefulLifeYears: numeric("usefulLifeYears", { precision: 6, scale: 2 }),
+  // Tipo de elemento de la tabla del art. 12.1.a) de la Ley 27/2014 elegido como referencia.
+  taxCoefficientKey: text("taxCoefficientKey"),
+  // Bienes que ya venían amortizándose: desde qué fecha amortiza el programa y cuánto llevaban amortizado.
+  depreciationStartDate: date("depreciationStartDate", { mode: "string" }),
+  priorAccumulated: numeric("priorAccumulated", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Factura de proveedor de origen (enlace opcional).
+  supplierInvoiceId: text("supplierInvoiceId").references((): AnyPgColumn => supplierInvoice.id, { onDelete: "set null" }),
+  // active (en uso) | fully_depreciated (totalmente amortizado) | disposed (baja o venta).
+  status: text("status").notNull().default("active"),
+  disposalDate: date("disposalDate", { mode: "string" }),
+  // sale (venta) | retirement (baja sin contraprestación).
+  disposalType: text("disposalType"),
+  disposalProceeds: numeric("disposalProceeds", { precision: 12, scale: 2 }),
+  disposalAccountId: text("disposalAccountId").references(() => accountChart.id, { onDelete: "restrict" }),
+  disposalNotes: text("disposalNotes"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("fixed_asset_company_code_unique").on(table.companyId, table.code),
+  index("fixed_asset_company_status_idx").on(table.companyId, table.status),
+  index("fixed_asset_supplier_invoice_idx").on(table.supplierInvoiceId),
+  check("fixed_asset_status_valid", sql`${table.status} IN ('active', 'fully_depreciated', 'disposed')`),
+  check("fixed_asset_method_valid", sql`${table.method} IN ('percent', 'years')`),
+  check("fixed_asset_amounts_valid", sql`${table.acquisitionCost} > 0 AND ${table.residualValue} >= 0 AND ${table.residualValue} <= ${table.acquisitionCost} AND ${table.priorAccumulated} >= 0`),
+]);
+
+/**
+ * Dotación contabilizada: qué periodo de qué bien está amortizado y con qué asiento. El asiento
+ * lleva `sourceType = 'fixedAssetDepreciation'` y `sourceId` = id de esta fila.
+ */
+export const fixedAssetDepreciation = pgTable("fixed_asset_depreciation", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  assetId: text("assetId").notNull().references(() => fixedAsset.id, { onDelete: "cascade" }),
+  periodStart: date("periodStart", { mode: "string" }).notNull(),
+  periodEnd: date("periodEnd", { mode: "string" }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  journalEntryId: text("journalEntryId").notNull().references(() => journalEntry.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // Idempotencia: un periodo de un bien solo se contabiliza una vez.
+  unique("fixed_asset_depreciation_asset_period_unique").on(table.assetId, table.periodEnd),
+  index("fixed_asset_depreciation_company_period_idx").on(table.companyId, table.periodEnd),
+  index("fixed_asset_depreciation_entry_idx").on(table.journalEntryId),
+  check("fixed_asset_depreciation_amount_valid", sql`${table.amount} > 0 AND ${table.periodStart} <= ${table.periodEnd}`),
+]);
+
+/** Ajustes de inmovilizado de la empresa: dotaciones mensuales o anuales. */
+export const fixedAssetSettings = pgTable("fixed_asset_settings", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  depreciationFrequency: text("depreciationFrequency").notNull().default("annual"),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  check("fixed_asset_settings_frequency_valid", sql`${table.depreciationFrequency} IN ('monthly', 'annual')`),
+]);
+
 export const bankTransaction = pgTable("bank_transaction", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   // no action (comprobado al final de la sentencia): una cuenta con movimientos no se puede borrar

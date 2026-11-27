@@ -210,6 +210,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/accounting", label: "Resumen", exact: true },
       { href: "/accounting/accounts", label: "Plan contable", keywords: "pgc cuentas 572 430 400" },
       { href: "/accounting/entries", label: "Asientos", keywords: "libro diario apuntes" },
+      { href: "/accounting/assets", label: "Inmovilizado", keywords: "amortización amortizaciones bienes de inversión activos fijos dotación 281 681 ordenador vehículo maquinaria" },
       { href: "/accounting/reports", label: "Estados financieros", keywords: "balance pérdidas y ganancias resultado sumas y saldos" },
       { href: "/accounting/gestor", label: "Paquete para el gestor", keywords: "gestor gestoría asesor exportar enviar zip trimestre cierre documentación" },
     ],

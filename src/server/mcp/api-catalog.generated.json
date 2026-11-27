@@ -650,7 +650,7 @@
   "method": "POST",
   "path": "/api/billing/modules",
   "area": "billing",
-  "summary": "Cambia los módulos contratados de una suscripción en curso (prorrateado). Los módulos añadidos quedan además activados en la empresa activa.",
+  "summary": "Cambia los módulos contratados (prorrateado). El plan base es anual y los módulos van en su propia suscripción mensual: se crea con el primer módulo y se cancela al quitar el último. Las suscripciones antiguas (plan y módulos juntos, al mes) se siguen cambiando en la misma. Los módulos añadidos quedan además activados en la empresa activa.",
   "permissions": [
    "billing.write"
   ]
@@ -1462,6 +1462,131 @@
   "permissions": [
    "fiscal.read"
   ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/fixed-assets/{id}/depreciation",
+  "area": "fixed-assets",
+  "summary": "Deshace la última amortización contabilizada del bien con un contraasiento.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/fixed-assets/{id}/disposal",
+  "area": "fixed-assets",
+  "summary": "Baja o venta de un bien: amortiza hasta la fecha de baja y genera el asiento que da de baja su valor y su amortización acumulada, con el resultado en 67x (pérdida) o 77x (beneficio).",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const disposeFixedAssetSchema = z.object({\n  date: isoDate(\"La fecha de baja no es válida.\"),\n  type: z.enum([\"sale\", \"retirement\"]),\n  proceeds: z.number().min(0, \"El importe de la venta no puede ser negativo.\").max(9_999_999_999).optional(),\n  accountId: z.string().trim().min(1).nullable().optional(),\n  notes: optionalText(2000),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/fixed-assets/{id}/disposal",
+  "area": "fixed-assets",
+  "summary": "Anula la baja del bien con un contraasiento; el bien vuelve a estar en uso.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fixed-assets/{id}",
+  "area": "fixed-assets",
+  "summary": "Ficha de un bien: datos, cuentas, cuadro de amortización, dotaciones contabilizadas y asientos de baja.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/fixed-assets/{id}",
+  "area": "fixed-assets",
+  "summary": "Modifica un bien. Con amortizaciones contabilizadas o de baja solo admite cambios de descripción, notas y factura de origen.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const fixedAssetInputSchema = z.object({\n  description: z.string().trim().min(1, \"Indica la descripción del bien.\").max(200, \"La descripción no puede superar 200 caracteres.\"),\n  notes: optionalText(2000),\n  assetAccountCode: accountCode(\"Indica la cuenta de inmovilizado (grupos 20, 21 o 22).\"),\n  accumulatedAccountCode: accountCode(\"La cuenta de amortización acumulada no es válida.\").nullable().optional(),\n  expenseAccountCode: accountCode(\"La cuenta de gasto de la amortización no es válida.\").nullable().optional(),\n  isDepreciable: z.boolean(),\n  method: z.enum([\"percent\", \"years\"]),\n  annualPct: z.number().positive(\"El porcentaje anual debe ser mayor que cero.\").nullable().optional(),\n  usefulLifeYears: z.number().positive(\"La vida útil debe ser mayor que cero.\").nullable().optional(),\n  taxCoefficientKey: optionalText(60),\n  acquisitionDate: isoDate(\"La fecha de adquisición no es válida.\"),\n  inServiceDate: isoDate(\"La fecha de puesta en funcionamiento no es válida.\"),\n  depreciationStartDate: isoDate(\"La fecha de inicio de la amortización no es válida.\").nullable().optional(),\n  acquisitionCost: z.number().positive(\"Indica el valor de adquisición del bien.\").max(9_999_999_999, \"El valor de adquisición es demasiado alto.\"),\n  residualValue: z.number().min(0, \"El valor residual no puede ser negativo.\").optional(),\n  priorAccumulated: z.number().min(0, \"La amortización acumulada anterior no puede ser negativa.\").optional(),\n  supplierInvoiceId: optionalText(80),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/fixed-assets/{id}",
+  "area": "fixed-assets",
+  "summary": "Elimina un bien sin amortizaciones contabilizadas ni baja.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fixed-assets/depreciation",
+  "area": "fixed-assets",
+  "summary": "Amortizaciones pendientes de contabilizar hasta `?until=AAAA-MM-DD` (no escribe nada).",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "until"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/fixed-assets/depreciation",
+  "area": "fixed-assets",
+  "summary": "Contabiliza las amortizaciones pendientes hasta la fecha indicada (68x al debe, 28x al haber), un asiento por bien y periodo. Es idempotente: los periodos ya contabilizados no se repiten.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const postDepreciationSchema = z.object({\n  until: isoDate(\"Indica hasta qué fecha quieres contabilizar las amortizaciones.\"),\n  assetId: z.string().trim().min(1).optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/fixed-assets/register",
+  "area": "fixed-assets",
+  "summary": "Libro registro de bienes de inversión del ejercicio (`?fiscalYearId=`, por defecto el activo). Con `?format=xlsx` devuelve la hoja de cálculo; sin él, los datos en JSON.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fixed-assets",
+  "area": "fixed-assets",
+  "summary": "Bienes de inmovilizado de la empresa con su valor, lo amortizado y lo pendiente.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/fixed-assets",
+  "area": "fixed-assets",
+  "summary": "Da de alta un bien de inmovilizado. Las cuentas se indican por código (217, 2817, 681) y se crean sus subcuentas si faltan.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const fixedAssetInputSchema = z.object({\n  description: z.string().trim().min(1, \"Indica la descripción del bien.\").max(200, \"La descripción no puede superar 200 caracteres.\"),\n  notes: optionalText(2000),\n  assetAccountCode: accountCode(\"Indica la cuenta de inmovilizado (grupos 20, 21 o 22).\"),\n  accumulatedAccountCode: accountCode(\"La cuenta de amortización acumulada no es válida.\").nullable().optional(),\n  expenseAccountCode: accountCode(\"La cuenta de gasto de la amortización no es válida.\").nullable().optional(),\n  isDepreciable: z.boolean(),\n  method: z.enum([\"percent\", \"years\"]),\n  annualPct: z.number().positive(\"El porcentaje anual debe ser mayor que cero.\").nullable().optional(),\n  usefulLifeYears: z.number().positive(\"La vida útil debe ser mayor que cero.\").nullable().optional(),\n  taxCoefficientKey: optionalText(60),\n  acquisitionDate: isoDate(\"La fecha de adquisición no es válida.\"),\n  inServiceDate: isoDate(\"La fecha de puesta en funcionamiento no es válida.\"),\n  depreciationStartDate: isoDate(\"La fecha de inicio de la amortización no es válida.\").nullable().optional(),\n  acquisitionCost: z.number().positive(\"Indica el valor de adquisición del bien.\").max(9_999_999_999, \"El valor de adquisición es demasiado alto.\"),\n  residualValue: z.number().min(0, \"El valor residual no puede ser negativo.\").optional(),\n  priorAccumulated: z.number().min(0, \"La amortización acumulada anterior no puede ser negativa.\").optional(),\n  supplierInvoiceId: optionalText(80),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/fixed-assets/settings",
+  "area": "fixed-assets",
+  "summary": "Periodicidad de las dotaciones de amortización de la empresa (mensual o anual).",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/fixed-assets/settings",
+  "area": "fixed-assets",
+  "summary": "Cambia la periodicidad de las dotaciones. Lo ya contabilizado no se toca: el siguiente periodo lleva solo lo que falte.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const fixedAssetSettingsSchema = z.object({\n  depreciationFrequency: z.enum([\"monthly\", \"annual\"]),\n})"
  },
  {
   "method": "GET",
