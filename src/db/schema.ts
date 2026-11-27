@@ -1710,6 +1710,23 @@ export const verifactuCertificate = pgTable("verifactu_certificate", {
 });
 
 /**
+ * Histórico de declaraciones responsables del productor (art. 15 Orden HAC/1177/2024), una por
+ * versión del sistema: la primera vez que se muestra una versión nueva se guarda el texto emitido
+ * y su fecha. Es del sistema, no de cada empresa: la declaración es la misma para todas.
+ */
+export const verifactuDeclaration = pgTable("verifactu_declaration", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // Identificador completo de la versión (letra c de la declaración).
+  version: text("version").notNull(),
+  title: text("title").notNull(),
+  // Apartados a) … l) tal como se emitieron: texto que describe el dato y dato.
+  rows: jsonb("rows").$type<Array<{ label: string; value: string }>>().notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("verifactu_declaration_version_unique").on(table.version),
+]);
+
+/**
  * Cabeza de la cadena VeriFactu de cada empresa y entorno (producción y pruebas nunca comparten
  * cadena): se bloquea (FOR UPDATE) para encadenar sin bifurcaciones. Guarda también el control de
  * flujo de la AEAT (art. 16.2 de la Orden HAC/1177/2024): cuándo fue el último envío y cuántos

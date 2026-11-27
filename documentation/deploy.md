@@ -166,17 +166,31 @@ puede anunciarse como verificable si no se remite). Para ponerlo en marcha:
 
 1. **Productor y declaración responsable.** Define `VERIFACTU_PRODUCER_NAME`, `VERIFACTU_PRODUCER_NIF`,
    `VERIFACTU_PRODUCER_ADDRESS`, `VERIFACTU_SYSTEM_NAME`, `VERIFACTU_SYSTEM_ID` (2 caracteres),
-   `VERIFACTU_SYSTEM_VERSION`, `VERIFACTU_DECLARATION_DATE` y `VERIFACTU_DECLARATION_PLACE`. Se muestran en
-   Fiscalidad › VERI*FACTU › Declaración responsable; sin NIF del productor el envío no se activa.
-2. **Entorno.** `VERIFACTU_ENVIRONMENT=test` remite a la preproducción de la AEAT (y el QR apunta a ella);
-   `production`, al servicio real. Prueba siempre primero en `test` con un certificado real.
+   `VERIFACTU_DECLARATION_DATE` y `VERIFACTU_DECLARATION_PLACE`. Se muestran en
+   Fiscalidad › VERI*FACTU › Declaración responsable (con descarga en PDF); sin NIF del productor el envío
+   no se activa.
+   - **Versión.** La versión del sistema es la del despliegue: la de `package.json` más el commit corto si
+     el entorno define `SOURCE_COMMIT` (p. ej. `0.1.0+5122131`). `VERIFACTU_SYSTEM_VERSION` la sustituye si
+     se quiere fijar a mano. La primera vez que se abre la declaración con una versión nueva queda guardada
+     en el histórico (tabla `verifactu_declaration`) con su texto y su fecha: súbela de versión
+     (`package.json`) cuando cambie algo que afecte a la facturación.
+2. **Entorno.** `VERIFACTU_ENVIRONMENT` es **obligatoria con `VERIFACTU_TRANSPORT=aeat`** y no tiene valor
+   por defecto: `test` remite a la preproducción de la AEAT (y el QR apunta a ella); `production`, al
+   servicio real. Si falta o tiene otro valor, el envío queda desactivado y no se pueden emitir facturas
+   con registro (se avisa en pantalla). Sin envío activado (`VERIFACTU_TRANSPORT` sin definir) se asume
+   `test`: los registros nacen como pruebas y así se rotulan («ENTORNO DE PRUEBAS · SIN VALIDEZ FISCAL»).
+   Cada registro guarda el entorno en el que nació: cambiar la variable no mueve los existentes (los del
+   otro entorno dejan de enviarse desde este servidor). Prueba siempre primero en `test` con un
+   certificado real.
 3. **Transporte y worker.** `VERIFACTU_TRANSPORT=aeat` y `VERIFACTU_WORKER_ENABLED=true` (el worker envía
    los registros pendientes cada minuto y respeta el tiempo de espera que indica la AEAT).
 4. **Certificados.** Cada empresa sube su certificado (.p12/.pfx) en Configuración › Fiscalidad; se guarda
    cifrado con `INTEGRATIONS_ENCRYPTION_KEY` (o `JWT_SECRET`): si esa clave cambia hay que volver a subirlos.
    Opcionalmente, `VERIFACTU_CERT_PATH` / `VERIFACTU_CERT_PASSWORD` definen un certificado del sistema para
    las empresas sin certificado propio; su titular debe ser colaborador social o estar apoderado por cada
-   empresa ante la AEAT, o la AEAT rechazará los envíos.
+   empresa ante la AEAT, o la AEAT rechazará los envíos. Su caducidad se vigila igual que la de los
+   certificados de empresa: se avisa 30 días antes y, una vez caducado, los envíos de las empresas que
+   dependen de él se detienen (los registros quedan pendientes) hasta que se renueve el fichero.
 
 El sistema solo funciona como VERI*FACTU (no hay modalidad de registros firmados sin remisión). Un registro
 rechazado o aceptado con errores se subsana desde Fiscalidad › VERI*FACTU tras corregir el dato en la ficha.

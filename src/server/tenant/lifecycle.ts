@@ -9,12 +9,17 @@ import { recordAudit } from "@/server/audit";
 import { deletePrivateFile } from "@/server/storage/files";
 import { stripe } from "@/server/billing/stripe";
 import { buildTenantExportPlan } from "@/server/tenant/export";
-import { getVerifactuTransportConfig } from "@/server/verifactu/config";
+import { getVerifactuTransportConfig, readVerifactuEnvironment, type VerifactuEnvironment } from "@/server/verifactu/config";
 
 /**
  * Bajas: de un espacio (con periodo de gracia y purga final) y de un usuario (anonimizado, para
  * que el histórico —quién emitió cada factura— siga siendo coherente).
  */
+
+/** Filtro de los registros pendientes que este despliegue puede remitir (sin entorno declarado, todos). */
+function unsentEnvironmentFilter(environment: VerifactuEnvironment | null) {
+  return environment ? sql`"environment" = ${environment}` : sql`true`;
+}
 
 async function setStripeCancelAtPeriodEnd(tenantId: string, cancel: boolean) {
   const [row] = await db.select({ stripeSubscriptionId: subscription.stripeSubscriptionId, status: subscription.status }).from(subscription).where(eq(subscription.tenantId, tenantId)).limit(1);
@@ -49,7 +54,10 @@ export async function purgeTenant(input: { tenantId: string; actorUserId: string
   }
   // Registros VERI*FACTU sin remitir: purgarlos sería destruir registros de facturación que la AEAT
   // aún no tiene. Con el envío activo, primero se remiten; sin él no hay forma de enviarlos y se avisa.
-  const unsent = await db.execute(sql`select count(*)::int as total from "verifactu_record" where "mode" = 'VERIFACTU' and "status" = 'PENDING_SEND' and "companyId" in (select "id" from "company" where "tenantId" = ${input.tenantId})`);
+  // Solo cuentan los del entorno de este despliegue: los nacidos en el otro (p. ej. pruebas hechas
+  // antes de pasar a producción) nunca se remitirán desde aquí y bloquearían la purga para siempre.
+  const environment = readVerifactuEnvironment().environment;
+  const unsent = await db.execute(sql`select count(*)::int as total from "verifactu_record" where "mode" = 'VERIFACTU' and "status" = 'PENDING_SEND' and ${unsentEnvironmentFilter(environment)} and "companyId" in (select "id" from "company" where "tenantId" = ${input.tenantId})`);
   const unsentTotal = Number((unsent as unknown as { rows: Array<{ total: number }> }).rows[0]?.total ?? 0);
   if (unsentTotal > 0) {
     if (getVerifactuTransportConfig().kind === "aeat") {

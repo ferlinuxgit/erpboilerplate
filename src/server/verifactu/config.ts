@@ -14,15 +14,20 @@
  *   acceso de sello de la AEAT: www10 / prewww10).
  * - VERIFACTU_ENDPOINT_URL: sobrescribe la URL del servicio web (útil para un simulador).
  * - VERIFACTU_QR_BASE_URL: sobrescribe la URL base del cotejo del QR.
- * - VERIFACTU_SYSTEM_NAME, VERIFACTU_SYSTEM_ID (2 caracteres), VERIFACTU_SYSTEM_VERSION,
- *   VERIFACTU_PRODUCER_NAME, VERIFACTU_PRODUCER_NIF, VERIFACTU_INSTALLATION_NUMBER: datos del
- *   bloque SistemaInformatico (productor del software y su declaración responsable).
+ * - VERIFACTU_SYSTEM_NAME, VERIFACTU_SYSTEM_ID (2 caracteres), VERIFACTU_PRODUCER_NAME,
+ *   VERIFACTU_PRODUCER_NIF, VERIFACTU_INSTALLATION_NUMBER: datos del bloque SistemaInformatico
+ *   (productor del software y su declaración responsable).
+ * - VERIFACTU_SYSTEM_VERSION: opcional. Sin ella la versión es la del despliegue: la de
+ *   `package.json` más el commit corto (`SOURCE_COMMIT`, que Coolify define en cada despliegue), p. ej.
+ *   «0.1.0+5122131». Cada versión nueva deja su declaración responsable en el histórico.
  * - VERIFACTU_PRODUCER_ADDRESS, VERIFACTU_DECLARATION_DATE (AAAA-MM-DD), VERIFACTU_DECLARATION_PLACE:
  *   resto de datos de la declaración responsable (art. 15 Orden HAC/1177/2024).
  * - VERIFACTU_MULTI_OT: "S" (por defecto: la instalación da servicio a varios obligados) o "N".
  */
 
 import { HttpError } from "@/lib/http";
+
+import packageJson from "../../../package.json";
 
 export type VerifactuEnvironment = "test" | "production";
 
@@ -186,6 +191,19 @@ export function getVerifactuDeclaration(env: Env = process.env) {
   };
 }
 
+/**
+ * Versión del sistema ligada al despliegue: la de `package.json` y, si el entorno de build o de
+ * ejecución lo expone, el commit corto («0.1.0+5122131»). `VERIFACTU_SYSTEM_VERSION` la sustituye.
+ * Solo se acepta un commit con forma de hash (algunos entornos ponen «HEAD» o lo dejan vacío).
+ */
+export function getDeploymentVersion(env: Env = process.env, packageVersion: string = packageJson.version) {
+  const explicit = env.VERIFACTU_SYSTEM_VERSION?.trim();
+  if (explicit) return explicit.slice(0, 50);
+  const commit = (env.SOURCE_COMMIT ?? env.GIT_COMMIT ?? "").trim().toLowerCase();
+  const short = /^[0-9a-f]{7,40}$/.test(commit) ? commit.slice(0, 7) : null;
+  return `${packageVersion || "0.0.0"}${short ? `+${short}` : ""}`.slice(0, 50);
+}
+
 function clean(value: string | undefined, fallback: string, maxLength: number) {
   const trimmed = value?.trim();
   return (trimmed || fallback).slice(0, maxLength);
@@ -198,7 +216,7 @@ export function getVerifactuSystemInfo(installationKey: string, env: Env = proce
     NIF: clean(env.VERIFACTU_PRODUCER_NIF, "", 9).toUpperCase(),
     NombreSistemaInformatico: clean(env.VERIFACTU_SYSTEM_NAME, "Norpie", 30),
     IdSistemaInformatico: clean(env.VERIFACTU_SYSTEM_ID, "ES", 2),
-    Version: clean(env.VERIFACTU_SYSTEM_VERSION, "0.1.0", 50),
+    Version: getDeploymentVersion(env),
     NumeroInstalacion: clean(env.VERIFACTU_INSTALLATION_NUMBER, installationKey, 100),
     // Solo se puede usar como VERI*FACTU: no se ofrece la modalidad de registros firmados sin remisión.
     TipoUsoPosibleSoloVerifactu: "S",

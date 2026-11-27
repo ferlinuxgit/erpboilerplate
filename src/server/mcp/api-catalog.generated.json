@@ -3911,6 +3911,18 @@
  },
  {
   "method": "GET",
+  "path": "/api/verifactu/declaration",
+  "area": "verifactu",
+  "summary": "Declaración responsable del productor en PDF: la de la versión desplegada o, con `?id=`, una del histórico. Mientras falten datos del productor no hay PDF (no sería una declaración válida).",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "query": [
+   "id"
+  ]
+ },
+ {
+  "method": "GET",
   "path": "/api/verifactu/export",
   "area": "verifactu",
   "summary": "Descarga de los registros de facturación (?format=csv | xml).",
@@ -3919,6 +3931,15 @@
   ],
   "query": [
    "format"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifactu/health",
+  "area": "verifactu",
+  "summary": "Aviso global de VERI*FACTU de la empresa activa: solo problemas graves (facturas sin enviar desde hace más de una hora, rechazadas o certificado caducado). `alert: null` si todo va bien o si el usuario no puede ver Fiscalidad. Consulta ligera; el navegador la guarda unos minutos.",
+  "permissions": [
+   "fiscal.read"
   ]
  },
  {
