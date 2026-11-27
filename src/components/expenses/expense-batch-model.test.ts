@@ -186,3 +186,21 @@ describe("foreign invoices (fal.ai, 50 USD, reverse charge)", () => {
     expect(assessReadiness({ ...reviewOf(redated), exchangeStale: true }, "EUR").reasons).toContain("exchange");
   });
 });
+
+describe("rectificativas en la bandeja", () => {
+  it("un documento nuevo es una factura normal, no simplificada", () => {
+    expect(base()).toMatchObject({ documentKind: "INVOICE", isSimplified: false, rectifiedDocumentNumber: "", rectificationReason: "" });
+  });
+
+  it("toma la clase de la lectura o la deduce de un total negativo, y conserva el signo de las líneas", () => {
+    const fromReading = hydrateItem(base(), draft({ documentKind: "RECTIFICATION" }), { level: "none", matches: [] }, context);
+    expect(fromReading.documentKind).toBe("RECTIFICATION");
+
+    const negative = hydrateItem(base(), draft({ totalAmount: -121, lines: [{ ...draft().lines[0], unitPrice: -100 }] }), { level: "none", matches: [] }, context);
+    expect(negative.documentKind).toBe("RECTIFICATION");
+    expect(negative.lines[0].unitPrice).toBe("-100");
+    expect(reviewDocumentTotal(negative.lines, negative.vatTreatment, negative.documentKind)).toBe(-121);
+
+    expect(hydrateItem(base(), draft(), { level: "none", matches: [] }, context).documentKind).toBe("INVOICE");
+  });
+});

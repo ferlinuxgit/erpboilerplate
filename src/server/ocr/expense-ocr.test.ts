@@ -212,3 +212,53 @@ Total   €93.33
     expect(draft.warnings.join(" ")).toMatch(/tipo de IVA/);
   });
 });
+
+describe("expense OCR parser: rectificativas y abonos", () => {
+  it("marca como rectificativa un abono con importes negativos y conserva el signo", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Electricidad Ejemplo SL
+      CIF: B12345674
+      FACTURA RECTIFICATIVA
+      Factura: R-2026-004
+      Fecha factura: 03/06/2026
+      Base imponible: -100,00
+      IVA 21%: -21,00
+      Total factura: -121,00
+    `);
+
+    expect(draft).toMatchObject({ documentKind: "RECTIFICATION", subtotalAmount: -100, taxAmount: -21, totalAmount: -121 });
+    expect(draft.lines[0]).toMatchObject({ quantity: 1, unitPrice: -100, taxRate: 21 });
+    expect(draft.warnings.some((warning) => warning.startsWith("Bloqueo:") && warning.includes("abono"))).toBe(true);
+  });
+
+  it("avisa (sin cambiar el signo) si el documento dice ser un abono pero trae los importes en positivo", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Electricidad Ejemplo SL
+      CIF: B12345674
+      NOTA DE ABONO
+      Factura: AB-2026-001
+      Fecha factura: 03/06/2026
+      Base imponible: 100,00
+      IVA 21%: 21,00
+      Total factura: 121,00
+    `);
+
+    expect(draft.documentKind).toBe("RECTIFICATION");
+    expect(draft.totalAmount).toBe(121);
+    expect(draft.warnings.some((warning) => warning.startsWith("Bloqueo:") && warning.includes("rectificativa"))).toBe(true);
+    expect(draft.confidence).not.toBe("high");
+  });
+
+  it("una factura normal no lleva clase de documento", () => {
+    const draft = parseExpenseOcrText(`
+      Proveedor: Electricidad Ejemplo SL
+      CIF: B12345674
+      Factura: F-2026-001
+      Fecha factura: 03/06/2026
+      Base imponible: 100,00
+      IVA 21%: 21,00
+      Total factura: 121,00
+    `);
+    expect(draft.documentKind).toBeUndefined();
+  });
+});

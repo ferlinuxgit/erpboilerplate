@@ -67,6 +67,7 @@ vi.mock("@/server/accounting/auto-post", () => ({ postSupplierInvoice: mocks.pos
 
 import {
   assessExpenseDuplicate,
+  buildPostingExpenseLines,
   computeSupplierInvoiceAmounts,
   createExpenseInvoice,
   deleteVoidedExpenseInvoice,
@@ -355,12 +356,258 @@ describe("voidExpenseInvoice", () => {
 
   it("reverses in the invoice's own period when it is still open and records the annulment date", async () => {
     const accountingDate = new Date("2026-05-10T12:00:00.000Z");
-    mocks.state.selectResults.set(supplierInvoice, [{ id: "supplier-invoice-1", status: "POSTED", number: "FP-2026-0001", accountingDate, purchaseOrderId: null }]);
+    // 1.ª consulta: la factura; 2.ª: sus rectificativas vivas (ninguna).
+    mocks.state.selectQueues.set(supplierInvoice, [[{ id: "supplier-invoice-1", status: "POSTED", number: "FP-2026-0001", accountingDate, purchaseOrderId: null }], []]);
     mocks.state.selectResults.set(supplierInvoicePayment, []);
 
     await voidExpenseInvoice(input);
 
     expect(mocks.resolveOpenPostingDate).toHaveBeenCalledWith("company-1", accountingDate, expect.any(Date), expect.anything());
     expect(mocks.state.updates.find((entry) => entry.table === supplierInvoice)?.values).toMatchObject({ status: "VOID", voidedAt: accountingDate });
+  });
+});
+
+describe("voidExpenseInvoice con rectificativas", () => {
+  it("no anula una factura que tiene una rectificativa viva", async () => {
+    mocks.state.selectQueues.set(supplierInvoice, [
+      [{ id: "supplier-invoice-1", status: "POSTED", number: "FP-2026-0001", accountingDate: new Date("2026-05-10T12:00:00.000Z"), purchaseOrderId: null }],
+      [{ number: "FP-2026-0009" }],
+    ]);
+    mocks.state.selectResults.set(supplierInvoicePayment, []);
+
+    await expect(voidExpenseInvoice({ tenantId: "tenant-1", companyId: "company-1", actorUserId: "user-1", id: "supplier-invoice-1" })).rejects.toThrow(/rectificativa FP-2026-0009/);
+  });
+});
+
+describe("computeSupplierInvoiceAmounts con signo (rectificativas)", () => {
+  it("un abono sale con todos sus importes en negativo y es el espejo de la factura", () => {
+    const lines = [
+      { description: "A", quantity: 3, unitPrice: 0.35, taxRate: 21, retentionRate: 15 },
+      { description: "B", quantity: 1, unitPrice: 99.99, taxRate: 10 },
+    ];
+    const invoice = computeSupplierInvoiceAmounts(lines, "DOMESTIC");
+    const credit = computeSupplierInvoiceAmounts(lines.map((line) => ({ ...line, quantity: -line.quantity })), "DOMESTIC", 21, { allowNegative: true });
+
+    expect(credit.subtotalAmount).toBe(-invoice.subtotalAmount);
+    expect(credit.taxAmount).toBe(-invoice.taxAmount);
+    expect(credit.retentionAmount).toBe(-invoice.retentionAmount);
+    expect(credit.totalAmount).toBe(-invoice.totalAmount);
+    expect(credit.lines.map((line) => line.lineTotal)).toEqual(invoice.lines.map((line) => -line.lineTotal));
+  });
+
+  it("sin allowNegative una cantidad negativa no genera importes (una factura normal nunca es negativa)", () => {
+    const amounts = computeSupplierInvoiceAmounts([{ description: "A", quantity: -1, unitPrice: 100, taxRate: 21 }], "DOMESTIC");
+    expect(amounts).toMatchObject({ subtotalAmount: 0, taxAmount: 0, totalAmount: 0 });
+  });
+
+  it("abono parcial con líneas de distinto signo", () => {
+    const amounts = computeSupplierInvoiceAmounts(
+      [
+        { description: "Devolución", quantity: -2, unitPrice: 50, taxRate: 21 },
+        { description: "Portes de la devolución", quantity: 1, unitPrice: 10, taxRate: 21 },
+      ],
+      "DOMESTIC",
+      21,
+      { allowNegative: true },
+    );
+    expect(amounts).toMatchObject({ subtotalAmount: -90, taxAmount: -18.9, totalAmount: -108.9 });
+  });
+
+  it("abono de una adquisición intracomunitaria: autorepercusión negativa y a devolver solo la base", () => {
+    const amounts = computeSupplierInvoiceAmounts([{ description: "A", quantity: -1, unitPrice: 200, taxRate: 10 }], "INTRA_EU", 21, { allowNegative: true });
+    expect(amounts).toMatchObject({ subtotalAmount: -200, taxAmount: -20, totalAmount: -200 });
+    const withoutRate = computeSupplierInvoiceAmounts([{ description: "A", quantity: -1, unitPrice: 200, taxRate: 0 }], "REVERSE_CHARGE", 21, { allowNegative: true });
+    expect(withoutRate).toMatchObject({ taxAmount: -42, totalAmount: -200 });
+  });
+
+  it("el asiento de un abono sin retención cuadra con el asiento automático actual, invertido", async () => {
+    const { buildSupplierInvoiceLines, normalizePostingLines } = await vi.importActual<typeof import("@/server/accounting/auto-post")>("@/server/accounting/auto-post");
+    const amounts = computeSupplierInvoiceAmounts([{ description: "A", quantity: -1, unitPrice: 100, taxRate: 21, taxDeductiblePct: 50 }], "DOMESTIC", 21, { allowNegative: true });
+    const lines = normalizePostingLines(buildSupplierInvoiceLines({
+      accounts: { purchase: "600", supplier: "400", vatInput: "472", vatOutput: "477", withholdingPayable: "4751" },
+      expenseLines: amounts.lines.map((line) => ({ accountId: "600", subtotal: line.subtotalAmount, taxAmount: line.taxAmount, taxDeductiblePct: line.taxDeductiblePct, retentionAmount: line.retentionAmount })),
+      totalAmount: amounts.totalAmount,
+      prorrataPct: 100,
+      vatTreatment: "DOMESTIC",
+    }));
+    const byAccount = Object.fromEntries(lines.map((line) => [line.accountId, { debit: Number(line.debit), credit: Number(line.credit) }]));
+
+    // Proveedor al debe (nos debe 121), gasto e IVA deducible al haber.
+    expect(byAccount["400"]).toEqual({ debit: 121, credit: 0 });
+    expect(byAccount["600"]).toEqual({ debit: 0, credit: 110.5 });
+    expect(byAccount["472"]).toEqual({ debit: 0, credit: 10.5 });
+  });
+});
+
+describe("recargo de equivalencia soportado", () => {
+  it("va aparte de la cuota de IVA y se suma al total a pagar", () => {
+    const amounts = computeSupplierInvoiceAmounts([{ description: "Género", quantity: 1, unitPrice: 100, taxRate: 21, surchargeRate: 5.2 }], "DOMESTIC");
+    expect(amounts).toMatchObject({ subtotalAmount: 100, taxAmount: 21, surchargeAmount: 5.2, totalAmount: 126.2 });
+    expect(amounts.lines[0]).toMatchObject({ taxAmount: 21, surchargeRate: 5.2, surchargeAmount: 5.2, lineTotal: 126.2 });
+  });
+
+  it("no se aplica en autorepercusión ni en operaciones no sujetas", () => {
+    const line = { description: "Género", quantity: 1, unitPrice: 100, taxRate: 21, surchargeRate: 5.2 };
+    expect(computeSupplierInvoiceAmounts([line], "INTRA_EU")).toMatchObject({ surchargeAmount: 0, totalAmount: 100 });
+    expect(computeSupplierInvoiceAmounts([line], "NOT_SUBJECT")).toMatchObject({ surchargeAmount: 0, taxAmount: 0, totalAmount: 100 });
+  });
+
+  it("se contabiliza como mayor importe de la compra (no deducible) y rechaza el recargo en intracomunitarias", async () => {
+    await createExpenseInvoice(baseInput({ lines: [{ description: "Género", quantity: 1, unitPrice: 100, taxRate: 21, surchargeRate: 5.2 }] }));
+
+    expect(totalsUpdate()).toMatchObject({ taxAmount: "21.00", surchargeAmount: "5.20", totalAmount: "126.20" });
+    expect(insertedLines()[0]).toMatchObject({ surchargeRate: "5.200", surchargeAmount: "5.20", lineTotal: "126.20" });
+    expect(mocks.postSupplierInvoice.mock.calls[0][0].expenseLines[0]).toMatchObject({ subtotal: 105.2, taxAmount: 21 });
+
+    await expect(createExpenseInvoice(baseInput({ vatTreatment: "INTRA_EU", lines: [{ description: "Género", quantity: 1, unitPrice: 100, taxRate: 21, surchargeRate: 5.2 }] }))).rejects.toThrow(/recargo de equivalencia/);
+  });
+});
+
+describe("createExpenseInvoice: rectificativas y abonos", () => {
+  const original = { id: "si-original", number: "FP-2026-0003", supplierPartnerId: "supplier-1", supplierDocumentNumber: "A-118", issueDate: new Date("2026-04-02T12:00:00.000Z"), status: "POSTED" };
+  const creditLines = [{ description: "Devolución", quantity: -1, unitPrice: 1_000, taxRate: 21 }];
+
+  it("una factura normal sigue rechazando importes negativos", async () => {
+    await expect(createExpenseInvoice(baseInput({ lines: creditLines }))).rejects.toThrow(/mayor que cero/);
+    expect(mocks.state.inserts).toHaveLength(0);
+  });
+
+  it("registra el abono en negativo, enlazado a la factura rectificada y sin nada pendiente de pago", async () => {
+    mocks.state.selectResults.set(partner, [{ ...supplierRow("ES")[0], paymentTermsDays: 30 }]);
+    mocks.state.selectResults.set(supplierInvoice, [original]);
+
+    await createExpenseInvoice(baseInput({ documentKind: "RECTIFICATION", rectifiedInvoiceId: "si-original", rectificationReason: " Devolución de mercancía ", lines: creditLines }));
+
+    expect(insertedHeader()).toMatchObject({
+      documentKind: "RECTIFICATION",
+      rectifiedInvoiceId: "si-original",
+      // Número y fecha de la factura rectificada, tomados de la original.
+      rectifiedDocumentNumber: "A-118",
+      rectifiedIssueDate: original.issueDate,
+      rectificationReason: "Devolución de mercancía",
+      // Un abono no vence aunque el proveedor tenga días de pago.
+      dueDate: null,
+    });
+    expect(insertedLines()[0]).toMatchObject({ quantity: "-1.000", subtotalAmount: "-1000.00", taxAmount: "-210.00", lineTotal: "-1210.00" });
+    expect(totalsUpdate()).toMatchObject({ subtotalAmount: "-1000.00", taxAmount: "-210.00", totalAmount: "-1210.00", paymentStatus: "PAID" });
+    expect(mocks.postSupplierInvoice).toHaveBeenCalledWith(expect.objectContaining({
+      reference: "Rectificativa proveedor FP-2026-0001",
+      subtotal: -1000,
+      taxAmount: -210,
+      totalAmount: -1210,
+    }));
+  });
+
+  it("admite la rectificativa con solo el número del proveedor (factura no registrada) o solo el motivo", async () => {
+    await createExpenseInvoice(baseInput({ documentKind: "RECTIFICATION", rectifiedDocumentNumber: "F-77", rectifiedIssueDate: new Date("2026-03-01T12:00:00.000Z"), lines: creditLines }));
+    expect(insertedHeader()).toMatchObject({ documentKind: "RECTIFICATION", rectifiedInvoiceId: null, rectifiedDocumentNumber: "F-77" });
+
+    await expect(createExpenseInvoice(baseInput({ documentKind: "RECTIFICATION", lines: creditLines }))).rejects.toThrow(/factura que se rectifica/);
+  });
+
+  it("rechaza rectificar una factura de otro proveedor o anulada", async () => {
+    mocks.state.selectResults.set(supplierInvoice, [{ ...original, supplierPartnerId: "supplier-2" }]);
+    await expect(createExpenseInvoice(baseInput({ documentKind: "RECTIFICATION", rectifiedInvoiceId: "si-original", lines: creditLines }))).rejects.toThrow(/otro proveedor/);
+
+    mocks.state.selectResults.set(supplierInvoice, [{ ...original, status: "VOID" }]);
+    await expect(createExpenseInvoice(baseInput({ documentKind: "RECTIFICATION", rectifiedInvoiceId: "si-original", lines: creditLines }))).rejects.toThrow(/anulada/);
+  });
+
+  it("no enlaza la rectificativa con pedidos ni recepciones", async () => {
+    await createExpenseInvoice(baseInput({ documentKind: "RECTIFICATION", rectificationReason: "Rappel", purchaseOrderId: "po-1", goodsReceiptId: "gr-1", lines: creditLines }));
+    expect(insertedHeader()).toMatchObject({ purchaseOrderId: null, goodsReceiptId: null, origin: "EXPENSE" });
+  });
+
+  it("una factura normal no guarda datos de rectificación aunque lleguen", async () => {
+    await createExpenseInvoice(baseInput({ rectifiedDocumentNumber: "F-77", rectificationReason: "x" }));
+    expect(insertedHeader()).toMatchObject({ documentKind: "INVOICE", rectifiedInvoiceId: null, rectifiedDocumentNumber: null, rectificationReason: null });
+  });
+});
+
+describe("createExpenseInvoice: campos del libro registro", () => {
+  it("guarda la fecha de operación solo si es distinta de la de expedición", async () => {
+    await createExpenseInvoice(baseInput({ operationDate: new Date("2026-04-28T12:00:00.000Z") }));
+    expect((insertedHeader().operationDate as Date).toISOString()).toBe("2026-04-28T12:00:00.000Z");
+
+    mocks.state.inserts.length = 0;
+    await createExpenseInvoice(baseInput({ operationDate: new Date("2026-05-10T08:00:00.000Z") }));
+    expect(insertedHeader().operationDate).toBeNull();
+  });
+
+  it("guarda el DUA solo en importaciones", async () => {
+    const dua = { importDuaNumber: " 26ES00280112345678 ", importDuaDate: new Date("2026-05-08T12:00:00.000Z") };
+    await createExpenseInvoice(baseInput({ ...dua, vatTreatment: "IMPORT" }));
+    expect(insertedHeader()).toMatchObject({ importDuaNumber: "26ES00280112345678", importDuaDate: dua.importDuaDate });
+
+    mocks.state.inserts.length = 0;
+    await createExpenseInvoice(baseInput(dua));
+    expect(insertedHeader()).toMatchObject({ importDuaNumber: null, importDuaDate: null });
+  });
+
+  it("marca bien de inversión de forma explícita o, sin indicar, por la cuenta del grupo 2", async () => {
+    mocks.state.selectResults.set(accountChart, [{ id: "account-217", code: "21700000", name: "Equipos", type: "ASSET" }]);
+    await createExpenseInvoice(baseInput({ lines: [
+      { description: "Ordenador", quantity: 1, unitPrice: 900, taxRate: 21, expenseAccountId: "account-217" },
+      { description: "Ordenador de segunda mano para piezas", quantity: 1, unitPrice: 90, taxRate: 21, expenseAccountId: "account-217", isInvestmentGood: false },
+    ] }));
+    expect(insertedLines().map((line) => line.isInvestmentGood)).toEqual([true, false]);
+  });
+
+  it("con requireSupplierTaxId exige el NIF del proveedor salvo factura simplificada", async () => {
+    mocks.state.selectResults.set(partner, [{ ...supplierRow("ES")[0], taxId: null }]);
+
+    await expect(createExpenseInvoice(baseInput({ requireSupplierTaxId: true }))).rejects.toThrow(/NIF del proveedor/);
+
+    await createExpenseInvoice(baseInput({ requireSupplierTaxId: true, isSimplified: true }));
+    expect(insertedHeader()).toMatchObject({ isSimplified: true });
+
+    // Sin la exigencia (p. ej. gastos recurrentes) se mantiene el comportamiento anterior.
+    mocks.state.inserts.length = 0;
+    await createExpenseInvoice(baseInput());
+    expect(insertedHeader()).toMatchObject({ isSimplified: false });
+  });
+});
+
+describe("refreshSupplierInvoicePaymentStatus de un abono", () => {
+  it("un abono vencido sin pagos no queda pendiente ni vencido", async () => {
+    mocks.state.selectResults.set(supplierInvoice, [{ id: "supplier-invoice-1", totalAmount: "-121.00", dueDate: new Date("2020-01-01T00:00:00.000Z") }]);
+    mocks.state.selectResults.set(supplierInvoicePayment, [{ paidAmount: "0" }]);
+
+    await refreshSupplierInvoicePaymentStatus("company-1", "supplier-invoice-1", mocks.tx as never);
+
+    expect(mocks.state.updates.at(-1)?.values).toMatchObject({ paymentStatus: "PAID" });
+  });
+});
+
+describe("buildPostingExpenseLines", () => {
+  const accounts = { purchase: "600", supplier: "400", vatInput: "472", vatOutput: "477", withholdingPayable: "4751" };
+
+  it("un abono de varias líneas cuadra con el total del documento aunque el IVA por tipo difiera de la suma por línea", async () => {
+    const { buildSupplierInvoiceLines, normalizePostingLines } = await vi.importActual<typeof import("@/server/accounting/auto-post")>("@/server/accounting/auto-post");
+    // 3 × 0,35 al 21 %: cuota por línea 0,07 (suma 0,21) y cuota del documento 0,22.
+    const lines = [1, 2, 3].map((index) => ({ description: `Línea ${index}`, quantity: -1, unitPrice: 0.35, taxRate: 21 }));
+    const amounts = computeSupplierInvoiceAmounts(lines, "DOMESTIC", 21, { allowNegative: true });
+    expect(amounts).toMatchObject({ subtotalAmount: -1.05, taxAmount: -0.22, totalAmount: -1.27 });
+
+    const expenseLines = buildPostingExpenseLines(amounts, lines.map(() => "600"), { absorbRounding: true });
+    // El céntimo de diferencia va a la línea de mayor importe (aquí, la primera).
+    expect(expenseLines.map((line) => line.subtotal)).toEqual([-0.36, -0.35, -0.35]);
+
+    const entry = normalizePostingLines(buildSupplierInvoiceLines({ accounts, expenseLines, totalAmount: amounts.totalAmount, prorrataPct: 100, vatTreatment: "DOMESTIC" }));
+    const net = Object.fromEntries(entry.map((line) => [line.accountId, Math.round((Number(line.debit) - Number(line.credit)) * 100)]));
+    expect(net).toEqual({ "400": 127, "600": -106, "472": -21 });
+  });
+
+  it("sin absorbRounding no toca las líneas (facturas normales: lo ajusta el asiento automático)", () => {
+    const lines = [1, 2, 3].map((index) => ({ description: `Línea ${index}`, quantity: 1, unitPrice: 0.35, taxRate: 21 }));
+    const amounts = computeSupplierInvoiceAmounts(lines, "DOMESTIC");
+    expect(buildPostingExpenseLines(amounts, lines.map(() => "600")).map((line) => line.subtotal)).toEqual([0.35, 0.35, 0.35]);
+  });
+
+  it("suma el recargo de equivalencia a la base de la línea y conserva la retención con su signo", () => {
+    const amounts = computeSupplierInvoiceAmounts([{ description: "A", quantity: -1, unitPrice: 100, taxRate: 21, surchargeRate: 5.2, retentionRate: 15 }], "DOMESTIC", 21, { allowNegative: true });
+    expect(buildPostingExpenseLines(amounts, ["600"], { absorbRounding: true })).toEqual([
+      { accountId: "600", subtotal: -105.2, taxAmount: -21, taxDeductiblePct: 100, retentionAmount: -15 },
+    ]);
   });
 });

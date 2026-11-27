@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 
-import { buildGestorPackageZip, GESTOR_PACKAGE_FILES, gestorPackageFileName, type GestorPackageData } from "@/server/accounting/gestor-package-model";
+import { buildGestorPackageZip, buildReceivedRegisterRows, GESTOR_PACKAGE_FILES, gestorPackageFileName, type GestorPackageData, type ReceivedRegisterLine } from "@/server/accounting/gestor-package-model";
 
 function fixture(overrides: Partial<GestorPackageData> = {}): GestorPackageData {
   const postedAt = new Date("2026-02-10T00:00:00.000Z");
@@ -111,5 +111,101 @@ describe("paquete para el gestor", () => {
 
   it("genera un nombre de fichero seguro", () => {
     expect(gestorPackageFileName("Ferretería Núñez S.L.", "1.º trimestre 2026")).toBe("paquete-gestor-ferreteria-nunez-s-l-1-trimestre-2026.zip");
+  });
+});
+
+describe("libro registro de facturas recibidas por factura y tipo impositivo", () => {
+  const registerLine = (patch: Partial<ReceivedRegisterLine> = {}): ReceivedRegisterLine => ({
+    invoiceId: "si-1",
+    number: "FP-2026/0001",
+    supplierNumber: "A-118",
+    supplierName: "Suministros Levante, S.L.",
+    supplierTaxId: "B12345674",
+    issueDate: new Date("2026-02-10T12:00:00.000Z"),
+    registrationDate: new Date("2026-02-12T12:00:00.000Z"),
+    operationDate: null,
+    documentKind: "INVOICE",
+    rectifiedDocumentNumber: null,
+    rectifiedIssueDate: null,
+    vatTreatment: "DOMESTIC",
+    isSimplified: false,
+    importDuaNumber: null,
+    importDuaDate: null,
+    totalAmount: "176.00",
+    prorrataPct: "100",
+    base: "100.00",
+    taxRate: "21.000",
+    taxAmount: "21.00",
+    taxDeductiblePct: "100.000",
+    surchargeRate: "0",
+    surchargeAmount: "0",
+    retentionAmount: "0",
+    isInvestmentGood: false,
+    ...patch,
+  });
+
+  it("una fila por factura y tipo: agrupa las líneas del mismo tipo y pone el total solo en la primera", () => {
+    const rows = buildReceivedRegisterRows([
+      registerLine(),
+      registerLine({ base: "20.00", taxAmount: "4.20", taxDeductiblePct: "50" }),
+      registerLine({ base: "30.00", taxRate: "10", taxAmount: "3.00", isInvestmentGood: true }),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => [row.taxRate, row.base, row.chargedTax, row.deductibleTax, row.totalAmount, row.investmentGood])).toEqual([
+      [21, 120, 25.2, 23.1, 176, ""],
+      [10, 30, 3, 3, null, "Sí"],
+    ]);
+    expect(rows[0]).toMatchObject({ documentClass: "Factura", rectifiedInvoice: "", selfAssessedTax: 0 });
+  });
+
+  it("una rectificativa conserva el signo y cita la factura que rectifica", () => {
+    const [row] = buildReceivedRegisterRows([
+      registerLine({
+        invoiceId: "si-2", number: "FP-2026/0002", documentKind: "RECTIFICATION", rectifiedDocumentNumber: "A-118", rectifiedIssueDate: new Date("2026-02-10T12:00:00.000Z"),
+        totalAmount: "-60.50", base: "-50.00", taxAmount: "-10.50",
+      }),
+    ]);
+    expect(row).toMatchObject({ documentClass: "Rectificativa", rectifiedInvoice: "A-118 (10/02/2026)", base: -50, chargedTax: -10.5, deductibleTax: -10.5, totalAmount: -60.5 });
+  });
+
+  it("autorepercusión: la cuota no la cobra el proveedor; sin tipo en la línea se usa el general", () => {
+    const rows = buildReceivedRegisterRows([
+      registerLine({ invoiceId: "si-3", number: "FP-3", vatTreatment: "INTRA_EU", totalAmount: "100.00", taxRate: "0", taxAmount: "0" }),
+      registerLine({ invoiceId: "si-4", number: "FP-4", vatTreatment: "REVERSE_CHARGE", documentKind: "RECTIFICATION", rectifiedDocumentNumber: "X-1", totalAmount: "-200.00", base: "-200.00", taxRate: "10", taxAmount: "-20.00" }),
+    ]);
+    expect(rows[0]).toMatchObject({ taxRate: 21, chargedTax: 0, selfAssessedTax: 21, deductibleTax: 21, totalAmount: 100 });
+    expect(rows[1]).toMatchObject({ taxRate: 10, chargedTax: 0, selfAssessedTax: -20, deductibleTax: -20, totalAmount: -200 });
+  });
+
+  it("aplica la prorrata, separa el recargo de equivalencia y marca simplificadas, DUA y anulaciones", () => {
+    const rows = buildReceivedRegisterRows([
+      registerLine({ prorrataPct: "40", surchargeRate: "5.2", surchargeAmount: "5.20", totalAmount: "126.20", isSimplified: true, operationDate: new Date("2026-02-01T12:00:00.000Z") }),
+      registerLine({ invoiceId: "si-5", number: "FP-5", vatTreatment: "IMPORT", importDuaNumber: "26ES0028", importDuaDate: new Date("2026-02-09T12:00:00.000Z"), retentionAmount: "15.00" }),
+      registerLine({ invoiceId: "si-6", number: "FP-6", sign: -1, registrationDate: new Date("2026-03-01T12:00:00.000Z") }),
+    ]);
+    expect(rows[0]).toMatchObject({ documentClass: "Factura simplificada", deductibleTax: 8.4, surchargeRate: 5.2, surchargeAmount: 5.2, operationDate: new Date("2026-02-01T12:00:00.000Z") });
+    expect(rows[1]).toMatchObject({ importDua: "26ES0028 (09/02/2026)", withholding: 15 });
+    expect(rows[2]).toMatchObject({ number: "FP-6 (anulación)", documentClass: "Factura (anulación)", base: -100, chargedTax: -21, deductibleTax: -21, totalAmount: -176 });
+  });
+
+  it("el Excel de recibidas lleva una fila por tipo con tipo, base, cuota, deducible, recargo, clase y factura rectificada", async () => {
+    const vatReceivedDetail = buildReceivedRegisterRows([
+      registerLine(),
+      registerLine({ base: "50.00", taxRate: "10", taxAmount: "5.00", taxDeductiblePct: "50" }),
+      registerLine({ invoiceId: "si-2", number: "FP-2026/0002", documentKind: "RECTIFICATION", rectifiedDocumentNumber: "A-118", totalAmount: "-60.50", base: "-50.00", taxAmount: "-10.50", registrationDate: new Date("2026-02-20T12:00:00.000Z") }),
+    ]);
+    const files = unzipSync((await buildGestorPackageZip(fixture({ vatReceivedDetail }))).bytes);
+    const rows = await readSheet(files[GESTOR_PACKAGE_FILES.vatReceived]);
+    const header = rows[0] as string[];
+    for (const name of ["Fecha de operación", "Clase", "Factura rectificada", "Tipo de operación", "Tipo IVA (%)", "Base imponible", "Cuota soportada", "Cuota deducible", "Tipo recargo (%)", "Recargo de equivalencia", "Bien de inversión"]) {
+      expect(header).toContain(name);
+    }
+    const value = (row: number, name: string) => rows[row][header.indexOf(name)] ?? null;
+    expect(rows).toHaveLength(5);
+    expect([value(1, "Tipo IVA (%)"), value(1, "Base imponible"), value(1, "Cuota soportada"), value(1, "Cuota deducible"), value(1, "Total factura")]).toEqual([21, 100, 21, 21, 176]);
+    expect([value(2, "Tipo IVA (%)"), value(2, "Base imponible"), value(2, "Cuota deducible"), value(2, "Total factura")]).toEqual([10, 50, 2.5, null]);
+    expect([value(3, "Clase"), value(3, "Factura rectificada"), value(3, "Base imponible"), value(3, "Cuota soportada"), value(3, "Total factura")]).toEqual(["Rectificativa", "A-118", -50, -10.5, -60.5]);
+    expect([value(4, "Proveedor"), value(4, "Base imponible"), value(4, "Cuota soportada"), value(4, "Cuota deducible"), value(4, "Total factura")]).toEqual(["Total", 100, 15.5, 13, 115.5]);
+    expect(strFromU8(files[GESTOR_PACKAGE_FILES.readme])).toContain("una fila por factura y tipo impositivo");
   });
 });

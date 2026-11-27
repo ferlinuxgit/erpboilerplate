@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger";
 import { EU_COUNTRY_CODES, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { isValidSpanishTaxId, normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { deletePrivateObject, isObjectStorageConfigured, putPrivateObject, readPrivateObject } from "@/server/storage/s3";
+import { looksLikeRectification, type SupplierDocumentKind } from "@/server/supplier-invoices/document-rules";
 
 export type ExpenseOcrStatus = "PENDING" | "PROCESSING" | "DONE" | "FAILED";
 
@@ -48,6 +49,8 @@ export type ExpenseOcrDraft = {
   totalAmount?: number;
   /** Tratamiento de IVA propuesto (proveedor UE o factura con inversión del sujeto pasivo). */
   vatTreatment?: SupplierVatTreatment;
+  /** RECTIFICATION si el documento es una rectificativa / abono (por su texto o por su total negativo). */
+  documentKind?: SupplierDocumentKind;
   lines: ExpenseOcrDraftLine[];
   confidence: "high" | "medium" | "low";
   warnings: string[];
@@ -284,6 +287,15 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
   if (!supplierDocumentNumber) warnings.push("No se pudo identificar el numero de factura proveedor.");
   if (!issueDate) warnings.push("No se pudo leer la fecha de factura: indícala antes de registrar.");
   if (!totalAmount) warnings.push("No se pudo identificar el total con confianza.");
+  // Rectificativa / abono: por su título o porque el total viene en negativo. El signo no se
+  // cambia solo (hay abonos impresos en positivo): se pide revisarlo antes de registrar.
+  const negativeTotal = (totalAmount ?? computedSubtotal ?? 0) < 0;
+  const documentKind: SupplierDocumentKind | undefined = negativeTotal || looksLikeRectification(cleanText) ? "RECTIFICATION" : undefined;
+  if (documentKind) {
+    warnings.push(negativeTotal
+      ? "Bloqueo: el documento es un abono (importes en negativo). Se registrará como rectificativa: indica la factura que rectifica."
+      : "Bloqueo: parece una factura rectificativa o un abono. Comprueba la clase de documento y pon en negativo los importes que el proveedor te devuelve.");
+  }
 
   const readingConfidence = warnings.length === 0 ? "high" : warnings.length <= 2 ? "medium" : "low";
   // Cuenta e IVA supuestos (no leídos) nunca dan confianza alta: la factura se revisa antes
@@ -313,6 +325,7 @@ export function parseExpenseOcrText(text: string, options: { ownTaxIds?: readonl
     retentionAmount,
     totalAmount,
     vatTreatment,
+    documentKind,
     lines: [
       {
         description: supplierDocumentNumber ? `Factura ${supplierDocumentNumber}` : "Gasto OCR",

@@ -9,6 +9,7 @@ import { parseDecimalInput } from "@/lib/format";
 import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import type { SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { applySupplierDefaultsToLine, dueDateInputFor, type AccountSource, type SupplierDefaults } from "@/lib/supplier-defaults";
+import type { SupplierDocumentKind } from "@/server/supplier-invoices/document-rules";
 
 import type { ReviewLine } from "./expense-review";
 
@@ -41,6 +42,8 @@ export type OcrDraft = {
   taxSummary?: Array<{ taxRate: number; base: number; taxDeductiblePct: number }>;
   /** Tratamiento de IVA propuesto por la lectura (proveedor extranjero sin IVA español). */
   vatTreatment?: SupplierVatTreatment;
+  /** RECTIFICATION si la lectura detecta una rectificativa / abono. */
+  documentKind?: SupplierDocumentKind;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -86,6 +89,13 @@ export type BatchItem = {
   dueDateEdited: boolean;
   currencyCode: string;
   vatTreatment: SupplierVatTreatment | "";
+  /** Factura o rectificativa (abono): solo la rectificativa admite importes negativos. */
+  documentKind: SupplierDocumentKind;
+  /** Número de la factura que se rectifica y motivo (solo rectificativas). */
+  rectifiedDocumentNumber: string;
+  rectificationReason: string;
+  /** Ticket o factura simplificada sin NIF del proveedor. */
+  isSimplified: boolean;
   /** Conversión a la moneda de la empresa de una factura en otra moneda. */
   exchange?: ExchangeConversion;
   /** El usuario deshizo la conversión: no se vuelve a convertir sola. */
@@ -148,6 +158,10 @@ export function newBatchItem(input: { file?: File; fileName: string; sizeBytes: 
     dueDateEdited: false,
     currencyCode: "EUR",
     vatTreatment: "",
+    documentKind: "INVOICE",
+    rectifiedDocumentNumber: "",
+    rectificationReason: "",
+    isSimplified: false,
     lines: [],
     duplicate: emptyDuplicate,
     acknowledgePossible: false,
@@ -170,7 +184,7 @@ function accountSourceFor(provider: string | null | undefined): AccountSource {
 export function applySupplierToItem(item: BatchItem, supplier: BatchSupplier | undefined): BatchItem {
   const defaults = supplier?.defaults;
   if (!defaults) return item;
-  const documentHasRetention = (item.draft?.retentionAmount ?? 0) > 0;
+  const documentHasRetention = (item.draft?.retentionAmount ?? 0) !== 0;
   return {
     ...item,
     vatTreatment: item.vatTreatment || defaults.defaultVatTreatment || "",
@@ -208,6 +222,8 @@ export function hydrateItem(
     issueDate,
     dueDate: draft.dueDate?.slice(0, 10) ?? "",
     currencyCode: (draft.currencyCode ?? "EUR").slice(0, 3).toUpperCase(),
+    // Abono: lo dice la lectura o el total leído es negativo.
+    documentKind: draft.documentKind ?? ((draft.totalAmount ?? 0) < 0 ? "RECTIFICATION" : "INVOICE"),
     lines: draft.lines.map((line) => {
       const suggested = findAccountForCode(context.expenseAccounts, line.suggestedExpenseAccountCode);
       return {

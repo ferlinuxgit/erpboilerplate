@@ -1,16 +1,18 @@
-import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, lt, ne, or } from "drizzle-orm";
 
-import { accountChart, company, journalEntry, journalLine } from "@/db/schema";
+import { accountChart, company, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { standardVatRate } from "@/lib/country-packs/vat-rates";
 import { db } from "@/lib/db";
-import { isSpanishFiscalModelCode, parseSpanishFiscalPeriod } from "@/lib/fiscal-spain";
+import { isSpanishFiscalModelCode, parseSpanishFiscalPeriod, resolveSupplierVatTreatment } from "@/lib/fiscal-spain";
 import { journalEntryOriginLabel } from "@/lib/status-labels";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { listFiscalYears } from "@/server/accounting/fiscal-years";
-import { buildGestorPackageZip, gestorPackageFileName, type GestorJournalLine, type GestorPackageData } from "@/server/accounting/gestor-package-model";
+import { buildGestorPackageZip, buildReceivedRegisterRows, gestorPackageFileName, type GestorJournalLine, type GestorPackageData, type ReceivedRegisterLine } from "@/server/accounting/gestor-package-model";
 import { toCents } from "@/server/accounting/money";
 import { loadStatementAccountRows } from "@/server/accounting/statements";
 import { buildFinancialStatements, resolveStatementPeriod } from "@/server/accounting/statements-model";
 import { recordAudit } from "@/server/audit";
+import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
 import { listFiscalReports } from "@/server/fiscal/service";
 import { calculateSpanishFiscalSummary, loadVatRegisters } from "@/server/fiscal/spain";
 import { renderFiscalReportPdf } from "@/server/pdf/render";
@@ -53,6 +55,74 @@ async function loadJournalLines(companyId: string, from: Date, toExclusive: Date
 }
 
 /**
+ * Líneas de las facturas recibidas del periodo para el libro registro, con el mismo criterio que el
+ * modelo 303 (`fetchSupplierLines` en fiscal/spain.ts): cada factura computa en su fecha de registro
+ * y una anulada con fecha de anulación resta (fila de signo −1) en el periodo de la anulación.
+ */
+async function loadReceivedRegisterRows(companyId: string, from: Date, toExclusive: Date) {
+  const { homeCountry } = await getCompanyFiscalContext(companyId);
+  const columns = {
+    invoiceId: supplierInvoice.id,
+    number: supplierInvoice.number,
+    supplierNumber: supplierInvoice.supplierDocumentNumber,
+    supplierName: partner.name,
+    supplierTaxId: partner.taxId,
+    countryCode: partner.countryCode,
+    issueDate: supplierInvoice.issueDate,
+    accountingDate: supplierInvoice.accountingDate,
+    voidedAt: supplierInvoice.voidedAt,
+    operationDate: supplierInvoice.operationDate,
+    documentKind: supplierInvoice.documentKind,
+    rectifiedDocumentNumber: supplierInvoice.rectifiedDocumentNumber,
+    rectifiedIssueDate: supplierInvoice.rectifiedIssueDate,
+    vatTreatment: supplierInvoice.vatTreatment,
+    isSimplified: supplierInvoice.isSimplified,
+    importDuaNumber: supplierInvoice.importDuaNumber,
+    importDuaDate: supplierInvoice.importDuaDate,
+    totalAmount: supplierInvoice.totalAmount,
+    prorrataPct: supplierInvoice.prorrataPct,
+    base: supplierInvoiceLine.subtotalAmount,
+    taxRate: supplierInvoiceLine.taxRate,
+    taxAmount: supplierInvoiceLine.taxAmount,
+    taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
+    surchargeRate: supplierInvoiceLine.surchargeRate,
+    surchargeAmount: supplierInvoiceLine.surchargeAmount,
+    retentionAmount: supplierInvoiceLine.retentionAmount,
+    isInvestmentGood: supplierInvoiceLine.isInvestmentGood,
+  };
+  const query = () => db
+    .select(columns)
+    .from(supplierInvoiceLine)
+    .innerJoin(supplierInvoice, eq(supplierInvoiceLine.supplierInvoiceId, supplierInvoice.id))
+    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId));
+  const [registered, voided] = await Promise.all([
+    query().where(and(
+      eq(supplierInvoice.companyId, companyId),
+      ne(supplierInvoice.status, "DRAFT"),
+      or(ne(supplierInvoice.status, "VOID"), isNotNull(supplierInvoice.voidedAt)),
+      gte(supplierInvoice.accountingDate, from),
+      lt(supplierInvoice.accountingDate, toExclusive),
+    )),
+    query().where(and(
+      eq(supplierInvoice.companyId, companyId),
+      eq(supplierInvoice.status, "VOID"),
+      gte(supplierInvoice.voidedAt, from),
+      lt(supplierInvoice.voidedAt, toExclusive),
+    )),
+  ]);
+  const toLine = (row: (typeof registered)[number], sign: 1 | -1): ReceivedRegisterLine => ({
+    ...row,
+    sign,
+    registrationDate: sign === 1 ? row.accountingDate : row.voidedAt ?? row.accountingDate,
+    vatTreatment: resolveSupplierVatTreatment(row.vatTreatment, row.countryCode, null, homeCountry),
+  });
+  return buildReceivedRegisterRows(
+    [...registered.map((row) => toLine(row, 1)), ...voided.map((row) => toLine(row, -1))],
+    { selfAssessmentRate: standardVatRate(homeCountry) },
+  );
+}
+
+/**
  * Datos del paquete para el gestor (libros, IVA y PDF de los modelos) del periodo pedido
  * (ejercicio + periodo). Lo usan el ZIP del paquete y las descargas sueltas del portal del asesor.
  */
@@ -63,11 +133,12 @@ export async function loadGestorPackageData(input: { companyId: string; countryC
   const period = resolveStatementPeriod(year, input.periodKey);
   const to = new Date(period.toExclusive.getTime() - 86_400_000);
 
-  const [[companyRow], journal, statementRows, vat, reports] = await Promise.all([
+  const [[companyRow], journal, statementRows, vat, vatReceivedDetail, reports] = await Promise.all([
     db.select({ name: company.name, vatNumber: company.vatNumber }).from(company).where(eq(company.id, input.companyId)).limit(1),
     loadJournalLines(input.companyId, period.from, period.toExclusive),
     loadStatementAccountRows(input.companyId, { yearStart: year.startsAt, from: period.from, toExclusive: period.toExclusive }),
     loadVatRegisters(input.companyId, period.from, period.toExclusive),
+    loadReceivedRegisterRows(input.companyId, period.from, period.toExclusive),
     input.includeModelPdfs === false ? Promise.resolve([]) : listFiscalReports(input.companyId),
   ]);
   const statements = buildFinancialStatements(statementRows, input.countryCode);
@@ -98,6 +169,7 @@ export async function loadGestorPackageData(input: { companyId: string; countryC
     trialBalance: statements.trialBalance,
     vatIssued: vat.issued,
     vatReceived: vat.received,
+    vatReceivedDetail,
     modelPdfs,
     generatedAt: new Date(),
   };

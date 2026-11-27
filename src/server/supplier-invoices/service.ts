@@ -27,7 +27,6 @@ import { buildSupplierIdentityKey, normalizeSupplierDocumentNumber, normalizeTax
 import {
   isSelfAssessedTreatment,
   resolveSupplierVatTreatment,
-  reverseChargeTaxAmount,
   type SupplierVatTreatment,
 } from "@/lib/fiscal-spain";
 import { invoiceQuantityProblem, isOrderFullyInvoiced, quantitiesByOrderLine } from "@/lib/purchase-invoice";
@@ -41,7 +40,17 @@ import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen, resolveOpenPostingDate } from "@/server/fiscal/locks";
 import { assertItemsBelongToCompany } from "@/server/inventory/ownership";
 import { reservePartnerNumber } from "@/server/partners/numbers";
-import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
+import {
+  defaultInvestmentGood,
+  parseSupplierDocumentKind,
+  rectificationReferenceProblem,
+  supplierLinesProblem,
+  supplierPaymentStatus,
+  supplierTaxIdProblem,
+  surchargeTreatmentProblem,
+  type SupplierDocumentKind,
+} from "@/server/supplier-invoices/document-rules";
+import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes, type EngineTax } from "@/server/taxation/engine";
 
 export type SupplierInvoiceOrigin = "PURCHASE" | "EXPENSE";
 
@@ -58,6 +67,31 @@ export type SupplierInvoiceLineInput = {
   taxRate?: number;
   taxDeductiblePct?: number;
   retentionRate?: number;
+  /** Recargo de equivalencia soportado, en % (0,5 · 1,4 · 5,2 · 1,75). */
+  surchargeRate?: number;
+  /** Bien de inversión. Sin indicar se deduce de la cuenta (grupo 2 del PGC). */
+  isInvestmentGood?: boolean;
+};
+
+/** Datos del libro registro y de la rectificación comunes a las dos altas de facturas recibidas. */
+export type SupplierInvoiceRegisterInput = {
+  /** Clase de documento: factura (por defecto) o rectificativa / abono. Solo esta admite importes negativos. */
+  documentKind?: SupplierDocumentKind;
+  /** Factura rectificada registrada en el sistema. */
+  rectifiedInvoiceId?: string;
+  /** Número y fecha de la factura rectificada según el documento del proveedor. */
+  rectifiedDocumentNumber?: string;
+  rectifiedIssueDate?: Date;
+  rectificationReason?: string;
+  /** Fecha de la operación si es distinta de la de expedición. */
+  operationDate?: Date;
+  /** Factura simplificada o ticket sin NIF. */
+  isSimplified?: boolean;
+  /** Importaciones: número y fecha del DUA. */
+  importDuaNumber?: string;
+  importDuaDate?: Date;
+  /** Exige el NIF del proveedor (art. 64 RIVA) salvo factura simplificada. */
+  requireSupplierTaxId?: boolean;
 };
 
 export type SupplierInvoiceAttachmentInput = {
@@ -90,7 +124,7 @@ export type CreatePurchaseSupplierInvoiceInput = {
   idempotencyKey?: string;
   /** Tratamiento de IVA; si no se indica se deduce del país del proveedor. */
   vatTreatment?: SupplierVatTreatment;
-};
+} & Pick<SupplierInvoiceRegisterInput, "operationDate" | "isSimplified" | "importDuaNumber" | "importDuaDate" | "requireSupplierTaxId">;
 
 export type CreateExpenseInvoiceInput = {
   tenantId: string;
@@ -126,7 +160,7 @@ export type CreateExpenseInvoiceInput = {
   idempotencyKey?: string;
   /** Tratamiento de IVA; si no se indica se deduce del país del proveedor. */
   vatTreatment?: SupplierVatTreatment;
-};
+} & SupplierInvoiceRegisterInput;
 
 const ACCOUNTING_DATE_MAX_DELAY_MS = 4 * 366 * 86_400_000;
 
@@ -151,13 +185,9 @@ function clampPct(value: number | undefined, fallback: number) {
   return Math.min(Math.max(pct, 0), 100);
 }
 
-function assertValidLines(lines: SupplierInvoiceLineInput[]) {
-  if (lines.length === 0) throw new Error("La factura necesita al menos una línea.");
-  for (const line of lines) {
-    if (!line.description.trim()) throw new Error("Todas las líneas necesitan descripción.");
-    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("La cantidad debe ser mayor que cero.");
-    if (!Number.isFinite(line.unitPrice) || line.unitPrice < 0) throw new Error("El precio unitario no puede ser negativo.");
-  }
+function assertValidLines(lines: SupplierInvoiceLineInput[], kind: SupplierDocumentKind) {
+  const problem = supplierLinesProblem(lines, kind);
+  if (problem) throw new Error(problem);
 }
 
 function sanitizeAttachments(attachments: SupplierInvoiceAttachmentInput[] | undefined) {
@@ -177,10 +207,13 @@ export type SupplierInvoiceLineAmounts = {
   taxRate: number;
   taxDeductiblePct: number;
   retentionRate: number;
+  surchargeRate: number;
   subtotalAmount: number;
   /** Cuota de IVA de la línea al tipo indicado (en autorepercusión, la que figura en la línea). */
   taxAmount: number;
   retentionAmount: number;
+  /** Recargo de equivalencia soportado de la línea. */
+  surchargeAmount: number;
   /** Importe de la línea a pagar al proveedor. */
   lineTotal: number;
 };
@@ -192,9 +225,16 @@ export type SupplierInvoiceAmounts = {
   /** IVA soportado; en autorepercusión (intracomunitaria / ISP) es la cuota autorrepercutida. */
   taxAmount: number;
   retentionAmount: number;
-  /** Total a pagar al proveedor (en autorepercusión excluye el IVA: base − retención). */
+  /** Recargo de equivalencia soportado (0 si la empresa no está en recargo). */
+  surchargeAmount: number;
+  /** Total a pagar al proveedor (en autorepercusión excluye el IVA: base − retención). Negativo en un abono. */
   totalAmount: number;
 };
+
+/** Cuota autorrepercutida de una línea con su signo: la de la línea o, sin tipo, la del tipo general. */
+function selfAssessedLineTaxCents(subtotalAmount: number, taxAmount: number, standardRate: number) {
+  return taxAmount !== 0 ? amountToCents(taxAmount) : amountToCents((subtotalAmount * standardRate) / 100);
+}
 
 /**
  * Importes de una factura recibida con el motor fiscal único (céntimos enteros).
@@ -203,43 +243,64 @@ export type SupplierInvoiceAmounts = {
  *   base − retención y la cuota (por línea, con la semántica de `reverseChargeTaxAmount`) coincide
  *   con la del asiento automático (477/472) y con el modelo 303.
  */
-/** `standardRate`: tipo general del IVA del país de la empresa (líneas sin tipo y autorepercusión). */
-export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[], vatTreatment: SupplierVatTreatment, standardRate = 21): SupplierInvoiceAmounts {
+/**
+ * `standardRate`: tipo general del IVA del país de la empresa (líneas sin tipo y autorepercusión).
+ * `allowNegative`: rectificativas / abonos (cantidades o precios negativos); todos los importes
+ * salen con su signo y el total puede ser negativo.
+ * El recargo de equivalencia soportado se suma al total a pagar y va aparte de la cuota de IVA.
+ */
+export function computeSupplierInvoiceAmounts(
+  lines: SupplierInvoiceLineInput[],
+  vatTreatment: SupplierVatTreatment,
+  standardRate = 21,
+  options: { allowNegative?: boolean } = {},
+): SupplierInvoiceAmounts {
   const selfAssessed = isSelfAssessedTreatment(vatTreatment);
   // Operación no sujeta: no hay IVA que soportar ni deducir, aunque la línea traiga un tipo.
   const notSubject = vatTreatment === "NOT_SUBJECT";
+  const chargesVat = !selfAssessed && !notSubject;
   const rates = lines.map((line) => ({
     taxRate: notSubject ? 0 : clampPct(line.taxRate, standardRate),
     taxDeductiblePct: clampPct(line.taxDeductiblePct, 100),
     retentionRate: clampPct(line.retentionRate, 0),
+    surchargeRate: chargesVat ? clampPct(line.surchargeRate, 0) : 0,
   }));
+  const surchargeTax = (rate: number): EngineTax[] => (rate > 0 ? [{ name: "Recargo de equivalencia", rate, kind: "SURCHARGE", operation: "ADD" }] : []);
   const document = computeEngineDocument(lines.map((line, index) => ({
     quantity: line.quantity,
     unitPrice: line.unitPrice,
-    taxes: legacyLineTaxes(rates[index]),
-  })));
+    taxes: [...legacyLineTaxes(rates[index]), ...surchargeTax(rates[index].surchargeRate)],
+  })), { allowNegative: options.allowNegative });
+  const isSurcharge = (tax: { kind?: string | null }) => tax.kind === "SURCHARGE";
+  const surchargeCents = document.buckets.filter(isSurcharge).reduce((sum, bucket) => sum + bucket.amountCents, 0);
+  const vatCents = document.taxCents - surchargeCents;
 
-  const lineAmounts = document.lines.map((result, index) => ({
-    ...rates[index],
-    subtotalAmount: centsToNumber(result.baseCents),
-    taxAmount: centsToNumber(result.taxCents),
-    retentionAmount: centsToNumber(result.retentionCents),
-    lineTotal: centsToNumber(selfAssessed ? result.baseCents - result.retentionCents : result.totalCents),
-  }));
+  const lineAmounts = document.lines.map((result, index) => {
+    const lineSurchargeCents = result.taxes.filter(isSurcharge).reduce((sum, tax) => sum + tax.amountCents, 0);
+    return {
+      ...rates[index],
+      subtotalAmount: centsToNumber(result.baseCents),
+      taxAmount: centsToNumber(result.taxCents - lineSurchargeCents),
+      retentionAmount: centsToNumber(result.retentionCents),
+      surchargeAmount: centsToNumber(lineSurchargeCents),
+      lineTotal: centsToNumber(selfAssessed ? result.baseCents - result.retentionCents : result.totalCents),
+    };
+  });
 
   if (!selfAssessed) {
     return {
       vatTreatment,
       lines: lineAmounts,
       subtotalAmount: centsToNumber(document.subtotalCents),
-      taxAmount: centsToNumber(document.taxCents),
+      taxAmount: centsToNumber(vatCents),
       retentionAmount: centsToNumber(document.retentionCents),
+      surchargeAmount: centsToNumber(surchargeCents),
       totalAmount: centsToNumber(document.totalCents),
     };
   }
 
   const selfAssessedTaxCents = lineAmounts.reduce(
-    (total, line) => total + amountToCents(reverseChargeTaxAmount(line.subtotalAmount, line.taxAmount, standardRate)),
+    (total, line) => total + selfAssessedLineTaxCents(line.subtotalAmount, line.taxAmount, standardRate),
     0,
   );
   return {
@@ -248,8 +309,46 @@ export function computeSupplierInvoiceAmounts(lines: SupplierInvoiceLineInput[],
     subtotalAmount: centsToNumber(document.subtotalCents),
     taxAmount: centsToNumber(selfAssessedTaxCents),
     retentionAmount: centsToNumber(document.retentionCents),
+    surchargeAmount: 0,
     totalAmount: centsToNumber(document.subtotalCents - document.retentionCents),
   };
+}
+
+/**
+ * Líneas de gasto que se pasan al asiento automático (función pura).
+ *
+ * - El recargo de equivalencia soportado no es deducible: se suma a la base de la línea (mayor
+ *   importe de la compra).
+ * - `absorbRounding` (rectificativas): el IVA del documento se calcula por tipo sobre la suma de
+ *   bases y puede diferir unos céntimos de la suma de cuotas por línea. Esa diferencia se lleva a
+ *   la línea de mayor importe para que el asiento cuadre con el total del documento también cuando
+ *   los importes son negativos (el ajuste del asiento automático solo contempla importes positivos).
+ */
+export function buildPostingExpenseLines(
+  totals: SupplierInvoiceAmounts,
+  accountIds: ReadonlyArray<string | null | undefined>,
+  options: { absorbRounding?: boolean } = {},
+) {
+  const lines = totals.lines.map((line, index) => ({
+    accountId: accountIds[index] ?? undefined,
+    subtotalCents: amountToCents(line.subtotalAmount) + amountToCents(line.surchargeAmount),
+    taxAmount: line.taxAmount,
+    taxDeductiblePct: line.taxDeductiblePct,
+    retentionAmount: line.retentionAmount,
+  }));
+  if (options.absorbRounding && !isSelfAssessedTreatment(totals.vatTreatment) && lines.length > 0) {
+    const debitCents = lines.reduce((sum, line) => sum + line.subtotalCents + amountToCents(line.taxAmount), 0);
+    const creditCents = amountToCents(totals.totalAmount) + lines.reduce((sum, line) => sum + amountToCents(line.retentionAmount), 0);
+    const difference = creditCents - debitCents;
+    if (difference !== 0) {
+      let target = 0;
+      lines.forEach((line, index) => {
+        if (Math.abs(line.subtotalCents) > Math.abs(lines[target].subtotalCents)) target = index;
+      });
+      lines[target].subtotalCents += difference;
+    }
+  }
+  return lines.map(({ subtotalCents, ...line }) => ({ ...line, subtotal: centsToNumber(subtotalCents) }));
 }
 
 function buildLineValues(
@@ -257,15 +356,17 @@ function buildLineValues(
   lines: SupplierInvoiceLineInput[],
   amounts: SupplierInvoiceLineAmounts[],
   fallbackExpenseAccountId?: string,
+  accountCodeById: ReadonlyMap<string, string> = new Map(),
 ) {
   return lines.map((line, index) => {
     const lineAmounts = amounts[index];
+    const expenseAccountId = line.expenseAccountId || fallbackExpenseAccountId || null;
     return {
       supplierInvoiceId: invoiceId,
       itemId: line.itemId || null,
       purchaseOrderLineId: line.purchaseOrderLineId || null,
       goodsReceiptLineId: line.goodsReceiptLineId || null,
-      expenseAccountId: line.expenseAccountId || fallbackExpenseAccountId || null,
+      expenseAccountId,
       description: line.description.trim(),
       quantity: line.quantity.toFixed(3),
       unitPrice: line.unitPrice.toFixed(2),
@@ -275,6 +376,10 @@ function buildLineValues(
       subtotalAmount: lineAmounts.subtotalAmount.toFixed(2),
       taxAmount: lineAmounts.taxAmount.toFixed(2),
       retentionAmount: lineAmounts.retentionAmount.toFixed(2),
+      surchargeRate: lineAmounts.surchargeRate.toFixed(3),
+      surchargeAmount: lineAmounts.surchargeAmount.toFixed(2),
+      // Marca explícita; sin indicar, las cuentas de inmovilizado (grupo 2) son bien de inversión.
+      isInvestmentGood: line.isInvestmentGood ?? defaultInvestmentGood(expenseAccountId ? accountCodeById.get(expenseAccountId) : null),
       lineTotal: lineAmounts.lineTotal.toFixed(2),
     };
   });
@@ -515,11 +620,38 @@ async function resolveSupplier(input: {
   return { id: created.id, identityKey: buildSupplierIdentityKey({ partnerId: created.id, name: created.name, taxId: supplierTaxId, countryCode: supplierCountryCode }) };
 }
 
-function getPaymentStatus(totalAmount: number, paidAmount: number, dueDate: Date | null | undefined) {
-  if (paidAmount >= totalAmount && totalAmount > 0) return "PAID";
-  if (paidAmount > 0) return "PARTIAL";
-  if (dueDate && dueDate.getTime() < Date.now()) return "OVERDUE";
-  return "PENDING";
+const getPaymentStatus = supplierPaymentStatus;
+
+const sameDay = (left: Date, right: Date) => left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10);
+
+function validDate(value: Date | undefined, label: string) {
+  if (!value) return undefined;
+  if (Number.isNaN(value.getTime())) throw new Error(`${label} no es válida.`);
+  return value;
+}
+
+/**
+ * Factura que se rectifica: tiene que ser de la empresa, del mismo proveedor y estar viva. De ella
+ * se toman el número y la fecha del proveedor si la rectificativa no los trae.
+ */
+async function resolveRectifiedInvoice(input: { companyId: string; supplierPartnerId: string; rectifiedInvoiceId?: string; client: DbClient }) {
+  if (!input.rectifiedInvoiceId) return null;
+  const [original] = await input.client
+    .select({
+      id: supplierInvoice.id,
+      number: supplierInvoice.number,
+      supplierPartnerId: supplierInvoice.supplierPartnerId,
+      supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
+      issueDate: supplierInvoice.issueDate,
+      status: supplierInvoice.status,
+    })
+    .from(supplierInvoice)
+    .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.id, input.rectifiedInvoiceId)))
+    .limit(1);
+  if (!original) throw new Error("La factura que se rectifica no existe en la empresa activa.");
+  if (original.supplierPartnerId !== input.supplierPartnerId) throw new Error("La factura que se rectifica es de otro proveedor.");
+  if (original.status === "VOID") throw new Error(`La factura ${original.number} está anulada: no se puede rectificar.`);
+  return original;
 }
 
 async function createSupplierInvoiceHeader(input: {
@@ -547,8 +679,15 @@ async function createSupplierInvoiceHeader(input: {
   currencyCode?: string;
   vatTreatment?: SupplierVatTreatment;
   client: AppDbTransaction;
-}) {
-  assertValidLines(input.lines);
+} & SupplierInvoiceRegisterInput) {
+  const documentKind = parseSupplierDocumentKind(input.documentKind);
+  const isRectification = documentKind === "RECTIFICATION";
+  assertValidLines(input.lines, documentKind);
+  const referenceProblem = rectificationReferenceProblem({ ...input, kind: documentKind });
+  if (referenceProblem) throw new Error(referenceProblem);
+  const operationDate = validDate(input.operationDate, "La fecha de la operación");
+  const importDuaDate = validDate(input.importDuaDate, "La fecha del DUA");
+  const rectifiedIssueDateInput = validDate(input.rectifiedIssueDate, "La fecha de la factura rectificada");
   const accountingDate = resolveAccountingDate(input.issueDate, input.accountingDate);
   try {
     await assertFiscalPeriodOpen(input.companyId, accountingDate, input.client);
@@ -589,8 +728,11 @@ async function createSupplierInvoiceHeader(input: {
     input.lines.map((line) => line.expenseAccountId).filter((value): value is string => Boolean(value)),
     input.client,
   );
-  // Vencimiento = fecha de factura + días de pago del proveedor si no se indicó otro.
-  const dueDate = input.dueDate ?? computeDueDate(input.issueDate, supplierDefaults.paymentTermsDays);
+  // Vencimiento = fecha de factura + días de pago del proveedor si no se indicó otro. Un abono no vence.
+  const dueDate = input.dueDate ?? (isRectification ? undefined : computeDueDate(input.issueDate, supplierDefaults.paymentTermsDays));
+  const rectified = isRectification
+    ? await resolveRectifiedInvoice({ companyId: input.companyId, supplierPartnerId: input.supplierPartnerId, rectifiedInvoiceId: input.rectifiedInvoiceId, client: input.client })
+    : null;
 
   const number =
     input.number?.trim() ||
@@ -608,6 +750,13 @@ async function createSupplierInvoiceHeader(input: {
   });
   const { homeCountry } = await getCompanyFiscalContext(input.companyId, input.client);
   const vatTreatment = resolveSupplierVatTreatment(input.vatTreatment ?? supplierDefaults.defaultVatTreatment, supplierRow?.countryCode, supplierRow?.supplierKind, homeCountry);
+  const isSimplified = Boolean(input.isSimplified);
+  if (input.requireSupplierTaxId) {
+    const taxIdProblem = supplierTaxIdProblem({ taxId: supplierRow?.taxId, supplierCountryCode: supplierRow?.countryCode, homeCountryCode: homeCountry, vatTreatment, isSimplified });
+    if (taxIdProblem) throw new Error(taxIdProblem);
+  }
+  const surchargeProblem = surchargeTreatmentProblem(vatTreatment, input.lines.some((line) => (line.surchargeRate ?? 0) > 0));
+  if (surchargeProblem) throw new Error(surchargeProblem);
   const supplierDocumentNumber = input.supplierDocumentNumber?.trim() || null;
   const supplierDocumentNumberNormalized = normalizeSupplierDocumentNumber(supplierDocumentNumber) || null;
   const [[ownedCompany], [settingsRow]] = await Promise.all([
@@ -656,12 +805,28 @@ async function createSupplierInvoiceHeader(input: {
       taxAmount: "0.00",
       retentionAmount: "0.00",
       totalAmount: "0.00",
+      documentKind,
+      rectifiedInvoiceId: rectified?.id ?? null,
+      rectifiedDocumentNumber: isRectification ? input.rectifiedDocumentNumber?.trim() || rectified?.supplierDocumentNumber || rectified?.number || null : null,
+      rectifiedIssueDate: isRectification ? rectifiedIssueDateInput ?? rectified?.issueDate ?? null : null,
+      rectificationReason: isRectification ? input.rectificationReason?.trim() || null : null,
+      // Solo se guarda si difiere de la fecha de expedición (así lo pide el libro registro).
+      operationDate: operationDate && !sameDay(operationDate, input.issueDate) ? operationDate : null,
+      isSimplified,
+      importDuaNumber: vatTreatment === "IMPORT" ? input.importDuaNumber?.trim() || null : null,
+      importDuaDate: vatTreatment === "IMPORT" ? importDuaDate ?? null : null,
       notes: input.notes?.trim() || null,
     })
     .returning();
 
-  const totals = computeSupplierInvoiceAmounts(input.lines, vatTreatment, standardVatRate(homeCountry));
-  const lineValues = buildLineValues(header.id, input.lines, totals.lines, fallbackExpenseAccountId);
+  const totals = computeSupplierInvoiceAmounts(input.lines, vatTreatment, standardVatRate(homeCountry), { allowNegative: isRectification });
+  if (isRectification && totals.subtotalAmount === 0) throw new Error("La base de la rectificativa es cero: no hay nada que contabilizar.");
+  const lineAccountIds = [...new Set(input.lines.map((line) => line.expenseAccountId || fallbackExpenseAccountId).filter((value): value is string => Boolean(value)))];
+  const lineAccounts = lineAccountIds.length > 0
+    ? await input.client.select({ id: accountChart.id, code: accountChart.code }).from(accountChart).where(and(eq(accountChart.companyId, input.companyId), inArray(accountChart.id, lineAccountIds)))
+    : [];
+  const accountCodeById = new Map(lineAccounts.flatMap((account) => (account.code ? [[account.id, account.code] as const] : [])));
+  const lineValues = buildLineValues(header.id, input.lines, totals.lines, fallbackExpenseAccountId, accountCodeById);
   await input.client.insert(supplierInvoiceLine).values(lineValues);
   const attachments = sanitizeAttachments(input.attachments);
   if (attachments.length > 0) {
@@ -679,6 +844,7 @@ async function createSupplierInvoiceHeader(input: {
       subtotalAmount: totals.subtotalAmount.toFixed(2),
       taxAmount: totals.taxAmount.toFixed(2),
       retentionAmount: totals.retentionAmount.toFixed(2),
+      surchargeAmount: totals.surchargeAmount.toFixed(2),
       totalAmount: totals.totalAmount.toFixed(2),
       paymentStatus: getPaymentStatus(totals.totalAmount, 0, dueDate),
       updatedAt: new Date(),
@@ -692,20 +858,18 @@ async function createSupplierInvoiceHeader(input: {
     actorUserId: input.actorUserId,
     supplierInvoiceId: header.id,
     postedAt: accountingDate,
-    reference: `Factura proveedor ${updated.number}`,
+    reference: `${isRectification ? "Rectificativa" : "Factura"} proveedor ${updated.number}`,
     subtotal: totals.subtotalAmount,
     taxAmount: totals.taxAmount,
     retentionAmount: totals.retentionAmount,
     totalAmount: totals.totalAmount,
     vatTreatment,
     prorrataPct,
-    expenseLines: lineValues.map((line, index) => ({
-      accountId: line.expenseAccountId ?? fallbackExpenseAccountId,
-      subtotal: totals.lines[index].subtotalAmount,
-      taxAmount: totals.lines[index].taxAmount,
-      taxDeductiblePct: totals.lines[index].taxDeductiblePct,
-      retentionAmount: totals.lines[index].retentionAmount,
-    })),
+    expenseLines: buildPostingExpenseLines(
+      totals,
+      lineValues.map((line) => line.expenseAccountId ?? fallbackExpenseAccountId),
+      { absorbRounding: isRectification },
+    ),
     dbClient: input.client,
   });
 
@@ -717,7 +881,13 @@ async function createSupplierInvoiceHeader(input: {
       action: input.origin === "EXPENSE" ? "expense.create" : "purchase.supplierInvoice.create",
       entityName: "supplierInvoice",
       entityId: header.id,
-      payload: { origin: input.origin, vatTreatment, totalAmount: totals.totalAmount, supplierDocumentNumber: input.supplierDocumentNumber },
+      payload: {
+        origin: input.origin,
+        vatTreatment,
+        totalAmount: totals.totalAmount,
+        supplierDocumentNumber: input.supplierDocumentNumber,
+        ...(isRectification ? { documentKind, rectifiedInvoiceId: rectified?.id ?? null } : {}),
+      },
     },
     input.client,
   );
@@ -894,15 +1064,17 @@ export async function createExpenseInvoice(input: CreateExpenseInvoiceInput) {
       supplierCountryCode: input.supplierCountryCode,
       client: tx,
     });
-    const [linkedReceipt] = input.goodsReceiptId
+    // Una rectificativa no consume pedido ni recepción: se enlaza a la factura que rectifica.
+    const isRectification = parseSupplierDocumentKind(input.documentKind) === "RECTIFICATION";
+    const [linkedReceipt] = input.goodsReceiptId && !isRectification
       ? await tx
           .select({ id: goodsReceipt.id, purchaseOrderId: goodsReceipt.purchaseOrderId })
           .from(goodsReceipt)
           .where(and(eq(goodsReceipt.id, input.goodsReceiptId), eq(goodsReceipt.companyId, input.companyId)))
           .limit(1)
       : [];
-    if (input.goodsReceiptId && !linkedReceipt) throw new Error("La recepción seleccionada no pertenece a la empresa activa.");
-    const purchaseOrderId = input.purchaseOrderId || linkedReceipt?.purchaseOrderId || null;
+    if (input.goodsReceiptId && !isRectification && !linkedReceipt) throw new Error("La recepción seleccionada no pertenece a la empresa activa.");
+    const purchaseOrderId = isRectification ? null : input.purchaseOrderId || linkedReceipt?.purchaseOrderId || null;
     const [linkedOrder] = purchaseOrderId
       ? await tx
           .select({ id: purchaseOrder.id, supplierPartnerId: purchaseOrder.supplierPartnerId })
@@ -1069,6 +1241,9 @@ export async function listExpenseInvoices(companyId: string) {
         goodsReceiptId: supplierInvoice.goodsReceiptId,
         goodsReceiptNumber: goodsReceipt.number,
         origin: supplierInvoice.origin,
+        documentKind: supplierInvoice.documentKind,
+        rectifiedInvoiceId: supplierInvoice.rectifiedInvoiceId,
+        rectifiedDocumentNumber: supplierInvoice.rectifiedDocumentNumber,
         issueDate: supplierInvoice.issueDate,
         dueDate: supplierInvoice.dueDate,
         status: supplierInvoice.status,
@@ -1177,6 +1352,18 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       goodsReceiptId: supplierInvoice.goodsReceiptId,
       supplierPartnerId: supplierInvoice.supplierPartnerId,
       supplierName: partner.name,
+      supplierTaxId: partner.taxId,
+      vatTreatment: supplierInvoice.vatTreatment,
+      documentKind: supplierInvoice.documentKind,
+      rectifiedInvoiceId: supplierInvoice.rectifiedInvoiceId,
+      rectifiedDocumentNumber: supplierInvoice.rectifiedDocumentNumber,
+      rectifiedIssueDate: supplierInvoice.rectifiedIssueDate,
+      rectificationReason: supplierInvoice.rectificationReason,
+      operationDate: supplierInvoice.operationDate,
+      isSimplified: supplierInvoice.isSimplified,
+      importDuaNumber: supplierInvoice.importDuaNumber,
+      importDuaDate: supplierInvoice.importDuaDate,
+      surchargeAmount: supplierInvoice.surchargeAmount,
       issueDate: supplierInvoice.issueDate,
       accountingDate: supplierInvoice.accountingDate,
       voidedAt: supplierInvoice.voidedAt,
@@ -1198,7 +1385,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
     .limit(1);
   if (!invoiceRow) return null;
 
-  const [lines, attachments, payments] = await Promise.all([
+  const [lines, attachments, payments, rectifications] = await Promise.all([
     db
       .select({
         id: supplierInvoiceLine.id,
@@ -1211,6 +1398,9 @@ export async function getExpenseInvoice(companyId: string, id: string) {
         subtotalAmount: supplierInvoiceLine.subtotalAmount,
         taxAmount: supplierInvoiceLine.taxAmount,
         retentionAmount: supplierInvoiceLine.retentionAmount,
+        surchargeRate: supplierInvoiceLine.surchargeRate,
+        surchargeAmount: supplierInvoiceLine.surchargeAmount,
+        isInvestmentGood: supplierInvoiceLine.isInvestmentGood,
         lineTotal: supplierInvoiceLine.lineTotal,
         expenseAccountId: supplierInvoiceLine.expenseAccountId,
         expenseAccountCode: accountChart.code,
@@ -1236,10 +1426,28 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       .from(supplierInvoicePayment)
       .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
       .where(and(eq(supplierInvoicePayment.companyId, companyId), eq(supplierInvoicePayment.supplierInvoiceId, id))),
+    // Rectificativas / abonos registrados contra esta factura.
+    db
+      .select({
+        id: supplierInvoice.id,
+        number: supplierInvoice.number,
+        supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
+        issueDate: supplierInvoice.issueDate,
+        status: supplierInvoice.status,
+        totalAmount: supplierInvoice.totalAmount,
+        rectificationReason: supplierInvoice.rectificationReason,
+      })
+      .from(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.rectifiedInvoiceId, id)))
+      .orderBy(desc(supplierInvoice.issueDate)),
   ]);
   const paidAmount = payments.reduce((total, payment) => total + Number(payment.amountApplied), 0);
+  // Suma (con signo) de las rectificativas vivas: negativa si son abonos.
+  const rectifiedAmount = rectifications.filter((row) => row.status !== "VOID").reduce((total, row) => total + amountToCents(row.totalAmount), 0) / 100;
   return {
     ...invoiceRow,
+    rectifications,
+    rectifiedAmount: rectifiedAmount.toFixed(2),
     paidAmount: paidAmount.toFixed(2),
     outstandingAmount: (invoiceRow.status === "VOID" ? 0 : Math.max(Number(invoiceRow.totalAmount) - paidAmount, 0)).toFixed(2),
     paymentStatus: invoiceRow.status === "VOID" ? "VOID" : getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount, invoiceRow.dueDate),
@@ -1279,6 +1487,12 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
       .where(and(eq(supplierInvoicePayment.companyId, input.companyId), eq(supplierInvoicePayment.supplierInvoiceId, input.id)));
     const paidAmount = paymentRows.reduce((total, payment) => total + Number(payment.amountApplied), 0);
     if (paidAmount > 0) throw new Error("No se puede anular una factura con pagos registrados. Anula o corrige el pago primero.");
+    const [activeRectification] = await tx
+      .select({ number: supplierInvoice.number })
+      .from(supplierInvoice)
+      .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.rectifiedInvoiceId, input.id), ne(supplierInvoice.status, "VOID")))
+      .limit(1);
+    if (activeRectification) throw new Error(`No se puede anular: la factura tiene la rectificativa ${activeRectification.number}. Anula antes la rectificativa.`);
 
     // La anulación se contabiliza en el periodo de la factura si sigue abierto (la factura y su
     // anulación se compensan en el mismo 303); si ya está cerrado o presentado, hoy.

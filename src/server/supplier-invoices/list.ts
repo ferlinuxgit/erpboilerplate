@@ -45,10 +45,12 @@ export function expenseExpressions(paid: ReturnType<typeof paidByInvoice>, now: 
   const paidAmount = sql<string>`coalesce(${paid.paidAmount}, 0)`;
   const isVoid = sql`(${supplierInvoice.status} = 'VOID')`;
   const outstanding = sql<string>`case when ${isVoid} then 0 else greatest(${supplierInvoice.totalAmount} - ${paidAmount}, 0) end`;
-  // Same rules as getPaymentStatus(): VOID, PAID, PARTIAL, OVERDUE, PENDING.
+  // Same rules as supplierPaymentStatus(): VOID, PAID, PARTIAL, OVERDUE, PENDING. Un abono
+  // (total ≤ 0) no tiene nada que pagar: nunca sale pendiente ni vencido.
   const paymentStatus = sql<string>`case
     when ${isVoid} then 'VOID'
-    when ${paidAmount} >= ${supplierInvoice.totalAmount} and ${supplierInvoice.totalAmount} > 0 then 'PAID'
+    when ${supplierInvoice.totalAmount} <= 0 then 'PAID'
+    when ${paidAmount} >= ${supplierInvoice.totalAmount} then 'PAID'
     when ${paidAmount} > 0 then 'PARTIAL'
     when ${supplierInvoice.dueDate} is not null and ${supplierInvoice.dueDate} < ${now} then 'OVERDUE'
     else 'PENDING'
@@ -91,6 +93,8 @@ function expenseListParts(companyId: string, params: ListParams<ExpenseInvoiceSo
     purchaseOrderNumber: purchaseOrder.number,
     goodsReceiptId: supplierInvoice.goodsReceiptId,
     goodsReceiptNumber: goodsReceipt.number,
+    documentKind: supplierInvoice.documentKind,
+    rectifiedDocumentNumber: supplierInvoice.rectifiedDocumentNumber,
     issueDate: supplierInvoice.issueDate,
     dueDate: supplierInvoice.dueDate,
     status: supplierInvoice.status,
@@ -114,6 +118,8 @@ type ExpenseListDbRow = {
   purchaseOrderNumber: string | null;
   goodsReceiptId: string | null;
   goodsReceiptNumber: string | null;
+  documentKind: string;
+  rectifiedDocumentNumber: string | null;
   issueDate: Date;
   dueDate: Date | null;
   status: string;
@@ -136,6 +142,8 @@ function toExpenseListRow(row: ExpenseListDbRow) {
     purchaseOrderNumber: row.purchaseOrderNumber,
     goodsReceiptId: row.goodsReceiptId,
     goodsReceiptNumber: row.goodsReceiptNumber,
+    documentKind: row.documentKind,
+    rectifiedDocumentNumber: row.rectifiedDocumentNumber,
     issueDate: row.issueDate,
     dueDate: row.dueDate,
     status: row.status,

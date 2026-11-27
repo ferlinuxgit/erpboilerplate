@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { can } from "@/lib/rbac";
+import { getCompanyTaxTerritory } from "@/server/company/fiscal-context";
 import { listPostingAccounts } from "@/server/accounting/service";
 import { isLocalOcrEnabled, listExpenseInbox } from "@/server/ocr/expense-ocr";
 import { withDuplicateAssessment } from "@/server/ocr/inbox";
@@ -76,6 +77,7 @@ export default async function ExpenseInboxPage() {
             aiSettings={aiSettings}
             backHref="/expenses/new"
             baseCurrencyCode={ctx.company.baseCurrencyCode}
+            homeCountryCode={await getCompanyTaxTerritory(ctx.company.id)}
             canManageAiSettings={can(ctx.membership.role, "settings.manage")}
             localOcrEnabled={isLocalOcrEnabled()}
             expenseAccounts={expenseAccounts}

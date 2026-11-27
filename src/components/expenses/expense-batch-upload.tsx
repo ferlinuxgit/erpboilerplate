@@ -32,6 +32,8 @@ import {
   type DuplicateAssessment,
   type InboxJob,
 } from "./expense-batch-model";
+import { supplierTaxIdProblem } from "@/server/supplier-invoices/document-rules";
+
 import { assessReadiness, reviewReasonLabels, selectSafeToPost, type ReviewItem } from "./expense-review";
 import { useLeaveWarning } from "./use-leave-warning";
 
@@ -43,6 +45,8 @@ type Props = {
   goodsReceipts: GoodsReceiptRelation[];
   purchaseOrders: PurchaseOrderRelation[];
   suppliers: BatchSupplier[];
+  /** País de la empresa: decide si el NIF del proveedor es obligatorio. */
+  homeCountryCode?: string;
   /** Documentos pendientes guardados en el servidor (bandeja restaurada). */
   initialJobs?: InboxJob[];
   aiSettings: ExpenseAiSettings;
@@ -87,8 +91,19 @@ function statusLabel(status: BatchItem["status"]) {
   }[status];
 }
 
-function toReviewItem(item: BatchItem): ReviewItem {
+function toReviewItem(item: BatchItem, suppliers: readonly BatchSupplier[], homeCountryCode: string): ReviewItem {
+  const supplier = item.supplierPartnerId ? suppliers.find((candidate) => candidate.id === item.supplierPartnerId) : undefined;
   return {
+    documentKind: item.documentKind,
+    rectifiedDocumentNumber: item.rectifiedDocumentNumber,
+    rectificationReason: item.rectificationReason,
+    taxIdMissing: supplierTaxIdProblem({
+      taxId: supplier ? supplier.taxId : item.supplierTaxId,
+      supplierCountryCode: supplier ? supplier.countryCode : item.supplierCountryCode,
+      homeCountryCode,
+      vatTreatment: item.vatTreatment,
+      isSimplified: item.isSimplified,
+    }) !== null,
     status: item.status,
     confidence: item.draft?.confidence,
     warnings: item.draft?.warnings ?? [],
@@ -124,6 +139,7 @@ export function ExpenseBatchUpload({
   canManageAiSettings = false,
   expenseAccounts,
   goodsReceipts,
+  homeCountryCode = "ES",
   initialJobs = [],
   localOcrEnabled = false,
   onBack,
@@ -154,7 +170,7 @@ export function ExpenseBatchUpload({
   }, [items]);
 
   const counts = useMemo(() => {
-    const readiness = items.map((item) => (item.status === "DONE" ? assessReadiness(toReviewItem(item), baseCurrencyCode) : null));
+    const readiness = items.map((item) => (item.status === "DONE" ? assessReadiness(toReviewItem(item, suppliers, homeCountryCode), baseCurrencyCode) : null));
     return {
       total: items.length,
       uploading: items.filter((item) => item.status === "WAITING" || item.status === "UPLOADING").length,
@@ -165,8 +181,8 @@ export function ExpenseBatchUpload({
       posted: items.filter((item) => item.status === "POSTED").length,
       failed: items.filter((item) => item.status === "FAILED").length,
     };
-  }, [baseCurrencyCode, items]);
-  const safeToPost = useMemo(() => selectSafeToPost(items.map((item) => ({ ...toReviewItem(item), source: item })), baseCurrencyCode), [baseCurrencyCode, items]);
+  }, [baseCurrencyCode, homeCountryCode, items, suppliers]);
+  const safeToPost = useMemo(() => selectSafeToPost(items.map((item) => ({ ...toReviewItem(item, suppliers, homeCountryCode), source: item })), baseCurrencyCode), [baseCurrencyCode, homeCountryCode, items, suppliers]);
 
   useLeaveWarning(
     counts.uploading > 0 || counts.posting > 0 || bulkPosting,
@@ -396,7 +412,7 @@ export function ExpenseBatchUpload({
   /** Registra un documento. Devuelve true si quedó registrado. */
   async function postItem(item: BatchItem, options: { bulk?: boolean } = {}) {
     if (!item.jobId || item.status !== "DONE") return false;
-    const readiness = assessReadiness(toReviewItem(item), baseCurrencyCode);
+    const readiness = assessReadiness(toReviewItem(item, suppliers, homeCountryCode), baseCurrencyCode);
     // Al registrar uno a uno no hace falta "revisada": el propio clic es la revisión.
     const blocking = readiness.reasons.filter((reason) => reason !== "confidence");
     if (blocking.length > 0) {
@@ -419,13 +435,17 @@ export function ExpenseBatchUpload({
           supplierTaxId: item.supplierPartnerId ? undefined : item.supplierTaxId,
           supplierCountryCode: item.supplierCountryCode,
           supplierDocumentNumber: item.supplierDocumentNumber,
-          purchaseOrderId: item.purchaseOrderId || undefined,
-          goodsReceiptId: item.goodsReceiptId || undefined,
+          purchaseOrderId: item.documentKind === "RECTIFICATION" ? undefined : item.purchaseOrderId || undefined,
+          goodsReceiptId: item.documentKind === "RECTIFICATION" ? undefined : item.goodsReceiptId || undefined,
           issueDate: isoDate(item.issueDate),
           accountingDate: item.accountingDate ? isoDate(item.accountingDate) : undefined,
           dueDate: item.dueDate ? isoDate(item.dueDate) : undefined,
           currencyCode: item.currencyCode,
           vatTreatment: item.vatTreatment || undefined,
+          documentKind: item.documentKind,
+          rectifiedDocumentNumber: item.documentKind === "RECTIFICATION" ? item.rectifiedDocumentNumber.trim() || undefined : undefined,
+          rectificationReason: item.documentKind === "RECTIFICATION" ? item.rectificationReason.trim() || undefined : undefined,
+          isSimplified: item.isSimplified,
           notes: exchangeNote(item),
           ocrJobId: item.jobId,
           idempotencyKey: `expense-ocr-job:${item.jobId}`,
@@ -709,7 +729,7 @@ export function ExpenseBatchUpload({
       ) : (
         <ol className="space-y-2" aria-label="Documentos de la bandeja">
           {items.map((item, index) => {
-            const readiness = item.status === "DONE" ? assessReadiness(toReviewItem(item), baseCurrencyCode) : null;
+            const readiness = item.status === "DONE" ? assessReadiness(toReviewItem(item, suppliers, homeCountryCode), baseCurrencyCode) : null;
             const isOpen = openItemId === item.localId && (item.status === "DONE" || item.status === "POSTING");
             const supplierLabel = item.supplierPartnerId
               ? suppliers.find((supplier) => supplier.id === item.supplierPartnerId)?.name
