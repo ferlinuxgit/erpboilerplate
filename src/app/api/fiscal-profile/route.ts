@@ -14,6 +14,8 @@ const payloadSchema = z.object({
   taxPeriodicity: z.enum(["monthly", "quarterly"]),
   siiEnabled: z.boolean(),
   prorrataPct: z.number().min(0).max(100),
+  // Límite de la factura simplificada: 400 € (general) o 3.000 € (actividades del art. 4.2 del RD 1619/2012).
+  simplifiedInvoiceLimit: z.union([z.literal(400), z.literal(3000)]).optional(),
   // Cuotas de IVA a compensar de ejercicios anteriores, por ejercicio. Solo se tocan los años enviados.
   vatCompensationOpening: z.record(z.string().regex(/^20\d{2}$/), z.number().min(0).max(99_999_999)).optional(),
 });
@@ -30,7 +32,7 @@ export async function PUT(request: Request) {
     const parsed = payloadSchema.safeParse(raw);
     if (!parsed.success) return NextResponse.json({ message: "Revisa los datos del perfil fiscal." }, { status: 400 });
 
-    const { vatCompensationOpening, ...profile } = parsed.data;
+    const { vatCompensationOpening, simplifiedInvoiceLimit, ...profile } = parsed.data;
     const row = await db.transaction(async (tx) => {
       // Se fusiona con lo guardado: los ejercicios que no vienen en la petición se conservan.
       const [existing] = vatCompensationOpening
@@ -44,6 +46,7 @@ export async function PUT(request: Request) {
       const values = {
         ...profile,
         prorrataPct: profile.prorrataPct.toFixed(3),
+        ...(simplifiedInvoiceLimit !== undefined ? { simplifiedInvoiceLimit: simplifiedInvoiceLimit.toFixed(2) } : {}),
         ...(vatCompensationOpening ? { vatCompensationOpening: mergedOpening } : {}),
       };
       const [saved] = await tx

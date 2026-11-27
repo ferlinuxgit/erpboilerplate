@@ -28,6 +28,8 @@ export type FiscalSettingsFormValues = {
   taxpayerType: "company" | "individual";
   /** Cuotas de IVA a compensar que vienen de ejercicios anteriores, por ejercicio ("2026" → importe). */
   vatCompensationOpening: Record<string, number>;
+  /** Límite de la factura simplificada (sin NIF del cliente), IVA incluido: 400 o 3.000 €. */
+  simplifiedInvoiceLimit: number;
   defaultCustomerAccountCode: string;
   defaultSupplierAccountCode: string;
   defaultSalesAccountCode: string;
@@ -83,10 +85,10 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
     setError(null);
     try {
       // Solo el perfil fiscal: el modo VERI*FACTU se guarda aparte (VerifactuSettingsForm).
-      const { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct } = values;
+      const { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct, simplifiedInvoiceLimit } = values;
       // Solo los ejercicios que se enseñan en el formulario; el resto se conserva en el servidor.
       const vatCompensationOpening = Object.fromEntries(openingYears.map((year) => [String(year), values.vatCompensationOpening[String(year)] ?? 0]));
-      const payload = { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct, ...(showVatRegimes ? { vatCompensationOpening } : {}) };
+      const payload = { taxpayerType, fiscalRegime, taxPeriodicity, siiEnabled, prorrataPct, simplifiedInvoiceLimit, ...(showVatRegimes ? { vatCompensationOpening } : {}) };
       const response = await fetch("/api/fiscal-profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -168,6 +170,13 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
           <Select value={values.taxPeriodicity} onChange={(event) => setValue("taxPeriodicity", event.target.value as FiscalSettingsFormValues["taxPeriodicity"])}>
             <option value="quarterly">Trimestral</option>
             <option value="monthly">Mensual</option>
+          </Select>
+        </AccessibleField>
+
+        <AccessibleField id="fiscal-simplified-limit" label="Facturas sin NIF del cliente" helperText="Sin NIF del cliente la factura es simplificada y tiene un importe máximo (IVA incluido). Por encima hay que identificar al cliente. Cada caja del TPV tiene su propio límite.">
+          <Select value={values.simplifiedInvoiceLimit >= 3000 ? "3000" : "400"} onChange={(event) => setValue("simplifiedInvoiceLimit", Number(event.target.value))}>
+            <option value="400">Hasta 400 € (regla general)</option>
+            <option value="3000">Hasta 3.000 € (comercio al por menor, hostelería, transporte de personas, peluquerías…)</option>
           </Select>
         </AccessibleField>
 

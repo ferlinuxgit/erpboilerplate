@@ -494,6 +494,7 @@ async function fetchSupplierLines(companyId: string, start: Date, endExclusive: 
     retentionAmount: supplierInvoiceLine.retentionAmount,
     retentionRate: supplierInvoiceLine.retentionRate,
     expenseAccountCode: accountChart.code,
+    isInvestmentGood: supplierInvoiceLine.isInvestmentGood,
     invoiceId: supplierInvoice.id,
     number: supplierInvoice.number,
     issueDate: supplierInvoice.issueDate,

@@ -90,6 +90,8 @@ export type SupplierLineInput = {
   accountingDate?: Date;
   /** Prorrata aplicada al contabilizar la factura; si falta, la indicada al cálculo. */
   prorrataPct?: string | number | null;
+  /** Marca de bien de inversión de la línea; una cuenta del grupo 2 lo es siempre. */
+  isInvestmentGood?: boolean | null;
   /** Fecha del asiento de anulación (solo en la fila de anulación). */
   voidedAt?: Date | null;
   /** −1 en la fila de anulación de una factura recibida (resta en el periodo de la anulación). */
@@ -292,7 +294,7 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     // Instrucciones del 303 (IVA deducible): «las bases figurarán sin prorratear». La base íntegra
     // entra si la cuota es deducible total o parcialmente; las líneas sin cuota o no deducibles, no.
     const fullBase = vat !== 0 && effectivePct > 0 ? base : 0;
-    const investment = (line.expenseAccountCode ?? "").startsWith("2");
+    const investment = Boolean(line.isInvestmentGood) || (line.expenseAccountCode ?? "").startsWith("2");
 
     if (vat !== 0 || base !== 0) addBucket(input, rate, base, vat);
     totalTax += vat;
@@ -919,7 +921,7 @@ export function computeModelo130(quarters: Modelo130QuarterInput[], quarter: num
 export function computeIncomeTaxExpenseCents(lines: SupplierLineInput[], prorrataPct: number) {
   let total = 0;
   for (const line of lines) {
-    const investment = (line.expenseAccountCode ?? "").startsWith("2");
+    const investment = Boolean(line.isInvestmentGood) || (line.expenseAccountCode ?? "").startsWith("2");
     if (investment) continue;
     const sign = line.sign ?? 1;
     const base = sign * toCents(line.subtotal);

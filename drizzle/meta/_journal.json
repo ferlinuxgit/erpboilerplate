@@ -470,6 +470,13 @@
       "when": 1795771573330,
       "tag": "0066_pgc_boe_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795773768524,
+      "tag": "0067_compliance_batch",
+      "breakpoints": true
     }
   ]
 }

@@ -59,60 +59,56 @@ Lo relativo a los modelos 347, 349, 111/115, 390 e Impuesto sobre Sociedades, y 
 
 ---
 
-## 2. Pendiente, por orden de riesgo
+## 2. Segunda tanda (misma fecha): implementado
 
-### 2.1 Crítico
+Los números entre paréntesis son los de la lista original de pendientes, que se conserva en el historial de este archivo.
 
-1. **VERI\*FACTU: pruebas y producción comparten cadena y registros.** El entorno es una variable global que por defecto vale «pruebas». Si en producción falta o está mal, las facturas reales van al entorno de pruebas de la AEAT, figuran como aceptadas y llevan QR, pero Hacienda no recibe nada. Hay que guardar el entorno en cada registro y en la cadena, y exigirlo de forma explícita. **Comprobar hoy el valor de `VERIFACTU_ENVIRONMENT` en producción.**
-2. **VERI\*FACTU: facturas sin registro.** Con una «fecha de inicio» configurada, un borrador fechado antes se emite hoy sin registro, sin QR y fuera de la cadena. La decisión debe tomarse por la fecha real de emisión.
-3. **Se emite sin comprobar los datos obligatorios** de emisor y destinatario (nombre, NIF y domicilio; art. 6.1 del RD 1619/2012).
-4. **Factura simplificada.** No es un tipo de documento: se decide al emitir según haya NIF. El límite de 400 €/3.000 € solo se aplica al cliente genérico del TPV. No existe el canje por factura completa (F3).
-5. **Recargo de equivalencia no garantizado.** Solo se propone en el formulario; no lo aplican el paso de presupuesto, pedido o albarán a factura ni el TPV.
-6. **Falta la mención «régimen especial del criterio de caja»** en la factura, y el 303 de una empresa en ese régimen se calcula por fecha de factura (solo hay un aviso).
-7. **Fechas en UTC y no en hora peninsular.** Un ticket emitido entre las 00:00 y las 02:00 puede caer en el periodo anterior y llevar una fecha impresa distinta de la registrada en VERI\*FACTU. Afecta a hostelería y al cambio de año.
+### Facturación
+- **Al emitir (3, 4, 5):** se comprueban los datos obligatorios del emisor, el domicilio del destinatario cuando es una entidad, el límite de la factura simplificada (400 € o 3.000 €, configurable en Configuración › Fiscalidad; cada caja del TPV conserva el suyo), el recargo de equivalencia en las líneas de bienes y el orden cronológico dentro de la serie.
+- **Recargo de equivalencia (5):** presupuesto, pedido y albarán → factura ya lo añaden a los bienes.
+- **Criterio de caja (6):** mención «Régimen especial del criterio de caja» en el PDF. El cálculo del 303 por cobros y pagos sigue pendiente.
+- **Recurrentes atrasadas:** se expiden hoy con el periodo como fecha de operación.
+- **Series:** prefijo y formato fijos tras la primera emisión; formato con `{NUMBER}` y solo caracteres que admite la AEAT.
+- **PDF:** título «Factura simplificada» sin NIF; fecha en día civil peninsular (7).
+- **Cobros en efectivo:** bloqueo desde 1.000 € (10.000 € particulares no residentes).
+- **Exportación y purga del espacio:** incluyen los PDF de las facturas emitidas.
 
-### 2.2 Alto
+### VERI\*FACTU
+- **Entorno (1):** cada registro, evento y cadena guarda su entorno; punto de acceso y QR salen del registro; rótulo «ENTORNO DE PRUEBAS» en pantalla, factura, PDF y ticket. Con el envío activado, `VERIFACTU_ENVIRONMENT` es obligatoria y el contenedor no arranca sin ella.
+- **Registro según la fecha real de emisión (2).**
+- **Certificado (14):** lectura de titular y caducidad, rechazo de caducados, avisos, punto de acceso de certificados de sello.
+- **Avisos (14):** `getVerifactuHealth` reúne pendientes sin remitir, rechazados, certificado y entorno; se muestran en Fiscalidad › VERI\*FACTU.
+- **Subsanación (15)** con los datos congelados de la factura; si el error es del destinatario, pide rectificativa.
+- **Modo heredado (16):** ya no genera registros; la migración pasa esas empresas a «pendiente».
+- **Validación previa a la emisión:** número de serie, exenciones incoherentes, fecha de operación.
+- **QR** al principio del documento, con zona en blanco y letra del cuerpo; **control de flujo** persistido; **duplicados** según su estado en la AEAT; **declaración responsable** con título y literales del art. 15.
 
-8. **303 sin compensación de periodos anteriores** (casillas 110, 78 y 87): si un trimestre sale a compensar, el siguiente muestra de más. Tampoco tiene las casillas de volumen de operaciones del último periodo.
-9. **303 por fecha de expedición y no de devengo.** El campo «fecha de operación» existe pero no se usa. Corregirlo exige decidir qué pasa con los periodos ya presentados y con la conciliación contable.
-10. **390 sin casillas propias**: reutiliza el cálculo del 303.
-11. **No existen**: nóminas, modelos 190, 180, 123 y 193; Impuesto sobre Sociedades (200 y 202); SII; libros registro en el formato de la AEAT; libro de bienes de inversión; ficheros de presentación de ningún modelo.
-12. **No hay inmovilizado ni amortizaciones automáticas**, ni periodificaciones. El cierre solo lo recuerda.
-13. **No se pueden registrar rectificativas ni abonos de proveedor** (se exige cantidad positiva).
-14. **Certificado VERI\*FACTU**: no se controla caducidad, titular ni tipo; no se usa el punto de acceso de certificados de sello; no hay aviso general de registros sin remitir.
-15. **Subsanación** con los datos actuales del cliente en vez de los congelados en la factura; las altas rechazadas por causa no corregible quedan sin salida.
-16. **Modo NO VERI\*FACTU heredado**: sigue generando registros sin firma ni registro de eventos conforme. Hay que comprobar si alguna empresa lo tiene y eliminarlo.
-17. **Factura electrónica**: no hay Facturae ni envío a FACe (obligatorio para facturar a Administraciones) ni formato para la obligación entre empresas del RD 238/2026.
-18. **347 y 349 incompletos**: sin desglose trimestral, cobros en metálico, arrendamientos ni todas las claves; el 349 no comprueba VIES.
-19. **El NIF solo se valida por formato** en altas y ediciones, no por dígito de control.
+### Modelos
+- **303 (8, 9):** cuotas a compensar (casillas 110, 78, 87) con saldo inicial por ejercicio; devengo por fecha de operación cuando es anterior a la de expedición; bases deducibles sin prorratear; rectificativas en 14-15 y 25-26; volumen de operaciones en el último periodo.
+- **Periodos en hora local (7):** los límites de periodo son la medianoche peninsular (o canaria).
+- **Foto de lo presentado:** al marcar un modelo como presentado se guardan sus importes y se avisa si el cálculo cambia después.
+- **390 (10):** resumen anual propio, sin numeración oficial (no se pudo contrastar).
+- **347 (18):** desglose trimestral, cobros en metálico de más de 6.000 € y pantalla con los terceros. **349:** entrega sin artículo = clave E.
+- **Plazo de domiciliación** junto al de presentación.
 
-### 2.3 Medio y bajo
+### Compras y contabilidad
+- **Rectificativas y abonos de proveedor (13)**, con fecha de operación, recargo soportado, marca de bien de inversión, DUA y ticket sin NIF; libro registro de recibidas con una fila por factura y tipo.
+- **Inmovilizado (12):** fichas de bienes, tabla de coeficientes fiscales, cuadro de amortización, dotaciones automáticas, baja o venta y libro de bienes de inversión. El cierre comprueba que no queden amortizaciones sin contabilizar.
 
-- Series: prefijo y formato editables con facturas emitidas; sin reinicio anual; caracteres que la AEAT rechaza.
-- No se controla que la fecha de una factura no sea anterior a la última emitida de su serie.
-- Los PDF emitidos no entran en la exportación del espacio ni en la purga, y se sobrescriben al cambiar formas de pago.
-- QR: debe ir al principio del documento, con más margen y letra no menor que el cuerpo.
-- Declaración responsable: título y literales exactos, versión ligada al despliegue, histórico y PDF.
-- Control de flujo de envíos (tiempo de espera de la AEAT) solo en memoria; duplicados dados por aceptados sin leer su estado.
-- Prorrata sin regularización anual; bases deducibles mostradas ya prorrateadas.
-- No se guarda foto de lo presentado: la vista de un modelo presentado se recalcula.
-- Sin aviso de cobros en efectivo de 1.000 € o más ni de plazos de pago superiores a 60 días.
-- Abonos a clientes contabilizados en negativo sobre la 700 en lugar de la 708/709.
-- Solo el modelo abreviado de cuentas anuales; faltan el normal, el de PYMES, el estado de cambios en el patrimonio neto y la memoria.
-- Libros oficiales (diario, inventarios y cuentas anuales) sin legalización ni formato del Registro Mercantil.
+### Lo que no se ha podido comprobar
+Todo lo anterior compila, pasa el lint y los tests unitarios, y la migración `0067` se ha probado sobre una base con datos antiguos. **No se ha abierto ninguna pantalla ni ejecutado contra la base de datos real ni contra la AEAT.** Antes de confiar en ello: probar cada flujo en la aplicación y VERI\*FACTU en el entorno de pruebas de la AEAT con un certificado real.
 
----
+## 3. Sigue pendiente
 
-## 3. Orden de trabajo propuesto
-
-1. Entorno de VERI\*FACTU por registro y empresa, y registro obligatorio según la fecha real de emisión (puntos 1 y 2).
-2. Validación previa a la emisión: datos obligatorios, simplificada con su límite, recargo de equivalencia, menciones de régimen (puntos 3 a 6).
-3. Fechas en la zona horaria de la empresa (punto 7).
-4. 303 completo: compensaciones, devengo, último periodo; 390 con sus casillas (puntos 8 a 10).
-5. Certificado, avisos y subsanación de VERI\*FACTU (puntos 14 a 16).
-6. Rectificativas de proveedor, inmovilizado y amortizaciones (puntos 12 y 13).
-7. Libros registro en formato AEAT y ficheros de presentación.
-8. Factura electrónica (Facturae y FACe primero).
-9. Sociedades, nóminas y resúmenes anuales de retenciones, si entran en el alcance del producto.
-
-Antes de dar VERI\*FACTU por cumplido hay que probarlo en el entorno de pruebas de la AEAT con un certificado real y validar contra el XSD todos los tipos de factura.
+1. **Criterio de caja en el 303** (devengo al cobro y deducción al pago).
+2. **Rectificación de deducciones en las casillas 40-41** del 303 (los abonos de proveedor restan hoy en 28-39) y regularización de prorrata y de bienes de inversión.
+3. **Compensación de un abono de proveedor** contra su factura en pagos y tesorería (hoy queda como saldo a favor en la 400/410).
+4. **Numeración oficial del 390**; claves restantes del 347 y 349; comprobación VIES al emitir.
+5. **Factura simplificada como tipo de documento propio** y canje por factura completa (F3).
+6. **Ejercicio contable en hora local** (un ticket de las 00:30 del 1 de enero se contabiliza en el ejercicio anterior).
+7. **No existen:** nóminas y modelos 190, 180, 123 y 193; Impuesto sobre Sociedades (200 y 202); SII; libros registro en el formato de la AEAT; ficheros de presentación; factura electrónica (Facturae, FACe y la obligación del RD 238/2026).
+8. **VERI\*FACTU:** casilla de «certificado de sello» y datos del certificado en la pantalla de configuración; versión de la declaración ligada al despliegue, histórico y PDF; caducidad del certificado del sistema.
+9. **Inmovilizado:** IVA en la venta de un bien, centros de coste, botón «crear bien» desde la factura de compra.
+10. **Cuentas anuales:** solo el modelo abreviado; faltan el normal, el de PYMES, el estado de cambios en el patrimonio neto, la memoria y la legalización de libros.
+11. **Validación del NIF por dígito de control** en altas: se decidió en su día no bloquear (commit 91a893d) y se ha respetado.
+12. Abonos a clientes en la 700 en negativo en lugar de 708/709; aviso de plazos de pago de más de 60 días; menciones de bienes usados y agencias de viajes.
