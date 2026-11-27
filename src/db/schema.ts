@@ -386,6 +386,9 @@ export const companySettings = pgTable("company_settings", {
   // Cuotas de IVA a compensar que vienen de ejercicios anteriores, por ejercicio: { "2026": "1250.00" }.
   // Es el saldo inicial de la casilla 110 del modelo 303 en el primer periodo de ese ejercicio.
   vatCompensationOpening: jsonb("vatCompensationOpening").$type<Record<string, string>>(),
+  // Porcentaje definitivo de prorrata confirmado por ejercicio (art. 105 LIVA): { "2026": "83" }.
+  // Con él, el último 303 del año regulariza las deducciones provisionales (casilla 44).
+  vatProrataFinal: jsonb("vatProrataFinal").$type<Record<string, string>>(),
   defaultCustomerAccountCode: text("defaultCustomerAccountCode").notNull().default("4300"),
   defaultSupplierAccountCode: text("defaultSupplierAccountCode").notNull().default("4100"),
   defaultSalesAccountCode: text("defaultSalesAccountCode").notNull().default("700"),
@@ -929,6 +932,9 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   voidedAt: timestamp("voidedAt", { withTimezone: true, mode: "date" }),
   // Clase de documento: INVOICE (factura) o RECTIFICATION (rectificativa / abono del proveedor).
   // Solo una rectificativa admite importes negativos.
+  // Proveedor acogido al régimen especial del criterio de caja (art. 163 quinquiesdecies LIVA):
+  // la cuota de esta factura se deduce al pagarla, no al registrarla.
+  supplierCashAccounting: boolean("supplierCashAccounting").notNull().default(false),
   documentKind: text("documentKind").notNull().default("INVOICE"),
   // Factura que se rectifica: la registrada en el sistema y/o el número y la fecha que figuran en
   // la rectificativa del proveedor (art. 15 RD 1619/2012).
