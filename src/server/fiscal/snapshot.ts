@@ -86,6 +86,12 @@ function snapshotRows(summary: SpanishFiscalSummary): Row[] {
       });
       if (operation.cashAmount !== undefined) rows.push({ key: `${id}|cash`, label: `${who} · cobrado en metálico`, amount: operation.cashAmount });
     }
+  } else if (summary.withholdingModel) {
+    // Modelos de retenciones (111, 115, 123 y resúmenes anuales): por casilla y por perceptor.
+    for (const box of summary.withholdingModel.boxes) rows.push({ key: `wh|${box.box}`, label: `Casilla ${box.box} · ${box.label}`, amount: box.amount });
+    for (const recipient of summary.withholdingModel.modelo190?.recipients ?? []) {
+      rows.push({ key: `190|${recipient.taxId ?? recipient.name}|${recipient.key}|${recipient.subkey ?? ""}`, label: `${recipient.name} (clave ${recipient.key})`, amount: (recipient.withheldCents + recipient.inKindWithheldCents) / 100 });
+    }
   } else if (summary.canaryBoxes) {
     rows.push(...boxRows("canary", summary.canaryBoxes));
   } else if (summary.code === "303") {
