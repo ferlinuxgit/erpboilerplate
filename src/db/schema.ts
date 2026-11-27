@@ -1705,6 +1705,74 @@ export const verifactuEvent = pgTable("verifactu_event", {
 ]);
 
 /**
+ * SII (Suministro Inmediato de Información, art. 62.6 RIVA): ajustes por empresa. Solo tiene fila
+ * la empresa con `company_settings.siiEnabled` que ya ha pasado por la bandeja de salida.
+ */
+export const siiSettings = pgTable("sii_settings", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  // Se suministran las facturas expedidas con fecha de expedición >= esta y las recibidas con fecha
+  // de registro >= esta. Por defecto, el 1 de enero del año en que se activa.
+  since: timestamp("since", { withTimezone: true, mode: "date" }).notNull(),
+  lastDetectionAt: timestamp("lastDetectionAt", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Bandeja de salida del SII: un registro por cada comunicación de una factura a la AEAT (alta A0,
+ * modificación A1 o baja). El historial se conserva: el registro vigente de una factura es el
+ * último. `sourceId` es el id de la factura emitida (`invoice`) o recibida (`supplier_invoice`);
+ * va sin clave ajena a propósito, para no condicionar el borrado de borradores en esos módulos.
+ */
+export const siiRecord = pgTable("sii_record", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // ISSUED (libro de facturas expedidas) o RECEIVED (recibidas).
+  book: text("book").notNull(),
+  sourceId: text("sourceId").notNull(),
+  // A0 (alta), A1 (modificación) o BAJA.
+  operation: text("operation").notNull(),
+  // Entorno de la AEAT en el que nace el registro: decide el punto de acceso y no se mezcla con el otro.
+  environment: text("environment").notNull(),
+  // PENDING, SENT (enviado sin respuesta concluyente), ACCEPTED, ACCEPTED_WITH_ERRORS, REJECTED.
+  status: text("status").notNull().default("PENDING"),
+  fiscalYear: text("fiscalYear").notNull(),
+  period: text("period").notNull(),
+  invoiceNumber: text("invoiceNumber").notNull(),
+  // Fecha de expedición en formato AEAT dd-mm-aaaa.
+  invoiceDate: text("invoiceDate").notNull(),
+  invoiceTypeCode: text("invoiceTypeCode"),
+  counterpartyName: text("counterpartyName"),
+  totalAmount: text("totalAmount"),
+  // Contenido suministrado (campos del esquema del SII) y su huella, para detectar modificaciones.
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  contentHash: text("contentHash").notNull(),
+  // Último día del plazo legal (AAAA-MM-DD, fecha civil); null en modificaciones y bajas.
+  dueDate: text("dueDate"),
+  // Motivo por el que no se puede enviar todavía (falta el NIF, el DUA…); null = se puede enviar.
+  blockedReason: text("blockedReason"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("nextAttemptAt", { withTimezone: true, mode: "date" }),
+  lastAttemptAt: timestamp("lastAttemptAt", { withTimezone: true, mode: "date" }),
+  sentAt: timestamp("sentAt", { withTimezone: true, mode: "date" }),
+  aeatCsv: text("aeatCsv"),
+  aeatErrorCode: text("aeatErrorCode"),
+  aeatErrorMessage: text("aeatErrorMessage"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // Una factura solo puede tener una comunicación pendiente a la vez (por entorno).
+  uniqueIndex("sii_record_pending_unique").on(table.companyId, table.environment, table.book, table.sourceId).where(sql`${table.status} = 'PENDING'`),
+  index("sii_record_source_idx").on(table.companyId, table.book, table.sourceId, table.createdAt),
+  index("sii_record_status_idx").on(table.status, table.nextAttemptAt),
+  index("sii_record_company_created_idx").on(table.companyId, table.createdAt),
+  check("sii_record_book_valid", sql`${table.book} IN ('ISSUED', 'RECEIVED')`),
+  check("sii_record_operation_valid", sql`${table.operation} IN ('A0', 'A1', 'BAJA')`),
+  check("sii_record_environment_valid", sql`${table.environment} IN ('production', 'test')`),
+  check("sii_record_status_valid", sql`${table.status} IN ('PENDING', 'SENT', 'ACCEPTED', 'ACCEPTED_WITH_ERRORS', 'REJECTED')`),
+]);
+
+/**
  * Tesorería · conciliación: cómo se ha aplicado un movimiento bancario. Un movimiento puede
  * repartirse entre varios cobros/pagos (existentes o creados desde la mesa de conciliación) y
  * cuentas contables ("Asignar a cuenta"). `amount` va en el sentido del movimiento: positivo
