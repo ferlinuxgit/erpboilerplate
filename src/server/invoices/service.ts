@@ -321,11 +321,12 @@ export async function getInvoiceBalance(client: DbClient, companyId: string, inv
 /** Recalcula el estado de cobro de una factura emitida (tras un cobro o una rectificativa). */
 export async function refreshInvoicePaymentStatus(tx: DbClient, companyId: string, invoiceId: string) {
   const [row] = await tx
-    .select({ totalAmount: invoice.totalAmount, invoiceType: invoice.invoiceType })
+    .select({ totalAmount: invoice.totalAmount, invoiceType: invoice.invoiceType, isSubstitutive: invoice.isSubstitutive })
     .from(invoice)
     .where(and(eq(invoice.id, invoiceId), eq(invoice.companyId, companyId)))
     .limit(1);
-  if (!row || row.invoiceType !== "INVOICE") return null;
+  // Ni una rectificativa ni una sustitutiva tienen cobro propio.
+  if (!row || row.invoiceType !== "INVOICE" || row.isSubstitutive) return null;
   const balance = await getInvoiceBalance(tx, companyId, invoiceId, row.totalAmount);
   await tx
     .update(invoice)

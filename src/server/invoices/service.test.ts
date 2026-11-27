@@ -198,6 +198,7 @@ import {
   updateInvoice,
   voidInvoice,
   type InvoiceActor,
+  composeCreditNoteLines,
 } from "@/server/invoices/service";
 import { invoiceLifecycle } from "@/server/invoices/lifecycle";
 
@@ -470,5 +471,24 @@ describe("duplicateInvoice", () => {
     expect((stored.dueDate as Date).toISOString()).toBe("2026-08-01T00:00:00.000Z");
     expect(mocks.reserveSeriesNumber).not.toHaveBeenCalled();
     expect(auditActions()).toEqual(["invoice.duplicate"]);
+  });
+});
+
+describe("composeCreditNoteLines", () => {
+  const original = [{ description: "A", quantity: 2, unitPrice: 10 }, { description: "B", quantity: 1, unitPrice: 5 }];
+  const extra = [{ description: "A", quantity: 1, unitPrice: 3 }];
+
+  it("anulación total: las líneas originales en negativo", () => {
+    expect(composeCreditNoteLines({ type: "DIFFERENCES", scope: "FULL" }, original, extra).map((line) => line.quantity)).toEqual([-2, -1]);
+  });
+
+  it("parcial: abona lo indicado; al alza lo añade en positivo", () => {
+    expect(composeCreditNoteLines({ type: "DIFFERENCES", scope: "PARTIAL" }, original, extra)).toEqual([{ description: "A", quantity: -1, unitPrice: 3 }]);
+    expect(composeCreditNoteLines({ type: "DIFFERENCES", scope: "PARTIAL", direction: "DECREASE" }, original, extra)[0].quantity).toBe(-1);
+    expect(composeCreditNoteLines({ type: "DIFFERENCES", scope: "PARTIAL", direction: "INCREASE" }, original, extra)).toEqual(extra);
+  });
+
+  it("anula y vuelve a facturar: originales en negativo más las correctas", () => {
+    expect(composeCreditNoteLines({ type: "SUBSTITUTION", scope: "FULL" }, original, extra).map((line) => line.quantity)).toEqual([-2, -1, 1]);
   });
 });

@@ -65,12 +65,19 @@ type CreditedSubquery = ReturnType<typeof creditedByInvoiceSubquery>;
 
 /**
  * Net outstanding of an invoice row: total + issued credit notes (negative) − payments, never
- * negative (`outstandingCents`). Drafts, voided invoices and credit notes owe nothing.
+ * negative (`outstandingCents`). Drafts, voided invoices and credit notes owe nothing; neither
+ * does an invoice issued in substitution of simplified ones (the receivable stays on those).
  * Needs `paid` and `credited` left-joined on `invoice.id`.
  */
 export function netOutstandingSql(paid: PaidSubquery, credited: CreditedSubquery) {
   return sql<string>`case
-    when ${invoiceIsVoidSql} or ${invoice.paymentStatus} = 'VOID' or ${invoiceIsDraftSql} or ${invoice.invoiceType} = 'CREDIT_NOTE' then 0
+    when ${invoiceIsVoidSql} or ${invoice.paymentStatus} = 'VOID' or ${invoiceIsDraftSql} or ${invoice.invoiceType} = 'CREDIT_NOTE' or ${invoice.isSubstitutive} then 0
     else greatest(${invoice.totalAmount} + coalesce(${credited.creditedAmount}, 0) - coalesce(${paid.paidAmount}, 0), 0)
   end`;
 }
+
+/**
+ * Invoices that count as a sale (turnover, VAT base): issued and not a substitutive of simplified
+ * invoices, whose amounts were already counted with the simplified invoices they replace.
+ */
+export const invoiceCountsAsSaleSql: SQL = and(invoiceIsIssuedSql, eq(invoice.isSubstitutive, false)) as SQL;

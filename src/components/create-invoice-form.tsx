@@ -113,6 +113,7 @@ export function CreateInvoiceForm({
   paymentMethods,
   taxes,
   vatContext,
+  spanishFiscalExtras = false,
   vatTreatments,
 }: {
   canCreateCustomer: boolean;
@@ -120,6 +121,8 @@ export function CreateInvoiceForm({
   catalog?: SaleCatalogEntry[];
   /** País de la empresa y qué vende: deciden el tratamiento de IVA propuesto para cada cliente. */
   vatContext?: VatTreatmentContext;
+  /** Empresa con normativa española: ofrece la clase de factura y las menciones habituales. */
+  spanishFiscalExtras?: boolean;
   /** Tratamientos de IVA que usa la empresa (Configuración › Fiscalidad). */
   vatTreatments?: readonly string[];
   /** Días de pago de la empresa (si el cliente no tiene los suyos). */
@@ -167,6 +170,8 @@ export function CreateInvoiceForm({
       totalAmount: 0,
       operationDate: "",
       vatExemptionCode: null,
+      documentClass: null,
+      legalMentions: "",
       notes: "",
       paymentMethodIds: defaultPaymentMethodIds,
       seriesId: defaultSeries?.id ?? null,
@@ -528,6 +533,10 @@ export function CreateInvoiceForm({
           <InvoiceFiscalExtrasFields
             control={control}
             exemptionCodeName="vatExemptionCode"
+            documentClassName={spanishFiscalExtras ? "documentClass" : undefined}
+            legalMentionPresets={spanishFiscalExtras}
+            legalMentionsError={errors.legalMentions?.message}
+            legalMentionsName="legalMentions"
             operationDateError={errors.operationDate?.message}
             operationDateName="operationDate"
             treatmentName="vatTreatment"
