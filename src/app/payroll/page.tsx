@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import { PayrollMonthPanel } from "@/components/payroll/payroll-month-panel";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EmptyState, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { dateInputValue } from "@/lib/date-input";
@@ -46,12 +48,12 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
         }
       />
 
-      <form className="flex flex-wrap items-end gap-2" method="get">
-        <label className="space-y-1 text-sm">
-          <span className="block font-medium">Mes</span>
-          <input className="h-9 rounded-control border bg-background px-2 font-mono text-sm" defaultValue={period} name="period" type="month" />
-        </label>
-        <button className={buttonVariants({ variant: "outline" })} type="submit">Ver mes</button>
+      <form action="/payroll" className="flex flex-wrap items-end gap-2 rounded-surface border border-window-dark-shadow bg-window-panel p-2.5" data-ignore-dirty-guard="true" method="get">
+        <div className="space-y-1">
+          <Label htmlFor="payroll-period">Mes</Label>
+          <Input className="w-44" defaultValue={period} id="payroll-period" name="period" type="month" />
+        </div>
+        <Button type="submit" variant="secondary">Ver mes</Button>
         {periods.slice(0, 6).map((entry) => (
           <Link className={buttonVariants({ variant: entry.period === period ? "default" : "ghost", size: "sm" })} href={`/payroll?period=${entry.period}`} key={entry.period}>
             {entry.label}{entry.drafts > 0 ? ` (${entry.drafts} en borrador)` : ""}

@@ -2,7 +2,9 @@ import Link from "next/link";
 
 import { WithholdingModelView } from "@/components/payroll/withholding-model-view";
 import { WithholdingSettingsForm } from "@/components/payroll/withholding-settings-form";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { composeFiscalPeriod, fiscalPeriodPartsFor, fiscalTimeZoneFor, getSpanishFiscalDueDate, getSpanishFiscalModel } from "@/lib/fiscal-spain";
@@ -45,27 +47,30 @@ export default async function WithholdingModelsPage({ searchParams }: { searchPa
         actions={<Link className={buttonVariants({ variant: "outline" })} href="/fiscal">Ir a Fiscalidad</Link>}
       />
 
-      <form className="flex flex-wrap items-end gap-2" method="get">
-        <label className="space-y-1 text-sm">
-          <span className="block font-medium">Modelo</span>
-          <select className="h-9 rounded-control border bg-background px-2 text-sm" defaultValue={code} name="code">
+      <form action="/payroll/models" className="flex flex-wrap items-end gap-2 rounded-surface border border-window-dark-shadow bg-window-panel p-2.5" data-ignore-dirty-guard="true" method="get">
+        <div className="space-y-1">
+          <Label htmlFor="withholding-model-code">Modelo</Label>
+          <Select className="w-80 max-w-full" defaultValue={code} id="withholding-model-code" name="code">
             {WITHHOLDING_MODEL_CODES.map((option) => (
               <option key={option} value={option}>{option} · {getSpanishFiscalModel(option)?.shortName}</option>
             ))}
-          </select>
-        </label>
-        <label className="space-y-1 text-sm">
-          <span className="block font-medium">Año</span>
-          <input className="h-9 w-24 rounded-control border bg-background px-2 font-mono text-sm" defaultValue={year} max={now.getFullYear() + 1} min={2000} name="year" type="number" />
-        </label>
-        <label className="space-y-1 text-sm">
-          <span className="block font-medium">Periodo</span>
-          <select className="h-9 rounded-control border bg-background px-2 text-sm" defaultValue={part ?? defaultPart} name="part">
-            {[1, 2, 3, 4].map((quarter) => <option key={quarter} value={`Q${quarter}`}>{quarter}.º trimestre</option>)}
-            {fiscalPeriodPartsFor("111").filter((option) => !option.value.startsWith("Q")).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <button className={buttonVariants()} type="submit">Calcular</button>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="withholding-model-year">Año</Label>
+          <Select className="w-28" defaultValue={String(year)} id="withholding-model-year" name="year">
+            {[now.getFullYear() - 2, now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="withholding-model-part">Periodo</Label>
+          <Select className="w-44" defaultValue={part ?? defaultPart} id="withholding-model-part" name="part">
+            {fiscalPeriodPartsFor("111").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </Select>
+        </div>
+        <Button type="submit" variant="secondary">Calcular</Button>
         <p className="basis-full text-xs text-muted-foreground">Los resúmenes anuales (190, 180 y 193) son del año completo: el periodo no se tiene en cuenta.</p>
       </form>
 
