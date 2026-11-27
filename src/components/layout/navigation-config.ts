@@ -134,6 +134,8 @@ export type ContextLink = {
   permission?: PermissionKey;
   countryFeature?: CountryNavFeature;
   unlessCountryFeature?: CountryNavFeature;
+  /** Solo si la empresa tiene activado el SII (`company_settings.siiEnabled`); sin ese dato, no se muestra. */
+  requiresSii?: boolean;
 };
 
 export const contextGroups: ContextGroup[] = [
@@ -240,6 +242,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/fiscal", label: "Resumen de impuestos", exact: true, commandLabel: "Resumen de impuestos (IVA)", keywords: "iva vat impuestos repercutido soportado periodo trimestre declaración", unlessCountryFeature: "taxReports" },
       { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos vencimientos trimestre fechas hacienda", countryFeature: "taxReports" },
       { href: "/fiscal/verifactu", label: "VERI*FACTU", keywords: "verifactu registro aeat facturación antifraude", countryFeature: "eInvoicing" },
+      { href: "/fiscal/sii", label: "SII", commandLabel: "SII (Suministro Inmediato de Información)", keywords: "sii suministro inmediato información libros registro aeat iva facturas expedidas recibidas", countryFeature: "taxReports", requiresSii: true },
       { href: "/settings/fiscal", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo periodicidad" },
       { href: "/fiscal/glossary", label: "Glosario", commandLabel: "Glosario fiscal", keywords: "glosario ayuda qué es términos 303 555 recargo irpf devolución", countryFeature: "taxReports" },
     ],
@@ -278,6 +281,8 @@ export type NavigationAudience = {
   role?: string | null;
   /** País de la empresa: oculta las pantallas fiscales de otros países. Si falta, se muestran las de España. */
   countryCode?: string | null;
+  /** La empresa tiene activado el SII: muestra su pantalla. Si falta, no se muestra. */
+  siiEnabled?: boolean | null;
 };
 
 function audienceModules(audience: NavigationAudience): readonly string[] | null {
@@ -286,9 +291,10 @@ function audienceModules(audience: NavigationAudience): readonly string[] | null
 }
 
 function visibleFor(
-  entry: { module?: ModuleId; unlessModule?: ModuleId; permission?: PermissionKey; countryFeature?: CountryNavFeature; unlessCountryFeature?: CountryNavFeature },
+  entry: { module?: ModuleId; unlessModule?: ModuleId; permission?: PermissionKey; countryFeature?: CountryNavFeature; unlessCountryFeature?: CountryNavFeature; requiresSii?: boolean },
   audience: NavigationAudience,
 ) {
+  if (entry.requiresSii && audience.siiEnabled !== true) return false;
   const features = getCountryFiscalProfile(audience.countryCode).features;
   const hasFeature = (feature: CountryNavFeature) => Boolean(features[feature]);
   if (entry.countryFeature && !hasFeature(entry.countryFeature)) return false;
