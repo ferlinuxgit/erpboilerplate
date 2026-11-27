@@ -13,22 +13,35 @@
  * - Cualquier otra cuenta se lleva, según su saldo, a «Otros deudores» u «Otras deudas a corto
  *   plazo» (resultados: «Otros resultados») y se devuelve en `unmapped` para avisar.
  *
+ * OTROS MODELOS. El mismo motor sirve para el modelo NORMAL del PGC y para el de PYMES (Real Decreto
+ * 1515/2007); sus repartos están en `annual-accounts/model-normal.ts` y `model-pymes.ts`, con los
+ * criterios propios de cada uno en su cabecera. `buildOfficialStatements(rows, previous, "normal")`.
+ *
  * Signos: el activo se muestra con saldo deudor en positivo; el patrimonio neto y el pasivo, con
  * saldo acreedor en positivo; en la cuenta de pérdidas y ganancias los ingresos son positivos y los
  * gastos negativos, igual que la columna «(Debe) Haber» del modelo.
  */
 
+import { NORMAL_MODEL } from "@/server/accounting/annual-accounts/model-normal";
+import { PYMES_MODEL } from "@/server/accounting/annual-accounts/model-pymes";
 import type { StatementAccountRow } from "@/server/accounting/statements-model";
 
 type Side = "asset" | "equityLiability" | "income";
 
-type NodeDefinition = {
+export type OfficialStatementModelId = "abbreviated" | "normal" | "pymes";
+
+export type NodeDefinition = {
   id: string;
   label: string;
   /** Prefijos de cuenta del epígrafe. */
   accounts?: string[];
   /** Prefijos que solo entran aquí con saldo deudor (activo) o acreedor (pasivo). */
   bySign?: string[];
+  /**
+   * Prefijos de cuentas que el plan de este modelo no contempla (p. ej. cuentas del PGC completo en
+   * el modelo de PYMES): se llevan a este epígrafe, el más próximo, y se avisa en `unmapped`.
+   */
+  foreign?: string[];
   children?: NodeDefinition[];
   /** Fila de total: suma de los epígrafes indicados (no tiene cuentas propias). */
   totalOf?: string[];
@@ -157,10 +170,36 @@ const INCOME: NodeDefinition[] = [
   { id: "PG.D", label: "D) RESULTADO DEL EJERCICIO (C + 17)", totalOf: [...OPERATING, ...FINANCIAL, "PG.17"] },
 ];
 
-/** Epígrafes a los que va lo que el modelo oficial no prevé. */
-const FALLBACK = { asset: "B.III.3", equityLiability: "PC.III.3", income: "PG.OTROS" } as const;
-const YEAR_RESULT_LINE = "PN.1.VII";
-const PRIOR_RESULTS_LINE = "PN.1.V";
+export type OfficialStatementModelDefinition = {
+  id: OfficialStatementModelId;
+  /** Nombre para pantallas y documentos («Modelo abreviado»). */
+  name: string;
+  /** Norma que aprueba el modelo. */
+  source: string;
+  assets: NodeDefinition[];
+  equityAndLiabilities: NodeDefinition[];
+  income: NodeDefinition[];
+  /** Epígrafes a los que va lo que el modelo oficial no prevé. */
+  fallback: { asset: string; equityLiability: string; income: string };
+  /** Epígrafe del resultado del ejercicio aún sin regularizar. */
+  yearResultLine: string;
+  /** Epígrafe del resultado de años sin cerrar (si el modelo separa remanente y pérdidas, uno por signo). */
+  priorResultsLine: string | { profit: string; loss: string };
+  totalLines: { assets: string; equityAndLiabilities: string; result: string };
+};
+
+const ABBREVIATED_MODEL: OfficialStatementModelDefinition = {
+  id: "abbreviated",
+  name: "Modelo abreviado",
+  source: "Plan General de Contabilidad (Real Decreto 1514/2007), tercera parte",
+  assets: ASSETS,
+  equityAndLiabilities: EQUITY_AND_LIABILITIES,
+  income: INCOME,
+  fallback: { asset: "B.III.3", equityLiability: "PC.III.3", income: "PG.OTROS" },
+  yearResultLine: "PN.1.VII",
+  priorResultsLine: "PN.1.V",
+  totalLines: { assets: "TOTAL_ACTIVO", equityAndLiabilities: "TOTAL_PN_PASIVO", result: "PG.D" },
+};
 
 export type OfficialStatementAccount = { accountId: string; code: string; name: string; amount: number };
 
@@ -178,6 +217,7 @@ export type OfficialStatementLine = {
 };
 
 export type OfficialStatements = {
+  model: OfficialStatementModelId;
   assets: OfficialStatementLine[];
   equityAndLiabilities: OfficialStatementLine[];
   incomeStatement: OfficialStatementLine[];
@@ -188,19 +228,63 @@ export type OfficialStatements = {
   unmapped: Array<{ code: string; name: string }>;
 };
 
-type Rule = { prefix: string; lineId: string; side: Side; bySign: boolean };
+type Rule = { prefix: string; lineId: string; side: Side; bySign: boolean; foreign: boolean };
 
 function collectRules(nodes: NodeDefinition[], side: Side, rules: Rule[] = []) {
   for (const node of nodes) {
-    for (const prefix of node.accounts ?? []) rules.push({ prefix, lineId: node.id, side, bySign: false });
-    for (const prefix of node.bySign ?? []) rules.push({ prefix, lineId: node.id, side, bySign: true });
+    for (const prefix of node.accounts ?? []) rules.push({ prefix, lineId: node.id, side, bySign: false, foreign: false });
+    for (const prefix of node.bySign ?? []) rules.push({ prefix, lineId: node.id, side, bySign: true, foreign: false });
+    for (const prefix of node.foreign ?? []) rules.push({ prefix, lineId: node.id, side, bySign: false, foreign: true });
     if (node.children) collectRules(node.children, side, rules);
   }
   return rules;
 }
 
-const BALANCE_RULES = [...collectRules(ASSETS, "asset"), ...collectRules(EQUITY_AND_LIABILITIES, "equityLiability")];
-const INCOME_RULES = collectRules(INCOME, "income");
+type CompiledModel = {
+  definition: OfficialStatementModelDefinition;
+  balanceRules: Rule[];
+  incomeRules: Rule[];
+  assetsById: Map<string, NodeDefinition>;
+  equityAndLiabilitiesById: Map<string, NodeDefinition>;
+  incomeById: Map<string, NodeDefinition>;
+};
+
+const MODEL_DEFINITIONS: Record<OfficialStatementModelId, OfficialStatementModelDefinition> = {
+  abbreviated: ABBREVIATED_MODEL,
+  normal: NORMAL_MODEL,
+  pymes: PYMES_MODEL,
+};
+
+const compiledModels = new Map<OfficialStatementModelId, CompiledModel>();
+
+function compiledModel(id: OfficialStatementModelId): CompiledModel {
+  let compiled = compiledModels.get(id);
+  if (!compiled) {
+    const definition = MODEL_DEFINITIONS[id] ?? ABBREVIATED_MODEL;
+    compiled = {
+      definition,
+      balanceRules: [...collectRules(definition.assets, "asset"), ...collectRules(definition.equityAndLiabilities, "equityLiability")],
+      incomeRules: collectRules(definition.income, "income"),
+      assetsById: indexNodes(definition.assets),
+      equityAndLiabilitiesById: indexNodes(definition.equityAndLiabilities),
+      incomeById: indexNodes(definition.income),
+    };
+    compiledModels.set(id, compiled);
+  }
+  return compiled;
+}
+
+export const OFFICIAL_STATEMENT_MODEL_IDS: OfficialStatementModelId[] = ["abbreviated", "pymes", "normal"];
+
+export function isOfficialStatementModelId(value: unknown): value is OfficialStatementModelId {
+  return value === "abbreviated" || value === "normal" || value === "pymes";
+}
+
+/** Nombre y norma de un modelo de cuentas anuales. */
+export function officialStatementModelInfo(id: OfficialStatementModelId) {
+  const { name, source } = MODEL_DEFINITIONS[id] ?? ABBREVIATED_MODEL;
+  return { id, name, source };
+}
 
 /** Regla del prefijo más largo; con cuentas de doble naturaleza decide el signo del saldo. */
 function matchRule(rules: Rule[], code: string, balanceCents: number): Rule | null {
@@ -227,7 +311,8 @@ function addToBucket(buckets: Map<string, Bucket>, lineId: string, row: { accoun
 
 const isIncomeAccount = (code: string) => code.startsWith("6") || code.startsWith("7");
 
-function fillBuckets(rows: StatementAccountRow[]) {
+function fillBuckets(rows: StatementAccountRow[], model: CompiledModel) {
+  const { fallback, yearResultLine, priorResultsLine } = model.definition;
   const buckets = new Map<string, Bucket>();
   const unmapped: Array<{ code: string; name: string }> = [];
   let yearResultCents = 0;
@@ -240,9 +325,9 @@ function fillBuckets(rows: StatementAccountRow[]) {
     if (isIncomeAccount(row.code)) {
       // Cuenta de pérdidas y ganancias: movimientos del periodo, ingresos en positivo.
       if (periodNet !== 0) {
-        const rule = matchRule(INCOME_RULES, row.code, periodNet);
-        if (!rule) unmapped.push({ code: row.code, name: row.name });
-        addToBucket(buckets, rule?.lineId ?? FALLBACK.income, row, -periodNet);
+        const rule = matchRule(model.incomeRules, row.code, periodNet);
+        if (!rule || rule.foreign) unmapped.push({ code: row.code, name: row.name });
+        addToBucket(buckets, rule?.lineId ?? fallback.income, row, -periodNet);
       }
       // Balance: el resultado aún sin regularizar forma parte del patrimonio neto.
       yearResultCents += -row.yearToDateCents;
@@ -251,19 +336,21 @@ function fillBuckets(rows: StatementAccountRow[]) {
     }
 
     if (closing === 0) continue;
-    const rule = matchRule(BALANCE_RULES, row.code, closing);
+    const rule = matchRule(model.balanceRules, row.code, closing);
     if (!rule) {
       unmapped.push({ code: row.code, name: row.name });
-      if (closing > 0) addToBucket(buckets, FALLBACK.asset, row, closing);
-      else addToBucket(buckets, FALLBACK.equityLiability, row, -closing);
+      if (closing > 0) addToBucket(buckets, fallback.asset, row, closing);
+      else addToBucket(buckets, fallback.equityLiability, row, -closing);
       continue;
     }
+    if (rule.foreign) unmapped.push({ code: row.code, name: row.name });
     addToBucket(buckets, rule.lineId, row, rule.side === "asset" ? closing : -closing);
   }
 
   const synthetic = { accountId: "", code: "", name: "" };
-  addToBucket(buckets, YEAR_RESULT_LINE, synthetic, yearResultCents);
-  addToBucket(buckets, PRIOR_RESULTS_LINE, synthetic, priorResultCents);
+  addToBucket(buckets, yearResultLine, synthetic, yearResultCents);
+  const priorLine = typeof priorResultsLine === "string" ? priorResultsLine : priorResultCents >= 0 ? priorResultsLine.profit : priorResultsLine.loss;
+  addToBucket(buckets, priorLine, synthetic, priorResultCents);
   return { buckets, unmapped };
 }
 
@@ -308,29 +395,32 @@ function flatten(
   return lines;
 }
 
-const ASSETS_BY_ID = indexNodes(ASSETS);
-const EQUITY_AND_LIABILITIES_BY_ID = indexNodes(EQUITY_AND_LIABILITIES);
-const INCOME_BY_ID = indexNodes(INCOME);
-
 /**
- * Balance y cuenta de pérdidas y ganancias abreviados. `previousRows` (mismo periodo del ejercicio
- * anterior) rellena la columna comparativa que exige el modelo.
+ * Balance y cuenta de pérdidas y ganancias en el modelo indicado (por defecto, el abreviado).
+ * `previousRows` (mismo periodo del ejercicio anterior) rellena la columna comparativa que exige el modelo.
  */
-export function buildOfficialStatements(rows: StatementAccountRow[], previousRows?: StatementAccountRow[] | null): OfficialStatements {
-  const current = fillBuckets(rows);
-  const previous = previousRows ? fillBuckets(previousRows).buckets : null;
-  const assets = flatten(ASSETS, current.buckets, previous, ASSETS_BY_ID);
-  const equityAndLiabilities = flatten(EQUITY_AND_LIABILITIES, current.buckets, previous, EQUITY_AND_LIABILITIES_BY_ID);
-  const incomeStatement = flatten(INCOME, current.buckets, previous, INCOME_BY_ID);
+export function buildOfficialStatements(
+  rows: StatementAccountRow[],
+  previousRows?: StatementAccountRow[] | null,
+  modelId: OfficialStatementModelId = "abbreviated",
+): OfficialStatements {
+  const model = compiledModel(modelId);
+  const { definition } = model;
+  const current = fillBuckets(rows, model);
+  const previous = previousRows ? fillBuckets(previousRows, model).buckets : null;
+  const assets = flatten(definition.assets, current.buckets, previous, model.assetsById);
+  const equityAndLiabilities = flatten(definition.equityAndLiabilities, current.buckets, previous, model.equityAndLiabilitiesById);
+  const incomeStatement = flatten(definition.income, current.buckets, previous, model.incomeById);
   const amountOf = (lines: OfficialStatementLine[], id: string) => lines.find((line) => line.id === id)?.amount ?? 0;
-  const totalAssets = amountOf(assets, "TOTAL_ACTIVO");
-  const totalEquityAndLiabilities = amountOf(equityAndLiabilities, "TOTAL_PN_PASIVO");
+  const totalAssets = amountOf(assets, definition.totalLines.assets);
+  const totalEquityAndLiabilities = amountOf(equityAndLiabilities, definition.totalLines.equityAndLiabilities);
   const seen = new Set<string>();
   return {
+    model: modelId,
     assets,
     equityAndLiabilities,
     incomeStatement,
-    totals: { assets: totalAssets, equityAndLiabilities: totalEquityAndLiabilities, result: amountOf(incomeStatement, "PG.D") },
+    totals: { assets: totalAssets, equityAndLiabilities: totalEquityAndLiabilities, result: amountOf(incomeStatement, definition.totalLines.result) },
     difference: Math.round((totalAssets - totalEquityAndLiabilities) * 100) / 100,
     unmapped: current.unmapped
       .filter((account) => (seen.has(account.code) ? false : (seen.add(account.code), true)))
@@ -338,7 +428,20 @@ export function buildOfficialStatements(rows: StatementAccountRow[], previousRow
   };
 }
 
-/** Prefijos de cuenta que el modelo abreviado asigna a algún epígrafe (para comprobar la cobertura del plan). */
-export function officialStatementPrefixes() {
-  return { balance: BALANCE_RULES.map((rule) => rule.prefix), income: INCOME_RULES.map((rule) => rule.prefix) };
+/**
+ * Prefijos de cuenta que el modelo asigna a algún epígrafe (para comprobar la cobertura del plan).
+ * `foreign`: los de cuentas que el plan del modelo no contempla y se colocan con aviso.
+ */
+export function officialStatementPrefixes(modelId: OfficialStatementModelId = "abbreviated") {
+  const model = compiledModel(modelId);
+  return {
+    balance: model.balanceRules.map((rule) => rule.prefix),
+    income: model.incomeRules.map((rule) => rule.prefix),
+    foreign: [...model.balanceRules, ...model.incomeRules].filter((rule) => rule.foreign).map((rule) => rule.prefix),
+  };
+}
+
+/** Importe de un epígrafe por su identificador (0 si no existe en el modelo). */
+export function officialLineAmount(lines: OfficialStatementLine[], id: string) {
+  return lines.find((line) => line.id === id)?.amount ?? 0;
 }

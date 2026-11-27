@@ -5,6 +5,7 @@ import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { FISCAL_TIME_ZONE_CANARY, FISCAL_TIME_ZONE_PENINSULA, fiscalRangeInstants, fiscalTimeZoneFor, isSpanishFiscalModelCode, parseSpanishFiscalPeriod } from "@/lib/fiscal-spain";
 import type { DbClient } from "@/lib/db";
 import { AccountingRuleError } from "@/server/accounting/errors";
+import { resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
 import { ACCRUAL_LOCKING_MODEL_CODES } from "@/server/fiscal/accrual";
 
 export type FiscalLockResult = {
@@ -92,9 +93,11 @@ export async function findFiscalPeriodLock(companyId: string, date: Date, dbClie
   return fiscalTimeZoneFor(taxTerritoryOf(companies[0]) ?? "ES") === FISCAL_TIME_ZONE_CANARY ? canary : peninsula;
 }
 
-export async function assertFiscalYearOpen(companyId: string, date: Date, dbClient?: DbClient) {
-  if (Number.isNaN(date.getTime())) throw new FiscalYearUnavailableError("INVALID_DATE", "La fecha contable no es válida.");
+export async function assertFiscalYearOpen(companyId: string, instant: Date, dbClient?: DbClient) {
+  if (Number.isNaN(instant.getTime())) throw new FiscalYearUnavailableError("INVALID_DATE", "La fecha contable no es válida.");
   const client = dbClient ?? (await import("@/lib/db")).db;
+  // El ejercicio es el del día civil local de la fecha (ver `fiscal-year-date.ts`).
+  const date = await resolveAccountingDay(client, companyId, instant);
   const [year] = await client
     .select({ code: fiscalYear.code, isClosed: fiscalYear.isClosed })
     .from(fiscalYear)

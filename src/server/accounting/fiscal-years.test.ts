@@ -174,8 +174,8 @@ describe("reopenFiscalYear", () => {
     const calls = mocks.reverseAutomaticEntries.mock.calls.map(([input]) => input);
     expect(calls.map((call) => [call.sourceType, call.sourceId, (call.postedAt as Date).toISOString()])).toEqual([
       [FISCAL_YEAR_SOURCE.opening, "fy-2027", "2027-01-01T00:00:00.000Z"],
-      [FISCAL_YEAR_SOURCE.closing, "fy-2026", "2026-12-31T23:59:59.000Z"],
-      [FISCAL_YEAR_SOURCE.regularization, "fy-2026", "2026-12-31T23:59:58.000Z"],
+      [FISCAL_YEAR_SOURCE.closing, "fy-2026", "2026-12-31T22:59:59.000Z"],
+      [FISCAL_YEAR_SOURCE.regularization, "fy-2026", "2026-12-31T22:59:58.000Z"],
     ]);
     for (const call of calls) {
       expect(call).toMatchObject({ ...actor, dbClient: tx });

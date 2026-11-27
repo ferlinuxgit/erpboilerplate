@@ -217,6 +217,8 @@ export const contextGroups: ContextGroup[] = [
       { href: "/accounting/assets", label: "Inmovilizado", keywords: "amortización amortizaciones bienes de inversión activos fijos dotación 281 681 ordenador vehículo maquinaria" },
       { href: "/accounting/cost-centers", label: "Centros de coste", keywords: "analítica departamentos proyectos" },
       { href: "/accounting/reports", label: "Estados financieros", keywords: "balance pérdidas y ganancias resultado sumas y saldos" },
+      { href: "/accounting/reports/annual-accounts", label: "Cuentas anuales", keywords: "cuentas anuales balance abreviado normal pymes memoria patrimonio neto depósito registro mercantil", countryFeature: "taxReports" },
+      { href: "/accounting/books", label: "Libros oficiales", keywords: "libro diario mayor inventarios legalizar legalización legalia registro mercantil huella a3 contaplus sage suenlace exportar despacho", countryFeature: "taxReports" },
       { href: "/accounting/gestor", label: "Paquete para el gestor", keywords: "gestor gestoría asesor exportar enviar zip trimestre cierre documentación" },
     ],
   },

@@ -4,6 +4,7 @@ import { documentSeries, fiscalYear } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { defaultSeriesFormat, formatSeriesNumber } from "@/lib/document-series-format";
 import { HttpError } from "@/lib/http";
+import { resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
 
 export type ReservableSeriesType =
   | "SALES_QUOTE"
@@ -80,8 +81,13 @@ function toValidDate(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Ejercicio de la empresa que contiene la fecha (fin inclusivo: `endsAt` es el último día a las 00:00 UTC). */
-export async function findFiscalYearForDate(client: DbClient, companyId: string, date: Date) {
+/**
+ * Ejercicio de la empresa que contiene la fecha (fin inclusivo: `endsAt` es el último día a las 00:00 UTC).
+ * Se compara el día civil local de la fecha (ver `fiscal-year-date.ts`): un ticket emitido el 1 de
+ * enero a las 00:30 de Madrid es del ejercicio nuevo aunque en UTC aún sea 31 de diciembre.
+ */
+export async function findFiscalYearForDate(client: DbClient, companyId: string, instant: Date) {
+  const date = await resolveAccountingDay(client, companyId, instant);
   const [year] = await client
     .select({ id: fiscalYear.id, code: fiscalYear.code, isClosed: fiscalYear.isClosed })
     .from(fiscalYear)

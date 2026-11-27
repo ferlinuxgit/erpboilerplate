@@ -8,6 +8,100 @@
   "body": "const confirmSchema = z.object({ confirm: z.literal(\"BORRAR\") })"
  },
  {
+  "method": "GET",
+  "path": "/api/accounting/annual-accounts/export",
+  "area": "accounting",
+  "summary": "Cuentas anuales de un ejercicio (balance, pérdidas y ganancias, estado de cambios en el patrimonio neto y memoria) en PDF o Excel. `?year=<id del ejercicio>&format=pdf|xlsx&model=abbreviated|pymes|normal`.",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "format",
+   "model",
+   "year"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/accounting/annual-accounts/notes",
+  "area": "accounting",
+  "summary": "Guarda la memoria de un ejercicio: textos de los apartados, plantilla media y datos fiscales.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  fiscalYearId: z.string().trim().min(1),\n  /** Texto por apartado; vacío = volver al texto de partida. */\n  sections: z.record(z.string().max(20), z.string().max(20_000)).optional(),\n  averageEmployees: z.number().min(0).max(100_000).nullable().optional(),\n  taxData: z.object({ permanentDifferences: amount, temporaryDifferences: amount, lossCarryforward: amount }).partial().optional(),\n})"
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/accounting/annual-accounts",
+  "area": "accounting",
+  "summary": "Modelo de cuentas anuales que presenta la empresa: abreviado (por defecto), PYMES o normal.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({ model: z.enum([\"abbreviated\", \"pymes\", \"normal\"]) })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/books/export",
+  "area": "accounting",
+  "summary": "Diario del ejercicio para programas de despacho: `?year=<id>&format=a3&companyCode=<1-99999>` (fichero SUENLACE.DAT de A3) o `?year=<id>&format=contaplus` (ZIP con XDiario.txt y XSubCta.txt).",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "format",
+   "companyCode",
+   "year"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounting/books/package",
+  "area": "accounting",
+  "summary": "Genera el juego de libros para legalizar (Diario, Inventarios y Cuentas Anuales y Mayor) en un ZIP con la relación de huellas SHA-256 y las instrucciones de Legalia 2, y lo deja anotado.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({ fiscalYearId: z.string().trim().min(1), format: z.enum([\"xlsx\", \"pdf\"]).default(\"xlsx\") })"
+ },
+ {
+  "method": "GET",
+  "path": "/api/accounting/books",
+  "area": "accounting",
+  "summary": "Un libro oficial del ejercicio para revisarlo: `?year=<id>&book=journal|inventory|ledger&format=xlsx|pdf`. El juego para legalizar (con huellas) se genera en `POST /api/accounting/books/package`.",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "book",
+   "format",
+   "year"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounting/books/submissions",
+  "area": "accounting",
+  "summary": "Anota la presentación de un juego de libros en el Registro Mercantil (fecha y número de entrada).",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const registerSchema = z.object({\n  submissionId: z.string().trim().min(1),\n  submittedAt: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),\n  registryName: z.string().trim().max(120).nullish(),\n  submissionReference: z.string().trim().max(120).nullish(),\n  notes: z.string().trim().max(1000).nullish(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/accounting/books/submissions",
+  "area": "accounting",
+  "summary": "Deshace la anotación de una presentación registrada por error: `?id=<presentación>`.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "query": [
+   "id"
+  ]
+ },
+ {
   "method": "POST",
   "path": "/api/accounting/close-year",
   "area": "accounting",

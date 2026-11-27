@@ -407,6 +407,9 @@ export const companySettings = pgTable("company_settings", {
   // general o 3.000 € en las actividades del art. 4.2 del Reglamento de facturación (comercio al por
   // menor, hostelería, transporte de personas…).
   simplifiedInvoiceLimit: numeric("simplifiedInvoiceLimit", { precision: 10, scale: 2 }).notNull().default("400"),
+  // Modelo de cuentas anuales que presenta la empresa: "abbreviated" (PGC abreviado), "pymes"
+  // (Plan de PYMES, RD 1515/2007) o "normal" (PGC). Ver `official-statements-model.ts`.
+  annualAccountsModel: text("annualAccountsModel").notNull().default("abbreviated"),
   // Tratamientos de IVA que usa en sus ventas (los demás no se ofrecen al facturar). Null = automático
   // según lo que vende (ver `defaultSalesVatTreatments`).
   salesVatTreatments: jsonb("salesVatTreatments").$type<string[]>(),
@@ -1310,6 +1313,51 @@ export const journalLine = pgTable("journal_line", {
 ]);
 
 // --- Inmovilizado y amortizaciones (src/server/fixed-assets) ---
+
+/**
+ * Memoria de las cuentas anuales de un ejercicio: textos redactados por la empresa (por apartado) y
+ * los datos que no salen de la contabilidad (plantilla media, ajustes de la base imponible).
+ */
+export const annualAccountsNotes = pgTable("annual_accounts_notes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
+  // Texto de cada apartado: { "1": "La sociedad se dedica a…", "2": "…" }.
+  sections: jsonb("sections").$type<Record<string, string>>().notNull().default({}),
+  // Número medio de personas empleadas en el ejercicio (nota «Otra información» y límites de tamaño).
+  averageEmployees: numeric("averageEmployees", { precision: 8, scale: 2 }),
+  // Conciliación del resultado contable con la base imponible: { permanentDifferences, temporaryDifferences, lossCarryforward }.
+  taxData: jsonb("taxData").$type<Record<string, string>>(),
+  updatedByUserId: text("updatedByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [unique("annual_accounts_notes_company_year_unique").on(table.companyId, table.fiscalYearId)]);
+
+/**
+ * Libros oficiales generados para su legalización en el Registro Mercantil (arts. 25 y ss. del
+ * Código de Comercio; Instrucción de la DGRN de 12-02-2015). Cada fila es un juego de ficheros con
+ * sus huellas SHA-256; al presentarlo se anotan la fecha y los datos de la presentación.
+ */
+export const officialBookSubmission = pgTable("official_book_submission", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  fiscalYearId: text("fiscalYearId").notNull().references(() => fiscalYear.id, { onDelete: "cascade" }),
+  // generated (ficheros generados, aún sin presentar) | submitted (presentados en el Registro).
+  status: text("status").notNull().default("generated"),
+  // Ficheros del juego: nombre, tipo de libro, tamaño y huella SHA-256 en hexadecimal y en base64.
+  files: jsonb("files").$type<Array<{ name: string; book: string; bytes: number; sha256Hex: string; sha256Base64: string }>>().notNull(),
+  // Huella del contenido contable del ejercicio al generarlos: si cambia, el ejercicio se ha modificado.
+  ledgerFingerprint: text("ledgerFingerprint").notNull(),
+  entryCount: integer("entryCount").notNull().default(0),
+  generatedAt: timestamp("generatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  generatedByUserId: text("generatedByUserId").references(() => user.id, { onDelete: "set null" }),
+  // Presentación: fecha, Registro Mercantil y número de entrada o referencia del acuse.
+  submittedAt: date("submittedAt", { mode: "string" }),
+  registryName: text("registryName"),
+  submissionReference: text("submissionReference"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [index("official_book_submission_company_year_idx").on(table.companyId, table.fiscalYearId, table.status)]);
 
 /** Bien de inmovilizado (grupos 20, 21 y 22) con sus cuentas y su plan de amortización lineal. */
 export const fixedAsset = pgTable("fixed_asset", {

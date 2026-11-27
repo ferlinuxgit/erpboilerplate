@@ -26,8 +26,9 @@ import {
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { requireContext } from "@/lib/current-context";
 import { formatBalance, formatMoney } from "@/lib/format";
+import { getAnnualAccountsModel } from "@/server/accounting/annual-accounts/service";
 import { listFiscalYears } from "@/server/accounting/fiscal-years";
-import { buildOfficialStatements, type OfficialStatementLine } from "@/server/accounting/official-statements-model";
+import { buildOfficialStatements, officialStatementModelInfo, type OfficialStatementLine } from "@/server/accounting/official-statements-model";
 import { getFinancialStatements, loadStatementAccountRows } from "@/server/accounting/statements";
 import {
   periodDateKeys,
@@ -65,15 +66,17 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
     toExclusive: period.toExclusive,
   });
   const { balanceSheet, incomeStatement, trialBalance, trialBalanceGroups, totals } = statements;
-  // Cuentas anuales en el modelo abreviado del PGC (solo empresas españolas), con el mismo
-  // periodo del ejercicio anterior como columna comparativa.
+  // Cuentas anuales en el modelo de la empresa (abreviado por defecto; solo empresas españolas),
+  // con el mismo periodo del ejercicio anterior como columna comparativa.
   const usesSpanishModels = getCountryFiscalProfile(ctx.company.countryCode).features.taxReports === "es-aeat";
   const previousYear = [...years].reverse().find((candidate) => candidate.startsAt < year.startsAt) ?? null;
   const previousPeriod = previousYear ? resolveStatementPeriod(previousYear, period.key) : null;
   const previousRows = usesSpanishModels && previousYear && previousPeriod && previousPeriod.key === period.key
     ? await loadStatementAccountRows(ctx.company.id, { yearStart: previousYear.startsAt, from: previousPeriod.from, toExclusive: previousPeriod.toExclusive })
     : null;
-  const official = usesSpanishModels ? buildOfficialStatements(statements.rows, previousRows) : null;
+  const officialModel = usesSpanishModels ? await getAnnualAccountsModel(ctx.company.id) : "abbreviated";
+  const officialModelInfo = officialStatementModelInfo(officialModel);
+  const official = usesSpanishModels ? buildOfficialStatements(statements.rows, previousRows, officialModel) : null;
   const dates = periodDateKeys(period);
   const ledgerHref = (accountId: string) => `/accounting/ledger/${accountId}?from=${dates.from}&to=${dates.to}`;
   const money = (value: number) => formatMoney(value, currency);
@@ -165,12 +168,13 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
 
       {official ? (
         <PageSection
-          title="Cuentas anuales · modelo abreviado del PGC"
-          description={`Balance al ${formatDateKey(dates.to)} y cuenta de pérdidas y ganancias del periodo con los epígrafes oficiales (Real Decreto 1514/2007)${previousYear && previousRows ? `, comparados con ${previousYear.code}` : ""}. Antes de depositarlas, revísalas con tu asesor.`}
+          title={`Cuentas anuales · ${officialModelInfo.name.toLowerCase()}`}
+          description={`Balance al ${formatDateKey(dates.to)} y cuenta de pérdidas y ganancias del periodo con los epígrafes oficiales (${officialModelInfo.source})${previousYear && previousRows ? `, comparados con ${previousYear.code}` : ""}. Antes de depositarlas, revísalas con tu asesor.`}
+          actions={<Link className={buttonVariants({ variant: "outline" })} href={`/accounting/reports/annual-accounts?year=${year.id}`}>Cuentas anuales completas y memoria</Link>}
         >
           {official.unmapped.length > 0 ? (
             <InlineAlert title="Cuentas fuera del modelo oficial" tone="warning">
-              {official.unmapped.slice(0, 8).map((account) => account.code).join(", ")}{official.unmapped.length > 8 ? "…" : ""} no tienen epígrafe en el modelo abreviado. Se han sumado en «Otros deudores», «Otras deudas a corto plazo» u «Otros resultados»: reclasifícalas si no corresponde.
+              {official.unmapped.slice(0, 8).map((account) => account.code).join(", ")}{official.unmapped.length > 8 ? "…" : ""} no tienen epígrafe en este modelo. Se han sumado en el epígrafe más próximo: reclasifícalas si no corresponde.
             </InlineAlert>
           ) : null}
           <div className="grid gap-3 xl:grid-cols-2">
