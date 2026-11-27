@@ -2133,6 +2133,225 @@
   "body": "const paymentMethodPayloadSchema = z.object({\n  code: z.string().trim().min(1, \"El código es obligatorio.\").max(80, \"El código es demasiado largo.\"),\n  name: z.string().trim().min(1, \"El nombre es obligatorio.\").max(160, \"El nombre es demasiado largo.\"),\n  type: z.enum([\"BANK_TRANSFER\", \"CARD\", \"CASH\", \"DIRECT_DEBIT\"]),\n  bankAccountId: z.string().trim().optional().nullable().or(z.literal(\"\")),\n  bankAccountNumber: z.string().trim().max(80, \"El número de cuenta es demasiado largo.\").optional().nullable(),\n  isDefault: z.boolean().default(false),\n})"
  },
  {
+  "method": "DELETE",
+  "path": "/api/payroll/capital-income/{id}",
+  "area": "payroll",
+  "summary": "Elimina un rendimiento pagado y anula su asiento (no se permite si su periodo ya está presentado).",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/capital-income",
+  "area": "payroll",
+  "summary": "Dividendos e intereses pagados por la empresa (`?year=AAAA` opcional).",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "year"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/capital-income",
+  "area": "payroll",
+  "summary": "Registra un dividendo o un interés pagado con su retención y lo contabiliza: 526 (dividendo) o 662 (intereses) al debe; 4751 y banco al haber. Alimenta los modelos 123 y 193.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/payroll/employees/{id}",
+  "area": "payroll",
+  "summary": "Modifica la ficha de un trabajador.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/payroll/employees/{id}",
+  "area": "payroll",
+  "summary": "Elimina un trabajador sin nóminas.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/employees",
+  "area": "payroll",
+  "summary": "Trabajadores y administradores de la empresa (perceptores de nóminas).",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/employees",
+  "area": "payroll",
+  "summary": "Da de alta un trabajador (clave A del 190) o un administrador (clave E).",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/models",
+  "area": "payroll",
+  "summary": "Cálculo en vivo de un modelo de retenciones: `?code=111|115|123|190|180|193&period=2026-Q1` (o `2026-04`; `2026` en los resúmenes anuales). Devuelve las casillas o los perceptores, el cuadre anual, los avisos y el detalle de partidas del periodo.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/payroll/payments/{id}",
+  "area": "payroll",
+  "summary": "Anula un pago de nóminas o de seguros sociales (contraasiento) y deja las nóminas pendientes de pago.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/payments",
+  "area": "payroll",
+  "summary": "Registra el pago de las nóminas de un mes (465 a banco) o de sus seguros sociales (476 a banco). Con `postEntry: false` solo anota la fecha de pago, sin asiento.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/periods/post",
+  "area": "payroll",
+  "summary": "Contabiliza todas las nóminas en borrador de un mes (un asiento por nómina).",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/payroll/rental-properties/{id}",
+  "area": "payroll",
+  "summary": "Modifica un inmueble alquilado.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/payroll/rental-properties/{id}",
+  "area": "payroll",
+  "summary": "Elimina un inmueble alquilado.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/rental-properties",
+  "area": "payroll",
+  "summary": "Inmuebles alquilados a cada arrendador (referencia catastral y situación para el modelo 180).",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/rental-properties",
+  "area": "payroll",
+  "summary": "Da de alta el inmueble alquilado a un proveedor arrendador.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/settings",
+  "area": "payroll",
+  "summary": "Ajustes de retenciones: criterio de imputación y modelos activados a mano.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/payroll/settings",
+  "area": "payroll",
+  "summary": "Guarda el criterio de imputación de las retenciones (facturas por fecha de registro o de pago; nóminas por devengo o por pago) y los modelos que se quieren ver en el calendario sin datos.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/slips/{id}/post",
+  "area": "payroll",
+  "summary": "Contabiliza la nómina: 640 y 642 al debe; 4751, 476, 460 y 465 al haber, con fecha de devengo.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/payroll/slips/{id}/post",
+  "area": "payroll",
+  "summary": "Anula el asiento de la nómina con un contraasiento y la deja en borrador.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/payroll/slips/{id}",
+  "area": "payroll",
+  "summary": "Modifica una nómina en borrador (una contabilizada hay que descontabilizarla antes).",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/payroll/slips/{id}",
+  "area": "payroll",
+  "summary": "Elimina una nómina en borrador.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/slips/import",
+  "area": "payroll",
+  "summary": "Importa las nóminas de un mes pegadas desde una hoja de cálculo (NIF; Bruto; Especie; IRPF; Ingreso a cuenta; SS trabajador; SS empresa; Anticipos; Líquido). Con `commit: false` solo las comprueba y devuelve los errores de cada fila; con `commit: true` las crea (todas o ninguna).",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/slips",
+  "area": "payroll",
+  "summary": "Nóminas de un mes (`?period=AAAA-MM`, con sus totales y pagos) o de un año (`?year=AAAA`).",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/payroll/slips",
+  "area": "payroll",
+  "summary": "Registra la nómina de un trabajador con los importes de la gestoría. Comprueba que cuadra (líquido = bruto − IRPF − ingreso a cuenta − Seguridad Social del trabajador − anticipos) y, con `post: true`, la contabiliza.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
   "method": "GET",
   "path": "/api/platform/tenants/{id}",
   "area": "platform",

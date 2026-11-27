@@ -525,8 +525,8 @@ export async function sumPayrollLedgerWithholdings(companyId: string, start: Dat
       debit: sql<string>`coalesce(sum(${journalLine.debit}), '0')`,
       credit: sql<string>`coalesce(sum(${journalLine.credit}), '0')`,
     })
-    .from(journalLine)
-    .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
+    .from(journalEntry)
+    .innerJoin(journalLine, eq(journalLine.journalEntryId, journalEntry.id))
     .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
     .where(and(
       eq(journalEntry.companyId, companyId),
