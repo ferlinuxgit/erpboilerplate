@@ -17,8 +17,6 @@ import {
   type InvoicePartySnapshot,
 } from "@/db/schema";
 import { getCompanyTemplate } from "@/lib/company-templates";
-import { isEuCountry } from "@/lib/countries";
-import { normalizeHomeCountry } from "@/lib/country-packs/vat-treatment";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 import { calculateInvoiceTotals, type InvoiceCalculationTax, type InvoiceTotals } from "@/lib/invoice-totals";
@@ -453,7 +451,7 @@ async function assertInvoiceLegalContent(
   // Operaciones intracomunitarias (art. 25 de la Ley del IVA y art. 138 de la Directiva): cliente
   // de otro Estado miembro y NIF-IVA comprobado en VIES o confirmado expresamente por quien emite.
   let viesConfirmedByUser = false;
-  if (isIntraEuTreatment(input.vatTreatment) && isEuCountry(normalizeHomeCountry(input.issuer.countryCode))) {
+  if (isIntraEuTreatment(input.vatTreatment) && fiscal.profile.features.vies) {
     const countryProblem = intraEuCustomerProblem({ customerCountry: input.customer.countryCode, issuerCountry: input.issuer.countryCode });
     if (countryProblem) throw new HttpError(422, countryProblem);
     const [vies] = await tx

@@ -8,6 +8,8 @@ import { toast } from "sonner";
 
 import { CountrySelectField, CustomerBillingFields, type CustomerPricingOptions } from "@/components/customers/customer-billing-fields";
 import { DUNNING_OPT_OUT_HELP, DUNNING_OPT_OUT_LABEL, saveDunningOptOut } from "@/components/customers/dunning-opt-out-toggle";
+import { InlineAlert } from "@/components/ui/page";
+import { paymentTermWarning, spanishTaxIdCheckDigitWarning } from "@/server/invoices/issue-checks";
 import { ViesCheck, type ViesSnapshot } from "@/components/customers/vies-check";
 import { AccessibleField, FormActions, FormErrorMessage, RequiredFieldsNote, SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -90,6 +92,11 @@ export function EditCustomerForm({
     },
   });
   const countryCode = useWatch({ control, name: "countryCode" });
+  // Avisos que no impiden guardar: NIF español con la letra o el dígito de control mal y plazo de
+  // pago por encima del máximo legal entre empresas.
+  const taxIdWarning = spanishTaxIdCheckDigitWarning(useWatch({ control, name: "taxId" }), countryCode);
+  const watchedTerms = useWatch({ control, name: "paymentTermsDays" });
+  const termWarning = paymentTermWarning(watchedTerms === null || watchedTerms === undefined || String(watchedTerms).trim() === "" ? null : Number(watchedTerms));
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
@@ -164,7 +171,13 @@ export function EditCustomerForm({
           <ViesCheck customerId={id} initial={vies ?? null} />
         </div>
       ) : null}
+      {taxIdWarning ? (
+        <InlineAlert className="md:col-span-6" data-testid="customer-tax-id-warning" title="Revisa el NIF" tone="warning">{taxIdWarning} Puedes guardar igualmente.</InlineAlert>
+      ) : null}
       <CustomerBillingFields errors={errors} homeCountryCode={homeCountryCode} pricingOptions={pricingOptions} register={register} />
+      {termWarning ? (
+        <InlineAlert className="md:col-span-6" data-testid="customer-payment-term-warning" title="Plazo de pago largo" tone="warning">{termWarning} No se aplica a consumidores finales.</InlineAlert>
+      ) : null}
       {dunningOptOut !== undefined ? (
         <div className="space-y-1 md:col-span-6" data-testid="customer-edit-dunning-opt-out">
           <label className="flex items-center gap-2 font-mono text-xs font-bold" htmlFor="customer-dunning-opt-out">

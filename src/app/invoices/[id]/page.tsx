@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
 import Link from "next/link";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { DeleteButton } from "@/components/delete-button";
@@ -35,7 +35,11 @@ import {
   type RectificationType,
 } from "@/server/invoices/lifecycle";
 import { describeDueDate } from "@/server/invoices/due-dates";
-import { getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
+import { documentClassLabels, effectiveDocumentClass, isInvoiceDocumentClass } from "@/server/invoices/document-class";
+import { getDraftIssueWarnings } from "@/server/invoices/issue-warnings";
+import { legalMentionLines } from "@/server/invoices/legal-mentions";
+import { commercialReasonAccountingHelp, commercialReasonLabels, isCommercialReason } from "@/server/invoices/lifecycle";
+import { findSubstitutiveOf, getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
 import { SendInvoiceEmailDialog } from "@/components/invoice-email/send-invoice-email-dialog";
 import { InvoiceEmailTimeline } from "@/components/invoice-email/invoice-email-timeline";
 import { nextReminderLevel } from "@/server/dunning/schedule";
@@ -113,7 +117,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const lifecycle = invoiceLifecycle(data);
   const isCreditNote = data.invoiceType === "CREDIT_NOTE";
   const isDraft = lifecycle === "DRAFT";
-  const isIssuedInvoice = lifecycle === "ISSUED" && !isCreditNote;
+  // Sustitutiva de simplificadas (canje): no es una venta nueva, no se cobra ni se rectifica.
+  const isSubstitutive = data.isSubstitutive;
+  const isIssuedInvoice = lifecycle === "ISSUED" && !isCreditNote && !isSubstitutive;
 
   const [lines, paymentMethods, payments, selectedPaymentMethods, creditNotes, originalRows, balance] = await Promise.all([
     loadStoredLines(db, data.id),
@@ -149,6 +155,25 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     getInvoiceBalance(db, tenantContext.company.id, data.id, data.totalAmount),
   ]);
   const original = originalRows[0] ?? null;
+  // Clase de documento: la congelada al emitir; en borradores, la elegida (o «automática»).
+  const documentClass = lifecycle === "ISSUED"
+    ? effectiveDocumentClass({ documentClass: data.documentClass, customerTaxId: data.customerSnapshot ? data.customerSnapshot.taxId : row.customerTaxId })
+    : isInvoiceDocumentClass(data.documentClass) ? data.documentClass : null;
+  const [substitutedInvoices, substitutedBy, issueWarningList] = await Promise.all([
+    isSubstitutive && (data.substitutesInvoiceIds ?? []).length > 0
+      ? db
+          .select({ id: invoice.id, number: invoice.number, issueDate: invoice.issueDate, totalAmount: invoice.totalAmount })
+          .from(invoice)
+          .where(and(eq(invoice.companyId, tenantContext.company.id), inArray(invoice.id, data.substitutesInvoiceIds ?? [])))
+          .orderBy(asc(invoice.issueDate))
+      : Promise.resolve([]),
+    lifecycle === "ISSUED" && !isCreditNote && !isSubstitutive && documentClass === "SIMPLIFIED"
+      ? findSubstitutiveOf(db, tenantContext.company.id, [data.id])
+      : Promise.resolve(null),
+    lifecycle === "DRAFT" ? getDraftIssueWarnings(tenantContext.company.id, data.id) : Promise.resolve([]),
+  ]);
+  const canSubstitute = lifecycle === "ISSUED" && !isCreditNote && !isSubstitutive && documentClass === "SIMPLIFIED" && !substitutedBy && balance.creditedCents === 0;
+  const legalMentions = legalMentionLines(data.legalMentions);
   const [emailLog, reminderStats] = lifecycle === "ISSUED"
     ? await Promise.all([listInvoiceEmailLog(tenantContext.company.id, data.id), reminderStatsByInvoice(tenantContext.company.id, [data.id])])
     : [[], new Map<string, { count: number; lastSentAt: Date | null }>()];
@@ -200,7 +225,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             ? `Borrador de ${isCreditNote ? "rectificativa" : "factura"} para ${party.name}. Aún no tiene número definitivo ni validez fiscal.`
             : isCreditNote
               ? `Factura rectificativa emitida a ${party.name}${original ? ` · rectifica ${original.number}` : ""}.`
-              : `Factura emitida a ${party.name}.`
+              : isSubstitutive
+                ? `Factura emitida a ${party.name} en sustitución de ${substitutedInvoices.length === 1 ? "una factura simplificada" : "facturas simplificadas"}.`
+                : `Factura emitida a ${party.name}.`
         }
         meta={
           <>
@@ -208,6 +235,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               {invoiceLifecycleLabels[lifecycle]}
             </StatusBadge>
             {isCreditNote ? <StatusBadge tone="warning">Rectificativa</StatusBadge> : null}
+            {documentClass ? <StatusBadge data-testid="invoice-document-class" tone="neutral">{documentClassLabels[documentClass]}</StatusBadge> : null}
+            {isSubstitutive ? <StatusBadge tone="info">Sustituye a simplificada</StatusBadge> : null}
             {isIssuedInvoice ? (
               <StatusBadge tone={invoicePaymentStatusTone(data.paymentStatus)}>Cobro: {statusLabel(invoicePaymentStatusLabels, data.paymentStatus)}</StatusBadge>
             ) : null}
@@ -223,6 +252,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 <IssueInvoiceButton
                   invoiceId={data.id}
                   isCreditNote={isCreditNote}
+                  warnings={issueWarningList}
                   summary={
                     <p>
                       {party.name} · Total <strong className="font-mono">{formatMoney(data.totalAmount.toString(), currencyCode)}</strong>
@@ -257,12 +287,17 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 ) : null}
               </>
             ) : null}
+            {canEditInvoice && canSubstitute ? (
+              <Link className={buttonVariants({ variant: "outline", className: "max-sm:hidden" })} data-testid="invoice-substitute-link" href={`/invoices/${data.id}/substitute`}>
+                Convertir en factura completa
+              </Link>
+            ) : null}
             {canEditInvoice && lifecycle === "ISSUED" ? <SendInvoiceEmailDialog invoiceId={data.id} number={data.number} /> : null}
             {canEditInvoice && dueStatus?.kind === "overdue" ? (
               <SendInvoiceEmailDialog invoiceId={data.id} kind="REMINDER" number={data.number} reminderLevel={nextReminderLevel(reminderStats.get(data.id)?.count ?? 0)} />
             ) : null}
-            {canEditInvoice && !isCreditNote ? <span className="contents max-sm:hidden"><DuplicateInvoiceButton invoiceId={data.id} /></span> : null}
-            {canEditInvoice && !isCreditNote && lifecycle !== "VOID" ? (
+            {canEditInvoice && !isCreditNote && !isSubstitutive ? <span className="contents max-sm:hidden"><DuplicateInvoiceButton invoiceId={data.id} /></span> : null}
+            {canEditInvoice && !isCreditNote && !isSubstitutive && lifecycle !== "VOID" ? (
               <Link className={buttonVariants({ variant: "outline", className: "max-sm:hidden" })} data-testid="invoice-make-recurring" href={`/invoices/recurring/new?invoiceId=${data.id}`}>
                 Hacer recurrente
               </Link>
@@ -280,8 +315,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   {isIssuedInvoice && balance.totalCents + balance.creditedCents > 0 ? (
                     <DropdownMenuLinkItem href={`/invoices/${data.id}/rectify`}>Crear rectificativa</DropdownMenuLinkItem>
                   ) : null}
-                  {!isCreditNote ? <DuplicateInvoiceButton asMenuItem invoiceId={data.id} /> : null}
-                  {!isCreditNote && lifecycle !== "VOID" ? (
+                  {canSubstitute ? <DropdownMenuLinkItem href={`/invoices/${data.id}/substitute`}>Convertir en factura completa</DropdownMenuLinkItem> : null}
+                  {!isCreditNote && !isSubstitutive ? <DuplicateInvoiceButton asMenuItem invoiceId={data.id} /> : null}
+                  {!isCreditNote && !isSubstitutive && lifecycle !== "VOID" ? (
                     <DropdownMenuLinkItem href={`/invoices/recurring/new?invoiceId=${data.id}`}>Hacer recurrente</DropdownMenuLinkItem>
                   ) : null}
                 </DropdownMenu>
@@ -306,6 +342,35 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               />
             </span>
           ) : null}
+        </InlineAlert>
+      ) : null}
+      {isDraft && issueWarningList.length > 0 ? (
+        <InlineAlert data-testid="invoice-issue-warnings-panel" title="Antes de emitir, revisa esto" tone="warning">
+          <ul className="list-disc space-y-1 pl-4">
+            {issueWarningList.map((warning) => <li key={warning.code}>{warning.message}</li>)}
+          </ul>
+        </InlineAlert>
+      ) : null}
+      {isSubstitutive && lifecycle === "ISSUED" ? (
+        <PageSection title="Facturas simplificadas que sustituye" description="Esta factura no es una venta nueva: la venta, el IVA y el cobro constan en las simplificadas, que siguen siendo válidas.">
+          <div className="divide-y border-y" data-testid="invoice-substituted-list">
+            {substitutedInvoices.map((entry) => (
+              <div className="flex items-center justify-between gap-3 py-3 text-sm" key={entry.id}>
+                <span>
+                  <Link className="block font-mono font-semibold text-primary hover:underline" href={`/invoices/${entry.id}`}>{entry.number}</Link>
+                  <span className="text-xs text-muted-foreground">{formatDate(entry.issueDate)}</span>
+                </span>
+                <span className="font-mono font-semibold">{formatMoney(entry.totalAmount, currencyCode)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Si hay una devolución o un error, rectifica la factura simplificada original.</p>
+        </PageSection>
+      ) : null}
+      {substitutedBy ? (
+        <InlineAlert data-testid="invoice-substituted-by" title="Convertida en factura completa" tone="info">
+          Esta factura simplificada se sustituyó por la factura{" "}
+          <Link className="font-mono text-primary underline" href={`/invoices/${substitutedBy.id}`}>{substitutedBy.number}</Link>. Sigue siendo válida: la venta y el cobro constan aquí.
         </InlineAlert>
       ) : null}
       {lifecycle === "ISSUED" && canEditInvoice ? (
@@ -344,6 +409,13 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 <dd className="font-medium">{data.rectificationDescription}</dd>
               </div>
             ) : null}
+            {isCommercialReason(data.commercialReason) ? (
+              <div className="sm:col-span-2" data-testid="credit-note-commercial-reason">
+                <dt className="text-muted-foreground">Motivo comercial</dt>
+                <dd className="font-medium">{commercialReasonLabels[data.commercialReason]}</dd>
+                <dd className="text-xs text-muted-foreground">{commercialReasonAccountingHelp[data.commercialReason]}</dd>
+              </div>
+            ) : null}
           </dl>
         </PageSection>
       ) : null}
@@ -380,6 +452,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   {` · Cobrado ${formatMoney(balance.paidCents / 100, currencyCode)}`}
                   {` · Pendiente ${formatMoney(outstanding, currencyCode)}`}
                 </dd>
+              </div>
+            ) : null}
+            {legalMentions.length > 0 ? (
+              <div className="sm:col-span-2" data-testid="invoice-legal-mentions">
+                <dt className="text-muted-foreground">Menciones legales (se imprimen en la factura)</dt>
+                {legalMentions.map((mention) => <dd className="font-medium" key={mention}>{mention}</dd>)}
               </div>
             ) : null}
             <div className="sm:col-span-2">

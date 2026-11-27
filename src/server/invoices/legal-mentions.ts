@@ -76,13 +76,13 @@ const EXEMPTION_ARTICLE_NOTES: Record<string, string> = {
  */
 export function untaxedBaseLegalNote(input: {
   vatTreatment: string;
-  /** Territorio fiscal del emisor: solo «ES» (península y Baleares). En Canarias el tipo cero existe. */
-  territory: string | null | undefined;
+  /** El emisor repercute IVA (península y Baleares). En Canarias el tipo cero del IGIC existe y no es una exención. */
+  commonVatTerritory: boolean;
   exemptionCode: string | null | undefined;
   legalMentions: string | null | undefined;
   totals: { subtotal: number; taxBuckets: Bucket[] };
 }): string | null {
-  if (input.vatTreatment !== "DOMESTIC" || (input.territory ?? "ES") !== "ES") return null;
+  if (input.vatTreatment !== "DOMESTIC" || !input.commonVatTerritory) return null;
   if (legalMentionLines(input.legalMentions).length > 0) return null;
   if (!hasUntaxedBase(input.totals)) return null;
   return EXEMPTION_ARTICLE_NOTES[input.exemptionCode ?? "E1"] ?? EXEMPTION_ARTICLE_NOTES.E1;

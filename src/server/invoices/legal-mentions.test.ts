@@ -31,13 +31,13 @@ describe("menciones legales", () => {
 
   it("imprime la causa de exención de las bases sin IVA de una factura nacional", () => {
     const totals = { subtotal: 150, taxBuckets: [vat(21, 100)] };
-    const base = { vatTreatment: "DOMESTIC", territory: "ES", exemptionCode: null, legalMentions: null, totals };
+    const base = { vatTreatment: "DOMESTIC", commonVatTerritory: true, exemptionCode: null, legalMentions: null, totals };
     expect(untaxedBaseLegalNote(base)).toMatch(/art\. 20 de la Ley 37\/1992/);
     expect(untaxedBaseLegalNote({ ...base, exemptionCode: "E6" })).toBe("Incluye operaciones exentas de IVA.");
     // Si el usuario ya escribió su mención, manda la suya.
     expect(untaxedBaseLegalNote({ ...base, legalMentions: "Operación exenta (art. 20.Uno.9.º)." })).toBeNull();
     // Canarias (tipo cero), otros tratamientos y facturas con todo gravado: nada.
-    expect(untaxedBaseLegalNote({ ...base, territory: "ES-CN" })).toBeNull();
+    expect(untaxedBaseLegalNote({ ...base, commonVatTerritory: false })).toBeNull();
     expect(untaxedBaseLegalNote({ ...base, vatTreatment: "EXEMPT" })).toBeNull();
     expect(untaxedBaseLegalNote({ ...base, totals: { subtotal: 100, taxBuckets: [vat(21, 100)] } })).toBeNull();
   });

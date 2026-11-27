@@ -11,11 +11,11 @@ import { SubmitButton, errorMessage, readApiError } from "@/components/ui/form";
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
-async function postAction<T>(url: string, fallback: string): Promise<T> {
+async function postAction<T>(url: string, fallback: string, body: Record<string, unknown> = {}): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(await readApiError(response, fallback));
   return (await response.json()) as T;
@@ -31,7 +31,11 @@ export function issueDialogDescription(isCreditNote: boolean) {
  * Confirmación única de emisión (irreversible), compartida por la ficha, el listado, el formulario
  * de nueva factura, la edición de borradores y las rectificativas. Enter nunca emite sin pasar por aquí.
  */
+/** Aviso previo a la emisión (ver `issueWarnings`): ninguno bloquea; el de VIES pide confirmación. */
+export type IssueWarningView = { code: string; message: string; requiresConfirmation?: boolean };
+
 export function IssueConfirmDialog({
+  confirmDisabled = false,
   error,
   isCreditNote = false,
   onClose,
@@ -44,6 +48,8 @@ export function IssueConfirmDialog({
   pending: boolean;
   error?: string | null;
   isCreditNote?: boolean;
+  /** Falta una confirmación expresa (p. ej. la del NIF-IVA): no deja emitir todavía. */
+  confirmDisabled?: boolean;
   /** Resumen concreto (cliente, total, vencimiento) para saber exactamente qué se emite. */
   summary?: ReactNode;
   onClose: () => void;
@@ -66,7 +72,7 @@ export function IssueConfirmDialog({
         <Button disabled={pending} id={cancelId} onClick={onClose} type="button" variant="outline">
           Seguir editando
         </Button>
-        <SubmitButton data-testid="invoice-issue-confirm" onClick={onConfirm} pending={pending} pendingLabel="Emitiendo…" type="button">
+        <SubmitButton data-testid="invoice-issue-confirm" disabled={confirmDisabled} onClick={onConfirm} pending={pending} pendingLabel="Emitiendo…" type="button">
           Emitir ahora
         </SubmitButton>
       </DialogFooter>
@@ -84,6 +90,7 @@ export function IssueInvoiceButton({
   isCreditNote = false,
   size = "default",
   summary,
+  warnings = [],
 }: {
   invoiceId: string;
   isCreditNote?: boolean;
@@ -91,18 +98,23 @@ export function IssueInvoiceButton({
   /** Se muestra como opción del menú "Más" del listado. */
   asMenuItem?: boolean;
   summary?: ReactNode;
+  /** Avisos que se enseñan en la confirmación; los que piden confirmación añaden una casilla. */
+  warnings?: IssueWarningView[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
   const noun = isCreditNote ? "rectificativa" : "factura";
+  const needsViesConfirmation = warnings.some((warning) => warning.code === "VIES" && warning.requiresConfirmation);
+  const confirmId = useId();
 
   async function issue() {
     setPending(true);
     setError(null);
     try {
-      const issued = await postAction<{ number: string }>(`/api/invoices/${invoiceId}/issue`, `No se pudo emitir la ${noun}.`);
+      const issued = await postAction<{ number: string }>(`/api/invoices/${invoiceId}/issue`, `No se pudo emitir la ${noun}.`, needsViesConfirmation && confirmed ? { confirmVies: true } : {});
       setOpen(false);
       toast.success(`${isCreditNote ? "Rectificativa" : "Factura"} ${issued.number} emitida correctamente.`);
       router.refresh();
@@ -115,7 +127,21 @@ export function IssueInvoiceButton({
     }
   }
 
-  const openDialog = () => { setError(null); setOpen(true); };
+  const openDialog = () => { setError(null); setConfirmed(false); setOpen(true); };
+  const fullSummary = warnings.length > 0 ? (
+    <div className="space-y-2">
+      {summary}
+      <ul className="space-y-1 text-xs" data-testid="invoice-issue-warnings">
+        {warnings.map((warning) => <li key={warning.code}><strong>Aviso:</strong> {warning.message}</li>)}
+      </ul>
+      {needsViesConfirmation ? (
+        <label className="flex cursor-pointer items-start gap-2 text-xs font-medium" htmlFor={confirmId}>
+          <input checked={confirmed} className="mt-0.5 accent-primary" data-testid="invoice-issue-confirm-vies" id={confirmId} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />
+          <span>Confirmo que he comprobado que el NIF-IVA del cliente es válido para operaciones intracomunitarias y quiero emitir la factura sin IVA.</span>
+        </label>
+      ) : null}
+    </div>
+  ) : summary;
 
   return (
     <>
@@ -129,13 +155,14 @@ export function IssueInvoiceButton({
         </Button>
       )}
       <IssueConfirmDialog
+        confirmDisabled={needsViesConfirmation && !confirmed}
         error={error}
         isCreditNote={isCreditNote}
         onClose={() => setOpen(false)}
         onConfirm={() => void issue()}
         open={open}
         pending={pending}
-        summary={summary}
+        summary={fullSummary}
       />
     </>
   );
