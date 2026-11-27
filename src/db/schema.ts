@@ -1299,6 +1299,175 @@ export const fixedAssetSettings = pgTable("fixed_asset_settings", {
   check("fixed_asset_settings_frequency_valid", sql`${table.depreciationFrequency} IN ('monthly', 'annual')`),
 ]);
 
+// ---------------------------------------------------------------------------------------------
+// Nóminas y retenciones (modelos 111, 190, 180, 123 y 193)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Perceptor de rendimientos del trabajo: empleado (clave A del 190) o administrador (clave E).
+ * Los profesionales (claves G y H) no se dan de alta aquí: salen de las facturas recibidas.
+ */
+export const payrollEmployee = pgTable("payroll_employee", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  taxId: text("taxId"),
+  // Número de afiliación a la Seguridad Social (NAF).
+  socialSecurityNumber: text("socialSecurityNumber"),
+  startDate: date("startDate", { mode: "string" }),
+  endDate: date("endDate", { mode: "string" }),
+  // employee (clave A) | director (administrador o consejero, clave E).
+  recipientKind: text("recipientKind").notNull().default("employee"),
+  // Subclave del 190: null en la clave A; 01 a 04 en la clave E.
+  subkey190: text("subkey190"),
+  // Tipo de retención de IRPF (%) que comunica la gestoría: sirve para proponer la retención.
+  withholdingRate: numeric("withholdingRate", { precision: 6, scale: 3 }).notNull().default("0"),
+  // Datos mínimos del 190 para la clave A (todos opcionales).
+  birthYear: integer("birthYear"),
+  // 1, 2 o 3 (situación familiar del diseño de registro del 190).
+  familySituation: integer("familySituation"),
+  // 0 a 3 (discapacidad).
+  disability: integer("disability"),
+  // 1 a 4 (contrato o relación).
+  contractType: integer("contractType"),
+  spouseTaxId: text("spouseTaxId"),
+  notes: text("notes"),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("payroll_employee_company_name_idx").on(table.companyId, table.name),
+  check("payroll_employee_kind_valid", sql`${table.recipientKind} IN ('employee', 'director')`),
+  check("payroll_employee_rate_valid", sql`${table.withholdingRate} >= 0 AND ${table.withholdingRate} <= 100`),
+]);
+
+/**
+ * Pago de nóminas (465 a banco) o de seguros sociales (476 a banco) de un mes. El asiento lleva
+ * `sourceType = 'payrollPayment'` y `sourceId` = id de esta fila.
+ */
+export const payrollPayment = pgTable("payroll_payment", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // salaries (líquido de las nóminas) | socialSecurity (seguros sociales).
+  kind: text("kind").notNull(),
+  // Mes de las nóminas que se pagan (AAAA-MM).
+  period: text("period").notNull(),
+  paymentDate: date("paymentDate", { mode: "string" }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
+  journalEntryId: text("journalEntryId").references((): AnyPgColumn => journalEntry.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("payroll_payment_company_period_idx").on(table.companyId, table.period),
+  check("payroll_payment_kind_valid", sql`${table.kind} IN ('salaries', 'socialSecurity')`),
+  check("payroll_payment_amount_valid", sql`${table.amount} > 0`),
+]);
+
+/**
+ * Nómina de un trabajador y un mes, con los importes que da la gestoría. El asiento lleva
+ * `sourceType = 'payrollSlip'` y `sourceId` = id de esta fila.
+ */
+export const payrollSlip = pgTable("payroll_slip", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  employeeId: text("employeeId").notNull().references(() => payrollEmployee.id, { onDelete: "restrict" }),
+  // Mes de devengo (AAAA-MM) y concepto: permite una paga extra además de la nómina del mes.
+  period: text("period").notNull(),
+  concept: text("concept").notNull().default("Nómina"),
+  // Fecha del asiento y del devengo (por defecto, el último día del mes).
+  accrualDate: date("accrualDate", { mode: "string" }).notNull(),
+  // Devengos brutos dinerarios.
+  grossAmount: numeric("grossAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Retribución en especie (valoración) y su ingreso a cuenta, que se descuenta al trabajador.
+  inKindAmount: numeric("inKindAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  inKindWithholdingAmount: numeric("inKindWithholdingAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // IRPF retenido sobre las percepciones dinerarias.
+  withholdingAmount: numeric("withholdingAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  employeeSocialSecurity: numeric("employeeSocialSecurity", { precision: 12, scale: 2 }).notNull().default("0"),
+  employerSocialSecurity: numeric("employerSocialSecurity", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Anticipos ya entregados que se descuentan en esta nómina (cuenta 460).
+  advancesAmount: numeric("advancesAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Líquido a percibir.
+  netAmount: numeric("netAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // draft (sin asiento) | posted (contabilizada).
+  status: text("status").notNull().default("draft"),
+  journalEntryId: text("journalEntryId").references((): AnyPgColumn => journalEntry.id, { onDelete: "set null" }),
+  // Pago del líquido: fecha y pago en el que se incluyó.
+  paymentDate: date("paymentDate", { mode: "string" }),
+  paymentId: text("paymentId").references(() => payrollPayment.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("payroll_slip_employee_period_concept_unique").on(table.employeeId, table.period, table.concept),
+  index("payroll_slip_company_period_idx").on(table.companyId, table.period),
+  index("payroll_slip_company_accrual_idx").on(table.companyId, table.accrualDate),
+  index("payroll_slip_payment_idx").on(table.paymentId),
+  check("payroll_slip_status_valid", sql`${table.status} IN ('draft', 'posted')`),
+  check("payroll_slip_period_valid", sql`${table.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+  check("payroll_slip_amounts_valid", sql`${table.grossAmount} >= 0 AND ${table.inKindAmount} >= 0 AND ${table.inKindWithholdingAmount} >= 0 AND ${table.withholdingAmount} >= 0 AND ${table.employeeSocialSecurity} >= 0 AND ${table.employerSocialSecurity} >= 0 AND ${table.advancesAmount} >= 0 AND ${table.netAmount} >= 0`),
+]);
+
+/**
+ * Rendimiento del capital mobiliario pagado por la empresa (dividendo a un socio, interés de un
+ * préstamo): alimenta los modelos 123 y 193. El asiento lleva `sourceType = 'capitalIncomePayment'`.
+ */
+export const capitalIncomePayment = pgTable("capital_income_payment", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  recipientName: text("recipientName").notNull(),
+  recipientTaxId: text("recipientTaxId"),
+  // dividend (clave A del 193) | interest (clave B).
+  kind: text("kind").notNull(),
+  // Fecha de pago o de exigibilidad: la que decide el periodo del 123 (art. 94 RIRPF).
+  paymentDate: date("paymentDate", { mode: "string" }).notNull(),
+  grossAmount: numeric("grossAmount", { precision: 12, scale: 2 }).notNull(),
+  withholdingRate: numeric("withholdingRate", { precision: 6, scale: 3 }).notNull().default("19"),
+  withholdingAmount: numeric("withholdingAmount", { precision: 12, scale: 2 }).notNull(),
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
+  journalEntryId: text("journalEntryId").references((): AnyPgColumn => journalEntry.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("capital_income_payment_company_date_idx").on(table.companyId, table.paymentDate),
+  check("capital_income_payment_kind_valid", sql`${table.kind} IN ('dividend', 'interest')`),
+  check("capital_income_payment_amounts_valid", sql`${table.grossAmount} > 0 AND ${table.withholdingAmount} >= 0 AND ${table.withholdingAmount} <= ${table.grossAmount}`),
+]);
+
+/** Inmueble alquilado a un arrendador (proveedor): referencia catastral y situación para el modelo 180. */
+export const rentalProperty = pgTable("rental_property", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  supplierPartnerId: text("supplierPartnerId").notNull().references(() => partner.id, { onDelete: "cascade" }),
+  // Situación del inmueble del diseño del 180: 1 a 4.
+  situation: text("situation").notNull().default("1"),
+  cadastralReference: text("cadastralReference"),
+  address: text("address"),
+  postalCode: text("postalCode"),
+  city: text("city"),
+  province: text("province"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("rental_property_company_supplier_idx").on(table.companyId, table.supplierPartnerId),
+  check("rental_property_situation_valid", sql`${table.situation} IN ('1', '2', '3', '4')`),
+]);
+
+/** Ajustes de nóminas y retenciones de la empresa. Sin fila = valores por defecto (comportamiento histórico). */
+export const payrollSettings = pgTable("payroll_settings", {
+  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  // Facturas con retención: registration (fecha de registro, por defecto) | payment (fecha de pago, art. 78 RIRPF).
+  invoiceWithholdingBasis: text("invoiceWithholdingBasis").notNull().default("registration"),
+  // Nóminas: accrual (devengo mensual, por defecto) | payment (fecha de pago del líquido).
+  payrollWithholdingBasis: text("payrollWithholdingBasis").notNull().default("accrual"),
+  // Modelos que el usuario quiere ver en el calendario aunque no haya datos (190, 180, 123, 193).
+  enabledModels: jsonb("enabledModels").$type<string[]>().notNull().default([]),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  check("payroll_settings_invoice_basis_valid", sql`${table.invoiceWithholdingBasis} IN ('registration', 'payment')`),
+  check("payroll_settings_payroll_basis_valid", sql`${table.payrollWithholdingBasis} IN ('accrual', 'payment')`),
+]);
+
 export const bankTransaction = pgTable("bank_transaction", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   // no action (comprobado al final de la sentencia): una cuenta con movimientos no se puede borrar
