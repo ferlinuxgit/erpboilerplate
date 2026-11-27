@@ -9,17 +9,18 @@ const clean: CloseChecklistFacts = {
   account555Cents: 0,
   pendingBankTransactions: 0,
   ledgerDifferenceCents: 0,
+  depreciation: { assets: 0, pendingAssets: 0, pendingCents: 0, fixedAssetBalanceCents: 0 },
 };
 
 describe("comprobaciones antes del cierre del ejercicio", () => {
-  it("todo correcto: solo queda el recordatorio de amortizaciones y no hace falta motivo", () => {
+  it("todo correcto y sin inmovilizado: no hace falta motivo", () => {
     const checklist = evaluateCloseChecklist(clean);
     expect(checklist.items.map((item) => [item.id, item.status])).toEqual([
       ["vat-q4-filed", "ok"],
       ["draft-invoices", "ok"],
       ["bank-555", "ok"],
       ["ledger-balanced", "ok"],
-      ["depreciation", "review"],
+      ["depreciation", "ok"],
     ]);
     expect(checklist.blocked).toBe(false);
     expect(checklist.requiresOverride).toBe(false);
@@ -50,6 +51,32 @@ describe("comprobaciones antes del cierre del ejercicio", () => {
     const checklist = evaluateCloseChecklist({ ...clean, ledgerDifferenceCents: 100 });
     expect(checklist.blocked).toBe(true);
     expect(closeChecklistBlocker(checklist, "Motivo suficientemente largo")).toMatch(/No se puede cerrar/);
+  });
+
+  it("amortizaciones sin contabilizar: pendiente con enlace a Inmovilizado y exige motivo", () => {
+    const checklist = evaluateCloseChecklist({ ...clean, depreciation: { assets: 3, pendingAssets: 2, pendingCents: 123_456, fixedAssetBalanceCents: 900_000 } });
+    const item = checklist.items.find((entry) => entry.id === "depreciation");
+    expect(item?.status).toBe("pending");
+    expect(item?.detail).toContain("1234,56");
+    expect(item?.detail).toContain("2 bienes");
+    expect(item?.href).toBe("/accounting/assets");
+    expect(checklist.requiresOverride).toBe(true);
+  });
+
+  it("bienes con todo contabilizado: correcto", () => {
+    const checklist = evaluateCloseChecklist({ ...clean, depreciation: { assets: 1, pendingAssets: 0, pendingCents: 0, fixedAssetBalanceCents: 150_000 } });
+    const item = checklist.items.find((entry) => entry.id === "depreciation");
+    expect(item?.status).toBe("ok");
+    expect(item?.detail).toContain("1 bien registrado");
+    expect(checklist.requiresOverride).toBe(false);
+  });
+
+  it("saldo de inmovilizado sin bienes registrados: recordatorio que no bloquea", () => {
+    const checklist = evaluateCloseChecklist({ ...clean, depreciation: { assets: 0, pendingAssets: 0, pendingCents: 0, fixedAssetBalanceCents: 250_000 } });
+    const item = checklist.items.find((entry) => entry.id === "depreciation");
+    expect(item?.status).toBe("review");
+    expect(item?.href).toBe("/accounting/assets/new");
+    expect(checklist.requiresOverride).toBe(false);
   });
 
   it("sin 303 (recargo de equivalencia o exenta) no se comprueba el IVA", () => {

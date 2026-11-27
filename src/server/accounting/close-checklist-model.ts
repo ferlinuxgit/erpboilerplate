@@ -3,7 +3,7 @@
  *
  * - "blocking": el cierre fallaría o dejaría la contabilidad mal (libro descuadrado). No admite excepción.
  * - "pending": conviene resolverlo antes; se puede cerrar igualmente indicando un motivo (queda auditado).
- * - "review": recordatorio que el sistema no puede comprobar (amortizaciones). No bloquea.
+ * - "review": recordatorio que el sistema no puede comprobar (inmovilizado en el balance sin fichas de bienes). No bloquea.
  * - "ok": comprobado.
  */
 
@@ -27,6 +27,16 @@ export type CloseChecklistFacts = {
   account555Cents: number;
   pendingBankTransactions: number;
   ledgerDifferenceCents: number;
+  /** Inmovilizado y amortizaciones (módulo de bienes). */
+  depreciation: {
+    /** Bienes registrados en Contabilidad › Inmovilizado. */
+    assets: number;
+    /** Bienes con dotaciones del ejercicio (o anteriores) sin contabilizar, y su importe. */
+    pendingAssets: number;
+    pendingCents: number;
+    /** Saldo de los grupos 20, 21 y 22 al cierre: si hay saldo pero ningún bien registrado, se recuerda. */
+    fixedAssetBalanceCents: number;
+  };
 };
 
 export type CloseChecklist = {
@@ -98,14 +108,44 @@ export function evaluateCloseChecklist(facts: CloseChecklistFacts): CloseCheckli
     actionLabel: "Ver sumas y saldos",
   });
 
-  items.push({
-    id: "depreciation",
-    title: "Amortizaciones del año registradas",
-    status: "review",
-    detail: "Si tienes ordenadores, vehículos, maquinaria o reformas, registra con un asiento manual la amortización del año (grupo 68 contra 281) antes de cerrar. Si no, ignora este punto.",
-    href: "/accounting/entries/new",
-    actionLabel: "Nuevo asiento",
-  });
+  const depreciation = facts.depreciation;
+  if (depreciation.pendingAssets > 0) {
+    items.push({
+      id: "depreciation",
+      title: "Amortizaciones del año contabilizadas",
+      status: "pending",
+      detail: `Quedan ${euros(depreciation.pendingCents)} de amortización sin contabilizar en ${plural(depreciation.pendingAssets, "bien", "bienes")} hasta el cierre de ${facts.yearCode}. Contabilízalas desde Inmovilizado antes de cerrar.`,
+      href: "/accounting/assets",
+      actionLabel: "Contabilizar amortizaciones",
+    });
+  } else if (depreciation.assets > 0) {
+    items.push({
+      id: "depreciation",
+      title: "Amortizaciones del año contabilizadas",
+      status: "ok",
+      detail: `Las amortizaciones de ${plural(depreciation.assets, "bien registrado", "bienes registrados")} están contabilizadas hasta el cierre de ${facts.yearCode}.`,
+      href: "/accounting/assets",
+      actionLabel: "Ver inmovilizado",
+    });
+  } else if (depreciation.fixedAssetBalanceCents !== 0) {
+    items.push({
+      id: "depreciation",
+      title: "Amortizaciones del año contabilizadas",
+      status: "review",
+      detail: `El balance tiene ${euros(depreciation.fixedAssetBalanceCents)} de inmovilizado (grupos 20, 21 y 22) pero no hay ningún bien registrado. Da de alta los bienes en Inmovilizado para que el programa calcule y contabilice su amortización, o regístrala con un asiento manual.`,
+      href: "/accounting/assets/new",
+      actionLabel: "Registrar un bien",
+    });
+  } else {
+    items.push({
+      id: "depreciation",
+      title: "Amortizaciones del año contabilizadas",
+      status: "ok",
+      detail: "No hay bienes de inmovilizado registrados ni saldo en las cuentas de inmovilizado: no hay nada que amortizar.",
+      href: "/accounting/assets",
+      actionLabel: "Ver inmovilizado",
+    });
+  }
 
   return {
     items,
