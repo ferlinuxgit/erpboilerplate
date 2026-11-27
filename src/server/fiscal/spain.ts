@@ -365,6 +365,9 @@ function issuedInvoiceBaseFilter(companyId: string) {
     eq(invoice.companyId, companyId),
     ne(invoice.status, "VOID"),
     sql`${invoice.number} NOT LIKE ${`${DRAFT_NUMBER_PREFIX}%`}`,
+    // La factura que sustituye a una simplificada (canje, F3) no vuelve a computar: su base e
+    // IVA ya se declararon con la simplificada.
+    eq(invoice.isSubstitutive, false),
   );
 }
 

@@ -47,7 +47,7 @@ import {
  * Postgres because the SELECT and GROUP BY copies get different placeholders.
  */
 const groupByFirstColumn = sql`1`;
-import { creditedByInvoiceSubquery, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
+import { creditedByInvoiceSubquery, invoiceCountsAsSaleSql, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
 
 /*
  * Dashboard and reporting aggregates. Every figure is computed in Postgres with
@@ -67,7 +67,7 @@ const salesLineBase = sql`round(${invoiceLine.quantity} * ${invoiceLine.unitPric
  * fully rectified invoice (payment status VOID) still counts: its credit note offsets it.
  */
 function issuedInvoiceIn(companyId: string, start: Date, end: Date) {
-  return and(eq(invoice.companyId, companyId), invoiceIsIssuedSql, gte(invoice.issueDate, start), lt(invoice.issueDate, end));
+  return and(eq(invoice.companyId, companyId), invoiceCountsAsSaleSql, gte(invoice.issueDate, start), lt(invoice.issueDate, end));
 }
 
 /** Received invoices that count as expenses (no VOID or DRAFT, as in the VAT models). */
