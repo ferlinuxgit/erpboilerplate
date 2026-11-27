@@ -1782,6 +1782,46 @@
   ]
  },
  {
+  "method": "GET",
+  "path": "/api/invoices/{id}/einvoice",
+  "area": "invoices",
+  "summary": "Factura electrónica de una factura emitida. - Sin `format`: situación (formatos disponibles, datos que faltan, ficheros generados y estados). - `?format=facturae|ubl`: descarga el fichero SIN firmar (Facturae 3.2.2 o UBL 2.1).",
+  "permissions": [
+   "invoice.read"
+  ],
+  "query": [
+   "format"
+  ],
+  "body": "const formatSchema = z.enum([\"facturae\", \"ubl\"])"
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoices/{id}/einvoice",
+  "area": "invoices",
+  "summary": "Genera y descarga la factura electrónica; con `signed: true` firma el Facturae (XAdES-EPES) con el certificado de la empresa. Firmar es actuar en nombre de la empresa: exige permiso de escritura.",
+  "permissions": [],
+  "body": "const generateSchema = z.object({\n  format: formatSchema,\n  /** Firma XAdES-EPES con el certificado de la empresa (solo Facturae). */\n  signed: z.boolean().optional(),\n  /** Vuelve a generar aunque exista una copia conservada (p. ej. para firmar de nuevo). */\n  regenerate: z.boolean().optional(),\n})\n\nconst formatSchema = z.enum([\"facturae\", \"ubl\"])"
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoices/{id}/einvoice/status",
+  "area": "invoices",
+  "summary": "Historial de estados de la factura electrónica (enviada, recibida, aceptada, rechazada, pagada).",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/invoices/{id}/einvoice/status",
+  "area": "invoices",
+  "summary": "Anota un estado (art. 10 del RD 238/2026: aceptación o rechazo comercial y pago efectivo, con su fecha).",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const statusSchema = z.object({\n  status: z.enum(EINVOICE_STATUSES, { error: \"El estado no es válido.\" }),\n  effectiveDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/, \"Indica la fecha en que se produjo el estado (AAAA-MM-DD).\"),\n  rejectionCode: z.enum(EINVOICE_REJECTION_CODES, { error: \"El tipo de rechazo no es válido.\" }).nullable().optional(),\n  reason: z.string().trim().max(1000, \"El motivo es demasiado largo.\").nullable().optional(),\n})"
+ },
+ {
   "method": "POST",
   "path": "/api/invoices/{id}/issue",
   "area": "invoices",

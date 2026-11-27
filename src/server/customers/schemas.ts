@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isCountryCode } from "@/lib/countries";
+import { isValidDir3 } from "@/server/einvoice/dir3";
 import { salesVatTreatmentOptions } from "@/server/invoices/lifecycle";
 import { createCustomerSchema, customerStatusSchema } from "@/server/schemas/forms";
 
@@ -34,6 +35,15 @@ export function isValidIban(value: string) {
   return remainder === 1;
 }
 
+/** Código DIR3 opcional de una Administración pública (9 caracteres: letras de ámbito + dígitos). */
+const dir3CodeSchema = z
+  .string()
+  .trim()
+  .max(12, "El código DIR3 tiene 9 caracteres.")
+  .nullable()
+  .optional()
+  .refine((value) => !value || isValidDir3(value), "El código DIR3 tiene 9 caracteres: una o dos letras y el resto cifras (ej.: L01280796).");
+
 export const customerBillingSchema = z.object({
   paymentTermsDays: z
     .number({ error: "Indica los días de pago (0 = al contado)." })
@@ -61,6 +71,11 @@ export const customerBillingSchema = z.object({
   customerGroupId: z.string().trim().max(64).nullable().optional(),
   /** Tarifa propia del cliente: manda sobre la del grupo. null o "" = la del grupo. */
   priceListId: z.string().trim().max(64).nullable().optional(),
+  /** Administración pública: códigos DIR3 para la factura electrónica (FACe). Vacío = no es una Administración. */
+  dir3AccountingOffice: dir3CodeSchema,
+  dir3ManagingBody: dir3CodeSchema,
+  dir3ProcessingUnit: dir3CodeSchema,
+  dir3ProposingBody: dir3CodeSchema,
 });
 
 function refineCountry(value: { countryCode: string }, ctx: z.RefinementCtx) {

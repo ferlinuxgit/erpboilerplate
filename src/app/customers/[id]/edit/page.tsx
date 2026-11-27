@@ -56,6 +56,10 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
       equivalenceSurcharge: customer.equivalenceSurcharge,
       customerGroupId: customer.customerGroupId,
       priceListId: customer.priceListId,
+      dir3AccountingOffice: customer.dir3AccountingOffice,
+      dir3ManagingBody: customer.dir3ManagingBody,
+      dir3ProcessingUnit: customer.dir3ProcessingUnit,
+      dir3ProposingBody: customer.dir3ProposingBody,
       viesStatus: customer.viesStatus,
       viesName: customer.viesName,
       viesCheckedAt: customer.viesCheckedAt,
@@ -106,6 +110,10 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
             equivalenceSurcharge: data.equivalenceSurcharge,
             customerGroupId: data.customerGroupId,
             priceListId: data.priceListId,
+            dir3AccountingOffice: data.dir3AccountingOffice,
+            dir3ManagingBody: data.dir3ManagingBody,
+            dir3ProcessingUnit: data.dir3ProcessingUnit,
+            dir3ProposingBody: data.dir3ProposingBody,
           }}
           vies={{ status: data.viesStatus, name: data.viesName, checkedAt: data.viesCheckedAt }}
           dunningOptOut={dunningOptOut}

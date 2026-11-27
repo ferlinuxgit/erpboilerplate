@@ -1,0 +1,172 @@
+import Link from "next/link";
+
+import { EInvoiceDownloadButton } from "@/components/invoices/einvoice-actions";
+import { EInvoiceStatusForm } from "@/components/invoices/einvoice-status-form";
+import { InlineAlert, PageSection } from "@/components/ui/page";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { getEInvoiceOverview } from "@/server/einvoice/service";
+import { EINVOICE_STATUSES, einvoiceRejectionLabels, einvoiceStatusLabels, type EInvoiceRejectionCode, type EInvoiceStatus } from "@/server/einvoice/status";
+import { civilDateKey } from "@/server/invoices/issue-checks";
+
+const statusTone: Record<EInvoiceStatus, "neutral" | "info" | "success" | "danger"> = {
+  SENT: "neutral",
+  RECEIVED: "info",
+  ACCEPTED: "info",
+  REJECTED: "danger",
+  PAID: "success",
+};
+
+function ProblemList({ items }: { items: string[] }) {
+  return items.length === 1 ? <>{items[0]}</> : <ul className="list-disc space-y-1 pl-4">{items.map((item) => <li key={item}>{item}</li>)}</ul>;
+}
+
+const isoDate = (value: string) => formatDate(`${value}T00:00:00Z`);
+
+/**
+ * Factura electrónica en la ficha de una factura emitida: descarga de Facturae (firmada o sin
+ * firmar) y de UBL, avisos de lo que falta, ficheros ya generados y registro de estados.
+ * No se pinta nada si la empresa no tiene ninguno de los formatos (por territorio fiscal).
+ */
+export async function EInvoiceCard({ companyId, invoiceId, canManage }: { companyId: string; invoiceId: string; canManage: boolean }) {
+  const overview = await getEInvoiceOverview(companyId, invoiceId);
+  if (!overview || (!overview.availability.facturae && !overview.availability.ubl)) return null;
+  const { availability, certificate, facturae, ubl, documents, statuses, summary } = overview;
+  const facturaeReady = facturae.problems.length === 0;
+  const signedCopy = documents.find((document) => document.format === "FACTURAE" && document.signed);
+  // Estados que aún tiene sentido anotar (la validación completa la hace el servidor).
+  const availableStatuses = EINVOICE_STATUSES.filter((status) => {
+    if (status === "SENT") return !summary.sentOn;
+    if (status === "RECEIVED") return !summary.receivedOn;
+    if (status === "ACCEPTED") return summary.commercial?.status !== "ACCEPTED";
+    if (status === "PAID") return !summary.paidOn && summary.commercial?.status !== "REJECTED";
+    return true;
+  });
+
+  return (
+    <PageSection
+      data-testid="einvoice-card"
+      description="Fichero estructurado de esta factura para presentarlo en FACe (Administraciones públicas) o entregarlo a otra empresa."
+      title="Factura electrónica"
+    >
+      <div className="space-y-5 text-sm">
+        {availability.facturae ? (
+          <div className="space-y-2" data-testid="einvoice-facturae">
+            <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Factura electrónica (Facturae 3.2.2)</h3>
+            <p className="text-xs text-muted-foreground">
+              Es el formato que exigen las Administraciones públicas españolas. Para FACe tiene que ir firmada con el certificado electrónico de la empresa.
+            </p>
+            {!facturaeReady ? (
+              <InlineAlert title="Faltan datos para generar el Facturae" tone="danger"><ProblemList items={facturae.problems} /></InlineAlert>
+            ) : null}
+            {facturaeReady && facturae.warnings.length > 0 ? (
+              <InlineAlert title="Revisa antes de presentarla" tone="warning"><ProblemList items={facturae.warnings} /></InlineAlert>
+            ) : null}
+            {facturaeReady && !certificate.available && certificate.message ? (
+              <InlineAlert title="No se puede firmar desde aquí" tone="warning">
+                {certificate.message}{" "}
+                <Link className="text-link underline" href="/fiscal/verifactu">Ir a la configuración del certificado</Link>
+              </InlineAlert>
+            ) : null}
+            {facturaeReady ? (
+              <div className="flex flex-wrap gap-2">
+                {canManage && certificate.available ? (
+                  <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "facturae", signed: true }} testId="einvoice-facturae-signed" variant="default">
+                    Descargar firmada (.xsig)
+                  </EInvoiceDownloadButton>
+                ) : null}
+                <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "facturae" }} testId="einvoice-facturae-unsigned">
+                  Descargar sin firmar (.xml)
+                </EInvoiceDownloadButton>
+                {canManage && certificate.available && signedCopy ? (
+                  <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "facturae", signed: true, regenerate: true }} testId="einvoice-facturae-resign">
+                    Firmar de nuevo
+                  </EInvoiceDownloadButton>
+                ) : null}
+              </div>
+            ) : null}
+            <details className="text-xs">
+              <summary className="cursor-pointer font-medium">Cómo presentarla en FACe</summary>
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
+                <li>Comprueba que la ficha del cliente tiene los tres códigos DIR3 (oficina contable, órgano gestor y unidad tramitadora): los indica el propio organismo y se pueden consultar en el directorio de face.gob.es.</li>
+                <li>Descarga la factura firmada. Si no tienes el certificado subido, descárgala sin firmar y fírmala con AutoFirma (la aplicación gratuita del Gobierno), eligiendo el formato de firma «Factura electrónica».</li>
+                <li>Entra en <a className="text-link underline" href="https://face.gob.es" rel="noopener noreferrer" target="_blank">face.gob.es</a>, opción «Remitir factura», indica un correo de contacto y sube el fichero.</li>
+                <li>Guarda el número de registro que te da FACe: con él se consulta el estado de la factura. Anota aquí abajo el envío.</li>
+              </ol>
+              <p className="mt-2 text-muted-foreground">El envío automático a FACe por servicio web no está disponible todavía en la aplicación.</p>
+            </details>
+          </div>
+        ) : null}
+
+        {availability.ubl ? (
+          <div className="space-y-2 border-t border-window-dark-shadow pt-4" data-testid="einvoice-ubl">
+            <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Factura entre empresas (UBL 2.1 · EN 16931)</h3>
+            <p className="text-xs text-muted-foreground">
+              Formato europeo para intercambiar facturas con otras empresas. {availability.statuses
+                ? "Es la sintaxis que usará la solución pública de la AEAT cuando la factura electrónica entre empresas sea obligatoria (Real Decreto 238/2026). Este fichero sigue el núcleo de la norma europea; el perfil propio de la AEAT y el envío a su plataforma aún no están disponibles."
+                : "Sigue el núcleo de la norma europea EN 16931."}
+            </p>
+            {ubl.problems.length > 0 ? (
+              <InlineAlert title="No se puede generar el UBL de esta factura" tone="warning"><ProblemList items={ubl.problems} /></InlineAlert>
+            ) : (
+              <>
+                {ubl.warnings.length > 0 ? <InlineAlert title="Ten en cuenta" tone="warning"><ProblemList items={ubl.warnings} /></InlineAlert> : null}
+                <div className="flex flex-wrap gap-2">
+                  <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "ubl" }} testId="einvoice-ubl-download">Descargar UBL (.xml)</EInvoiceDownloadButton>
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {documents.length > 0 ? (
+          <div className="space-y-2 border-t border-window-dark-shadow pt-4" data-testid="einvoice-documents">
+            <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Ficheros generados</h3>
+            <ul className="space-y-1 text-xs">
+              {documents.map((document) => (
+                <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5" key={document.id}>
+                  <span className="font-medium">{document.format === "UBL" ? "UBL" : "Facturae"} {document.signed ? "firmada" : "sin firmar"}</span>
+                  <span className="text-muted-foreground">{document.fileName} · {formatDateTime(document.generatedAt)}</span>
+                  <span className="break-all font-mono text-muted-foreground" title="Huella SHA-256 del fichero conservado">{document.sha256.slice(0, 16)}…</span>
+                  {document.signerSubject ? <span className="text-muted-foreground">Firmada por: {document.signerSubject}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {availability.statuses ? (
+          <div className="space-y-3 border-t border-window-dark-shadow pt-4" data-testid="einvoice-statuses">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Estados de la factura electrónica</h3>
+              {summary.current ? <StatusBadge tone={statusTone[summary.current]}>{einvoiceStatusLabels[summary.current]}</StatusBadge> : <StatusBadge tone="neutral">Sin anotar</StatusBadge>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Con la factura electrónica obligatoria entre empresas, el cliente debe comunicarte si acepta o rechaza la factura y cuándo la paga por completo,
+              en un máximo de cuatro días hábiles (art. 10 del Real Decreto 238/2026). Mientras no exista la conexión con la solución pública de la AEAT,
+              anótalo aquí cuando te lo comunique. Sin rechazo, la factura se da por aceptada.
+            </p>
+            {statuses.length > 0 ? (
+              <ul className="space-y-1 text-xs" data-testid="einvoice-status-history">
+                {statuses.map((entry) => (
+                  <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5" key={entry.id}>
+                    <StatusBadge tone={statusTone[entry.status]}>{einvoiceStatusLabels[entry.status]}</StatusBadge>
+                    <span className="font-mono">{isoDate(entry.effectiveDate)}</span>
+                    {entry.status === "REJECTED" ? (
+                      <span>
+                        {entry.rejectionCode && entry.rejectionCode in einvoiceRejectionLabels ? `${einvoiceRejectionLabels[entry.rejectionCode as EInvoiceRejectionCode]}: ` : ""}
+                        {entry.reason}
+                      </span>
+                    ) : null}
+                    {entry.deadline ? <span className="text-muted-foreground">Plazo del cliente para comunicarlo: hasta el {isoDate(entry.deadline)} (sin contar festivos)</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {canManage ? <EInvoiceStatusForm available={availableStatuses} invoiceId={invoiceId} today={civilDateKey(new Date())} /> : null}
+          </div>
+        ) : null}
+      </div>
+    </PageSection>
+  );
+}

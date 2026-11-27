@@ -193,6 +193,15 @@ export function signFacturae(unsignedXml: string, options: SignFacturaeOptions):
   return `${XML_DECLARATION}${body.slice(0, -ROOT_CLOSE.length)}${signature}${ROOT_CLOSE}`;
 }
 
+/** Documento sin la firma (lo que se firmó), o null si no tiene la estructura esperada. */
+export function unsignedFacturae(signedXml: string): string | null {
+  const start = signedXml.indexOf("<ds:Signature ");
+  const close = "</ds:Signature>";
+  const end = signedXml.lastIndexOf(close);
+  if (start < 0 || end < start) return null;
+  return `${signedXml.slice(0, start)}${signedXml.slice(end + close.length)}`;
+}
+
 export type SignatureVerification = {
   valid: boolean;
   errors: string[];

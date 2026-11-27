@@ -37,6 +37,11 @@ export type EditCustomerDefaults = {
   equivalenceSurcharge: boolean;
   customerGroupId?: string | null;
   priceListId?: string | null;
+  /** Administración pública: códigos DIR3 para la factura electrónica. */
+  dir3AccountingOffice?: string | null;
+  dir3ManagingBody?: string | null;
+  dir3ProcessingUnit?: string | null;
+  dir3ProposingBody?: string | null;
 };
 
 export function EditCustomerForm({
@@ -87,6 +92,10 @@ export function EditCustomerForm({
       equivalenceSurcharge: defaults.equivalenceSurcharge,
       customerGroupId: defaults.customerGroupId ?? null,
       priceListId: defaults.priceListId ?? null,
+      dir3AccountingOffice: defaults.dir3AccountingOffice ?? null,
+      dir3ManagingBody: defaults.dir3ManagingBody ?? null,
+      dir3ProcessingUnit: defaults.dir3ProcessingUnit ?? null,
+      dir3ProposingBody: defaults.dir3ProposingBody ?? null,
     },
   });
   const countryCode = useWatch({ control, name: "countryCode" });
