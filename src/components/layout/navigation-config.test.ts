@@ -197,7 +197,7 @@ describe("context tabs for the newer pages", () => {
 
   it("shows the Spanish tax screens only to Spanish companies", () => {
     const fiscal = getContextGroup("/fiscal");
-    expect(fiscal && filterContextLinks(fiscal, { countryCode: "ES" }).map((link) => link.label)).toEqual(["Modelos", "Calendario fiscal", "VERI*FACTU", "Configuración fiscal", "Glosario"]);
+    expect(fiscal && filterContextLinks(fiscal, { countryCode: "ES" }).map((link) => link.label)).toEqual(["Modelos", "Calendario fiscal", "Impuesto sobre Sociedades", "VERI*FACTU", "Configuración fiscal", "Glosario"]);
     expect(fiscal && filterContextLinks(fiscal, { countryCode: "PT" }).map((link) => link.label)).toEqual(["Resumen de impuestos", "Configuración fiscal"]);
     const reporting = filterNavigationGroups(navGroups, { countryCode: "MX", role: "OWNER" }).flatMap((group) => group.links.map((link) => link.href));
     expect(reporting).toContain("/fiscal");
