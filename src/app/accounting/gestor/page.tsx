@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AeatBooksDownload } from "@/components/accounting/aeat-books-download";
 import { GestorPackageDownload } from "@/components/accounting/gestor-package-download";
 import { HelpTerm } from "@/components/help/help-term";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { InlineAlert, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { Select } from "@/components/ui/select";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { requireContext } from "@/lib/current-context";
+import { fiscalCivilDate } from "@/lib/fiscal-spain";
 import { listFiscalYears } from "@/server/accounting/fiscal-years";
 import { resolveStatementPeriod, statementPeriodOptions } from "@/server/accounting/statements-model";
 
@@ -58,6 +61,7 @@ export default async function GestorPackagePage({ searchParams }: { searchParams
             </form>
           </PageSection>
           <PeriodDownload periodKey={first(query.period)} year={year} />
+          {getCountryFiscalProfile(ctx.company.countryCode).features.taxReports ? <AeatBooks periodKey={first(query.period)} year={year} /> : null}
         </>
       )}
     </PageShell>
@@ -80,6 +84,34 @@ function PeriodDownload({ periodKey, year }: { periodKey: string | undefined; ye
         <GestorPackageDownload fiscalYearId={year.id} periodKey={period.key} periodLabel={period.label} />
         <p className="text-xs text-muted-foreground">
           Antes de enviarlo, revisa que no queden facturas en borrador ni movimientos del banco sin conciliar en el periodo: el paquete refleja lo que hay registrado ahora.
+        </p>
+      </div>
+    </PageSection>
+  );
+}
+
+/**
+ * Libros registro en el formato electrónico de la AEAT: el que piden los requerimientos y el que
+ * importan Pre303, el modelo 130 y Renta Web. Van siempre desde el 1 de enero (la AEAT los pide
+ * sin fraccionar por trimestre).
+ */
+function AeatBooks({ periodKey, year }: { periodKey: string | undefined; year: { id: string; code: string; startsAt: Date; endsAt: Date } }) {
+  const quarter = /^q([1-4])$/.exec(resolveStatementPeriod(year, periodKey).key)?.[1];
+  const calendarYear = fiscalCivilDate(year.startsAt).year;
+  return (
+    <PageSection
+      title={`3. Libros registro en formato AEAT · ${calendarYear}`}
+      description="Un Excel con el diseño oficial de la Agencia Tributaria: facturas expedidas, facturas recibidas y bienes de inversión, cada libro en su pestaña."
+    >
+      <div className="space-y-3">
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          <li>Sirve para contestar un requerimiento de la AEAT y para importarlo en la sede (Pre303 del modelo 303, modelo 130 y Renta Web).</li>
+          <li>Los autónomos obtienen los libros unificados de IVA e IRPF; las sociedades, los del IVA.</li>
+          <li>El nombre del fichero es el que exige la AEAT (ejercicio, NIF, tipo de libro y nombre): no lo cambies.</li>
+        </ul>
+        <AeatBooksDownload defaultQuarter={quarter ? Number(quarter) : 4} year={calendarYear} />
+        <p className="text-xs text-muted-foreground">
+          Antes de enviarlo, compruébalo con el servicio de validación de libros de la sede. El programa no rellena: los cobros y pagos del criterio de caja, la regularización anual de los bienes de inversión, los inmuebles arrendados ni el libro de determinadas operaciones intracomunitarias (peritajes, transferencias y ventas en consigna), que no registra. El concepto de gasto del IRPF se propone según la cuenta contable: revísalo.
         </p>
       </div>
     </PageSection>

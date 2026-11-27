@@ -1348,6 +1348,32 @@
   "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierName: z.string().trim().optional().or(z.literal(\"\")),\n  supplierTaxId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierEmail: z.string().trim().email().optional().or(z.literal(\"\")),\n  supplierPhone: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddress: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPostalCode: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCity: z.string().trim().optional().or(z.literal(\"\")),\n  supplierProvince: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCountryCode: z.string().trim().length(2).optional().or(z.literal(\"\")),\n  purchaseOrderId: z.string().trim().optional().or(z.literal(\"\")),\n  goodsReceiptId: z.string().trim().optional().or(z.literal(\"\")),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  seriesId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  ocrJobId: z.string().trim().optional().or(z.literal(\"\")),\n  currencyCode: z.string().trim().length(3).optional(),\n  idempotencyKey: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  vatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).optional(),\n  // Clase de documento: una rectificativa (abono) admite importes negativos.\n  documentKind: z.enum([\"INVOICE\", \"RECTIFICATION\"]).optional(),\n  rectifiedInvoiceId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  rectifiedDocumentNumber: z.string().trim().max(80).optional().or(z.literal(\"\")),\n  rectifiedIssueDate: z.string().datetime().optional().or(z.literal(\"\")),\n  rectificationReason: z.string().trim().max(500).optional().or(z.literal(\"\")),\n  operationDate: z.string().datetime().optional().or(z.literal(\"\")),\n  isSimplified: z.boolean().optional(),\n  importDuaNumber: z.string().trim().max(40).optional().or(z.literal(\"\")),\n  importDuaDate: z.string().datetime().optional().or(z.literal(\"\")),\n  attachments: z\n    .array(\n      z.object({\n        fileName …"
  },
  {
+  "method": "GET",
+  "path": "/api/fiscal-files/books",
+  "area": "fiscal-files",
+  "summary": "Libros registro de IVA (y de IRPF para autónomos) en el formato electrónico de la AEAT (XLSX): facturas expedidas, recibidas y bienes de inversión, desde el 1 de enero hasta el final del trimestre pedido. `?year=2026&quarter=1…4` y, opcionalmente, la actividad de los asientos (`activityCode` A-D, `activityType` 01-06, `iae` grupo o epígrafe).",
+  "permissions": [
+   "accounting.read"
+  ],
+  "query": [
+   "year",
+   "quarter"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/fiscal-files/presentation/{id}",
+  "area": "fiscal-files",
+  "summary": "Fichero de presentación de un modelo guardado, para importarlo en la sede de la AEAT (texto de longitud fija en ISO-8859-1 según el diseño de registro del modelo). `?tipo=` fuerza el tipo de declaración (I, U, N, C, D…) y `?iban=` la cuenta de domiciliación o devolución. Los avisos que conviene revisar viajan en la cabecera `X-Fiscal-File-Warnings` (JSON codificado en URI). Si faltan datos responde 422 con el detalle.",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "query": [
+   "tipo",
+   "iban"
+  ]
+ },
+ {
   "method": "PUT",
   "path": "/api/fiscal-profile/aiem",
   "area": "fiscal-profile",
