@@ -108,6 +108,18 @@ export function surchargeTreatmentProblem(vatTreatment: string | null | undefine
   return "El recargo de equivalencia solo se admite en facturas con IVA repercutido por el proveedor (operación interior o importación).";
 }
 
+/**
+ * Tipo de recargo de equivalencia que corresponde a un tipo de IVA (art. 161 LIVA): 21 → 5,2;
+ * 10 → 1,4; 4 → 0,5. Para cualquier otro tipo (p. ej. el 1,75 del tabaco, que va con el 21) no se
+ * propone nada: se indica a mano.
+ */
+export function defaultSurchargeRate(taxRate: number) {
+  if (taxRate === 21) return 5.2;
+  if (taxRate === 10) return 1.4;
+  if (taxRate === 4) return 0.5;
+  return 0;
+}
+
 /** Bien de inversión por defecto: cuentas de inmovilizado (grupo 2 del PGC) salvo que se indique otra cosa. */
 export function defaultInvestmentGood(accountCode: string | null | undefined) {
   return (accountCode ?? "").startsWith("2");

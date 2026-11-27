@@ -51,6 +51,12 @@ export type ExpenseOcrDraft = {
   vatTreatment?: SupplierVatTreatment;
   /** RECTIFICATION si el documento es una rectificativa / abono (por su texto o por su total negativo). */
   documentKind?: SupplierDocumentKind;
+  /** Datos del libro registro que devuelve la lectura con IA (ver `toExpenseInvoiceAiDraft`). */
+  rectifiedDocumentNumber?: string;
+  rectifiedIssueDate?: string;
+  operationDate?: string;
+  isSimplified?: boolean;
+  hasSurcharge?: boolean;
   lines: ExpenseOcrDraftLine[];
   confidence: "high" | "medium" | "low";
   warnings: string[];

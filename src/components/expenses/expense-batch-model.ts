@@ -44,6 +44,12 @@ export type OcrDraft = {
   vatTreatment?: SupplierVatTreatment;
   /** RECTIFICATION si la lectura detecta una rectificativa / abono. */
   documentKind?: SupplierDocumentKind;
+  /** Número y fecha de la factura rectificada, fecha de operación, ticket y recargo leídos. */
+  rectifiedDocumentNumber?: string;
+  rectifiedIssueDate?: string;
+  operationDate?: string;
+  isSimplified?: boolean;
+  hasSurcharge?: boolean;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -94,6 +100,15 @@ export type BatchItem = {
   /** Número de la factura que se rectifica y motivo (solo rectificativas). */
   rectifiedDocumentNumber: string;
   rectificationReason: string;
+  /** Fecha de la factura rectificada (solo rectificativas). */
+  rectifiedIssueDate: string;
+  /** Fecha de la operación si difiere de la de la factura. */
+  operationDate: string;
+  /** Importaciones: número y fecha del DUA. */
+  importDuaNumber: string;
+  importDuaDate: string;
+  /** La factura repercute recargo de equivalencia: se pide el tipo en cada línea. */
+  hasSurcharge: boolean;
   /** Ticket o factura simplificada sin NIF del proveedor. */
   isSimplified: boolean;
   /** Conversión a la moneda de la empresa de una factura en otra moneda. */
@@ -161,6 +176,11 @@ export function newBatchItem(input: { file?: File; fileName: string; sizeBytes: 
     documentKind: "INVOICE",
     rectifiedDocumentNumber: "",
     rectificationReason: "",
+    rectifiedIssueDate: "",
+    operationDate: "",
+    importDuaNumber: "",
+    importDuaDate: "",
+    hasSurcharge: false,
     isSimplified: false,
     lines: [],
     duplicate: emptyDuplicate,
@@ -224,6 +244,11 @@ export function hydrateItem(
     currencyCode: (draft.currencyCode ?? "EUR").slice(0, 3).toUpperCase(),
     // Abono: lo dice la lectura o el total leído es negativo.
     documentKind: draft.documentKind ?? ((draft.totalAmount ?? 0) < 0 ? "RECTIFICATION" : "INVOICE"),
+    rectifiedDocumentNumber: draft.rectifiedDocumentNumber ?? item.rectifiedDocumentNumber,
+    rectifiedIssueDate: draft.rectifiedIssueDate?.slice(0, 10) ?? item.rectifiedIssueDate,
+    operationDate: draft.operationDate?.slice(0, 10) ?? item.operationDate,
+    isSimplified: draft.isSimplified ?? item.isSimplified,
+    hasSurcharge: draft.hasSurcharge ?? item.hasSurcharge,
     lines: draft.lines.map((line) => {
       const suggested = findAccountForCode(context.expenseAccounts, line.suggestedExpenseAccountCode);
       return {
@@ -323,7 +348,7 @@ export function groupItemLines(item: BatchItem): BatchItem {
   item.lines.forEach((line, index) => {
     const key = lineBaseCents(line) === null
       ? `invalid-${index}`
-      : [line.expenseAccountId, percentKey(line.taxRate), percentKey(line.taxDeductiblePct), percentKey(line.retentionRate)].join("|");
+      : [line.expenseAccountId, percentKey(line.taxRate), percentKey(line.taxDeductiblePct), percentKey(line.retentionRate), percentKey(line.surchargeRate ?? "0"), String(line.isInvestmentGood ?? "")].join("|");
     if (!groups.has(key)) order.push(key);
     groups.set(key, [...(groups.get(key) ?? []), line]);
   });

@@ -93,6 +93,8 @@ type CreateExpenseInvoiceFormProps = {
   baseCurrencyCode: string;
   /** País de la empresa: decide si un proveedor es nacional, de la UE o de fuera. */
   homeCountryCode?: string;
+  /** El territorio declara IVA con devengo: se ofrece marcar al proveedor en criterio de caja. */
+  cashAccountingAvailable?: boolean;
   expenseAccounts: AccountOption[];
   goodsReceipts: GoodsReceiptRelation[];
   initialSupplierId?: string;
@@ -180,7 +182,7 @@ function lineTotals(line: ExpenseLineDraft, withSurcharge = false) {
   return { subtotal, tax, retention, surcharge, total: subtotal + tax + surcharge - retention };
 }
 
-export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [], homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialKind = "INVOICE", initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, rectifiedInvoice, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, cashAccountingAvailable = false, expenseSeries = [], homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialKind = "INVOICE", initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, rectifiedInvoice, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
   const initialSupplier = suppliers.find((supplier) => supplier.id === (rectifiedInvoice?.supplierPartnerId ?? initialSupplierId));
   const startsAsRectification = Boolean(rectifiedInvoice) || initialKind === "RECTIFICATION";
@@ -192,6 +194,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
   const [rectificationReason, setRectificationReason] = useState("");
   const [operationDate, setOperationDate] = useState("");
   const [isSimplified, setIsSimplified] = useState(false);
+  const [supplierCashAccounting, setSupplierCashAccounting] = useState(false);
   const [importDuaNumber, setImportDuaNumber] = useState("");
   const [importDuaDate, setImportDuaDate] = useState("");
   const [hasSurcharge, setHasSurcharge] = useState(() => Boolean(rectifiedInvoice?.lines.some((line) => line.surchargeRate > 0)));
@@ -511,6 +514,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
           rectificationReason: isRectification ? rectificationReason.trim() || undefined : undefined,
           operationDate: operationDate ? toIsoDate(operationDate) : undefined,
           isSimplified,
+          // El criterio de caja solo existe en operaciones interiores con IVA del proveedor.
+          supplierCashAccounting: cashAccountingAvailable && vatTreatment === "DOMESTIC" ? supplierCashAccounting : false,
           importDuaNumber: vatTreatment === "IMPORT" ? importDuaNumber.trim() || undefined : undefined,
           importDuaDate: vatTreatment === "IMPORT" && importDuaDate ? toIsoDate(importDuaDate) : undefined,
           notes,
@@ -646,6 +651,12 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
               <Select onChange={(event) => setVatTreatmentOverride(parseSupplierVatTreatment(event.target.value))} value={vatTreatment}>
                 {vatOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </Select>
+              {cashAccountingAvailable && vatTreatment === "DOMESTIC" ? (
+                <label className="mt-1 flex items-start gap-2 text-xs" htmlFor="expense-cash-accounting" title="La factura lo indica con la mención «Régimen especial del criterio de caja».">
+                  <input checked={supplierCashAccounting} className="mt-0.5" data-testid="expense-cash-accounting" id="expense-cash-accounting" onChange={(event) => setSupplierCashAccounting(event.target.checked)} type="checkbox" />
+                  Proveedor en régimen especial del criterio de caja (el IVA se deduce al pagar)
+                </label>
+              ) : null}
             </AccessibleField>
           </div>
         </section>

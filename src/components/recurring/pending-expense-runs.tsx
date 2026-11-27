@@ -29,6 +29,7 @@ function ConfirmRunButton({ run }: { run: PendingExpenseRun }) {
   const [open, setOpen] = useState(false);
   const [amounts, setAmounts] = useState(() => run.lines.map((line) => line.unitPrice.toFixed(2).replace(".", ",")));
   const [documentNumber, setDocumentNumber] = useState("");
+  const [isSimplified, setIsSimplified] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -45,7 +46,7 @@ function ConfirmRunButton({ run }: { run: PendingExpenseRun }) {
       const response = await fetch(`/api/recurring/runs/${run.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ unitPrices: parsed, supplierDocumentNumber: documentNumber || null }),
+        body: JSON.stringify({ unitPrices: parsed, supplierDocumentNumber: documentNumber || null, isSimplified }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo registrar el gasto."));
       const created = (await response.json()) as { number: string };
@@ -78,6 +79,10 @@ function ConfirmRunButton({ run }: { run: PendingExpenseRun }) {
           <AccessibleField helperText="Opcional: el número que aparece en la factura del proveedor." id={`${idBase}-number`} label="Número de factura del proveedor">
             <Input maxLength={80} value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value)} />
           </AccessibleField>
+          <label className="flex items-center gap-2 text-xs" htmlFor={`${idBase}-simplified`}>
+            <input checked={isSimplified} id={`${idBase}-simplified`} onChange={(event) => setIsSimplified(event.target.checked)} type="checkbox" />
+            Ticket o factura simplificada sin NIF del proveedor
+          </label>
           <FormErrorMessage>{error}</FormErrorMessage>
           <DialogFooter>
             <Button disabled={pending} onClick={() => setOpen(false)} type="button" variant="outline">Cancelar</Button>

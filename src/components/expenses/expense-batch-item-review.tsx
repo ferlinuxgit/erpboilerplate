@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { DocumentPreview, type DocumentSource } from "./document-preview";
 import { ExpenseCurrencyConversion } from "./expense-currency-conversion";
 import { applySupplierToItem, applyTaxSummaryLines, emptyDuplicate, groupItemLines, type BatchItem, type BatchSupplier, type DraftLine } from "./expense-batch-model";
+import { defaultInvestmentGood } from "@/server/supplier-invoices/document-rules";
+
 import { isBlockingWarning, reviewDocumentTotal, reviewLineTotal, reviewReasonLabels, type ItemReadiness } from "./expense-review";
 
 export type PurchaseOrderRelation = { id: string; number: string; supplierPartnerId: string };
@@ -65,11 +67,15 @@ export function ExpenseBatchItemReview({
   const idBase = item.localId;
   const selectedSupplier = suppliers.find((supplier) => supplier.id === item.supplierPartnerId);
   const supplierDefaultAccount = selectedSupplier?.defaults?.defaultExpenseAccountId ?? null;
-  const total = readiness?.total ?? reviewDocumentTotal(item.lines, item.vatTreatment, item.documentKind);
+  const total = readiness?.total ?? reviewDocumentTotal(item.hasSurcharge ? item.lines : item.lines.map((line) => ({ ...line, surchargeRate: "0" })), item.vatTreatment, item.documentKind);
   const isRectification = item.documentKind === "RECTIFICATION";
   const taxIdMissing = readiness?.reasons.includes("taxId") ?? false;
   // Autorepercusión: el tipo de la línea es el IVA que declara la empresa, no el que cobra el proveedor.
   const selfAssessedVat = Boolean(item.vatTreatment) && isSelfAssessedTreatment(item.vatTreatment as Exclude<typeof item.vatTreatment, "">);
+  // Sin recargo marcado, el de las líneas no cuenta (ni en el total ni al registrar).
+  const reviewLines = item.hasSurcharge ? item.lines : item.lines.map((line) => ({ ...line, surchargeRate: "0" }));
+  const surchargeAllowed = !item.vatTreatment || item.vatTreatment === "DOMESTIC" || item.vatTreatment === "IMPORT";
+  const accountCodeById = new Map(expenseAccounts.map((account) => [account.id, account.code]));
   const totalsMismatch = readiness?.reasons.includes("totals") ?? false;
   const accountMissing = readiness?.reasons.includes("account") ?? false;
   const currencySymbol = item.currencyCode === "EUR" ? "€" : item.currencyCode;
@@ -218,6 +224,9 @@ export function ExpenseBatchItemReview({
               <AccessibleField helperText="El número que cita la rectificativa." id={`rectified-number-${idBase}`} label="N.º de la factura rectificada">
                 <Input disabled={disabled} onChange={(event) => onPatch({ rectifiedDocumentNumber: event.target.value })} value={item.rectifiedDocumentNumber} />
               </AccessibleField>
+              <AccessibleField helperText="La fecha de la factura que se rectifica, si la cita el documento." id={`rectified-date-${idBase}`} label="Fecha de la factura rectificada">
+                <Input disabled={disabled} onChange={(event) => onPatch({ rectifiedIssueDate: event.target.value })} type="date" value={item.rectifiedIssueDate} />
+              </AccessibleField>
               <AccessibleField className="sm:col-span-2" helperText="Devolución, descuento posterior, error en el precio… Obligatorio si no hay número." id={`rectification-reason-${idBase}`} label="Motivo de la rectificación">
                 <Input disabled={disabled} maxLength={500} onChange={(event) => onPatch({ rectificationReason: event.target.value })} value={item.rectificationReason} />
               </AccessibleField>
@@ -228,6 +237,9 @@ export function ExpenseBatchItemReview({
           </AccessibleField>
           <AccessibleField id={`date-${idBase}`} label="Fecha de la factura" required>
             <Input disabled={disabled} onChange={(event) => changeIssueDate(event.target.value)} type="date" value={item.issueDate} />
+          </AccessibleField>
+          <AccessibleField helperText="Opcional: solo si la entrega o el servicio fue en otra fecha." id={`operation-date-${idBase}`} label="Fecha de operación">
+            <Input data-testid={`batch-item-${idBase}-operation-date`} disabled={disabled} onChange={(event) => onPatch({ operationDate: event.target.value })} type="date" value={item.operationDate} />
           </AccessibleField>
           <AccessibleField
             helperText="Opcional: si la factura llega tarde y su trimestre ya está presentado, indica hoy."
@@ -252,6 +264,16 @@ export function ExpenseBatchItemReview({
               {vatOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </Select>
           </AccessibleField>
+          {item.vatTreatment === "IMPORT" ? (
+            <>
+              <AccessibleField helperText="Número del documento aduanero (DUA) de la importación." id={`dua-number-${idBase}`} label="N.º de DUA">
+                <Input disabled={disabled} maxLength={40} onChange={(event) => onPatch({ importDuaNumber: event.target.value })} value={item.importDuaNumber} />
+              </AccessibleField>
+              <AccessibleField helperText="Fecha de admisión del DUA por la aduana." id={`dua-date-${idBase}`} label="Fecha del DUA">
+                <Input disabled={disabled} onChange={(event) => onPatch({ importDuaDate: event.target.value })} type="date" value={item.importDuaDate} />
+              </AccessibleField>
+            </>
+          ) : null}
         </div>
 
         <details className="border border-window-shadow bg-window-panel" hidden={isRectification} open={Boolean(item.purchaseOrderId || item.goodsReceiptId)}>
@@ -280,6 +302,12 @@ export function ExpenseBatchItemReview({
             <strong>Base</strong>: importe sin IVA. <strong>Deducible</strong>: parte del IVA que recuperas (100 % si el gasto es solo del negocio).{" "}
             <strong>Retención</strong>: IRPF que te descuenta un profesional (15 %) o el casero de un local (19 %); si la factura no la indica, déjalo en 0.
           </p>
+          {surchargeAllowed ? (
+            <label className="flex items-center gap-2 text-xs" htmlFor={`has-surcharge-${idBase}`}>
+              <input checked={item.hasSurcharge} data-testid={`batch-item-${idBase}-has-surcharge`} disabled={disabled} id={`has-surcharge-${idBase}`} onChange={(event) => onPatch({ hasSurcharge: event.target.checked })} type="checkbox" />
+              La factura lleva recargo de equivalencia
+            </label>
+          ) : null}
           {selfAssessedVat ? (
             <p className="border border-info/70 bg-info/10 px-2 py-1.5 text-xs" data-testid={`batch-item-${idBase}-self-assessed`}>
               <strong>IVA autorrepercutido</strong>: el proveedor no te lo cobra y no se suma a lo que pagas. Lo declaras tú en el 303 como
@@ -327,8 +355,23 @@ export function ExpenseBatchItemReview({
                 <AccessibleField id={`retentionRate-${line.id}`} label={`Retención${lineLabel}`}>
                   <PercentInput disabled={disabled} onChange={(event) => patchLine(line.id, { retentionRate: event.target.value })} value={line.retentionRate} />
                 </AccessibleField>
+                {item.hasSurcharge && surchargeAllowed ? (
+                  <AccessibleField helperText="5,2 · 1,4 · 0,5 · 1,75" id={`surchargeRate-${line.id}`} label={`Recargo eq.${lineLabel}`}>
+                    <PercentInput disabled={disabled} onChange={(event) => patchLine(line.id, { surchargeRate: event.target.value })} value={line.surchargeRate ?? "0"} />
+                  </AccessibleField>
+                ) : null}
+                <label className="flex items-center gap-2 self-end pb-2 text-xs" htmlFor={`investment-${line.id}`} title="Elementos que se usan más de un año (maquinaria, equipos, vehículos…). Va al libro de bienes de inversión.">
+                  <input
+                    checked={line.isInvestmentGood ?? defaultInvestmentGood(accountCodeById.get(line.expenseAccountId))}
+                    disabled={disabled}
+                    id={`investment-${line.id}`}
+                    onChange={(event) => patchLine(line.id, { isInvestmentGood: event.target.checked })}
+                    type="checkbox"
+                  />
+                  Bien de inversión
+                </label>
                 <div className="flex items-end justify-between gap-2">
-                  <p className={cn("pb-2 font-mono text-xs font-bold tabular-nums", reviewLineTotal(line, item.vatTreatment) < 0 ? "text-danger-text" : undefined)}>{formatMoney(reviewLineTotal(line, item.vatTreatment), item.currencyCode)}</p>
+                  <p className={cn("pb-2 font-mono text-xs font-bold tabular-nums", reviewLineTotal(reviewLines[lineIndex], item.vatTreatment) < 0 ? "text-danger-text" : undefined)}>{formatMoney(reviewLineTotal(reviewLines[lineIndex], item.vatTreatment), item.currencyCode)}</p>
                   <Button aria-label={`Eliminar línea ${lineIndex + 1}`} disabled={disabled || item.lines.length === 1} onClick={() => onPatch((current) => ({ ...current, lines: current.lines.filter((candidate) => candidate.id !== line.id) }))} size="icon-sm" title="Eliminar línea" type="button" variant="ghost">
                     <Trash aria-hidden="true" />
                   </Button>

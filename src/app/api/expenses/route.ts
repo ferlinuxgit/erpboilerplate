@@ -43,6 +43,7 @@ const payloadSchema = z.object({
   rectificationReason: z.string().trim().max(500).optional().or(z.literal("")),
   operationDate: z.string().datetime().optional().or(z.literal("")),
   isSimplified: z.boolean().optional(),
+  supplierCashAccounting: z.boolean().optional(),
   importDuaNumber: z.string().trim().max(40).optional().or(z.literal("")),
   importDuaDate: z.string().datetime().optional().or(z.literal("")),
   attachments: z
@@ -161,6 +162,7 @@ export async function POST(request: Request) {
         rectificationReason: parsed.data.rectificationReason || undefined,
         operationDate: parsed.data.operationDate ? new Date(parsed.data.operationDate) : undefined,
         isSimplified: parsed.data.isSimplified,
+        supplierCashAccounting: parsed.data.supplierCashAccounting,
         importDuaNumber: parsed.data.importDuaNumber || undefined,
         importDuaDate: parsed.data.importDuaDate ? new Date(parsed.data.importDuaDate) : undefined,
         // Art. 64 RIVA: NIF del proveedor obligatorio salvo ticket / factura simplificada.

@@ -715,6 +715,10 @@ async function generateExpensePeriod(template: TemplateRow, periodDate: string, 
         notes: notes ?? undefined,
         lines: toExpenseLines(lines),
         idempotencyKey: expenseIdempotencyKey(template.id, periodDate),
+        // Art. 64 RIVA: un gasto recurrente (alquiler, suministros, cuotas) es una factura completa
+        // y exige el NIF del proveedor. Sin él queda pendiente de revisar, donde se puede completar
+        // la ficha o indicar que es un ticket.
+        requireSupplierTaxId: true,
       });
       supplierInvoiceId = created.id;
     } catch (error) {
@@ -837,7 +841,7 @@ async function lockPendingRun(tx: DbClient, companyId: string, runId: string) {
 export async function confirmPendingExpenseRun(
   actor: RecurringActor & { fiscalYearId: string },
   runId: string,
-  input: { unitPrices?: number[]; supplierDocumentNumber?: string | null },
+  input: { unitPrices?: number[]; supplierDocumentNumber?: string | null; /** Ticket o factura simplificada sin NIF. */ isSimplified?: boolean },
 ) {
   const [pending] = await db
     .select({ run: recurringRun, template: recurringTemplate })
@@ -866,6 +870,9 @@ export async function confirmPendingExpenseRun(
       notes: pending.run.payload.notes ?? undefined,
       lines: toExpenseLines(lines),
       idempotencyKey: expenseIdempotencyKey(pending.template.id, pending.run.periodDate),
+      // NIF del proveedor obligatorio salvo ticket / factura simplificada (art. 64 RIVA).
+      requireSupplierTaxId: true,
+      isSimplified: Boolean(input.isSimplified),
     });
   } catch (error) {
     if (error instanceof HttpError) throw error;

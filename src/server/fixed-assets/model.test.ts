@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assetStatusFor, buildDisposalLines, buildRegisterRows, effectiveAnnualPct, nextAssetCode, suggestAssetAccounts, validateAssetRules, type AssetRulesInput, type RegisterAsset } from "@/server/fixed-assets/model";
+import { assetCostFromInvoiceLineCents, assetStatusFor, buildDisposalLines, buildRegisterRows, effectiveAnnualPct, nextAssetCode, suggestAssetAccounts, validateAssetRules, type AssetRulesInput, type RegisterAsset } from "@/server/fixed-assets/model";
 import { planAssetPostings, FISCAL_PERIOD_LOCKED } from "@/server/fixed-assets/posting-plan";
 import { findTaxCoefficient, suggestedTaxCoefficientKey, TAX_COEFFICIENTS, taxCoefficientWarning } from "@/server/fixed-assets/tax-coefficients";
 
@@ -223,5 +223,20 @@ describe("tabla fiscal de coeficientes (art. 12.1.a LIS)", () => {
     expect(taxCoefficientWarning(33, "equipos-informaticos")).toMatch(/supera el coeficiente máximo fiscal del 25 %/);
     expect(taxCoefficientWarning(5, "equipos-informaticos")).toMatch(/periodo máximo fiscal de 8 años/);
     expect(taxCoefficientWarning(50, null)).toBeNull();
+  });
+});
+
+describe("precio de adquisición desde la línea de la factura de compra", () => {
+  it("con IVA totalmente deducible es la base", () => {
+    expect(assetCostFromInvoiceLineCents({ subtotalAmount: "1000.00", taxAmount: "210.00", taxDeductiblePct: "100" })).toBe(100_000);
+  });
+
+  it("suma el IVA no deducible y el recargo de equivalencia", () => {
+    expect(assetCostFromInvoiceLineCents({ subtotalAmount: "1000.00", taxAmount: "210.00", taxDeductiblePct: "50", vatTreatment: "DOMESTIC" })).toBe(110_500);
+    expect(assetCostFromInvoiceLineCents({ subtotalAmount: "1000.00", taxAmount: "210.00", taxDeductiblePct: "0", surchargeAmount: "52.00" })).toBe(126_200);
+  });
+
+  it("con IVA autorrepercutido (intracomunitaria, inversión del sujeto pasivo) es la base", () => {
+    expect(assetCostFromInvoiceLineCents({ subtotalAmount: "1000.00", taxAmount: "210.00", taxDeductiblePct: "0", vatTreatment: "INTRA_EU" })).toBe(100_000);
   });
 });

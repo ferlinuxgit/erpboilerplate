@@ -3,6 +3,8 @@
  * ficha, líneas del asiento de baja y filas del libro registro de bienes de inversión.
  */
 
+import { applyPct, toCents } from "@/server/accounting/money";
+
 export type AssetCategory = "intangible" | "tangible" | "investment";
 
 export type AssetStatus = "active" | "fully_depreciated" | "disposed";
@@ -241,4 +243,25 @@ export function nextAssetCode(existingCodes: Iterable<string>): string {
     if (match) max = Math.max(max, Number(match[1]));
   }
   return `BI-${String(max + 1).padStart(4, "0")}`;
+}
+
+/**
+ * Precio de adquisición (céntimos) de un bien a partir de su línea de factura de compra: base +
+ * recargo de equivalencia + la parte del IVA que no se puede deducir. En operaciones con IVA
+ * autorrepercutido (intracomunitaria, inversión del sujeto pasivo) o no sujetas, la línea no lleva
+ * IVA del proveedor y el precio es la base.
+ */
+export function assetCostFromInvoiceLineCents(line: {
+  subtotalAmount: string | number;
+  taxAmount: string | number;
+  taxDeductiblePct: string | number;
+  surchargeAmount?: string | number | null;
+  vatTreatment?: string | null;
+}) {
+  const base = toCents(line.subtotalAmount) + toCents(line.surchargeAmount ?? 0);
+  const suppliedVat = !line.vatTreatment || line.vatTreatment === "DOMESTIC" || line.vatTreatment === "IMPORT";
+  if (!suppliedVat) return base;
+  const deductiblePct = Math.min(Math.max(Number(line.taxDeductiblePct), 0), 100);
+  const vat = toCents(line.taxAmount);
+  return base + (vat - applyPct(vat, Number.isFinite(deductiblePct) ? deductiblePct : 100));
 }

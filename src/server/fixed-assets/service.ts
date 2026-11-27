@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-import { accountChart, fiscalYear, fixedAsset, fixedAssetDepreciation, fixedAssetSettings, journalEntry, partner, supplierInvoice } from "@/db/schema";
+import { accountChart, fiscalYear, fixedAsset, fixedAssetDepreciation, fixedAssetSettings, journalEntry, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { createAutomaticEntry, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError, isAccountingRuleError } from "@/server/accounting/errors";
@@ -11,6 +11,7 @@ import { recordAudit } from "@/server/audit";
 import { assertFiscalPeriodOpen, resolveOpenPostingDate } from "@/server/fiscal/locks";
 import {
   assetCategoryForCode,
+  assetCostFromInvoiceLineCents,
   assetStatusFor,
   buildDisposalLines,
   buildRegisterRows,
@@ -113,6 +114,55 @@ export async function listSupplierInvoiceOptions(companyId: string, limit = 300)
     .orderBy(desc(supplierInvoice.issueDate))
     .limit(limit);
   return rows.map((row) => ({ ...row, issueDate: dateToIso(row.issueDate) }));
+}
+
+/**
+ * Datos para dar de alta un bien desde una factura de compra: descripción, fecha, cuenta e importe
+ * de la línea elegida (o de la primera marcada como bien de inversión). El importe es el precio de
+ * adquisición: base + recargo de equivalencia + IVA no deducible de la línea (NRV 2.ª PGC: los
+ * impuestos indirectos solo forman parte del precio cuando no son recuperables).
+ */
+export async function getSupplierInvoiceAssetPrefill(companyId: string, supplierInvoiceId: string, lineId?: string) {
+  const [invoice] = await db
+    .select({
+      id: supplierInvoice.id,
+      number: supplierInvoice.number,
+      supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
+      issueDate: supplierInvoice.issueDate,
+      totalAmount: supplierInvoice.totalAmount,
+      vatTreatment: supplierInvoice.vatTreatment,
+      supplierName: partner.name,
+    })
+    .from(supplierInvoice)
+    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.id, supplierInvoiceId), ne(supplierInvoice.status, "VOID")))
+    .limit(1);
+  if (!invoice) return null;
+  const lines = await db
+    .select({
+      id: supplierInvoiceLine.id,
+      description: supplierInvoiceLine.description,
+      subtotalAmount: supplierInvoiceLine.subtotalAmount,
+      taxAmount: supplierInvoiceLine.taxAmount,
+      taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
+      surchargeAmount: supplierInvoiceLine.surchargeAmount,
+      isInvestmentGood: supplierInvoiceLine.isInvestmentGood,
+      accountCode: accountChart.code,
+    })
+    .from(supplierInvoiceLine)
+    .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
+    .where(eq(supplierInvoiceLine.supplierInvoiceId, invoice.id));
+  const line = (lineId ? lines.find((row) => row.id === lineId) : undefined) ?? lines.find((row) => row.isInvestmentGood) ?? null;
+  return {
+    invoice: { ...invoice, issueDate: dateToIso(invoice.issueDate) },
+    line: line
+      ? {
+          description: line.description,
+          accountCode: line.accountCode,
+          cost: centsToAmount(assetCostFromInvoiceLineCents({ ...line, vatTreatment: invoice.vatTreatment })),
+        }
+      : null,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -11,6 +11,8 @@ type Params = { params: Promise<{ id: string }> };
 const confirmSchema = z.object({
   unitPrices: z.array(z.number().min(0, "El importe no puede ser negativo.").max(100_000_000)).max(50).optional(),
   supplierDocumentNumber: z.string().trim().max(80).optional().nullable(),
+  /** Ticket o factura simplificada: no exige el NIF del proveedor. */
+  isSimplified: z.boolean().optional(),
 });
 
 async function authorize(runId: string) {

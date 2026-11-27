@@ -56,6 +56,13 @@ export const expenseInvoiceAiAnalysisSchema = z.object({
   customer_tax_id: nullableString,
   customer_address: nullableString,
   invoice_number: nullableString,
+  // Clase de documento: factura normal o rectificativa / abono (nota de crédito).
+  document_kind: z.enum(["invoice", "corrective_invoice", "unknown"]),
+  // Factura que rectifica (número y fecha que cita la rectificativa).
+  rectified_invoice_number: nullableString,
+  rectified_invoice_date: nullableString,
+  // Factura simplificada o ticket (sin datos fiscales del destinatario).
+  is_simplified_invoice: z.boolean(),
   invoice_series: nullableString,
   invoice_issue_date: nullableString,
   invoice_operation_date: nullableString,
@@ -153,6 +160,16 @@ export type ExpenseInvoiceAiDraft = {
   taxSummary?: Array<{ taxRate: number; base: number; taxDeductiblePct: number }>;
   /** Tratamiento de IVA propuesto (proveedor extranjero que no cobra IVA español). */
   vatTreatment?: SupplierVatTreatment;
+  /** RECTIFICATION si la lectura dice que es una rectificativa / abono o el total es negativo. */
+  documentKind?: "INVOICE" | "RECTIFICATION";
+  rectifiedDocumentNumber?: string;
+  rectifiedIssueDate?: string;
+  /** Fecha de la operación, solo si el documento la indica y difiere de la de expedición. */
+  operationDate?: string;
+  /** Factura simplificada / ticket. */
+  isSimplified?: boolean;
+  /** La factura repercute recargo de equivalencia (hay que indicarlo en las líneas). */
+  hasSurcharge?: boolean;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 };
@@ -464,7 +481,19 @@ export function toExpenseInvoiceAiDraft(
   const linesTotalCents = draftTotalCents(lines, vatTreatment);
   const totalsMismatch = isAmount(analysis.total_amount) && Math.abs(linesTotalCents - amountToCents(analysis.total_amount)) > 2;
   const taxSummary = lines.length > 1 || totalsMismatch ? taxSummaryLines(analysis, lines[0]?.retentionRate ?? 0, defaults.deductiblePct) : undefined;
+  // Rectificativa / abono: lo dice la lectura o el total viene en negativo. El signo no se cambia
+  // solo (hay abonos impresos en positivo): se pide revisarlo antes de registrar.
+  const negativeTotal = (analysis.total_amount ?? analysis.subtotal_amount ?? 0) < 0;
+  const isRectification = analysis.document_kind === "corrective_invoice" || negativeTotal;
+  const operationDate = isoDateOrUndefined(analysis.invoice_operation_date);
+  const hasSurcharge = Math.abs(analysis.surcharge_amount ?? 0) > 0 || analysis.taxes.some((tax) => tax.tax_type === "surcharge" && Math.abs(tax.tax_amount ?? 0) > 0);
   const extraWarnings = [
+    ...(isRectification
+      ? [negativeTotal
+        ? "Bloqueo: el documento es un abono (importes en negativo). Se registrará como rectificativa: indica la factura que rectifica."
+        : "Bloqueo: parece una factura rectificativa o un abono. Comprueba la clase de documento y pon en negativo los importes que el proveedor te devuelve."]
+      : []),
+    ...(hasSurcharge ? ["La factura lleva recargo de equivalencia: indica el tipo de recargo en cada línea antes de registrar."] : []),
     ...(supplier.readOwnTaxId ? ["El CIF/NIF leído es el de tu empresa (destinatario), no el del proveedor: indícalo a mano."] : []),
     ...(issueDate ? [] : ["No se pudo leer la fecha de factura: indícala antes de registrar."]),
     ...built.warnings,
@@ -495,6 +524,16 @@ export function toExpenseInvoiceAiDraft(
     lines,
     ...(taxSummary ? { taxSummary } : {}),
     ...(vatTreatment ? { vatTreatment } : {}),
+    ...(isRectification
+      ? {
+          documentKind: "RECTIFICATION" as const,
+          rectifiedDocumentNumber: analysis.rectified_invoice_number?.trim() || undefined,
+          rectifiedIssueDate: isoDateOrUndefined(analysis.rectified_invoice_date ?? null),
+        }
+      : {}),
+    ...(operationDate && operationDate !== issueDate ? { operationDate } : {}),
+    ...(analysis.is_simplified_invoice ? { isSimplified: true } : {}),
+    ...(hasSurcharge ? { hasSurcharge: true } : {}),
     confidence: extraWarnings.some((warning) => !Object.values(FOREIGN_VAT_WARNINGS).includes(warning)) ? "low" : cappedConfidence(confidenceLabel(analysis.confidence_overall), lines, analysis, vatTreatment),
     warnings: [...analysis.warnings, ...extraWarnings, ...analysis.blocking_errors.map((error) => `Bloqueo: ${error}`)],
   };
@@ -555,7 +594,7 @@ export async function analyzeExpenseInvoiceWithOpenAI(input: {
           filePart,
           {
             type: "input_text",
-            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Proveedor y cliente: el proveedor (supplier_*) es quien emite la factura y cobra (cabecera, logo, «From», «Seller», «Sold by», «Emisor»); el cliente (customer_*) es el destinatario («Bill to», «Billed to», «Customer», «Cliente», «Facturar a», «Destinatario»). Nunca pongas en supplier_* los datos del bloque del cliente. supplier_tax_id es el identificador fiscal del emisor sea cual sea su etiqueta: CIF, NIF, NIF-IVA, VAT, VAT ID, VAT No., VAT Reg. No., Tax ID, USt-IdNr., TVA, P.IVA/Partita IVA, BTW, NIPC, EIN, ABN, GST… Suele estar en el bloque del emisor o en el pie de página. Si es un NIF-IVA de la UE, mantén el prefijo de país e ignora la etiqueta: «IE VAT IE4276970QH» → IE4276970QH, «USt-IdNr.: DE 123 456 789» → DE123456789, «VAT: FR 12 345678901» → FR12345678901. Pon el NIF-IVA intracomunitario del emisor también en supplier_vat_number; si el emisor solo tiene ese identificador, va en los dos campos. No dejes supplier_tax_id vacío si el documento muestra un identificador del emisor. supplier_country_code es el código ISO 3166-1 alfa-2 del país del emisor (por su dirección o por el prefijo de su NIF-IVA; Grecia es GR aunque su NIF-IVA empiece por EL), nunca el del cliente. customer_tax_id es el NIF del destinatario. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los cargos que solo aparecen al pie (portes, gastos de manipulación, canon, gastos de gestión, recargos) van uno a uno en additional_charges con su importe (los portes también en shipping_amount) y un descuento global del pie en discount_amount. subtotal_amount es la base imponible total (la del cuadro de IVA, incluidos esos cargos y descuentos), no el importe bruto de las líneas. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. En warnings incluye solo problemas que obliguen a revisar la lectura (datos ilegibles, importes que no cuadran, dudas sobre el proveedor), no textos legales ni avisos genéricos del documento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro.",
+            text: "Analiza esta factura de proveedor/gasto y extrae los campos siguiendo el esquema. Proveedor y cliente: el proveedor (supplier_*) es quien emite la factura y cobra (cabecera, logo, «From», «Seller», «Sold by», «Emisor»); el cliente (customer_*) es el destinatario («Bill to», «Billed to», «Customer», «Cliente», «Facturar a», «Destinatario»). Nunca pongas en supplier_* los datos del bloque del cliente. supplier_tax_id es el identificador fiscal del emisor sea cual sea su etiqueta: CIF, NIF, NIF-IVA, VAT, VAT ID, VAT No., VAT Reg. No., Tax ID, USt-IdNr., TVA, P.IVA/Partita IVA, BTW, NIPC, EIN, ABN, GST… Suele estar en el bloque del emisor o en el pie de página. Si es un NIF-IVA de la UE, mantén el prefijo de país e ignora la etiqueta: «IE VAT IE4276970QH» → IE4276970QH, «USt-IdNr.: DE 123 456 789» → DE123456789, «VAT: FR 12 345678901» → FR12345678901. Pon el NIF-IVA intracomunitario del emisor también en supplier_vat_number; si el emisor solo tiene ese identificador, va en los dos campos. No dejes supplier_tax_id vacío si el documento muestra un identificador del emisor. supplier_country_code es el código ISO 3166-1 alfa-2 del país del emisor (por su dirección o por el prefijo de su NIF-IVA; Grecia es GR aunque su NIF-IVA empiece por EL), nunca el del cliente. customer_tax_id es el NIF del destinatario. Normaliza importes con punto decimal, fechas como YYYY-MM-DD y CIF/NIF sin espacios, puntos ni guiones. Líneas: recorre todas las páginas y devuelve una entrada por cada concepto facturado, en orden. Si la descripción de un concepto ocupa varias filas, únela en una sola línea; no crees líneas sin importe. No incluyas como líneas las filas de subtotal, bases, IVA, retención, total ni «suma y sigue»/«suma anterior» entre páginas. Un descuento o abono en su propia fila va como línea con importe negativo; los cargos que solo aparecen al pie (portes, gastos de manipulación, canon, gastos de gestión, recargos) van uno a uno en additional_charges con su importe (los portes también en shipping_amount) y un descuento global del pie en discount_amount. subtotal_amount es la base imponible total (la del cuadro de IVA, incluidos esos cargos y descuentos), no el importe bruto de las líneas. En cada línea, subtotal_amount debe ser la base neta después de descuentos, no la base bruta antes del descuento, y tax_rate es el IVA de esa línea (puede variar entre líneas). En taxes devuelve una entrada por tipo de IVA con su base y su cuota, tal como aparecen en el cuadro de impuestos. En warnings incluye solo problemas que obliguen a revisar la lectura (datos ilegibles, importes que no cuadran, dudas sobre el proveedor), no textos legales ni avisos genéricos del documento. suggested_expense_account_code es la cuenta de 3 dígitos del Plan General Contable español más adecuada (600 compras de mercaderías para revender, 602 otros aprovisionamientos, 621 alquileres, 622 reparaciones, 623 asesorías y profesionales, 624 transportes, 625 seguros, 626 servicios bancarios, 627 publicidad, 628 suministros como luz, agua, gas, teléfono, internet o combustible, 629 otros servicios como material de oficina, viajes o software, 631 tributos); usa null si no está claro. document_kind es «corrective_invoice» si el documento es una factura rectificativa, un abono o una nota de crédito (títulos como «Factura rectificativa», «Abono», «Nota de abono», «Credit note», o importes totales en negativo), «invoice» si es una factura o un ticket normal y «unknown» si no se distingue; en una rectificativa, rectified_invoice_number y rectified_invoice_date son el número y la fecha de la factura que rectifica, tal como los cita el documento, y los importes se devuelven con el signo que muestra el documento. is_simplified_invoice es true si es un ticket o una factura simplificada (sin NIF ni domicilio del destinatario). invoice_operation_date solo si el documento indica una fecha de operación, entrega o prestación distinta de la de expedición. El recargo de equivalencia va en taxes con tax_type «surcharge» y su total en surcharge_amount.",
           },
         ],
       },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defaultInvestmentGood,
+  defaultSurchargeRate,
   isSupplierCreditBalance,
   looksLikeRectification,
   parseSupplierDocumentKind,
@@ -181,5 +182,15 @@ describe("pendiente de pago y saldo a favor (compensación de abonos)", () => {
   it("la factura cubierta por su abono queda pagada sin pagos", () => {
     expect(supplierPaymentStatus(121, 121, new Date("2020-01-01"))).toBe("PAID");
     expect(supplierPaymentStatus(121, 21, null)).toBe("PARTIAL");
+  });
+});
+
+describe("recargo de equivalencia por defecto", () => {
+  it("propone el recargo del tipo de IVA (art. 161 LIVA) y nada para tipos desconocidos", () => {
+    expect(defaultSurchargeRate(21)).toBe(5.2);
+    expect(defaultSurchargeRate(10)).toBe(1.4);
+    expect(defaultSurchargeRate(4)).toBe(0.5);
+    expect(defaultSurchargeRate(0)).toBe(0);
+    expect(defaultSurchargeRate(7)).toBe(0);
   });
 });
