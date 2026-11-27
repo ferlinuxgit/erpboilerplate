@@ -10,6 +10,7 @@ import { calculateSupplierBalance } from "@/lib/supplier-balance";
 import { syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
 import { reservePartnerNumber } from "@/server/partners/numbers";
 import { supplierOutstandingCents } from "@/server/supplier-invoices/document-rules";
+import { listSupplierCreditBalances } from "@/server/supplier-invoices/credits";
 import { supplierInvoiceCreditedSql, supplierInvoicePaidSql } from "@/server/supplier-invoices/outstanding";
 import { createSupplierSchema, updateSupplierSchema } from "@/server/schemas/forms";
 
@@ -285,7 +286,7 @@ export async function updateSupplierWithPartner(dbClient: DbClient, companyId: s
 }
 
 export async function getSupplierActivity(dbClient: DbClient, companyId: string, supplierId: string) {
-  const [invoices, refunds, purchaseOrders] = await Promise.all([
+  const [invoices, refunds, purchaseOrders, creditNotes] = await Promise.all([
     dbClient
       .select({
         id: supplierInvoice.id,
@@ -324,6 +325,8 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
       .from(purchaseOrder)
       .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.supplierPartnerId, supplierId)))
       .orderBy(desc(purchaseOrder.createdAt)),
+    // Abonos con saldo a favor sin compensar ni cobrar.
+    listSupplierCreditBalances(companyId, supplierId, dbClient),
   ]);
 
   // Pendiente por factura = total − pagos − abonos compensados (regla única de compras).
@@ -374,6 +377,7 @@ export async function getSupplierActivity(dbClient: DbClient, companyId: string,
       creditBalance: balance.creditBalance,
       overdueAmount: Math.max(rawOverdueAmount - unappliedAmount, 0),
     },
+    creditNotes,
     invoices: invoiceRows.slice(0, 8),
     purchaseOrders: purchaseOrders.slice(0, 8),
     payments: recentPayments.slice(0, 8),

@@ -1,9 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ExpenseDocumentAttach } from "@/components/expenses/expense-document-attach";
+import { SupplierCreditActions } from "@/components/expenses/supplier-credit-actions";
 import { RegisterSupplierPaymentButton } from "@/components/purchases/register-supplier-payment-button";
 import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
@@ -29,7 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supplierInvoice } from "@/db/schema";
+import { bankAccount, fixedAsset, supplierInvoice } from "@/db/schema";
 import { formatDate, formatMoney, formatPercent } from "@/lib/format";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -41,7 +42,9 @@ import {
 } from "@/lib/status-labels";
 import { missingDocumentJobIds } from "@/server/ocr/document-recovery";
 import { supplierVatTreatmentLabels, type SupplierVatTreatment } from "@/lib/fiscal-spain";
+import { supplierInvoiceOutstandingSql } from "@/server/supplier-invoices/outstanding";
 import { getExpenseInvoice } from "@/server/supplier-invoices/service";
+import { treasuryAccountLabel } from "@/lib/treasury-accounts";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   try {
@@ -90,12 +93,47 @@ export default async function ExpenseDetailPage({
   // Abono vivo: nada que pagar; el importe es un saldo a favor frente al proveedor.
   const isCreditBalance = expense.status !== "VOID" && Number(expense.totalAmount) < 0;
   const hasSurcharge = Number(expense.surchargeAmount) !== 0;
+  const creditRemaining = Number(expense.creditRemainingAmount);
+  const creditedAmount = Number(expense.creditedAmount);
+  const canAccount = can(ctx.membership.role, "accounting.write");
+  const hasInvestmentGoods = expense.status !== "VOID" && !isRectification && expense.lines.some((line) => line.isInvestmentGood);
+  // Saldo a favor por aplicar: facturas pendientes del mismo proveedor y bancos para la devolución.
+  const [creditTargets, creditBanks, linkedAssets] = await Promise.all([
+    canManage && creditRemaining > 0
+      ? db
+          .select({ id: supplierInvoice.id, number: supplierInvoice.number, supplierDocumentNumber: supplierInvoice.supplierDocumentNumber, outstanding: supplierInvoiceOutstandingSql.mapWith(Number) })
+          .from(supplierInvoice)
+          .where(and(
+            eq(supplierInvoice.companyId, ctx.company.id),
+            eq(supplierInvoice.supplierPartnerId, expense.supplierPartnerId),
+            ne(supplierInvoice.status, "VOID"),
+            sql`${supplierInvoiceOutstandingSql} > 0`,
+          ))
+          .orderBy(sql`${supplierInvoice.dueDate} asc nulls last`, asc(supplierInvoice.issueDate))
+          .limit(200)
+      : Promise.resolve([]),
+    canManage && creditRemaining > 0
+      ? db
+          .select({ id: bankAccount.id, bankName: bankAccount.bankName, iban: bankAccount.iban })
+          .from(bankAccount)
+          .where(and(eq(bankAccount.companyId, ctx.company.id), eq(bankAccount.isActive, true)))
+          .orderBy(asc(bankAccount.bankName))
+      : Promise.resolve([]),
+    hasInvestmentGoods
+      ? db
+          .select({ id: fixedAsset.id, code: fixedAsset.code, description: fixedAsset.description })
+          .from(fixedAsset)
+          .where(and(eq(fixedAsset.companyId, ctx.company.id), eq(fixedAsset.supplierInvoiceId, expense.id)))
+          .orderBy(desc(fixedAsset.createdAt))
+      : Promise.resolve([]),
+  ]);
   const negativeClass = (value: string | number) => (Number(value) < 0 ? "text-danger-text" : undefined);
   const registerDetails = [
     expense.operationDate ? `Fecha de operación: ${formatDate(expense.operationDate)}` : null,
     expense.vatTreatment ? `IVA: ${supplierVatTreatmentLabels[expense.vatTreatment as SupplierVatTreatment] ?? expense.vatTreatment}` : null,
     expense.isSimplified ? "Factura simplificada / ticket sin NIF" : expense.supplierTaxId ? `NIF del proveedor: ${expense.supplierTaxId}` : "Proveedor sin NIF",
     expense.importDuaNumber ? `DUA ${expense.importDuaNumber}${expense.importDuaDate ? ` del ${formatDate(expense.importDuaDate)}` : ""}` : null,
+    expense.supplierCashAccounting ? "Proveedor en criterio de caja (el IVA se deduce al pagar)" : null,
   ].filter(Boolean);
 
   return (
@@ -154,6 +192,15 @@ export default async function ExpenseDetailPage({
                 Registrar abono / rectificativa
               </Link>
             ) : null}
+            {canManage && isCreditBalance && creditRemaining > 0 ? (
+              <SupplierCreditActions
+                bankAccounts={creditBanks.map((account) => ({ id: account.id, label: treasuryAccountLabel(account) }))}
+                creditId={expense.id}
+                currencyCode={currency}
+                invoices={creditTargets.map((row) => ({ id: row.id, label: row.supplierDocumentNumber || row.number, outstanding: row.outstanding }))}
+                remaining={creditRemaining}
+              />
+            ) : null}
             {canManage &&
             Number(expense.outstandingAmount) > 0 &&
             expense.paymentStatus !== "VOID" ? (
@@ -188,7 +235,11 @@ export default async function ExpenseDetailPage({
           )}
           {expense.rectifiedIssueDate ? ` del ${formatDate(expense.rectifiedIssueDate)}` : ""}.
           {expense.rectificationReason ? ` Motivo: ${expense.rectificationReason}.` : ""}
-          {isCreditBalance ? " Los importes en negativo son un saldo a tu favor frente al proveedor: no hay nada que pagar." : ""}
+          {isCreditBalance
+            ? creditRemaining > 0
+              ? ` Quedan ${formatMoney(creditRemaining, currency)} a tu favor frente al proveedor: compénsalos con otra factura suya o registra el cobro si te los devuelve.`
+              : " El abono ya está compensado o devuelto por completo."
+            : ""}
         </InlineAlert>
       ) : null}
 
@@ -201,12 +252,19 @@ export default async function ExpenseDetailPage({
           value={formatMoney(expense.retentionAmount, currency)}
         />
         {isCreditBalance ? (
-          <MetricCard label="Saldo a favor" value={formatMoney(Math.abs(Number(expense.totalAmount)), currency)} helper="Total del abono; no genera pago" tone="success" />
+          <MetricCard
+            label="Saldo a favor"
+            value={formatMoney(creditRemaining, currency)}
+            helper={`Abono de ${formatMoney(Math.abs(Number(expense.totalAmount)), currency)}; lo demás ya está compensado o devuelto`}
+            tone="success"
+          />
         ) : (
           <MetricCard
             label="Pendiente"
             value={formatMoney(expense.outstandingAmount, currency)}
-            helper={Number(expense.rectifiedAmount) !== 0 ? `Rectificativas registradas: ${formatMoney(expense.rectifiedAmount, currency)}` : undefined}
+            helper={creditedAmount > 0
+              ? `Total ${formatMoney(expense.totalAmount, currency)} − abonos compensados ${formatMoney(creditedAmount, currency)} − pagos ${formatMoney(expense.paidAmount, currency)}`
+              : Number(expense.rectifiedAmount) !== 0 ? `Rectificativas registradas: ${formatMoney(expense.rectifiedAmount, currency)}` : undefined}
             tone={Number(expense.outstandingAmount) > 0 ? "warning" : "success"}
           />
         )}
@@ -281,7 +339,7 @@ export default async function ExpenseDetailPage({
       {expense.rectifications.length > 0 ? (
         <PageSection
           title="Rectificativas y abonos"
-          description="Documentos del proveedor que rectifican esta factura. Su importe queda como saldo a favor en la cuenta del proveedor; no se descuenta solo de lo pendiente de esta factura."
+          description="Documentos del proveedor que rectifican esta factura. Un abono se descuenta de lo pendiente de esta factura; lo que sobre queda como saldo a favor del proveedor."
         >
           <div className="space-y-2" data-testid="expense-rectifications">
             {expense.rectifications.map((rectification) => (
@@ -305,6 +363,78 @@ export default async function ExpenseDetailPage({
         </PageSection>
       ) : null}
 
+      {hasInvestmentGoods ? (
+        <PageSection
+          title="Inmovilizado"
+          description="Esta factura tiene bienes de inversión. Dalos de alta como inmovilizado para que el programa calcule y contabilice su amortización."
+        >
+          <div className="space-y-2" data-testid="expense-fixed-assets">
+            {linkedAssets.map((asset) => (
+              <div className="flex items-center justify-between border-b border-border/70 py-2 text-sm last:border-b-0" key={asset.id}>
+                <Link className="font-semibold text-link hover:underline" href={`/accounting/assets/${asset.id}`}>
+                  <span className="font-mono">{asset.code}</span> · {asset.description}
+                </Link>
+                <StatusBadge tone="success">Dado de alta</StatusBadge>
+              </div>
+            ))}
+            {canAccount ? expense.lines.filter((line) => line.isInvestmentGood).map((line) => (
+              <div className="flex items-center justify-between gap-3 border-b border-border/70 py-2 text-sm last:border-b-0" key={line.id}>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{line.description}</p>
+                  <p className="text-xs text-muted-foreground">{accountLabel(line)} · {formatMoney(line.subtotalAmount, currency)}</p>
+                </div>
+                <Link
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                  data-testid="expense-create-fixed-asset"
+                  href={`/accounting/assets/new?supplierInvoiceId=${expense.id}&lineId=${line.id}`}
+                >
+                  Dar de alta como inmovilizado
+                </Link>
+              </div>
+            )) : linkedAssets.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Tu rol no permite dar de alta bienes de inmovilizado.</p>
+            ) : null}
+          </div>
+        </PageSection>
+      ) : null}
+
+      {expense.creditApplications.asInvoice.length > 0 || expense.creditApplications.asCredit.length > 0 ? (
+        <PageSection
+          title={isCreditBalance ? "Aplicación del abono" : "Abonos compensados"}
+          description={isCreditBalance
+            ? "Facturas con las que se ha compensado este abono y devoluciones cobradas por banco."
+            : "Abonos del proveedor descontados de lo pendiente de esta factura. No generan asiento: ya están en la cuenta del proveedor."}
+        >
+          <div className="space-y-2" data-testid="expense-credit-applications">
+            {[...expense.creditApplications.asInvoice.map((row) => ({ ...row, href: `/expenses/${row.creditInvoiceId}`, kind: "Abono" })),
+              ...expense.creditApplications.asCredit.map((row) => ({ ...row, href: row.supplierInvoiceId ? `/expenses/${row.supplierInvoiceId}` : null, kind: row.supplierInvoiceId ? "Factura" : "Devolución por banco" }))].map((row) => (
+              <div className="flex items-center justify-between gap-3 border-b border-border/70 py-3 text-sm last:border-b-0" key={row.id}>
+                <div>
+                  {row.href ? (
+                    <Link className="font-mono font-semibold text-link hover:underline" href={row.href}>{row.supplierDocumentNumber || row.documentNumber}</Link>
+                  ) : (
+                    <p className="font-semibold">{row.kind}</p>
+                  )}
+                  <p className="text-muted-foreground">{row.href ? `${row.kind} · ` : ""}{formatDate(row.appliedAt)}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="font-mono font-semibold">{formatMoney(row.amount, currency)}</p>
+                  {canManage ? (
+                    <DeleteButton
+                      description={row.href ? "La factura volverá a tener ese importe pendiente de pago y el abono lo recuperará como saldo a favor." : "Se anulará el asiento del cobro y el abono recuperará ese saldo a favor."}
+                      label="Quitar"
+                      successMessage="Compensación quitada."
+                      title={row.href ? "Quitar compensación" : "Quitar cobro de la devolución"}
+                      url={`/api/supplier-credits/${row.id}`}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </PageSection>
+      ) : null}
+
       <PageSection
         title="Pagos"
         description="Importes aplicados a esta factura de proveedor."
@@ -314,10 +444,10 @@ export default async function ExpenseDetailPage({
             title="Sin pagos"
             description={
               isCreditBalance
-                ? "Un abono no se paga: su importe queda a tu favor en la cuenta del proveedor."
+                ? "Un abono no se paga: se compensa con facturas del proveedor o se cobra si te lo devuelve."
                 : canManage && Number(expense.outstandingAmount) > 0 && expense.paymentStatus !== "VOID"
-                  ? "La factura conserva todo su saldo pendiente. Registra el pago desde la cabecera cuando se abone."
-                  : "La factura conserva todo su saldo pendiente."
+                  ? "Registra el pago desde la cabecera cuando se abone."
+                  : "No hay pagos registrados para esta factura."
             }
           />
         ) : (

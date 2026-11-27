@@ -25,7 +25,7 @@ import { nextPurchaseOrderStatus, registerSupplierPayment, removeSupplierPayment
 function clientWith(selectResults: unknown[][]) {
   const chain = () => {
     const value: Record<string, unknown> = {};
-    for (const method of ["from", "where", "for", "limit", "innerJoin", "leftJoin", "orderBy"]) value[method] = vi.fn(() => value);
+    for (const method of ["from", "where", "for", "limit", "innerJoin", "leftJoin", "orderBy", "groupBy"]) value[method] = vi.fn(() => value);
     value.then = (resolve: (input: unknown) => unknown) => Promise.resolve(selectResults.shift() ?? []).then(resolve);
     return value;
   };
@@ -68,9 +68,22 @@ describe("registerSupplierPayment", () => {
     const client = clientWith([
       [{ id: "si-1", number: "FP-1", supplierPartnerId: "p-1", purchaseOrderId: null, totalAmount: "100.00", status: "POSTED" }],
       [{ id: "p-1" }],
-      [{ amountApplied: "80.00" }],
+      // pagos y abonos compensados de la factura
+      [{ id: "si-1", amount: "80.00" }],
+      [],
     ]);
     await expect(registerSupplierPayment(actor, { supplierInvoiceId: "si-1", amountApplied: 30, postedAt: new Date("2026-09-01") }, client as never)).rejects.toMatchObject({ status: 400, code: "SUPPLIER_INVOICE_OVERPAYMENT" });
+  });
+
+  it("descuenta de lo pendiente los abonos del proveedor compensados contra la factura", async () => {
+    const client = clientWith([
+      [{ id: "si-1", number: "FP-1", supplierPartnerId: "p-1", purchaseOrderId: null, totalAmount: "100.00", status: "POSTED" }],
+      [{ id: "p-1" }],
+      [{ id: "si-1", amount: "50.00" }],
+      [{ id: "si-1", amount: "40.00" }],
+    ]);
+    // Pendiente = 100 − 50 pagados − 40 de abono = 10: pagar 30 sería pagar de más.
+    await expect(registerSupplierPayment(actor, { supplierInvoiceId: "si-1", amountApplied: 30, postedAt: new Date("2026-09-01") }, client as never)).rejects.toMatchObject({ code: "SUPPLIER_INVOICE_OVERPAYMENT", message: expect.stringContaining("10.00") });
   });
 
   it("registra el pago en la transacción recibida, contabiliza con el banco del movimiento y marca el pedido como pagado", async () => {
@@ -78,6 +91,7 @@ describe("registerSupplierPayment", () => {
       [{ id: "si-1", number: "FP-1", supplierPartnerId: "p-1", purchaseOrderId: "po-1", totalAmount: "100.00", status: "POSTED" }],
       [{ id: "p-1" }],
       [{ id: "bank-1" }],
+      [],
       [],
       [{ id: "pm-bank" }],
       // refresco: factura y pedido

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { accountChart, company, companySettings, journalEntry, partner, supplierInvoice, supplierInvoiceLine, supplierInvoicePayment, supplierPayment } from "@/db/schema";
+import { accountChart, company, companySettings, journalEntry, partner, supplierCreditApplication, supplierInvoice, supplierInvoiceLine, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { AccountingRuleError } from "@/server/accounting/errors";
 
 const mocks = vi.hoisted(() => {
@@ -55,6 +55,8 @@ const mocks = vi.hoisted(() => {
     assertFiscalPeriodOpen: vi.fn(),
     resolveOpenPostingDate: vi.fn(async (_companyId: string, preferred: Date) => preferred),
     recordAudit: vi.fn(),
+    applySupplierCreditInTransaction: vi.fn(async () => null),
+    releaseSupplierCreditApplications: vi.fn(async () => 0),
   };
 });
 
@@ -64,6 +66,11 @@ vi.mock("@/server/documents/series", () => ({ reserveSeriesNumber: vi.fn(async (
 vi.mock("@/server/fiscal/locks", () => ({ assertFiscalPeriodOpen: mocks.assertFiscalPeriodOpen, resolveOpenPostingDate: mocks.resolveOpenPostingDate }));
 vi.mock("@/server/partners/numbers", () => ({ reservePartnerNumber: vi.fn(async () => "P-0001") }));
 vi.mock("@/server/accounting/auto-post", () => ({ postSupplierInvoice: mocks.postSupplierInvoice, reverseAutomaticEntries: vi.fn() }));
+vi.mock("@/server/supplier-invoices/credits", () => ({
+  applySupplierCreditInTransaction: mocks.applySupplierCreditInTransaction,
+  releaseSupplierCreditApplications: mocks.releaseSupplierCreditApplications,
+  listSupplierCreditApplications: vi.fn(async () => ({ asCredit: [], asInvoice: [] })),
+}));
 
 import {
   assessExpenseDuplicate,
@@ -215,11 +222,22 @@ describe("createExpenseInvoice vatTreatment", () => {
 describe("refreshSupplierInvoicePaymentStatus", () => {
   it("marks a self-assessed invoice as paid once the payable total (base − retention) is paid", async () => {
     mocks.state.selectResults.set(supplierInvoice, [{ id: "supplier-invoice-1", totalAmount: "1000.00", dueDate: null }]);
-    mocks.state.selectResults.set(supplierInvoicePayment, [{ paidAmount: "1000.00" }]);
+    mocks.state.selectResults.set(supplierInvoicePayment, [{ id: "supplier-invoice-1", amount: "1000.00" }]);
 
     await refreshSupplierInvoicePaymentStatus("company-1", "supplier-invoice-1", mocks.tx as never);
 
     expect(mocks.state.updates.at(-1)?.values).toMatchObject({ paymentStatus: "PAID" });
+  });
+
+  it("cuenta los abonos compensados: una factura cubierta por pago + abono queda pagada", async () => {
+    mocks.state.selectResults.set(supplierInvoice, [{ id: "supplier-invoice-1", totalAmount: "1000.00", dueDate: null }]);
+    mocks.state.selectResults.set(supplierInvoicePayment, [{ id: "supplier-invoice-1", amount: "600.00" }]);
+    mocks.state.selectResults.set(supplierCreditApplication, [{ id: "supplier-invoice-1", amount: "400.00" }]);
+
+    await refreshSupplierInvoicePaymentStatus("company-1", "supplier-invoice-1", mocks.tx as never);
+
+    expect(mocks.state.updates.at(-1)?.values).toMatchObject({ paymentStatus: "PAID" });
+    mocks.state.selectResults.delete(supplierCreditApplication);
   });
 });
 
@@ -496,6 +514,8 @@ describe("createExpenseInvoice: rectificativas y abonos", () => {
       taxAmount: -210,
       totalAmount: -1210,
     }));
+    // El abono se compensa en el acto contra la factura que rectifica.
+    expect(mocks.applySupplierCreditInTransaction).toHaveBeenCalledWith(mocks.tx, expect.objectContaining({ companyId: "company-1" }), { creditInvoiceId: "supplier-invoice-1", supplierInvoiceId: "si-original" });
   });
 
   it("admite la rectificativa con solo el número del proveedor (factura no registrada) o solo el motivo", async () => {

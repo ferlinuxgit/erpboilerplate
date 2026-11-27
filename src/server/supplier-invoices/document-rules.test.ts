@@ -7,7 +7,10 @@ import {
   parseSupplierDocumentKind,
   rectificationLinesFrom,
   rectificationReferenceProblem,
+  supplierCreditAllocationCents,
+  supplierCreditRemainingCents,
   supplierLinesProblem,
+  supplierOutstandingCents,
   supplierPaymentStatus,
   supplierTaxIdProblem,
   surchargeTreatmentProblem,
@@ -143,5 +146,40 @@ describe("looksLikeRectification (OCR)", () => {
     expect(looksLikeRectification("FACTURA F-2026/0001\nTotal 121,00")).toBe(false);
     expect(looksLikeRectification("Abono mensual de fibra 600 Mb")).toBe(false);
     expect(looksLikeRectification("Forma de pago: abono en cuenta")).toBe(false);
+  });
+});
+
+describe("pendiente de pago y saldo a favor (compensación de abonos)", () => {
+  it("lo pendiente de una factura es total − pagos − abonos compensados, nunca negativo", () => {
+    expect(supplierOutstandingCents({ totalCents: 12_100, paidCents: 0 })).toBe(12_100);
+    expect(supplierOutstandingCents({ totalCents: 12_100, paidCents: 5_000, creditedCents: 2_100 })).toBe(5_000);
+    expect(supplierOutstandingCents({ totalCents: 12_100, paidCents: 10_000, creditedCents: 12_100 })).toBe(0);
+  });
+
+  it("una factura anulada o un abono no tienen nada pendiente", () => {
+    expect(supplierOutstandingCents({ totalCents: 12_100, paidCents: 0, isVoid: true })).toBe(0);
+    expect(supplierOutstandingCents({ totalCents: -12_100, paidCents: 0 })).toBe(0);
+  });
+
+  it("el saldo a favor de un abono es su importe menos lo ya compensado o devuelto", () => {
+    expect(supplierCreditRemainingCents({ totalCents: -6_050, appliedCents: 0 })).toBe(6_050);
+    expect(supplierCreditRemainingCents({ totalCents: -6_050, appliedCents: 6_000 })).toBe(50);
+    expect(supplierCreditRemainingCents({ totalCents: -6_050, appliedCents: 9_000 })).toBe(0);
+    expect(supplierCreditRemainingCents({ totalCents: -6_050, appliedCents: 0, isVoid: true })).toBe(0);
+    // Una rectificativa al alza no es un abono.
+    expect(supplierCreditRemainingCents({ totalCents: 6_050, appliedCents: 0 })).toBe(0);
+  });
+
+  it("un abono compensa hasta lo pendiente de la factura; el resto queda a favor", () => {
+    // Abono de 100 contra una factura con 60 pendientes: se compensan 60 y quedan 40 a favor.
+    expect(supplierCreditAllocationCents(10_000, 6_000)).toBe(6_000);
+    expect(supplierCreditAllocationCents(3_000, 6_000)).toBe(3_000);
+    // Factura ya pagada: no se compensa nada, todo el abono es saldo a favor.
+    expect(supplierCreditAllocationCents(10_000, 0)).toBe(0);
+  });
+
+  it("la factura cubierta por su abono queda pagada sin pagos", () => {
+    expect(supplierPaymentStatus(121, 121, new Date("2020-01-01"))).toBe("PAID");
+    expect(supplierPaymentStatus(121, 21, null)).toBe("PARTIAL");
   });
 });
