@@ -133,6 +133,8 @@ function startNext() {
     ["OCR_WORKER_ENABLED", "ocr:worker"],
     ["RECURRING_WORKER_ENABLED", "recurring:worker"],
     ["VERIFACTU_WORKER_ENABLED", "verifactu:worker"],
+    // SII: prepara la bandeja de salida y, con SII_TRANSPORT=aeat, envía a la AEAT. Apagado por defecto.
+    ["SII_WORKER_ENABLED", "sii:worker"],
   ];
   for (const [flag, script] of workers) {
     if (process.env[flag] !== "true") continue;

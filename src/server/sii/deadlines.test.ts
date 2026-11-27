@@ -29,6 +29,19 @@ describe("plazo legal del SII (art. 69 bis RIVA)", () => {
     expect(addSiiBusinessDays(d(2027, 3, 24), 4)).toEqual(d(2027, 3, 31));
   });
 
+  it("festivos nacionales reales de 2026 y 2027 (anexos del BOE)", () => {
+    // Expedida el jueves 28 de octubre de 2027: viernes 29, (lunes 1 de noviembre festivo), martes 2, miércoles 3 y jueves 4.
+    expect(addSiiBusinessDays(d(2027, 10, 28), 4)).toEqual(d(2027, 11, 4));
+    // Expedida el viernes 3 de diciembre de 2027: lunes 6 y miércoles 8 son festivos → martes 7, jueves 9, viernes 10 y lunes 13.
+    expect(addSiiBusinessDays(d(2027, 12, 3), 4)).toEqual(d(2027, 12, 13));
+    // 2026: el lunes 7 de diciembre NO es festivo nacional (el traslado lo decide cada comunidad); el martes 8 sí.
+    expect(addSiiBusinessDays(d(2026, 12, 4), 4)).toEqual(d(2026, 12, 11));
+    // El Jueves Santo (2 de abril de 2026) cuenta como hábil; el Viernes Santo (3 de abril) no.
+    expect(isSiiBusinessDay(d(2026, 4, 2))).toBe(true);
+    expect(isSiiBusinessDay(d(2026, 4, 3))).toBe(false);
+    expect(isSiiBusinessDay(d(2026, 1, 6))).toBe(false);
+  });
+
   it("en todo caso antes del día 16 del mes siguiente al devengo", () => {
     // Operación del 20 de enero facturada el 12 de febrero (viernes): 4 días → 18 de febrero, pero manda el 15.
     expect(siiDeadline({ start: d(2027, 2, 12), accrual: d(2027, 1, 20) })).toEqual(d(2027, 2, 15));

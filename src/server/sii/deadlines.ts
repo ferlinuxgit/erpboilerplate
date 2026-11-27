@@ -7,11 +7,15 @@
  *   del día 16 del mes siguiente al periodo de liquidación en que se incluyen.
  * - Del cómputo se excluyen sábados, domingos y los declarados festivos nacionales.
  *
- * FESTIVOS: se toman las fiestas de ámbito nacional de fecha fija y el Viernes Santo. El
- * calendario de cada año lo fija una resolución anual publicada en el BOE; aquí NO se contrasta
- * con ella. Si un año difiere, se corrige con SII_EXTRA_HOLIDAYS (fechas AAAA-MM-DD separadas por
- * comas) o pasando `extraHolidays`.
+ * FESTIVOS: los de ámbito nacional de `@/lib/spanish-holidays` (los no sustituibles y, en los años
+ * contrastados con la resolución anual del BOE, el 6 de enero). Los autonómicos y locales no
+ * excluyen días del plazo del SII. Si un año hiciera falta añadir alguno, se corrige con
+ * SII_EXTRA_HOLIDAYS (fechas AAAA-MM-DD separadas por comas) o pasando `extraHolidays`.
  */
+
+import { easterSunday, spanishNationalHolidayKeys } from "@/lib/spanish-holidays";
+
+export { easterSunday };
 
 export type CivilDate = { year: number; month: number; day: number };
 
@@ -41,43 +45,9 @@ export function compareCivil(left: CivilDate, right: CivilDate) {
   return civilKey(left).localeCompare(civilKey(right));
 }
 
-/** Domingo de Pascua (algoritmo gregoriano anónimo de Meeus/Jones/Butcher). */
-export function easterSunday(year: number): CivilDate {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31);
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return { year, month, day };
-}
-
-/** Fiestas de ámbito nacional de fecha fija (mes, día). */
-const FIXED_NATIONAL_HOLIDAYS: ReadonlyArray<readonly [number, number]> = [
-  [1, 1], // Año Nuevo
-  [1, 6], // Epifanía del Señor
-  [5, 1], // Fiesta del Trabajo
-  [8, 15], // Asunción de la Virgen
-  [10, 12], // Fiesta Nacional de España
-  [11, 1], // Todos los Santos
-  [12, 6], // Día de la Constitución
-  [12, 8], // Inmaculada Concepción
-  [12, 25], // Natividad del Señor
-];
-
-/** Festivos nacionales de un año (claves AAAA-MM-DD): los de fecha fija y el Viernes Santo. */
+/** Festivos nacionales de un año (claves AAAA-MM-DD). */
 export function nationalHolidays(year: number): Set<string> {
-  const holidays = new Set(FIXED_NATIONAL_HOLIDAYS.map(([month, day]) => civilKey({ year, month, day })));
-  holidays.add(civilKey(addCivilDays(easterSunday(year), -2)));
-  return holidays;
+  return spanishNationalHolidayKeys(year);
 }
 
 /** Festivos añadidos por configuración (SII_EXTRA_HOLIDAYS=2027-03-19,2027-04-01). */
