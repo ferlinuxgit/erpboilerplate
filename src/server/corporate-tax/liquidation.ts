@@ -107,7 +107,7 @@ export type CorporateTaxResult = {
   outcome: "toPay" | "toRefund" | "zero";
   /** Base imponible negativa que nace este ejercicio y queda para compensar en los siguientes. */
   generatedLossCents: number;
-  /** Tipo marginal (último tramo): el que se usa para valorar el impuesto diferido. */
+  /** Tipo marginal (el del último tramo que alcanza la base): el que se usa para valorar el impuesto diferido. */
   marginalRatePct: number;
   warnings: CorporateTaxWarning[];
 };
@@ -239,7 +239,7 @@ export function computeCorporateTax(input: CorporateTaxInput): CorporateTaxResul
     differentialCents,
     outcome: differentialCents > 0 ? "toPay" : differentialCents < 0 ? "toRefund" : "zero",
     generatedLossCents: rateBaseCents < 0 ? -rateBaseCents : 0,
-    marginalRatePct: schedule.brackets[schedule.brackets.length - 1]?.pct ?? 0,
+    marginalRatePct: brackets[brackets.length - 1]?.pct ?? schedule.brackets[0]?.pct ?? 0,
     warnings,
   };
 }

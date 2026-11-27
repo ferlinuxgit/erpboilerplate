@@ -207,13 +207,12 @@ async function loadLossRegister(client: DbClient, companyId: string, years: Year
     const cents = toCents(loss.amount);
     register.set(loss.originYear, { originYear: loss.originYear, source: "manual", manualId: loss.id, originalCents: cents, appliedCents: 0, pendingCents: cents, notes: loss.notes });
   }
-  const unfiledYears: string[] = [];
+  // Ejercicios anteriores que están en el programa sin liquidación presentada (guardada o no).
+  const filedYearIds = new Set(earlier.filter((entry) => entry.row.status === "filed").map((entry) => entry.year.id));
+  const unfiledYears = before === null ? [] : years.filter((year) => year.endsAt < before && !filedYearIds.has(year.id)).map((year) => year.code);
   const ignoredManualYears: number[] = [];
   for (const { row, year } of earlier) {
-    if (row.status !== "filed") {
-      unfiledYears.push(year.code);
-      continue;
-    }
+    if (row.status !== "filed") continue;
     const snapshot = (row.filedSnapshot ?? {}) as FiledSnapshot;
     const generated = Math.max(Math.round(Number(snapshot.generatedLossCents ?? 0)), 0);
     if (generated > 0) {
@@ -373,9 +372,10 @@ async function depreciationSuggestions(client: DbClient, companyId: string, year
 export async function getCorporateTaxYear(
   companyId: string,
   fiscalYearId: string,
-  options: { inputsOverride?: CorporateTaxReturnInputs; client?: DbClient } = {},
+  options: { inputsOverride?: CorporateTaxReturnInputs } = {},
 ): Promise<CorporateTaxView> {
-  const client = options.client ?? db;
+  // Siempre fuera de transacción: los saldos del libro (`loadStatementAccountRows`) se leen con la conexión general.
+  const client: DbClient = db;
   const years = await loadYears(companyId, client);
   const year = requireYear(years, fiscalYearId);
   const previousYear = [...years].reverse().find((entry) => entry.endsAt < year.startsAt) ?? null;
@@ -590,14 +590,14 @@ async function reverseTaxEntry(tx: DbClient, actor: Actor, row: ReturnRow, year:
  * tantas veces como cambie la liquidación mientras el ejercicio esté abierto.
  */
 export async function postCorporateTaxEntry(actor: Actor, fiscalYearId: string) {
+  // El cálculo se hace antes de abrir la transacción y de tocar el libro: los saldos se leen sin el
+  // asiento del impuesto anterior (se descuenta), así que no cambia al anularlo.
+  const view = await getCorporateTaxYear(actor.companyId, fiscalYearId);
   await db.transaction(async (tx) => {
     const year = requireYear(await loadYears(actor.companyId, tx), fiscalYearId);
     const postedAt = civilDay(year.endsAt);
     await assertFiscalYearOpen(actor.companyId, postedAt, tx);
     let row = await lockReturn(tx, actor.companyId, fiscalYearId);
-    // El cálculo se hace antes de tocar el libro: los saldos se leen sin el asiento del impuesto
-    // anterior (se descuenta), así que no cambia al anularlo.
-    const view = await getCorporateTaxYear(actor.companyId, fiscalYearId, { client: tx });
     if (view.entry.lines.length === 0 && !row?.journalEntryId) {
       throw new HttpError(422, "No hay nada que contabilizar: la cuota es cero y no hay retenciones ni pagos a cuenta que regularizar.");
     }
@@ -652,9 +652,8 @@ export async function unpostCorporateTaxEntry(actor: Actor, fiscalYearId: string
 
 /** Marca la liquidación como presentada y guarda la foto del cálculo (de ella salen las bases negativas de años siguientes). */
 export async function markCorporateTaxReturnFiled(actor: Actor, fiscalYearId: string, input: { receiptNumber?: string | null }) {
+  const view = await getCorporateTaxYear(actor.companyId, fiscalYearId);
   await db.transaction(async (tx) => {
-    requireYear(await loadYears(actor.companyId, tx), fiscalYearId);
-    const view = await getCorporateTaxYear(actor.companyId, fiscalYearId, { client: tx });
     const existing = await lockReturn(tx, actor.companyId, fiscalYearId);
     const values = {
       status: "filed",
@@ -763,8 +762,8 @@ function installmentAmountForPrevious(row: InstallmentRow) {
   return row.status === "filed" ? toCents(row.amount) : 0;
 }
 
-export async function getInstallments(companyId: string, fiscalYearId: string, options: { client?: DbClient; override?: { period: InstallmentPeriod; method: InstallmentMethod; inputs: InstallmentInputs } } = {}): Promise<InstallmentsView> {
-  const client = options.client ?? db;
+export async function getInstallments(companyId: string, fiscalYearId: string, options: { override?: { period: InstallmentPeriod; method: InstallmentMethod; inputs: InstallmentInputs } } = {}): Promise<InstallmentsView> {
+  const client: DbClient = db;
   const years = await loadYears(companyId, client);
   const year = requireYear(years, fiscalYearId);
   const previousYear = [...years].reverse().find((entry) => entry.endsAt < year.startsAt) ?? null;
@@ -814,7 +813,7 @@ export async function getInstallments(companyId: string, fiscalYearId: string, o
     } else if (referenceYear) {
       let baseCents = liveQuotaBase.get(referenceYear.id);
       if (baseCents === undefined) {
-        const reference = (await getCorporateTaxYear(companyId, referenceYear.id, { client })).result;
+        const reference = (await getCorporateTaxYear(companyId, referenceYear.id)).result;
         baseCents = computeQuotaInstallment({ grossQuotaCents: reference.grossQuotaCents, creditsCents: reference.creditsAppliedCents, withholdingsCents: reference.withholdingsCents }).baseCents;
         liveQuotaBase.set(referenceYear.id, baseCents);
       }
@@ -903,14 +902,14 @@ async function lockInstallment(tx: DbClient, companyId: string, fiscalYearId: st
 
 /** Guarda el cálculo del periodo (y, si se indica, lo marca como presentado o lo reabre). */
 export async function saveInstallment(actor: Actor, fiscalYearId: string, period: InstallmentPeriod, input: InstallmentInput) {
+  const inputs = toInstallmentInputs(input);
+  const view = await getInstallments(actor.companyId, fiscalYearId, { override: { period, method: input.method, inputs } });
+  const computed = view.periods.find((entry) => entry.period === period)!;
   await db.transaction(async (tx) => {
     const existing = await lockInstallment(tx, actor.companyId, fiscalYearId, period);
     if (existing?.status === "filed" && input.filed !== false) {
       throw new HttpError(409, "Este pago fraccionado está marcado como presentado. Reábrelo para cambiarlo.");
     }
-    const inputs = toInstallmentInputs(input);
-    const view = await getInstallments(actor.companyId, fiscalYearId, { client: tx, override: { period, method: input.method, inputs } });
-    const computed = view.periods.find((entry) => entry.period === period)!;
     const filed = input.filed === true;
     const values = {
       method: computed.method,
