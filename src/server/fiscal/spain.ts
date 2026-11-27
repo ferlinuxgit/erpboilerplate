@@ -746,12 +746,21 @@ export function modelo349SaleKey(treatment: string, itemIsService: boolean | nul
   return modelo349Key("sale", treatment === "INTRA_EU_SERVICES" || Boolean(itemIsService));
 }
 
+type Modelo349DatedEntry = Modelo349Entry & { date: Date };
+
 /**
- * Modelo 349: facturas emitidas y recibidas con tratamiento intracomunitario, agrupadas por NIF-IVA y clave.
- * Las emitidas van por fecha de devengo, como la casilla 59 del 303. Las rectificativas de facturas
- * de otro periodo se declaran como rectificaciones de ese periodo.
+ * Operaciones intracomunitarias de un rango: facturas emitidas (por fecha de devengo, como la
+ * casilla 59 del 303) y recibidas (por fecha de registro). Una rectificativa de una factura de otro
+ * periodo lleva `rectifiesPeriod` con el periodo original.
  */
-async function fetchModelo349(companyId: string, range: InstantRange, period: string, timeZone: string, filedPeriods: FiledVatPeriod[]): Promise<Modelo349Result> {
+async function collectModelo349Entries(
+  companyId: string,
+  range: InstantRange,
+  period: string,
+  timeZone: string,
+  filedPeriods: FiledVatPeriod[],
+  options: { salesOnly?: boolean } = {},
+): Promise<Modelo349DatedEntry[]> {
   const original = alias(invoice, "original_invoice");
   const salesLines = await db
     .select({
@@ -778,9 +787,10 @@ async function fetchModelo349(companyId: string, range: InstantRange, period: st
     .leftJoin(original, eq(original.id, invoice.rectifiedInvoiceId))
     .where(issuedInvoiceAccrualFilter(companyId, range.start, range.endExclusive));
 
-  const entries: Modelo349Entry[] = [];
+  const entries: Modelo349DatedEntry[] = [];
   for (const line of salesLines) {
-    if (!inInstantRange(resolveAccrualDate(line, filedPeriods).date, range)) continue;
+    const accrualDate = resolveAccrualDate(line, filedPeriods).date;
+    if (!inInstantRange(accrualDate, range)) continue;
     const treatment = resolveSalesVatTreatment(line.vatTreatment, line.countryCode);
     if (!isIntraEuSalesTreatment(treatment)) continue;
     const baseCents = lineBaseCents(
@@ -795,14 +805,21 @@ async function fetchModelo349(companyId: string, range: InstantRange, period: st
       countryCode: line.countryCode,
       baseCents,
       rectifiesPeriod: originalOutside && line.originalIssueDate ? periodOf(line.originalIssueDate, period, timeZone) : null,
+      date: accrualDate,
     });
   }
+  if (options.salesOnly) return entries;
 
+  const originalSupplier = alias(supplierInvoice, "original_supplier_invoice");
   const purchaseLines = await db
     .select({
       subtotal: supplierInvoiceLine.subtotalAmount,
       expenseAccountCode: accountChart.code,
       vatTreatment: supplierInvoice.vatTreatment,
+      documentKind: supplierInvoice.documentKind,
+      accountingDate: supplierInvoice.accountingDate,
+      rectifiedIssueDate: supplierInvoice.rectifiedIssueDate,
+      originalAccountingDate: originalSupplier.accountingDate,
       name: partner.name,
       taxId: partner.taxId,
       countryCode: partner.countryCode,
@@ -811,18 +828,92 @@ async function fetchModelo349(companyId: string, range: InstantRange, period: st
     .innerJoin(supplierInvoice, eq(supplierInvoiceLine.supplierInvoiceId, supplierInvoice.id))
     .leftJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
     .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
+    .leftJoin(originalSupplier, eq(originalSupplier.id, supplierInvoice.rectifiedInvoiceId))
     .where(supplierInvoiceFiscalFilter(companyId, range.start, range.endExclusive, timeZone));
   for (const line of purchaseLines) {
     if (resolveSupplierVatTreatment(line.vatTreatment, line.countryCode) !== "INTRA_EU") continue;
+    // Rectificativa recibida de una adquisición de otro periodo: se declara como rectificación de aquel.
+    const originalDate = line.documentKind === "RECTIFICATION" ? line.originalAccountingDate ?? line.rectifiedIssueDate ?? null : null;
     entries.push({
       key: modelo349Key("purchase", isServiceExpenseAccount(line.expenseAccountCode)),
       operatorName: line.name ?? "Proveedor",
       operatorTaxId: line.taxId,
       countryCode: line.countryCode,
       baseCents: toCents(line.subtotal),
+      rectifiesPeriod: originalDate && !inInstantRange(originalDate, range) ? periodOf(originalDate, period, timeZone) : null,
+      date: line.accountingDate ?? range.start,
     });
   }
-  return computeModelo349(entries);
+  return entries;
+}
+
+/** Entregas de bienes y prestaciones de servicios (claves E y S): lo que cuenta para el umbral del art. 81.2 RIVA. */
+function modelo349DeliveriesCents(entries: Modelo349Entry[]) {
+  return entries.reduce((total, entry) => total + (entry.key === "E" || entry.key === "S" ? entry.baseCents : 0), 0);
+}
+
+/**
+ * Modelo 349: facturas emitidas y recibidas con tratamiento intracomunitario, agrupadas por NIF-IVA y clave.
+ *
+ * - Rectificaciones: el modelo pide la «base imponible declarada anteriormente» y la «base imponible
+ *   rectificada» (el total correcto del operador en el periodo que se corrige, no la diferencia). Lo
+ *   declarado se toma de la foto del 349 presentado de aquel periodo; si no hay foto, se recalcula
+ *   con los datos actuales de aquel periodo. No tiene en cuenta otras rectificaciones del mismo
+ *   periodo presentadas entre medias.
+ * - Umbral (art. 81.2 RIVA): en un 349 trimestral se comprueba si las entregas y servicios del
+ *   trimestre o de alguno de los cuatro anteriores superan 50.000 €.
+ */
+async function fetchModelo349(companyId: string, range: InstantRange, period: string, timeZone: string, filedPeriods: FiledVatPeriod[]): Promise<Modelo349Result> {
+  const entries = await collectModelo349Entries(companyId, range, period, timeZone, filedPeriods);
+  const result = computeModelo349(entries);
+
+  const originalPeriods = [...new Set(result.rectifications.map((row) => row.originalPeriod))];
+  if (originalPeriods.length > 0) {
+    const filedReports = await db
+      .select({ period: fiscalReport.period, status: fiscalReport.status, filedSnapshot: fiscalReport.filedSnapshot })
+      .from(fiscalReport)
+      .where(and(eq(fiscalReport.companyId, companyId), eq(fiscalReport.code, "349"), inArray(fiscalReport.period, originalPeriods)));
+    const declared = new Map<string, Map<string, number>>();
+    for (const originalPeriod of originalPeriods) {
+      const report = filedReports.find((row) => row.period === originalPeriod && row.status === "FILED");
+      let operators = report ? readFiledSnapshot(report.filedSnapshot)?.modelo349?.operators : undefined;
+      if (!operators) {
+        const originalRange = parseSpanishFiscalPeriod(originalPeriod, "349");
+        if (!originalRange) continue;
+        const originalEntries = await collectModelo349Entries(companyId, fiscalRangeInstants(originalRange, timeZone), originalPeriod, timeZone, filedPeriods);
+        operators = computeModelo349(originalEntries).operators;
+      }
+      declared.set(originalPeriod, new Map(operators.map((operator) => [`${operator.key}|${operator.taxId}`, toCents(operator.amount)])));
+    }
+    result.rectifications = result.rectifications.map((row) => {
+      const previousCents = declared.get(row.originalPeriod)?.get(`${row.key}|${row.taxId}`);
+      if (previousCents === undefined) return row;
+      return { ...row, previousAmount: centsToNumber(previousCents), rectifiedAmount: centsToNumber(previousCents + toCents(row.amount)) };
+    });
+    const unmatched = result.rectifications.filter((row) => row.previousAmount === undefined);
+    if (unmatched.length > 0) {
+      result.issues.push({
+        code: "model-349-rectification-original",
+        message: `${unmatched.length} rectificación(es) corrigen un periodo en el que ese operador no figura con esa clave: ${unmatched.slice(0, 5).map((row) => `${row.name} (${row.originalPeriod})`).join(", ")}. Indica tú la base declarada anteriormente y la base rectificada.`,
+      });
+    }
+  }
+
+  const deliveriesCents = modelo349DeliveriesCents(entries);
+  result.deliveriesAmount = centsToNumber(deliveriesCents);
+  if (/-Q[1-4]$/.test(period.trim())) {
+    const civil = fiscalCivilDate(range.start, timeZone);
+    const previousStart = localMidnightInstant(civil.year, civil.month - 1 - 12, 1, timeZone);
+    const previousEntries = await collectModelo349Entries(companyId, { start: previousStart, endExclusive: range.start }, period, timeZone, filedPeriods, { salesOnly: true });
+    const byQuarter = new Map<string, number>();
+    for (const entry of previousEntries) {
+      if (entry.key !== "E" && entry.key !== "S") continue;
+      const quarter = periodOf(entry.date, period, timeZone);
+      byQuarter.set(quarter, (byQuarter.get(quarter) ?? 0) + entry.baseCents);
+    }
+    result.monthlyRequired = modelo349RequiresMonthly([deliveriesCents, ...byQuarter.values()]);
+  }
+  return result;
 }
 
 /**
@@ -870,38 +961,113 @@ export type ThirdPartyOperation<T extends "customer" | "supplier" = "customer" |
   quarters: [number, number, number, number];
   /** Cobros en metálico del año de ese cliente, si superan 6.000 € (solo clientes). */
   cashAmount?: number;
+  /**
+   * Marcas del 347 que obligan a declarar estas operaciones en un registro separado del mismo
+   * tercero (diseño de registro del 347, Orden HAC/1431/2025). Sin marcas no hay campo.
+   */
+  flags?: ThirdPartyFlags;
+  /**
+   * Solo con la marca de criterio de caja: importe anual devengado conforme al régimen (lo cobrado
+   * o pagado en el año, art. 163 terdecies LIVA). `amount` es el importe según la regla general.
+   */
+  cashAccrualAmount?: number;
 };
+
+export type ThirdPartyFlags = {
+  /** Posible arrendamiento de local de negocio (compras con gasto en la cuenta 621 sin retención). */
+  lease?: boolean;
+  /** Operaciones en régimen especial del criterio de caja (del emisor o del destinatario). */
+  cashAccounting?: boolean;
+  /** Operaciones con inversión del sujeto pasivo (solo las declara el destinatario). */
+  reverseCharge?: boolean;
+};
+
+function thirdPartyFlagKey(flags: ThirdPartyFlags | null | undefined) {
+  return [flags?.lease ? "lease" : "", flags?.cashAccounting ? "cash" : "", flags?.reverseCharge ? "isp" : ""].filter(Boolean).join("+");
+}
+
+/** Clave que identifica a un tercero declarado (la misma que usa la agrupación). */
+export function thirdPartyKey(operation: { taxId: string; name: string }) {
+  return operation.taxId === "Sin NIF" ? `sin-nif:${operation.name}` : operation.taxId;
+}
 
 /**
  * Agrupa por NIF (una persona o entidad es un solo declarado aunque tenga varias fichas) y deja las
  * que superan 3.005,06 € en valor absoluto. Sin NIF no se puede agrupar: cada ficha va por separado.
  * `quarter` (1-4) reparte el importe por trimestres; sin él, todo queda sin repartir (ceros).
+ *
+ * El umbral se mira sobre el total del tercero. Si parte de sus operaciones lleva alguna marca
+ * (`flags`: arrendamiento, criterio de caja, inversión del sujeto pasivo), esa parte sale en una
+ * fila aparte, porque el modelo la pide en registro separado. Las operaciones en criterio de caja
+ * se declaran en cómputo anual, sin desglose trimestral.
  */
 export function groupThirdPartyOperations<T extends "customer" | "supplier">(
   type: T,
-  rows: Array<{ taxId: string | null; name: string; amount: string | number; quarter?: number | null }>,
+  rows: Array<{ taxId: string | null; name: string; amount: string | number; quarter?: number | null; flags?: ThirdPartyFlags | null }>,
 ): ThirdPartyOperation<T>[] {
-  const groups = new Map<string, { taxId: string; name: string; cents: number; quarters: [number, number, number, number] }>();
+  type Record = { flags: ThirdPartyFlags | null; cents: number; quarters: [number, number, number, number] };
+  const groups = new Map<string, { taxId: string; name: string; cents: number; records: Map<string, Record> }>();
   for (const row of rows) {
     const taxId = normalizeThirdPartyTaxId(row.taxId);
     const key = taxId || `sin-nif:${row.name}`;
-    const group = groups.get(key) ?? { taxId: taxId || "Sin NIF", name: row.name, cents: 0, quarters: [0, 0, 0, 0] };
+    const group = groups.get(key) ?? { taxId: taxId || "Sin NIF", name: row.name, cents: 0, records: new Map<string, Record>() };
+    const flagKey = thirdPartyFlagKey(row.flags);
+    const record = group.records.get(flagKey) ?? { flags: flagKey ? { ...row.flags } : null, cents: 0, quarters: [0, 0, 0, 0] };
     const cents = toCents(row.amount);
     group.cents += cents;
+    record.cents += cents;
     const quarter = Math.trunc(Number(row.quarter));
-    if (quarter >= 1 && quarter <= 4) group.quarters[quarter - 1] += cents;
+    if (quarter >= 1 && quarter <= 4 && !record.flags?.cashAccounting) record.quarters[quarter - 1] += cents;
+    group.records.set(flagKey, record);
     groups.set(key, group);
   }
   return [...groups.values()]
-    .map((group) => ({
-      type,
-      taxId: group.taxId,
-      name: group.name,
-      amount: centsToNumber(group.cents),
-      quarters: group.quarters.map((cents) => centsToNumber(cents)) as [number, number, number, number],
-    }))
-    .filter((row) => Math.abs(row.amount) > THIRD_PARTY_THRESHOLD)
+    .filter((group) => Math.abs(centsToNumber(group.cents)) > THIRD_PARTY_THRESHOLD)
+    .flatMap((group) => [...group.records.values()]
+      .filter((record) => record.cents !== 0 || group.records.size === 1)
+      .map((record) => ({
+        type,
+        taxId: group.taxId,
+        name: group.name,
+        amount: centsToNumber(record.cents),
+        quarters: record.quarters.map((cents) => centsToNumber(cents)) as [number, number, number, number],
+        ...(record.flags ? { flags: record.flags } : {}),
+      })))
     .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount));
+}
+
+/**
+ * Añade a las filas en criterio de caja el importe anual devengado conforme al régimen. Si un
+ * tercero no tiene fila de criterio de caja este año (todo lo cobrado o pagado es de facturas del
+ * año anterior) y lo devengado supera 3.005,06 €, se añade una fila con importe anual cero.
+ */
+export function attachCashAccruals<T extends "customer" | "supplier">(
+  type: T,
+  operations: ThirdPartyOperation<T>[],
+  accrued: Array<{ taxId: string | null; name: string; cents: number }>,
+): ThirdPartyOperation<T>[] {
+  const byKey = new Map<string, { taxId: string; name: string; cents: number }>();
+  for (const row of accrued) {
+    const taxId = normalizeThirdPartyTaxId(row.taxId);
+    const key = taxId || `sin-nif:${row.name}`;
+    const current = byKey.get(key) ?? { taxId: taxId || "Sin NIF", name: row.name, cents: 0 };
+    current.cents += row.cents;
+    byKey.set(key, current);
+  }
+  const used = new Set<string>();
+  const result = operations.map((operation) => {
+    if (!operation.flags?.cashAccounting) return operation;
+    // Con varias filas de caja del mismo tercero (p. ej. también arrendamiento) el devengado va en la primera.
+    const base = thirdPartyKey(operation);
+    if (used.has(base)) return { ...operation, cashAccrualAmount: 0 };
+    used.add(base);
+    return { ...operation, cashAccrualAmount: centsToNumber(byKey.get(base)?.cents ?? 0) };
+  });
+  for (const [key, row] of byKey) {
+    if (used.has(key) || Math.abs(centsToNumber(row.cents)) <= THIRD_PARTY_THRESHOLD) continue;
+    result.push({ type, taxId: row.taxId, name: row.name, amount: 0, quarters: [0, 0, 0, 0], flags: { cashAccounting: true }, cashAccrualAmount: centsToNumber(row.cents) });
+  }
+  return result;
 }
 
 /** Trimestre natural (1-4) de una columna de fecha en la zona horaria fiscal (una de las dos constantes del sistema). */
@@ -910,57 +1076,185 @@ function quarterOf(column: AnyPgColumn, timeZone: string) {
   return sql<number>`extract(quarter from (${column} at time zone ${sql.raw(`'${zone}'`)}))::int`;
 }
 
+/** Lo cobrado o pagado en el año de un documento en criterio de caja (céntimos), con el límite del 31-12 del año siguiente. */
+function cashAccruedInRange(document: { operationDate: Date; totalAmount: string | number; notBefore?: Date | null }, movements: CashMovement[], range: InstantRange, timeZone: string) {
+  const totalCents = toCents(document.totalAmount);
+  return resolveCashAccrualEvents({ operationDate: document.operationDate, totalCents, movements, timeZone, notBefore: document.notBefore })
+    .filter((event) => inInstantRange(event.date, range))
+    .reduce((total, event) => total + Math.round(totalCents * event.to) - Math.round(totalCents * event.from), 0);
+}
+
 /**
- * Clientes españoles (> 3.005,06 €/año): sin anuladas, sin facturas con retención (van al 190) y
- * sin el cliente genérico del TPV (ventas a consumidores no identificados, que no se declaran).
+ * Clientes españoles (> 3.005,06 €/año): sin anuladas, sin facturas con retención (van al 190), sin
+ * el cliente genérico del TPV (ventas a consumidores no identificados, que no se declaran) y sin
+ * las facturas con tratamiento de exportación a un cliente español (envíos a Canarias, Ceuta o
+ * Melilla, art. 33.2.h RGAT). Con la empresa en criterio de caja, sus ventas nacionales llevan la
+ * marca y el importe devengado según el régimen.
  */
-async function fetchThirdPartyOperations(companyId: string, start: Date, endExclusive: Date, timeZone: string) {
+async function fetchThirdPartyOperations(companyId: string, start: Date, endExclusive: Date, timeZone: string, options: { ownCash?: boolean } = {}) {
   const withholdingLine = sql`exists (select 1 from ${invoiceLine} il where il."invoiceId" = ${invoice.id} and il."retentionRate" > 0)`;
   const withholdingTax = sql`exists (select 1 from ${invoiceLineTax} ilt inner join ${invoiceLine} il2 on il2.id = ilt."invoiceLineId" where il2."invoiceId" = ${invoice.id} and ilt.operation = 'SUBTRACT')`;
   const quarter = quarterOf(invoice.issueDate, timeZone);
+  const domestic = sql<boolean>`coalesce(${invoice.vatTreatment}, 'DOMESTIC') = 'DOMESTIC'`;
+  const declarable = and(
+    or(isNull(partner.countryCode), eq(partner.countryCode, "ES")),
+    sql`coalesce(${invoice.vatTreatment}, '') <> 'EXPORT'`,
+    sql`not ${withholdingLine}`,
+    sql`not ${withholdingTax}`,
+    sql`not (${customer.name} = ${GENERIC_POS_CUSTOMER_NAME} and coalesce(${partner.taxId}, '') = '')`,
+  );
   const rows = await db
     .select({
       taxId: partner.taxId,
       partnerName: partner.name,
       customerName: customer.name,
       quarter,
+      domestic,
       amount: sql<string>`sum(${invoice.totalAmount})`,
     })
     .from(invoice)
     .innerJoin(customer, eq(customer.id, invoice.customerId))
     .leftJoin(partner, eq(partner.id, customer.partnerId))
-    .where(and(
-      issuedInvoiceFiscalFilter(companyId, start, endExclusive, timeZone),
-      or(isNull(partner.countryCode), eq(partner.countryCode, "ES")),
-      sql`not ${withholdingLine}`,
-      sql`not ${withholdingTax}`,
-      sql`not (${customer.name} = ${GENERIC_POS_CUSTOMER_NAME} and coalesce(${partner.taxId}, '') = '')`,
-    ))
-    .groupBy(partner.taxId, partner.name, customer.name, quarter);
+    .where(and(issuedInvoiceFiscalFilter(companyId, start, endExclusive, timeZone), declarable))
+    .groupBy(partner.taxId, partner.name, customer.name, quarter, domestic);
 
-  return groupThirdPartyOperations("customer", rows.map((row) => ({ taxId: row.taxId, name: row.partnerName ?? row.customerName, amount: row.amount, quarter: row.quarter })));
+  const operations = groupThirdPartyOperations("customer", rows.map((row) => ({
+    taxId: row.taxId,
+    name: row.partnerName ?? row.customerName,
+    amount: row.amount,
+    quarter: row.quarter,
+    flags: options.ownCash && row.domestic ? { cashAccounting: true } : null,
+  })));
+  if (!options.ownCash) return operations;
+
+  // Importe devengado según el criterio de caja: cobros del año de facturas de este año y del anterior.
+  const range = fiscalRangeInstants({ start, endExclusive }, timeZone);
+  const civil = fiscalCivilDate(range.start, timeZone);
+  const documents = await db
+    .select({
+      id: invoice.id,
+      totalAmount: invoice.totalAmount,
+      issueDate: invoice.issueDate,
+      operationDate: invoice.operationDate,
+      invoiceType: invoice.invoiceType,
+      rectifiedInvoiceId: invoice.rectifiedInvoiceId,
+      taxId: partner.taxId,
+      partnerName: partner.name,
+      customerName: customer.name,
+    })
+    .from(invoice)
+    .innerJoin(customer, eq(customer.id, invoice.customerId))
+    .leftJoin(partner, eq(partner.id, customer.partnerId))
+    .where(and(
+      issuedInvoiceBaseFilter(companyId),
+      gte(invoice.issueDate, localMidnightInstant(civil.year - 1, 0, 1, timeZone)),
+      lt(invoice.issueDate, range.endExclusive),
+      domestic,
+      declarable,
+    ));
+  const collections = await fetchInvoiceCollections(companyId, documents.map((document) => document.id));
+  const credits = new Map<string, CashMovement[]>();
+  for (const document of documents) {
+    if (document.invoiceType !== "CREDIT_NOTE" || !document.rectifiedInvoiceId || toCents(document.totalAmount) >= 0) continue;
+    credits.set(document.rectifiedInvoiceId, [...(credits.get(document.rectifiedInvoiceId) ?? []), { date: document.issueDate, amount: -toNumber(document.totalAmount) }]);
+  }
+  return attachCashAccruals("customer", operations, documents.map((document) => ({
+    taxId: document.taxId,
+    name: document.partnerName ?? document.customerName,
+    cents: cashAccruedInRange(
+      { operationDate: resolveAccrualDate(document).date, totalAmount: document.totalAmount },
+      [...(collections.get(document.id) ?? []), ...(credits.get(document.id) ?? [])],
+      range,
+      timeZone,
+    ),
+  })));
 }
 
-/** Proveedores españoles (> 3.005,06 €/año): sin anuladas ni facturas con retención. */
-async function fetchSupplierThirdPartyOperations(companyId: string, start: Date, endExclusive: Date, timeZone: string) {
+/**
+ * Proveedores españoles (> 3.005,06 €/año): sin anuladas ni facturas con retención, y sin las
+ * facturas con tratamiento de importación de un proveedor español (envíos desde Canarias, Ceuta o
+ * Melilla, art. 33.2.h RGAT). Marcas: inversión del sujeto pasivo (tratamiento de la factura),
+ * criterio de caja (proveedor acogido o empresa en el régimen) y posible arrendamiento de local
+ * (alguna línea con gasto en la cuenta 621).
+ */
+async function fetchSupplierThirdPartyOperations(companyId: string, start: Date, endExclusive: Date, timeZone: string, options: { ownCash?: boolean } = {}) {
   const quarter = quarterOf(supplierInvoice.accountingDate, timeZone);
+  const reverseCharge = sql<boolean>`coalesce(${supplierInvoice.vatTreatment}, '') = 'REVERSE_CHARGE'`;
+  const domestic = sql<boolean>`coalesce(${supplierInvoice.vatTreatment}, 'DOMESTIC') = 'DOMESTIC'`;
+  const lease = sql<boolean>`exists (select 1 from ${supplierInvoiceLine} sil inner join ${accountChart} ac on ac.id = sil."expenseAccountId" where sil."supplierInvoiceId" = ${supplierInvoice.id} and ac.code like '621%')`;
+  const declarable = and(
+    eq(partner.countryCode, "ES"),
+    sql`${supplierInvoice.retentionAmount} = 0`,
+    sql`coalesce(${supplierInvoice.vatTreatment}, '') <> 'IMPORT'`,
+  );
   const rows = await db
     .select({
       taxId: partner.taxId,
       name: partner.name,
       quarter,
+      reverseCharge,
+      domestic,
+      lease,
+      supplierCashAccounting: supplierInvoice.supplierCashAccounting,
       amount: sql<string>`sum(${supplierInvoice.totalAmount})`,
     })
     .from(supplierInvoice)
     .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
-    .where(and(
-      supplierInvoiceFiscalFilter(companyId, start, endExclusive, timeZone),
-      eq(partner.countryCode, "ES"),
-      sql`${supplierInvoice.retentionAmount} = 0`,
-    ))
-    .groupBy(partner.taxId, partner.name, quarter);
+    .where(and(supplierInvoiceFiscalFilter(companyId, start, endExclusive, timeZone), declarable))
+    .groupBy(partner.taxId, partner.name, quarter, reverseCharge, domestic, lease, supplierInvoice.supplierCashAccounting);
 
-  return groupThirdPartyOperations("supplier", rows);
+  const operations = groupThirdPartyOperations("supplier", rows.map((row) => {
+    const cashAccounting = Boolean(row.domestic) && (Boolean(row.supplierCashAccounting) || Boolean(options.ownCash));
+    const flags: ThirdPartyFlags = {
+      ...(row.lease ? { lease: true } : {}),
+      ...(cashAccounting ? { cashAccounting: true } : {}),
+      ...(row.reverseCharge ? { reverseCharge: true } : {}),
+    };
+    return { taxId: row.taxId, name: row.name, amount: row.amount, quarter: row.quarter, flags: Object.keys(flags).length > 0 ? flags : null };
+  }));
+  if (!operations.some((operation) => operation.flags?.cashAccounting) && !options.ownCash) return operations;
+
+  // Importe devengado según el criterio de caja: pagos del año de facturas de este año y del anterior.
+  const range = fiscalRangeInstants({ start, endExclusive }, timeZone);
+  const civil = fiscalCivilDate(range.start, timeZone);
+  const documents = await db
+    .select({
+      id: supplierInvoice.id,
+      totalAmount: supplierInvoice.totalAmount,
+      issueDate: supplierInvoice.issueDate,
+      operationDate: supplierInvoice.operationDate,
+      accountingDate: supplierInvoice.accountingDate,
+      rectifiedInvoiceId: supplierInvoice.rectifiedInvoiceId,
+      taxId: partner.taxId,
+      name: partner.name,
+    })
+    .from(supplierInvoice)
+    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .where(and(
+      eq(supplierInvoice.companyId, companyId),
+      notInArray(supplierInvoice.status, ["VOID", "DRAFT"]),
+      gte(supplierInvoice.accountingDate, localMidnightInstant(civil.year - 1, 0, 1, timeZone)),
+      lt(supplierInvoice.accountingDate, range.endExclusive),
+      domestic,
+      declarable,
+      options.ownCash ? undefined : eq(supplierInvoice.supplierCashAccounting, true),
+    ));
+  const payments = await fetchSupplierInvoicePayments(companyId, documents.map((document) => document.id));
+  const credits = new Map<string, CashMovement[]>();
+  for (const document of documents) {
+    if (!document.rectifiedInvoiceId || toCents(document.totalAmount) >= 0) continue;
+    credits.set(document.rectifiedInvoiceId, [...(credits.get(document.rectifiedInvoiceId) ?? []), { date: document.accountingDate, amount: -toNumber(document.totalAmount) }]);
+  }
+  return attachCashAccruals("supplier", operations, documents.map((document) => ({
+    taxId: document.taxId,
+    name: document.name,
+    cents: cashAccruedInRange(
+      { operationDate: document.operationDate ?? document.issueDate, totalAmount: document.totalAmount, notBefore: document.accountingDate },
+      [...(payments.get(document.id) ?? []), ...(credits.get(document.id) ?? [])],
+      range,
+      timeZone,
+    ),
+  })));
 }
 
 /** El 347 informa aparte de los importes percibidos en metálico de un mismo tercero por encima de este límite. */
@@ -1480,14 +1774,18 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
   let thirdPartyOperations: ThirdPartyOperation[] | undefined;
   if (code === "347") {
     const [customers, suppliers, cash] = await Promise.all([
-      fetchThirdPartyOperations(companyId, instants.start, instants.endExclusive, timeZone),
-      fetchSupplierThirdPartyOperations(companyId, instants.start, instants.endExclusive, timeZone),
+      fetchThirdPartyOperations(companyId, instants.start, instants.endExclusive, timeZone, { ownCash: profile.fiscalRegime === "cash_accounting" }),
+      fetchSupplierThirdPartyOperations(companyId, instants.start, instants.endExclusive, timeZone, { ownCash: profile.fiscalRegime === "cash_accounting" }),
       fetchCashCollections(companyId, instants),
     ]);
     thirdPartyOperations = [
-      ...customers.map((row) => {
-        const cashAmount = cash.get(row.taxId === "Sin NIF" ? `sin-nif:${row.name}` : row.taxId);
-        return cashAmount === undefined ? row : { ...row, cashAmount };
+      // El metálico es del tercero, no de cada registro: va en su fila sin marcas (o en la primera).
+      ...customers.map((row, index) => {
+        const key = thirdPartyKey(row);
+        const cashAmount = cash.get(key);
+        const firstOfParty = customers.findIndex((candidate) => thirdPartyKey(candidate) === key && !candidate.flags);
+        const target = firstOfParty >= 0 ? firstOfParty : customers.findIndex((candidate) => thirdPartyKey(candidate) === key);
+        return cashAmount === undefined || target !== index ? row : { ...row, cashAmount };
       }),
       ...suppliers,
     ].sort((left, right) => right.amount - left.amount);
@@ -1615,6 +1913,35 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
       title: "Último periodo del año con saldo a tu favor",
       detail: `Quedan ${centsToNumber(compensation.carryForwardCents).toFixed(2)} € a tu favor al cerrar el ejercicio (lo generado en este periodo más la casilla 87).`,
       action: `En el último periodo puedes pedir la devolución (casilla 73) en vez de dejarlo a compensar (casilla 72): el programa no elige por ti. Si lo dejas a compensar, anótalo como saldo inicial de ${periodYear + 1} en Configuración › Fiscalidad.`,
+    });
+  }
+  const leaseThirdParties = thirdPartyOperations?.filter((operation) => operation.flags?.lease) ?? [];
+  if (leaseThirdParties.length > 0) {
+    automationChecks.push({
+      code: "model-347-lease",
+      status: "warning",
+      title: "Posibles arrendamientos de local de negocio",
+      detail: `${leaseThirdParties.length} proveedor(es) tienen facturas sin retención con gasto en la cuenta 621 (arrendamientos y cánones): ${leaseThirdParties.slice(0, 5).map((operation) => operation.name).join(", ")}. Si es el alquiler de un local de negocio, se declara en registro aparte con la marca «arrendamiento local negocio»; si es otro alquiler (maquinaria, vehículos, licencias), súmalo al resto de compras de ese proveedor.`,
+      action: "La referencia catastral y la dirección del local solo las declara el arrendador. Si tú alquilas locales a terceros, el programa no guarda esos datos del inmueble: añádelos a mano al presentar (marca de arrendamiento y hoja de inmuebles).",
+    });
+  }
+  const cashRegimeThirdParties = thirdPartyOperations?.filter((operation) => operation.flags?.cashAccounting) ?? [];
+  if (cashRegimeThirdParties.length > 0) {
+    automationChecks.push({
+      code: "model-347-cash-accounting",
+      status: "ok",
+      title: "Operaciones en criterio de caja",
+      detail: `${cashRegimeThirdParties.length} registro(s) llevan la marca de criterio de caja: se declaran en cómputo anual (sin trimestres) con dos importes, el anual según la regla general de devengo y el devengado según el régimen (lo cobrado o pagado en el año).`,
+      action: "Comprueba que los cobros y pagos del año estén registrados con su fecha.",
+    });
+  }
+  if (modelo349?.monthlyRequired) {
+    automationChecks.push({
+      code: "model-349-monthly",
+      status: "warning",
+      title: "El 349 te corresponde mensual",
+      detail: `Tus entregas de bienes y prestaciones de servicios intracomunitarias superan ${MODELO_349_MONTHLY_THRESHOLD.toLocaleString("es-ES")} € en este trimestre o en alguno de los cuatro anteriores (en este: ${(modelo349.deliveriesAmount ?? 0).toLocaleString("es-ES", { minimumFractionDigits: 2 })} €).`,
+      action: "Con ese importe el 349 se presenta cada mes, no por trimestres (art. 81.2 RIVA): crea los modelos mensuales del trimestre.",
     });
   }
   const cashThirdParties = thirdPartyOperations?.filter((operation) => operation.cashAmount !== undefined) ?? [];

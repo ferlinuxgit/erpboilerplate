@@ -115,3 +115,42 @@ describe("Foto de lo presentado", () => {
     ]);
   });
 });
+
+describe("foto de lo presentado: campos añadidos después", () => {
+  it("una foto del 390 sin numeración oficial no se compara con el resumen numerado", () => {
+    const legacy = summary({ code: "390", amountDue: null, annualSummaryBoxes: [{ box: "", label: "Total cuotas devengadas del ejercicio", amount: 2100, kind: "tax" }] });
+    const current = summary({ code: "390", amountDue: null, annualSummaryBoxes: [{ box: "47", label: "Total cuotas IVA y recargo de equivalencia", amount: 2100, kind: "tax" }] });
+    expect(diffFiledSnapshot(legacy, current)).toEqual([]);
+    // Con numeración en las dos, un cambio sí se detecta.
+    const changed = summary({ code: "390", amountDue: null, annualSummaryBoxes: [{ box: "47", label: "Total cuotas IVA y recargo de equivalencia", amount: 2500, kind: "tax" }] });
+    expect(diffFiledSnapshot(current, changed)).toEqual([{ label: "Casilla 47 · Total cuotas IVA y recargo de equivalencia", filed: 2100, current: 2500 }]);
+  });
+
+  it("347: una foto antigua sin marcas se compara igual, y los registros con marca se distinguen", () => {
+    const party = { type: "supplier" as const, taxId: "B12345678", name: "Proveedor", quarters: [0, 0, 0, 0] as [number, number, number, number] };
+    const filed = summary({ code: "347", amountDue: null, thirdPartyOperations: [{ ...party, amount: 5000 }] });
+    expect(diffFiledSnapshot(filed, summary({ code: "347", amountDue: null, thirdPartyOperations: [{ ...party, amount: 5000 }] }))).toEqual([]);
+    const split = summary({ code: "347", amountDue: null, thirdPartyOperations: [
+      { ...party, amount: 4000 },
+      { ...party, amount: 1000, flags: { cashAccounting: true }, cashAccrualAmount: 600 },
+    ] });
+    expect(diffFiledSnapshot(filed, split).map((difference) => [difference.label, difference.filed, difference.current])).toEqual([
+      ["Proveedor Proveedor (B12345678)", 5000, 4000],
+      ["Proveedor Proveedor (B12345678) · criterio de caja", null, 1000],
+      ["Proveedor Proveedor (B12345678) · criterio de caja · devengado según el criterio de caja", null, 600],
+    ]);
+  });
+
+  it("los campos nuevos del resumen (criterio de caja, prorrata) viajan en la foto y una foto sin ellos se lee", () => {
+    const withNew = summary({
+      cashAccounting: { ownRegime: true, salesBase: 1000, salesTax: 210, purchaseBase: 0, purchaseTax: 0, deadlineSalesInvoices: 0, deadlinePurchaseInvoices: 0 },
+      prorrata: { year: 2026, provisionalPct: 90, computedPct: 80, totalOperations: 10000, deductibleOperations: 8000, exemptOperations: 2000, confirmedPct: 80, regularizationAmount: -42, previewRegularizationAmount: null, investmentRegularizationAmount: 0, investmentGoods: [] },
+    });
+    const stored = readFiledSnapshot(buildFiledSnapshot(withNew));
+    expect(stored?.cashAccounting?.ownRegime).toBe(true);
+    expect(stored?.prorrata?.confirmedPct).toBe(80);
+    const old = readFiledSnapshot(buildFiledSnapshot(summary()));
+    expect(old?.cashAccounting).toBeUndefined();
+    expect(diffFiledSnapshot(old!, withNew)).toEqual([]);
+  });
+});
