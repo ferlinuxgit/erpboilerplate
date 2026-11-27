@@ -224,16 +224,18 @@ type VerifactuSettingsFormProps = {
   hasRecords: boolean;
   /** El administrador del sistema ha activado el envío a la AEAT (falta, como mucho, el certificado). */
   transportEnabled: boolean;
-  certificate: { fileName: string | null; uploadedAt: string } | null;
+  certificate: CompanyCertificateSummary | null;
   /** Hay un certificado del sistema (colaboración social o apoderamiento) para las empresas sin el suyo. */
   systemCertificate: boolean;
+  /** Titular y caducidad del certificado del sistema (null si el despliegue no tiene). */
+  systemCertificateInfo?: SystemCertificateSummary | null;
 };
 
 /**
  * Activación de VERI*FACTU con explicación en lenguaje llano. Exige NIF de empresa válido y que el
  * envío a la AEAT esté operativo. Una vez activado no se puede desactivar ni cambiar de modalidad.
  */
-export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, issuerTaxIdValid, operational, notOperationalReason, hasRecords, transportEnabled, certificate, systemCertificate }: VerifactuSettingsFormProps) {
+export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, issuerTaxIdValid, operational, notOperationalReason, hasRecords, transportEnabled, certificate, systemCertificate, systemCertificateInfo = null }: VerifactuSettingsFormProps) {
   const router = useRouter();
   const [mode, setMode] = useState(initialMode);
   const [since, setSince] = useState(initialSince);
@@ -369,16 +371,46 @@ export function VerifactuSettingsForm({ initialMode, initialSince, issuerTaxId, 
           title="¿Activar VERI*FACTU?"
         />
       </form>
-      {transportEnabled || certificate ? <VerifactuCertificateForm certificate={certificate} systemCertificate={systemCertificate} /> : null}
+      {transportEnabled || certificate ? <VerifactuCertificateForm certificate={certificate} systemCertificate={systemCertificate} systemCertificateInfo={systemCertificateInfo} /> : null}
     </div>
   );
 }
 
+type CertificateValiditySummary = { expired: boolean; expiringSoon: boolean; daysLeft: number | null };
+
+export type CompanyCertificateSummary = {
+  fileName: string | null;
+  uploadedAt: string;
+  /** Titular del X.509; null en certificados subidos antes de que se leyera (se completa al primer envío). */
+  subject?: string | null;
+  /** NIF que figuran en el titular. */
+  nifs?: string[];
+  validTo?: string | null;
+  isSeal?: boolean;
+} & Partial<CertificateValiditySummary>;
+
+export type SystemCertificateSummary = { subject: string | null; validTo: string | null; readable: boolean } & CertificateValiditySummary;
+
+const certificateDate = (iso: string) => new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Madrid" });
+
+/** Caducidad en una frase: «válido hasta el…», «caduca en 12 días» o «caducó el…». */
+function CertificateExpiry({ validTo, expired, expiringSoon, daysLeft }: { validTo: string | null | undefined } & Partial<CertificateValiditySummary>) {
+  if (!validTo) return <span className="text-muted-foreground">Caducidad desconocida</span>;
+  if (expired) return <strong className="text-danger-text">Caducó el {certificateDate(validTo)}</strong>;
+  if (expiringSoon) {
+    return <strong className="text-warning-text">Caduca el {certificateDate(validTo)}{typeof daysLeft === "number" ? ` (${daysLeft <= 0 ? "hoy" : daysLeft === 1 ? "queda 1 día" : `quedan ${daysLeft} días`})` : ""}</strong>;
+  }
+  return <>Válido hasta el {certificateDate(validTo)}</>;
+}
+
 /** Certificado electrónico (.p12/.pfx) con el que la empresa remite sus registros a la AEAT. */
-function VerifactuCertificateForm({ certificate, systemCertificate }: { certificate: { fileName: string | null; uploadedAt: string } | null; systemCertificate: boolean }) {
+function VerifactuCertificateForm({ certificate, systemCertificate, systemCertificateInfo }: { certificate: CompanyCertificateSummary | null; systemCertificate: boolean; systemCertificateInfo: SystemCertificateSummary | null }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [passphrase, setPassphrase] = useState("");
+  // Sin marcar se deduce del titular del certificado; marcado, se fuerza el punto de acceso de sello.
+  const [isSeal, setIsSeal] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState<"save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -392,15 +424,22 @@ function VerifactuCertificateForm({ certificate, systemCertificate }: { certific
     }
     setBusy("save");
     setError(null);
+    setWarnings([]);
     try {
       const body = new FormData();
       body.set("file", file);
       body.set("passphrase", passphrase);
+      if (isSeal) body.set("seal", "true");
       const response = await fetch("/api/verifactu/certificate", { method: "PUT", headers: { ...getCsrfHeader() }, body });
       if (!response.ok) throw new Error(await readError(response, "No se pudo guardar el certificado."));
-      toast.success("Certificado guardado.");
+      const saved = (await response.json().catch(() => null)) as { warnings?: string[] } | null;
+      const savedWarnings = Array.isArray(saved?.warnings) ? saved.warnings.filter((warning): warning is string => typeof warning === "string") : [];
+      setWarnings(savedWarnings);
+      if (savedWarnings.length > 0) toast.warning("Certificado guardado, con avisos: revísalos.");
+      else toast.success("Certificado guardado.");
       setFile(null);
       setPassphrase("");
+      setIsSeal(false);
       form.reset();
       router.refresh();
     } catch (submitError) {
@@ -439,13 +478,42 @@ function VerifactuCertificateForm({ certificate, systemCertificate }: { certific
         </p>
       </div>
       {certificate ? (
-        <p className="text-sm">
-          <StatusBadge tone="success">Certificado instalado</StatusBadge>{" "}
-          <span className="text-muted-foreground">{certificate.fileName ?? "certificado"} · subido el {new Date(certificate.uploadedAt).toLocaleDateString("es-ES")}</span>
-        </p>
+        <div className="space-y-1 text-sm" data-testid="verifactu-certificate-details">
+          <p>
+            <StatusBadge tone={certificate.expired ? "danger" : certificate.expiringSoon ? "warning" : "success"}>
+              {certificate.expired ? "Certificado caducado" : certificate.expiringSoon ? "Caduca pronto" : "Certificado instalado"}
+            </StatusBadge>{" "}
+            {certificate.isSeal ? <StatusBadge tone="info">Sello electrónico</StatusBadge> : null}{" "}
+            <span className="text-muted-foreground">{certificate.fileName ?? "certificado"} · subido el {new Date(certificate.uploadedAt).toLocaleDateString("es-ES")}</span>
+          </p>
+          <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[8rem_1fr]">
+            <dt className="text-muted-foreground">Titular</dt>
+            <dd className="[overflow-wrap:anywhere]">{certificate.subject ?? "No se ha podido leer (se completará en el primer envío)."}</dd>
+            <dt className="text-muted-foreground">NIF</dt>
+            <dd className="font-mono">{certificate.nifs && certificate.nifs.length > 0 ? certificate.nifs.join(" · ") : "—"}</dd>
+            <dt className="text-muted-foreground">Caducidad</dt>
+            <dd><CertificateExpiry daysLeft={certificate.daysLeft} expired={certificate.expired} expiringSoon={certificate.expiringSoon} validTo={certificate.validTo} /></dd>
+          </dl>
+        </div>
       ) : (
-        <p className="text-sm"><StatusBadge tone={systemCertificate ? "info" : "warning"}>{systemCertificate ? "Se usa el certificado del sistema" : "Sin certificado"}</StatusBadge></p>
+        <div className="space-y-1 text-sm">
+          <p><StatusBadge tone={systemCertificate ? (systemCertificateInfo?.expired ? "danger" : "info") : "warning"}>{systemCertificate ? "Se usa el certificado del sistema" : "Sin certificado"}</StatusBadge></p>
+          {systemCertificate && systemCertificateInfo ? (
+            <p className="text-muted-foreground" data-testid="verifactu-system-certificate">
+              {systemCertificateInfo.readable
+                ? <>Titular: {systemCertificateInfo.subject ?? "desconocido"} · <CertificateExpiry daysLeft={systemCertificateInfo.daysLeft} expired={systemCertificateInfo.expired} expiringSoon={systemCertificateInfo.expiringSoon} validTo={systemCertificateInfo.validTo} /></>
+                : "No se ha podido abrir el certificado del sistema: avisa al administrador o sube el de tu empresa."}
+            </p>
+          ) : null}
+        </div>
       )}
+      {warnings.length > 0 ? (
+        <InlineAlert role="status" title="Avisos del certificado que acabas de subir" tone="warning">
+          <ul className="list-disc space-y-1 pl-4" data-testid="verifactu-certificate-warnings">
+            {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </InlineAlert>
+      ) : null}
       <div className="grid gap-3 md:grid-cols-2">
         <AccessibleField id="verifactu-certificate-file" label={certificate ? "Sustituir por otro fichero (.p12 o .pfx)" : "Fichero del certificado (.p12 o .pfx)"}>
           <Input accept=".p12,.pfx,application/x-pkcs12" onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
@@ -453,6 +521,13 @@ function VerifactuCertificateForm({ certificate, systemCertificate }: { certific
         <AccessibleField id="verifactu-certificate-passphrase" label="Contraseña del certificado">
           <Input autoComplete="off" onChange={(event) => setPassphrase(event.target.value)} type="password" value={passphrase} />
         </AccessibleField>
+        <label className="flex items-start gap-2 text-sm md:col-span-2" htmlFor="verifactu-certificate-seal">
+          <input checked={isSeal} className="mt-0.5" data-testid="verifactu-certificate-seal" id="verifactu-certificate-seal" onChange={(event) => setIsSeal(event.target.checked)} type="checkbox" />
+          <span>
+            Es un certificado de sello electrónico
+            <span className="block text-xs text-muted-foreground">Los de sello se envían por un acceso distinto de la AEAT. Si no lo marcas, lo deducimos del titular del certificado.</span>
+          </span>
+        </label>
       </div>
       {error && !confirmDelete ? <InlineAlert role="alert" tone="danger">{error}</InlineAlert> : null}
       <div className="flex flex-wrap justify-end gap-2">

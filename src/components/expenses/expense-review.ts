@@ -19,6 +19,10 @@ export type ReviewLine = {
   taxRate: string;
   taxDeductiblePct: string;
   retentionRate: string;
+  /** Recargo de equivalencia soportado, en % (vacío o 0 = sin recargo). */
+  surchargeRate?: string;
+  /** Bien de inversión; sin indicar lo decide la cuenta (grupo 2). */
+  isInvestmentGood?: boolean;
 };
 
 export type ReviewItem = {
@@ -91,6 +95,11 @@ export type ItemReadiness = {
 const parseQuantity = (raw: string) => parseDecimalInput(raw) ?? Number.NaN;
 const parseMoney = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? Number.NaN;
 const parsePercent = (raw: string) => parseDecimalInput(raw, { maximumFractionDigits: 2 }) ?? Number.NaN;
+/** Recargo de equivalencia de la línea (0 si no lleva o no es válido). */
+export const parseSurchargeRate = (raw: string | undefined) => {
+  const rate = raw?.trim() ? parsePercent(raw) : 0;
+  return Number.isFinite(rate) && rate > 0 ? rate : 0;
+};
 
 /** El proveedor no cobra IVA: autorepercusión (UE, inversión del sujeto pasivo) o no sujeta. */
 function supplierChargesNoVat(vatTreatment?: SupplierVatTreatment | "") {
@@ -101,11 +110,13 @@ function supplierChargesNoVat(vatTreatment?: SupplierVatTreatment | "") {
  * Total a pagar de una línea (base + IVA − retención; sin IVA si el proveedor no lo cobra);
  * 0 si algún importe no es válido.
  */
-export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">, vatTreatment?: SupplierVatTreatment | "") {
+export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate" | "surchargeRate">, vatTreatment?: SupplierVatTreatment | "") {
   const subtotal = parseQuantity(line.quantity) * parseMoney(line.unitPrice);
-  const tax = supplierChargesNoVat(vatTreatment) ? 0 : subtotal * parsePercent(line.taxRate) / 100;
+  const noVat = supplierChargesNoVat(vatTreatment);
+  const tax = noVat ? 0 : subtotal * parsePercent(line.taxRate) / 100;
+  const surcharge = noVat ? 0 : subtotal * parseSurchargeRate(line.surchargeRate) / 100;
   const retention = subtotal * parsePercent(line.retentionRate) / 100;
-  const total = subtotal + tax - retention;
+  const total = subtotal + tax + surcharge - retention;
   return Number.isFinite(total) ? Math.round((total + Number.EPSILON) * 100) / 100 : 0;
 }
 
@@ -114,17 +125,20 @@ export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" 
  * por tipo sobre la suma de bases (con muchas líneas, sumar cuotas redondeadas línea a línea
  * se desvía unos céntimos del total de la factura).
  */
-export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[], vatTreatment?: SupplierVatTreatment | "", documentKind: SupplierDocumentKind = "INVOICE") {
+export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate" | "surchargeRate">[], vatTreatment?: SupplierVatTreatment | "", documentKind: SupplierDocumentKind = "INVOICE") {
   const parsed = lines.map((line) => ({
     quantity: parseQuantity(line.quantity),
     unitPrice: parseMoney(line.unitPrice),
     taxRate: parsePercent(line.taxRate),
     retentionRate: parsePercent(line.retentionRate),
+    surchargeRate: parseSurchargeRate(line.surchargeRate),
   })).filter((line) => [line.quantity, line.unitPrice, line.taxRate, line.retentionRate].every(Number.isFinite));
   // Una rectificativa conserva el signo de sus líneas (abono); una factura nunca es negativa.
   const document = computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })), { allowNegative: documentKind === "RECTIFICATION" });
   if (supplierChargesNoVat(vatTreatment)) return centsToNumber(document.subtotalCents - document.retentionCents);
-  return centsToNumber(document.totalCents);
+  // Recargo de equivalencia: se suma a lo que se paga al proveedor (cuota por línea, al céntimo).
+  const surchargeCents = parsed.reduce((sum, line) => sum + Math.round(line.quantity * line.unitPrice * line.surchargeRate), 0);
+  return centsToNumber(document.totalCents + surchargeCents);
 }
 
 export function isBlockingWarning(warning: string) {

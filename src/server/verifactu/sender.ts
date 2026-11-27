@@ -3,7 +3,7 @@ import { and, asc, count, eq, inArray, isNull, lte, or, sql } from "drizzle-orm"
 import { verifactuChainHead, verifactuRecord } from "@/db/schema";
 import { db, type AppDb } from "@/lib/db";
 import { appendEvent } from "@/server/verifactu/chain";
-import { certificateValidity, loadCompanyCredentials } from "@/server/verifactu/certificates";
+import { certificateValidity, getSystemCertificateInfo, loadCompanyCredentials } from "@/server/verifactu/certificates";
 import { isVerifactuEnvironment, requireVerifactuEnvironment, type VerifactuEnvironment } from "@/server/verifactu/config";
 import type { VerifactuCredentials, VerifactuTransport } from "@/server/verifactu/transport";
 import { buildRegFactuSoapEnvelope, MAX_RECORDS_PER_SUBMISSION, parseAeatResponse, type AeatLineResult, type XmlRecord } from "@/server/verifactu/xml";
@@ -358,6 +358,14 @@ export async function processPendingVerifactuRecords(options: {
     if (credentials && certificateValidity(credentials.validTo, now).expired) {
       summaries.push(skipped(companyId, { error: "El certificado electrónico de la empresa está caducado: los registros siguen pendientes hasta que se suba uno vigente." }));
       continue;
+    }
+    // Mismo control para el certificado del sistema (solo en el transporte real: los de prueba no lo usan).
+    if (!credentials && options.transport.kind === "aeat") {
+      const system = await getSystemCertificateInfo();
+      if (system?.validTo && certificateValidity(system.validTo, now).expired) {
+        summaries.push(skipped(companyId, { error: "El certificado electrónico del sistema está caducado: los registros siguen pendientes hasta que se renueve o la empresa suba el suyo." }));
+        continue;
+      }
     }
     const [head] = await client
       .select({ lastSubmissionAt: verifactuChainHead.lastSubmissionAt, waitSeconds: verifactuChainHead.waitSeconds })

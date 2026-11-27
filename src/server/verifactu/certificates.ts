@@ -1,4 +1,5 @@
 import { X509Certificate } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { createSecureContext } from "node:tls";
 
 import { eq } from "drizzle-orm";
@@ -271,6 +272,46 @@ export async function deleteCompanyCertificate(actor: Actor) {
   });
 }
 
+export type SystemCertificateInfo = {
+  /** Titular; null si el fichero no se puede abrir o leer (ruta o contraseña incorrectas). */
+  subject: string | null;
+  validTo: Date | null;
+  /** El fichero existe y se abre con la contraseña configurada. */
+  readable: boolean;
+};
+
+/** Última lectura: fichero (ruta, fecha, tamaño), contraseña con la que se abrió y resultado. */
+let systemCertificateCache: { key: string; password: string; info: SystemCertificateInfo } | null = null;
+
+/**
+ * Certificado del sistema (VERIFACTU_CERT_PATH): titular y caducidad, con el mismo control que el
+ * de cada empresa. Se lee una vez por versión del fichero (ruta, fecha, tamaño y contraseña): en cada llamada
+ * solo se consulta el fichero con `stat`. Devuelve null si el despliegue no tiene certificado del
+ * sistema.
+ */
+export async function getSystemCertificateInfo(env: Env = process.env): Promise<SystemCertificateInfo | null> {
+  const transport = getVerifactuTransportConfig(env);
+  if (transport.kind !== "aeat" || !transport.certPath) return null;
+  const unreadable: SystemCertificateInfo = { subject: null, validTo: null, readable: false };
+  let key: string;
+  try {
+    const info = await stat(transport.certPath);
+    key = `${transport.certPath}:${info.mtimeMs}:${info.size}`;
+  } catch {
+    return unreadable;
+  }
+  if (systemCertificateCache?.key === key && systemCertificateCache.password === transport.certPassword) return systemCertificateCache.info;
+  let result = unreadable;
+  try {
+    const details = readPfxCertificate(await readFile(transport.certPath), transport.certPassword);
+    result = { subject: details.subject, validTo: details.validTo, readable: true };
+  } catch {
+    // Ruta o contraseña incorrectas: se informa como ilegible; el envío fallará con su propio error.
+  }
+  systemCertificateCache = { key, password: transport.certPassword, info: result };
+  return result;
+}
+
 export type VerifactuReadiness = {
   /** El envío a la AEAT funciona para esta empresa: transporte activo y certificado vigente disponible. */
   operational: boolean;
@@ -295,6 +336,18 @@ export async function getVerifactuReadiness(client: DbClient, companyId: string,
     }
     return { operational: true, reason: null, certificate: "company" };
   }
-  if (transport.certPath) return { operational: true, reason: null, certificate: "system" };
+  if (transport.certPath) {
+    // Mismo control que el de empresa: con el certificado del sistema caducado no se remite nada.
+    const system = await getSystemCertificateInfo(env);
+    if (system?.validTo && certificateValidity(system.validTo, now).expired) {
+      return {
+        operational: false,
+        reason: `El certificado electrónico del sistema caducó el ${shortDate(system.validTo)}. Debe renovarlo el administrador; mientras tanto puedes subir el certificado de tu empresa.`,
+        certificate: "system",
+        cause: "certificate-expired",
+      };
+    }
+    return { operational: true, reason: null, certificate: "system" };
+  }
   return { operational: false, reason: "La empresa no ha subido su certificado electrónico.", certificate: null, cause: "certificate-missing" };
 }

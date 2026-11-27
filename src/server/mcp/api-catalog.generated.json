@@ -934,6 +934,44 @@
  },
  {
   "method": "PATCH",
+  "path": "/api/cost-centers/{id}",
+  "area": "cost-centers",
+  "summary": "Cambia el código, el nombre o el estado (activo / inactivo) de un centro de coste.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const costCenterInputSchema = z.object({\n  code: z.string().trim().min(1, \"Indica el código del centro de coste.\").max(20, \"El código no puede superar 20 caracteres.\").regex(/^[\\p{L}\\p{N}._-]+$/u, \"El código solo admite letras, números, punto, guion y guion bajo.\"),\n  name: z.string().trim().min(1, \"Indica el nombre del centro de coste.\").max(120, \"El nombre no puede superar 120 caracteres.\"),\n  isActive: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/cost-centers/{id}",
+  "area": "cost-centers",
+  "summary": "Borra un centro de coste sin apuntes ni bienes asignados.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/cost-centers",
+  "area": "cost-centers",
+  "summary": "Centros de coste de la empresa (analítica), con el número de apuntes y bienes que los usan.",
+  "permissions": [
+   "accounting.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/cost-centers",
+  "area": "cost-centers",
+  "summary": "Da de alta un centro de coste (código y nombre).",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const costCenterInputSchema = z.object({\n  code: z.string().trim().min(1, \"Indica el código del centro de coste.\").max(20, \"El código no puede superar 20 caracteres.\").regex(/^[\\p{L}\\p{N}._-]+$/u, \"El código solo admite letras, números, punto, guion y guion bajo.\"),\n  name: z.string().trim().min(1, \"Indica el nombre del centro de coste.\").max(120, \"El nombre no puede superar 120 caracteres.\"),\n  isActive: z.boolean().optional(),\n})"
+ },
+ {
+  "method": "PATCH",
   "path": "/api/crm/activities/{id}",
   "area": "crm",
   "summary": "",
@@ -1515,7 +1553,7 @@
    "expense.write",
    "purchase.write"
   ],
-  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierName: z.string().trim().optional().or(z.literal(\"\")),\n  supplierTaxId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierEmail: z.string().trim().email().optional().or(z.literal(\"\")),\n  supplierPhone: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddress: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPostalCode: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCity: z.string().trim().optional().or(z.literal(\"\")),\n  supplierProvince: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCountryCode: z.string().trim().length(2).optional().or(z.literal(\"\")),\n  purchaseOrderId: z.string().trim().optional().or(z.literal(\"\")),\n  goodsReceiptId: z.string().trim().optional().or(z.literal(\"\")),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  seriesId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  ocrJobId: z.string().trim().optional().or(z.literal(\"\")),\n  currencyCode: z.string().trim().length(3).optional(),\n  idempotencyKey: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  vatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).optional(),\n  // Clase de documento: una rectificativa (abono) admite importes negativos.\n  documentKind: z.enum([\"INVOICE\", \"RECTIFICATION\"]).optional(),\n  rectifiedInvoiceId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  rectifiedDocumentNumber: z.string().trim().max(80).optional().or(z.literal(\"\")),\n  rectifiedIssueDate: z.string().datetime().optional().or(z.literal(\"\")),\n  rectificationReason: z.string().trim().max(500).optional().or(z.literal(\"\")),\n  operationDate: z.string().datetime().optional().or(z.literal(\"\")),\n  isSimplified: z.boolean().optional(),\n  importDuaNumber: z.string().trim().max(40).optional().or(z.literal(\"\")),\n  importDuaDate: z.string().datetime().optional().or(z.literal(\"\")),\n  attachments: z\n    .array(\n      z.object({\n        fileName …"
+  "body": "const payloadSchema = z.object({\n  supplierPartnerId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierName: z.string().trim().optional().or(z.literal(\"\")),\n  supplierTaxId: z.string().trim().optional().or(z.literal(\"\")),\n  supplierEmail: z.string().trim().email().optional().or(z.literal(\"\")),\n  supplierPhone: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddress: z.string().trim().optional().or(z.literal(\"\")),\n  supplierAddressLine2: z.string().trim().optional().or(z.literal(\"\")),\n  supplierPostalCode: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCity: z.string().trim().optional().or(z.literal(\"\")),\n  supplierProvince: z.string().trim().optional().or(z.literal(\"\")),\n  supplierCountryCode: z.string().trim().length(2).optional().or(z.literal(\"\")),\n  purchaseOrderId: z.string().trim().optional().or(z.literal(\"\")),\n  goodsReceiptId: z.string().trim().optional().or(z.literal(\"\")),\n  number: z.string().trim().optional().or(z.literal(\"\")),\n  seriesId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  supplierDocumentNumber: z.string().trim().optional().or(z.literal(\"\")),\n  issueDate: z.string().datetime(),\n  accountingDate: z.string().datetime().optional().or(z.literal(\"\")),\n  dueDate: z.string().datetime().optional(),\n  notes: z.string().trim().optional().or(z.literal(\"\")),\n  ocrJobId: z.string().trim().optional().or(z.literal(\"\")),\n  currencyCode: z.string().trim().length(3).optional(),\n  idempotencyKey: z.string().trim().max(160).optional().or(z.literal(\"\")),\n  vatTreatment: z.enum([\"DOMESTIC\", \"INTRA_EU\", \"REVERSE_CHARGE\", \"IMPORT\", \"NOT_SUBJECT\"]).optional(),\n  // Clase de documento: una rectificativa (abono) admite importes negativos.\n  documentKind: z.enum([\"INVOICE\", \"RECTIFICATION\"]).optional(),\n  rectifiedInvoiceId: z.string().trim().max(64).optional().or(z.literal(\"\")),\n  rectifiedDocumentNumber: z.string().trim().max(80).optional().or(z.literal(\"\")),\n  rectifiedIssueDate: z.string().datetime().optional().or(z.literal(\"\")),\n  rectificationReason: z.string().trim().max(500).optional().or(z.literal(\"\")),\n  operationDate: z.string().datetime().optional().or(z.literal(\"\")),\n  isSimplified: z.boolean().optional(),\n  supplierCashAccounting: z.boolean().optional(),\n  importDuaNumber: z.string().trim().max(40).optional().or(z.literal(\"\")),\n  importDuaDate: z.string().datetime().optional().or(z.literal(\"\")),\n  attachment …"
  },
  {
   "method": "GET",
@@ -1686,7 +1724,7 @@
   "permissions": [
    "accounting.write"
   ],
-  "body": "const disposeFixedAssetSchema = z.object({\n  date: isoDate(\"La fecha de baja no es válida.\"),\n  type: z.enum([\"sale\", \"retirement\"]),\n  proceeds: z.number().min(0, \"El importe de la venta no puede ser negativo.\").max(9_999_999_999).optional(),\n  accountId: z.string().trim().min(1).nullable().optional(),\n  notes: optionalText(2000),\n})"
+  "body": "const disposeFixedAssetSchema = z.object({\n  date: isoDate(\"La fecha de baja no es válida.\"),\n  type: z.enum([\"sale\", \"retirement\"]),\n  proceeds: z.number().min(0, \"El importe de la venta no puede ser negativo.\").max(9_999_999_999).optional(),\n  accountId: z.string().trim().min(1).nullable().optional(),\n  /**\n   * Factura de venta ya emitida (con su cliente y su IVA). Con ella no hace falta cuenta de\n   * contrapartida: la baja se cuadra contra el ingreso que contabilizó la factura.\n   */\n  salesInvoiceId: z.string().trim().min(1).nullable().optional(),\n  notes: optionalText(2000),\n})"
  },
  {
   "method": "DELETE",
@@ -1714,7 +1752,7 @@
   "permissions": [
    "accounting.write"
   ],
-  "body": "const fixedAssetInputSchema = z.object({\n  description: z.string().trim().min(1, \"Indica la descripción del bien.\").max(200, \"La descripción no puede superar 200 caracteres.\"),\n  notes: optionalText(2000),\n  assetAccountCode: accountCode(\"Indica la cuenta de inmovilizado (grupos 20, 21 o 22).\"),\n  accumulatedAccountCode: accountCode(\"La cuenta de amortización acumulada no es válida.\").nullable().optional(),\n  expenseAccountCode: accountCode(\"La cuenta de gasto de la amortización no es válida.\").nullable().optional(),\n  isDepreciable: z.boolean(),\n  method: z.enum([\"percent\", \"years\"]),\n  annualPct: z.number().positive(\"El porcentaje anual debe ser mayor que cero.\").nullable().optional(),\n  usefulLifeYears: z.number().positive(\"La vida útil debe ser mayor que cero.\").nullable().optional(),\n  taxCoefficientKey: optionalText(60),\n  acquisitionDate: isoDate(\"La fecha de adquisición no es válida.\"),\n  inServiceDate: isoDate(\"La fecha de puesta en funcionamiento no es válida.\"),\n  depreciationStartDate: isoDate(\"La fecha de inicio de la amortización no es válida.\").nullable().optional(),\n  acquisitionCost: z.number().positive(\"Indica el valor de adquisición del bien.\").max(9_999_999_999, \"El valor de adquisición es demasiado alto.\"),\n  residualValue: z.number().min(0, \"El valor residual no puede ser negativo.\").optional(),\n  priorAccumulated: z.number().min(0, \"La amortización acumulada anterior no puede ser negativa.\").optional(),\n  supplierInvoiceId: optionalText(80),\n})"
+  "body": "const fixedAssetInputSchema = z.object({\n  description: z.string().trim().min(1, \"Indica la descripción del bien.\").max(200, \"La descripción no puede superar 200 caracteres.\"),\n  notes: optionalText(2000),\n  assetAccountCode: accountCode(\"Indica la cuenta de inmovilizado (grupos 20, 21 o 22).\"),\n  accumulatedAccountCode: accountCode(\"La cuenta de amortización acumulada no es válida.\").nullable().optional(),\n  expenseAccountCode: accountCode(\"La cuenta de gasto de la amortización no es válida.\").nullable().optional(),\n  isDepreciable: z.boolean(),\n  method: z.enum([\"percent\", \"years\"]),\n  annualPct: z.number().positive(\"El porcentaje anual debe ser mayor que cero.\").nullable().optional(),\n  usefulLifeYears: z.number().positive(\"La vida útil debe ser mayor que cero.\").nullable().optional(),\n  taxCoefficientKey: optionalText(60),\n  acquisitionDate: isoDate(\"La fecha de adquisición no es válida.\"),\n  inServiceDate: isoDate(\"La fecha de puesta en funcionamiento no es válida.\"),\n  depreciationStartDate: isoDate(\"La fecha de inicio de la amortización no es válida.\").nullable().optional(),\n  acquisitionCost: z.number().positive(\"Indica el valor de adquisición del bien.\").max(9_999_999_999, \"El valor de adquisición es demasiado alto.\"),\n  residualValue: z.number().min(0, \"El valor residual no puede ser negativo.\").optional(),\n  priorAccumulated: z.number().min(0, \"La amortización acumulada anterior no puede ser negativa.\").optional(),\n  supplierInvoiceId: optionalText(80),\n  /** Centro de coste al que se imputan las dotaciones. */\n  costCenterId: optionalText(80),\n})"
  },
  {
   "method": "DELETE",
@@ -1773,7 +1811,7 @@
   "permissions": [
    "accounting.write"
   ],
-  "body": "const fixedAssetInputSchema = z.object({\n  description: z.string().trim().min(1, \"Indica la descripción del bien.\").max(200, \"La descripción no puede superar 200 caracteres.\"),\n  notes: optionalText(2000),\n  assetAccountCode: accountCode(\"Indica la cuenta de inmovilizado (grupos 20, 21 o 22).\"),\n  accumulatedAccountCode: accountCode(\"La cuenta de amortización acumulada no es válida.\").nullable().optional(),\n  expenseAccountCode: accountCode(\"La cuenta de gasto de la amortización no es válida.\").nullable().optional(),\n  isDepreciable: z.boolean(),\n  method: z.enum([\"percent\", \"years\"]),\n  annualPct: z.number().positive(\"El porcentaje anual debe ser mayor que cero.\").nullable().optional(),\n  usefulLifeYears: z.number().positive(\"La vida útil debe ser mayor que cero.\").nullable().optional(),\n  taxCoefficientKey: optionalText(60),\n  acquisitionDate: isoDate(\"La fecha de adquisición no es válida.\"),\n  inServiceDate: isoDate(\"La fecha de puesta en funcionamiento no es válida.\"),\n  depreciationStartDate: isoDate(\"La fecha de inicio de la amortización no es válida.\").nullable().optional(),\n  acquisitionCost: z.number().positive(\"Indica el valor de adquisición del bien.\").max(9_999_999_999, \"El valor de adquisición es demasiado alto.\"),\n  residualValue: z.number().min(0, \"El valor residual no puede ser negativo.\").optional(),\n  priorAccumulated: z.number().min(0, \"La amortización acumulada anterior no puede ser negativa.\").optional(),\n  supplierInvoiceId: optionalText(80),\n})"
+  "body": "const fixedAssetInputSchema = z.object({\n  description: z.string().trim().min(1, \"Indica la descripción del bien.\").max(200, \"La descripción no puede superar 200 caracteres.\"),\n  notes: optionalText(2000),\n  assetAccountCode: accountCode(\"Indica la cuenta de inmovilizado (grupos 20, 21 o 22).\"),\n  accumulatedAccountCode: accountCode(\"La cuenta de amortización acumulada no es válida.\").nullable().optional(),\n  expenseAccountCode: accountCode(\"La cuenta de gasto de la amortización no es válida.\").nullable().optional(),\n  isDepreciable: z.boolean(),\n  method: z.enum([\"percent\", \"years\"]),\n  annualPct: z.number().positive(\"El porcentaje anual debe ser mayor que cero.\").nullable().optional(),\n  usefulLifeYears: z.number().positive(\"La vida útil debe ser mayor que cero.\").nullable().optional(),\n  taxCoefficientKey: optionalText(60),\n  acquisitionDate: isoDate(\"La fecha de adquisición no es válida.\"),\n  inServiceDate: isoDate(\"La fecha de puesta en funcionamiento no es válida.\"),\n  depreciationStartDate: isoDate(\"La fecha de inicio de la amortización no es válida.\").nullable().optional(),\n  acquisitionCost: z.number().positive(\"Indica el valor de adquisición del bien.\").max(9_999_999_999, \"El valor de adquisición es demasiado alto.\"),\n  residualValue: z.number().min(0, \"El valor residual no puede ser negativo.\").optional(),\n  priorAccumulated: z.number().min(0, \"La amortización acumulada anterior no puede ser negativa.\").optional(),\n  supplierInvoiceId: optionalText(80),\n  /** Centro de coste al que se imputan las dotaciones. */\n  costCenterId: optionalText(80),\n})"
  },
  {
   "method": "GET",
@@ -3479,7 +3517,7 @@
   "area": "recurring",
   "summary": "Registra un gasto recurrente pendiente de revisar (con importes ajustados si hace falta).",
   "permissions": [],
-  "body": "const confirmSchema = z.object({\n  unitPrices: z.array(z.number().min(0, \"El importe no puede ser negativo.\").max(100_000_000)).max(50).optional(),\n  supplierDocumentNumber: z.string().trim().max(80).optional().nullable(),\n})"
+  "body": "const confirmSchema = z.object({\n  unitPrices: z.array(z.number().min(0, \"El importe no puede ser negativo.\").max(100_000_000)).max(50).optional(),\n  supplierDocumentNumber: z.string().trim().max(80).optional().nullable(),\n  /** Ticket o factura simplificada: no exige el NIF del proveedor. */\n  isSimplified: z.boolean().optional(),\n})"
  },
  {
   "method": "DELETE",
@@ -3952,6 +3990,38 @@
   "body": "const payloadSchema = z.object({\n  fileName: z.string().trim().min(1).max(180),\n  contentType: z.enum(contentTypes, { message: \"Tipo de archivo no permitido. Usa PDF, JPG, PNG, WEBP o CSV.\" }),\n  size: z\n    .number({ message: \"Indica el tamaño del archivo.\" })\n    .int()\n    .positive(\"El archivo está vacío.\")\n    .max(MAX_UPLOAD_BYTES, \"El archivo supera el tamaño máximo de 15 MB.\"),\n})"
  },
  {
+  "method": "DELETE",
+  "path": "/api/supplier-credits/{id}",
+  "area": "supplier-credits",
+  "summary": "Quita una compensación de abono (o una devolución por banco, revirtiendo su asiento).",
+  "permissions": [
+   "purchase.write",
+   "expense.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/supplier-credits/refund",
+  "area": "supplier-credits",
+  "summary": "Devolución de un abono cobrada por banco: asiento banco a 400/410 y menos saldo a favor.",
+  "permissions": [
+   "purchase.write",
+   "expense.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  creditInvoiceId: z.string().trim().min(1),\n  amount: z.number().positive(),\n  postedAt: z.string().trim().min(1),\n  bankAccountId: z.string().trim().min(1),\n  reference: z.string().trim().max(160).optional().or(z.literal(\"\")),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/supplier-credits",
+  "area": "supplier-credits",
+  "summary": "Compensa un abono de proveedor contra una factura pendiente del mismo proveedor (sin asiento).",
+  "permissions": [
+   "purchase.write",
+   "expense.write"
+  ],
+  "body": "const payloadSchema = z.object({\n  creditInvoiceId: z.string().trim().min(1),\n  supplierInvoiceId: z.string().trim().min(1),\n  /** Sin importe se compensa todo lo posible. */\n  amount: z.number().positive().optional(),\n})"
+ },
+ {
   "method": "GET",
   "path": "/api/supplier-invoices",
   "area": "supplier-invoices",
@@ -4372,6 +4442,18 @@
  },
  {
   "method": "GET",
+  "path": "/api/verifactu/declaration",
+  "area": "verifactu",
+  "summary": "Declaración responsable del productor en PDF: la de la versión desplegada o, con `?id=`, una del histórico. Mientras falten datos del productor no hay PDF (no sería una declaración válida).",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "query": [
+   "id"
+  ]
+ },
+ {
+  "method": "GET",
   "path": "/api/verifactu/export",
   "area": "verifactu",
   "summary": "Descarga de los registros de facturación (?format=csv | xml).",
@@ -4380,6 +4462,15 @@
   ],
   "query": [
    "format"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifactu/health",
+  "area": "verifactu",
+  "summary": "Aviso global de VERI*FACTU de la empresa activa: solo problemas graves (facturas sin enviar desde hace más de una hora, rechazadas o certificado caducado). `alert: null` si todo va bien o si el usuario no puede ver Fiscalidad. Consulta ligera; el navegador la guarda unos minutos.",
+  "permissions": [
+   "fiscal.read"
   ]
  },
  {

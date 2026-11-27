@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 
-import { bankAccount, goodsReceipt, partner, paymentMethod, purchaseOrder, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
+import { bankAccount, partner, paymentMethod, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { postSupplierPayment, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
@@ -9,6 +9,8 @@ import { recordAudit } from "@/server/audit";
 import { reserveSeriesNumber } from "@/server/documents/series";
 import { assertFiscalPeriodOpen } from "@/server/fiscal/locks";
 import { withTransaction, type PaymentActor, type PaymentOrigin } from "@/server/invoices/payments";
+import { supplierOutstandingCents } from "@/server/supplier-invoices/document-rules";
+import { loadSupplierInvoiceSettlement, nextPurchaseOrderStatus, syncPurchaseOrderPaymentStatus } from "@/server/supplier-invoices/outstanding";
 import { refreshSupplierInvoicePaymentStatus } from "@/server/supplier-invoices/service";
 import { paymentMethodForBankAccount } from "@/server/treasury/payment-methods";
 import { reconcileBankTransaction } from "@/server/treasury/reconciliation";
@@ -38,52 +40,7 @@ export type RegisterSupplierPaymentInput = {
 
 type RemoveActor = Omit<PaymentActor, "activeFiscalYearId">;
 
-/**
- * Estado del pedido de compra según el cobro de sus facturas (función pura):
- * todas las facturas activas pagadas → PAID; si estaba PAID y ya no lo está → INVOICED (o
- * RECEIVED/APPROVED si no queda ninguna factura activa). En otro caso no cambia.
- */
-export function nextPurchaseOrderStatus(input: {
-  currentStatus: string;
-  invoices: Array<{ status: string; paymentStatus: string }>;
-  hasGoodsReceipt: boolean;
-}) {
-  const active = input.invoices.filter((row) => row.status !== "VOID");
-  const allPaid = active.length > 0 && active.every((row) => row.paymentStatus === "PAID");
-  if (allPaid) return "PAID";
-  if (input.currentStatus !== "PAID") return input.currentStatus;
-  if (active.length > 0) return "INVOICED";
-  return input.hasGoodsReceipt ? "RECEIVED" : "APPROVED";
-}
-
-/** Recalcula el estado del pedido de compra tras registrar o deshacer un pago de sus facturas. */
-export async function syncPurchaseOrderPaymentStatus(client: DbClient, companyId: string, purchaseOrderId: string) {
-  const [order] = await client
-    .select({ id: purchaseOrder.id, status: purchaseOrder.status })
-    .from(purchaseOrder)
-    .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, purchaseOrderId)))
-    .limit(1);
-  if (!order) return null;
-  const [invoices, receipts] = await Promise.all([
-    client
-      .select({ status: supplierInvoice.status, paymentStatus: supplierInvoice.paymentStatus })
-      .from(supplierInvoice)
-      .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.purchaseOrderId, purchaseOrderId))),
-    client
-      .select({ id: goodsReceipt.id })
-      .from(goodsReceipt)
-      .where(and(eq(goodsReceipt.companyId, companyId), eq(goodsReceipt.purchaseOrderId, purchaseOrderId)))
-      .limit(1),
-  ]);
-  const next = nextPurchaseOrderStatus({ currentStatus: order.status, invoices, hasGoodsReceipt: receipts.length > 0 });
-  if (next !== order.status) {
-    await client
-      .update(purchaseOrder)
-      .set({ status: next })
-      .where(and(eq(purchaseOrder.companyId, companyId), eq(purchaseOrder.id, purchaseOrderId)));
-  }
-  return next;
-}
+export { nextPurchaseOrderStatus, syncPurchaseOrderPaymentStatus };
 
 async function refreshInvoiceAndOrder(client: DbClient, companyId: string, supplierInvoiceId: string) {
   const [row] = await client
@@ -154,12 +111,9 @@ export async function registerSupplierPayment(actor: PaymentActor, input: Regist
     const amountCents = toCents(input.amountApplied);
     if (amountCents <= 0) throw new AccountingRuleError(400, "AMOUNT_INVALID", "El importe pagado debe ser mayor que 0.");
     if (ownedInvoice) {
-      const appliedPayments = await tx
-        .select({ amountApplied: supplierInvoicePayment.amountApplied })
-        .from(supplierInvoicePayment)
-        .where(and(eq(supplierInvoicePayment.supplierInvoiceId, ownedInvoice.id), eq(supplierInvoicePayment.companyId, actor.companyId)));
-      const paidCents = appliedPayments.reduce((total, entry) => total + toCents(entry.amountApplied), 0);
-      const outstandingCents = Math.max(toCents(ownedInvoice.totalAmount) - paidCents, 0);
+      // Pendiente = total − pagos − abonos del proveedor ya compensados (regla única de compras).
+      const settlement = await loadSupplierInvoiceSettlement(tx, actor.companyId, ownedInvoice.id);
+      const outstandingCents = supplierOutstandingCents({ totalCents: toCents(ownedInvoice.totalAmount), ...settlement });
       if (amountCents > outstandingCents) {
         throw new AccountingRuleError(400, "SUPPLIER_INVOICE_OVERPAYMENT", `El importe supera el saldo pendiente de la factura de proveedor ${ownedInvoice.number} (${(outstandingCents / 100).toFixed(2)}).`);
       }

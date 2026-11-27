@@ -25,6 +25,8 @@ export const fixedAssetInputSchema = z.object({
   residualValue: z.number().min(0, "El valor residual no puede ser negativo.").optional(),
   priorAccumulated: z.number().min(0, "La amortización acumulada anterior no puede ser negativa.").optional(),
   supplierInvoiceId: optionalText(80),
+  /** Centro de coste al que se imputan las dotaciones. */
+  costCenterId: optionalText(80),
 });
 
 export type FixedAssetInput = z.infer<typeof fixedAssetInputSchema>;
@@ -41,6 +43,11 @@ export const disposeFixedAssetSchema = z.object({
   type: z.enum(["sale", "retirement"]),
   proceeds: z.number().min(0, "El importe de la venta no puede ser negativo.").max(9_999_999_999).optional(),
   accountId: z.string().trim().min(1).nullable().optional(),
+  /**
+   * Factura de venta ya emitida (con su cliente y su IVA). Con ella no hace falta cuenta de
+   * contrapartida: la baja se cuadra contra el ingreso que contabilizó la factura.
+   */
+  salesInvoiceId: z.string().trim().min(1).nullable().optional(),
   notes: optionalText(2000),
 });
 

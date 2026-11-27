@@ -27,22 +27,29 @@ type DisposeAssetDialogProps = {
   /** Valor neto contable hoy (orientativo: al dar de baja se amortiza antes hasta la fecha). */
   netBookValueCents: number;
   resultAccounts: { loss: string; gain: string };
+  /** Facturas de venta emitidas con las que se puede enlazar la venta (llevan el cliente y el IVA). */
+  saleInvoices?: Array<{ id: string; label: string }>;
 };
 
 /** Baja o venta del bien: fecha, importe de la venta y cuenta de contrapartida. */
-export function DisposeAssetDialog({ accounts, assetId, assetLabel, currencyCode, defaultDate, minDate, netBookValueCents, resultAccounts }: DisposeAssetDialogProps) {
+export function DisposeAssetDialog({ accounts, assetId, assetLabel, currencyCode, defaultDate, minDate, netBookValueCents, resultAccounts, saleInvoices = [] }: DisposeAssetDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<"sale" | "retirement">("sale");
   const [date, setDate] = useState(defaultDate);
   const [proceeds, setProceeds] = useState("");
   const [accountId, setAccountId] = useState("");
+  // Con factura: el cliente y el IVA van en ella y la baja se cuadra contra su ingreso.
+  const [saleMode, setSaleMode] = useState<"invoice" | "account">(saleInvoices.length > 0 ? "invoice" : "account");
+  const [salesInvoiceId, setSalesInvoiceId] = useState("");
+  const withInvoice = type === "sale" && saleMode === "invoice";
   const [notes, setNotes] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const money = (cents: number) => formatMoney(cents / 100, currencyCode);
 
   async function submit() {
+    if (withInvoice && !salesInvoiceId) return setError("Elige la factura de venta del bien (o cambia a «Sin factura»).");
     setPending(true);
     setError(null);
     try {
@@ -53,7 +60,8 @@ export function DisposeAssetDialog({ accounts, assetId, assetLabel, currencyCode
           type,
           date,
           proceeds: type === "sale" ? (parseDecimalInput(proceeds, { maximumFractionDigits: 2 }) ?? 0) : 0,
-          accountId: type === "sale" ? accountId || null : null,
+          accountId: type === "sale" && !withInvoice ? accountId || null : null,
+          salesInvoiceId: withInvoice ? salesInvoiceId : null,
           notes: notes || null,
         }),
       });
@@ -99,19 +107,55 @@ export function DisposeAssetDialog({ accounts, assetId, assetLabel, currencyCode
           </AccessibleField>
           {type === "sale" ? (
             <>
-              <AccessibleField helperText="Base imponible, sin IVA." id="dispose-proceeds" label="Importe de la venta" required>
-                <MoneyInput onChange={(event) => setProceeds(event.target.value)} placeholder="0,00" required value={proceeds} />
+              <AccessibleField
+                className="sm:col-span-2"
+                helperText={saleMode === "invoice"
+                  ? "Lo habitual: la venta de un bien lleva IVA y necesita factura. Emítela primero al comprador, con una línea por el precio del bien."
+                  : "Solo si la venta no lleva factura (o el IVA se contabiliza aparte): el asiento no incluye IVA."}
+                id="dispose-sale-mode"
+                label="¿Cómo se documenta la venta?"
+                required
+              >
+                <Select data-testid="dispose-sale-mode" onChange={(event) => setSaleMode(event.target.value === "account" ? "account" : "invoice")} value={saleMode}>
+                  <option value="invoice">Con factura de venta emitida (cliente e IVA)</option>
+                  <option value="account">Sin factura: contra una cuenta</option>
+                </Select>
               </AccessibleField>
-              <AccessibleField helperText="Banco (572), deudor (440) o créditos por enajenación de inmovilizado (543 / 253)." id="dispose-account" label="Cuenta de contrapartida" required>
-                <AccountPicker accounts={accounts} id="dispose-account" onChange={(id) => setAccountId(id)} placeholder="Busca la cuenta (p. ej. banco, 543)" recentKey="fixed-asset-disposal" required value={accountId} />
+              {saleMode === "invoice" ? (
+                <AccessibleField
+                  className="sm:col-span-2"
+                  helperText={saleInvoices.length === 0 ? "No hay facturas emitidas. Emite la factura de venta y vuelve a esta pantalla." : "La factura contabiliza el cobro al cliente y el IVA repercutido; esta baja, el valor del bien, su amortización y el resultado."}
+                  id="dispose-invoice"
+                  label="Factura de venta"
+                  required
+                >
+                  <Select data-testid="dispose-invoice" disabled={saleInvoices.length === 0} onChange={(event) => setSalesInvoiceId(event.target.value)} value={salesInvoiceId}>
+                    <option value="">Elige la factura…</option>
+                    {saleInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.label}</option>)}
+                  </Select>
+                  <a className="mt-1 inline-block text-xs font-bold text-link underline" href="/invoices/new" rel="noopener noreferrer" target="_blank">Emitir la factura de venta (se abre en otra pestaña)</a>
+                </AccessibleField>
+              ) : null}
+              <AccessibleField
+                helperText={saleMode === "invoice" ? "Base imponible, sin IVA. Déjalo vacío para usar la base de la factura; indícalo si la factura lleva más conceptos." : "Base imponible, sin IVA."}
+                id="dispose-proceeds"
+                label="Importe de la venta"
+                required={saleMode === "account"}
+              >
+                <MoneyInput onChange={(event) => setProceeds(event.target.value)} placeholder="0,00" required={saleMode === "account"} value={proceeds} />
               </AccessibleField>
+              {saleMode === "account" ? (
+                <AccessibleField helperText="Banco (572), deudor (440) o créditos por enajenación de inmovilizado (543 / 253)." id="dispose-account" label="Cuenta de contrapartida" required>
+                  <AccountPicker accounts={accounts} id="dispose-account" onChange={(id) => setAccountId(id)} placeholder="Busca la cuenta (p. ej. banco, 543)" recentKey="fixed-asset-disposal" required value={accountId} />
+                </AccessibleField>
+              ) : null}
             </>
           ) : null}
           <AccessibleField className="sm:col-span-2" id="dispose-notes" label="Notas">
             <Textarea maxLength={2000} onChange={(event) => setNotes(event.target.value)} placeholder="Comprador, motivo de la baja…" value={notes} />
           </AccessibleField>
           <p className="font-mono text-xs text-muted-foreground sm:col-span-2">
-            Valor neto contable actual: {money(netBookValueCents)} (bajará con la amortización hasta la fecha de baja). Este asiento no incluye el IVA de la venta: si emites factura, el IVA se contabiliza con ella.
+            Valor neto contable actual: {money(netBookValueCents)} (bajará con la amortización hasta la fecha de baja). {withInvoice ? "El asiento de baja salda el ingreso que contabilizó la factura: el cobro y el IVA quedan en la factura y el resultado de la venta, en esta baja." : "Este asiento no incluye el IVA de la venta."}
           </p>
           {error ? <InlineAlert className="sm:col-span-2" role="alert" tone="danger">{error}</InlineAlert> : null}
           <DialogFooter className="sm:col-span-2">

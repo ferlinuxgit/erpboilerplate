@@ -87,6 +87,25 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <MetricCard label="Pedidos" value={activity.metrics.purchaseOrderCount} helper="Pedidos de compra asociados" />
       </section>
 
+      {activity.creditNotes.length > 0 ? (
+        <PageSection
+          title="Abonos con saldo a favor"
+          description="Abonos del proveedor que aún no se han compensado con una factura ni cobrado. Ábrelos para compensarlos o registrar la devolución."
+        >
+          <div className="space-y-2" data-testid="supplier-credit-balances">
+            {activity.creditNotes.map((credit) => (
+              <div className="flex items-center justify-between border-b border-border/70 py-2 text-sm last:border-b-0" key={credit.id}>
+                <div>
+                  <Link className="font-mono font-semibold text-link hover:underline" href={`/expenses/${credit.id}`}>{credit.supplierDocumentNumber || credit.number}</Link>
+                  <p className="text-muted-foreground">{formatDate(credit.issueDate)} · abono de {formatMoney(Math.abs(Number(credit.totalAmount)), supplier.currencyCode)}</p>
+                </div>
+                <p className="font-mono font-semibold">{formatMoney(credit.remaining, supplier.currencyCode)}</p>
+              </div>
+            ))}
+          </div>
+        </PageSection>
+      ) : null}
+
       <section className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>

@@ -16,6 +16,7 @@ import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatDecimalInput, formatMoney, parseDecimalInput } from "@/lib/format";
 import { buildReceiptInvoiceLines, priceVariance, receiptInvoiceTotals, type OrderLineRef, type ReceiptLineRef } from "@/lib/purchase-invoice";
 import { dueDateInputFor } from "@/lib/supplier-defaults";
+import { defaultSurchargeRate } from "@/server/supplier-invoices/document-rules";
 import { cn } from "@/lib/utils";
 
 export type PurchaseInvoiceDialogContext = {
@@ -29,8 +30,8 @@ export type PurchaseInvoiceDialogContext = {
   fallbackTaxRate: number | null;
 };
 
-type FieldErrors = Partial<Record<"supplierDocumentNumber" | "issueDate" | "dueDate" | "receipts", string>>;
-type LineEdit = { unitPrice: string; taxRate: string };
+type FieldErrors = Partial<Record<"supplierDocumentNumber" | "issueDate" | "dueDate" | "receipts" | "importDua", string>>;
+type LineEdit = { unitPrice: string; taxRate: string; surchargeRate?: string; isInvestmentGood?: boolean };
 
 function todayInputValue() {
   const now = new Date();
@@ -67,6 +68,11 @@ export function CreateSupplierInvoiceFromReceiptButton({
   const [dueDate, setDueDate] = useState(() => dueDateInputFor(todayInputValue(), context.paymentTermsDays));
   const [dueDateEdited, setDueDateEdited] = useState(false);
   const [notes, setNotes] = useState("");
+  // Datos del libro registro que la mayoría de las facturas no necesitan (sección plegada).
+  const [operationDate, setOperationDate] = useState("");
+  const [importDuaNumber, setImportDuaNumber] = useState("");
+  const [importDuaDate, setImportDuaDate] = useState("");
+  const [hasSurcharge, setHasSurcharge] = useState(false);
   const [edits, setEdits] = useState<Record<string, LineEdit>>({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
@@ -86,8 +92,12 @@ export function CreateSupplierInvoiceFromReceiptButton({
     const taxRateText = edit?.taxRate ?? (Number.isFinite(line.taxRate) ? formatDecimalInput(line.taxRate) : "");
     const unitPrice = parseDecimalInput(unitPriceText, { maximumFractionDigits: 2 });
     const taxRate = parseDecimalInput(taxRateText, { maximumFractionDigits: 2 });
-    return { ...line, unitPriceText, taxRateText, parsedUnitPrice: unitPrice, parsedTaxRate: taxRate };
+    // Recargo de equivalencia: el que corresponde al IVA de la línea salvo que se escriba otro.
+    const surchargeRateText = edit?.surchargeRate ?? formatDecimalInput(defaultSurchargeRate(taxRate ?? 0));
+    const surchargeRate = hasSurcharge ? parseDecimalInput(surchargeRateText, { maximumFractionDigits: 2 }) : 0;
+    return { ...line, unitPriceText, taxRateText, surchargeRateText, parsedUnitPrice: unitPrice, parsedTaxRate: taxRate, parsedSurchargeRate: surchargeRate, isInvestmentGood: edit?.isInvestmentGood ?? false };
   });
+  const surchargeTotal = lines.reduce((sum, line) => sum + Math.round(line.quantity * (line.parsedUnitPrice ?? 0) * (line.parsedSurchargeRate ?? 0)) / 100, 0);
   const totals = receiptInvoiceTotals(lines.map((line) => ({ quantity: line.quantity, unitPrice: line.parsedUnitPrice ?? 0, taxRate: line.parsedTaxRate ?? 0 })));
   const varianceCount = lines.filter((line) => line.parsedUnitPrice !== null && priceVariance(line.orderUnitPrice, line.parsedUnitPrice).significant).length;
 
@@ -110,9 +120,11 @@ export function CreateSupplierInvoiceFromReceiptButton({
     if (!supplierDocumentNumber.trim()) nextErrors.supplierDocumentNumber = "Indica el número de la factura del proveedor.";
     if (!issueDate) nextErrors.issueDate = "Indica la fecha de emisión.";
     if (dueDate && issueDate && dueDate < issueDate) nextErrors.dueDate = "El vencimiento no puede ser anterior a la emisión.";
+    if (importDuaDate && !importDuaNumber.trim()) nextErrors.importDua = "Indica el número del DUA.";
     for (const line of lines) {
       if (line.parsedUnitPrice === null || line.parsedUnitPrice < 0) nextLineErrors[`${line.goodsReceiptLineId}-price`] = "Precio no válido.";
       if (line.parsedTaxRate === null || line.parsedTaxRate < 0 || line.parsedTaxRate > 100) nextLineErrors[`${line.goodsReceiptLineId}-tax`] = "Indica el IVA (p. ej. 21).";
+      if (hasSurcharge && (line.parsedSurchargeRate === null || line.parsedSurchargeRate < 0 || line.parsedSurchargeRate > 100)) nextLineErrors[`${line.goodsReceiptLineId}-surcharge`] = "Recargo no válido (p. ej. 5,2).";
     }
     setFieldErrors(nextErrors);
     setLineErrors(nextLineErrors);
@@ -156,6 +168,9 @@ export function CreateSupplierInvoiceFromReceiptButton({
                   supplierDocumentNumber,
                   issueDate: toIsoDate(issueDate),
                   dueDate: dueDate ? toIsoDate(dueDate) : undefined,
+                  operationDate: operationDate ? toIsoDate(operationDate) : undefined,
+                  importDuaNumber: importDuaNumber.trim() || undefined,
+                  importDuaDate: importDuaDate ? toIsoDate(importDuaDate) : undefined,
                   notes,
                   lines: lines.map((line) => ({
                     itemId: line.itemId ?? undefined,
@@ -165,6 +180,9 @@ export function CreateSupplierInvoiceFromReceiptButton({
                     quantity: line.quantity,
                     unitPrice: line.parsedUnitPrice ?? 0,
                     taxRate: line.parsedTaxRate ?? 0,
+                    surchargeRate: hasSurcharge ? line.parsedSurchargeRate ?? 0 : 0,
+                    // Sin marcar, el servidor lo deduce de la cuenta (grupo 2 = bien de inversión).
+                    isInvestmentGood: line.isInvestmentGood || undefined,
                   })),
                 }),
               });
@@ -223,6 +241,29 @@ export function CreateSupplierInvoiceFromReceiptButton({
             </AccessibleField>
           </div>
 
+          <details className="border border-window-shadow bg-window-panel" data-testid="purchase-invoice-register-details" open={Boolean(operationDate || importDuaNumber || importDuaDate || hasSurcharge || fieldErrors.importDua)}>
+            <summary className="cursor-pointer px-3 py-2 font-mono text-xs font-bold">Más datos: fecha de operación, importación (DUA), recargo de equivalencia y bienes de inversión</summary>
+            <div className="grid gap-3 border-t border-window-shadow p-2.5 sm:grid-cols-3">
+              <AccessibleField helperText="Solo si la entrega fue en una fecha distinta de la de la factura." id={`supplier-operation-${idSuffix}`} label="Fecha de operación">
+                <Input max={issueDate || undefined} onChange={(event) => setOperationDate(event.target.value)} type="date" value={operationDate} />
+              </AccessibleField>
+              <AccessibleField error={fieldErrors.importDua} helperText="Solo importaciones: documento aduanero." id={`supplier-dua-number-${idSuffix}`} label="N.º de DUA">
+                <Input maxLength={40} onChange={(event) => setImportDuaNumber(event.target.value)} placeholder="Ej. 26ES00280112345678" value={importDuaNumber} />
+              </AccessibleField>
+              <AccessibleField helperText="Fecha de admisión por la aduana." id={`supplier-dua-date-${idSuffix}`} label="Fecha del DUA">
+                <Input onChange={(event) => setImportDuaDate(event.target.value)} type="date" value={importDuaDate} />
+              </AccessibleField>
+              <label className="flex items-center gap-2 text-xs sm:col-span-3" htmlFor={`supplier-surcharge-${idSuffix}`}>
+                <input checked={hasSurcharge} data-testid="purchase-invoice-has-surcharge" id={`supplier-surcharge-${idSuffix}`} onChange={(event) => setHasSurcharge(event.target.checked)} type="checkbox" />
+                La factura lleva recargo de equivalencia (se añade una columna con el tipo de cada línea)
+              </label>
+              <p className="text-xs text-muted-foreground sm:col-span-3">
+                Marca «Bien de inversión» en las líneas de elementos que se usarán más de un año (maquinaria, equipos…). ¿Es un abono o una
+                rectificativa? Regístrala desde la factura original con «Registrar abono / rectificativa».
+              </p>
+            </div>
+          </details>
+
           {/* En móvil cada línea es una tarjeta con sus campos (mismo DOM, sin duplicar). */}
           <TableContainer aria-label="Líneas de la factura" className={stackedOnMobile.container} role="group">
             <Table className={cn("md:min-w-[40rem]", stackedOnMobile.table)}>
@@ -232,12 +273,13 @@ export function CreateSupplierInvoiceFromReceiptButton({
                   <TableHead className="text-right" scope="col">Cantidad</TableHead>
                   <TableHead className="text-right" scope="col">Precio unitario</TableHead>
                   <TableHead className="text-right" scope="col">IVA %</TableHead>
+                  {hasSurcharge ? <TableHead className="text-right" scope="col">Recargo %</TableHead> : null}
                   <TableHead className="text-right" scope="col">Base</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className={stackedOnMobile.body}>
                 {lines.length === 0 ? (
-                  <TableRow className={stackedOnMobile.row}><TableCell className={cn("text-muted-foreground", stackedOnMobile.title)} colSpan={5}>Elige al menos una entrega.</TableCell></TableRow>
+                  <TableRow className={stackedOnMobile.row}><TableCell className={cn("text-muted-foreground", stackedOnMobile.title)} colSpan={hasSurcharge ? 6 : 5}>Elige al menos una entrega.</TableCell></TableRow>
                 ) : lines.map((line) => {
                   const variance = line.parsedUnitPrice !== null ? priceVariance(line.orderUnitPrice, line.parsedUnitPrice) : null;
                   const priceError = lineErrors[`${line.goodsReceiptLineId}-price`];
@@ -247,6 +289,10 @@ export function CreateSupplierInvoiceFromReceiptButton({
                       <TableCell className={stackedOnMobile.title}>
                         <span className="block font-bold">{line.description}</span>
                         <span className="text-muted-foreground">Entrega {line.goodsReceiptNumber}</span>
+                        <label className="mt-0.5 flex items-center gap-1.5 text-xs" htmlFor={`investment-${line.goodsReceiptLineId}`}>
+                          <input checked={line.isInvestmentGood} id={`investment-${line.goodsReceiptLineId}`} onChange={(event) => editLine(line.goodsReceiptLineId, { isInvestmentGood: event.target.checked })} type="checkbox" />
+                          Bien de inversión
+                        </label>
                       </TableCell>
                       <TableCell className={cn("text-right", stackedOnMobile.cell)} data-label="Cantidad">{formatDecimalInput(line.quantity, { maximumFractionDigits: 3 })}</TableCell>
                       <TableCell className={cn("w-36", stackedOnMobile.wide, "max-md:w-auto")} data-label="Precio unitario">
@@ -280,6 +326,18 @@ export function CreateSupplierInvoiceFromReceiptButton({
                         {line.taxRateSource === "none" && !line.taxRateText ? <p className="mt-0.5 text-warning-text">El artículo no tiene IVA configurado: indícalo.</p> : null}
                         {taxError ? <p className="mt-0.5 text-danger-text" role="alert">{taxError}</p> : null}
                       </TableCell>
+                      {hasSurcharge ? (
+                        <TableCell className={cn("w-24", stackedOnMobile.wide, "max-md:w-auto")} data-label="Recargo %">
+                          <PercentInput
+                            aria-invalid={lineErrors[`${line.goodsReceiptLineId}-surcharge`] ? true : undefined}
+                            aria-label={`Recargo de equivalencia de ${line.description}`}
+                            className="pointer-coarse:min-h-11"
+                            onChange={(event) => editLine(line.goodsReceiptLineId, { surchargeRate: event.target.value })}
+                            value={line.surchargeRateText}
+                          />
+                          {lineErrors[`${line.goodsReceiptLineId}-surcharge`] ? <p className="mt-0.5 text-danger-text" role="alert">{lineErrors[`${line.goodsReceiptLineId}-surcharge`]}</p> : null}
+                        </TableCell>
+                      ) : null}
                       <TableCell className={cn("text-right", stackedOnMobile.cell)} data-label="Base">{formatMoney(line.quantity * (line.parsedUnitPrice ?? 0), currencyCode)}</TableCell>
                     </TableRow>
                   );
@@ -295,7 +353,8 @@ export function CreateSupplierInvoiceFromReceiptButton({
             <dl className="min-w-48 font-mono text-xs tabular-nums">
               <div className="flex justify-between gap-3"><dt>Base</dt><dd>{formatMoney(totals.subtotal, currencyCode)}</dd></div>
               <div className="flex justify-between gap-3 text-muted-foreground"><dt>+ IVA</dt><dd>{formatMoney(totals.tax, currencyCode)}</dd></div>
-              <div className="flex justify-between gap-3 border-t border-window-shadow pt-0.5 text-sm font-bold"><dt>Total</dt><dd>{formatMoney(totals.total, currencyCode)}</dd></div>
+              {hasSurcharge ? <div className="flex justify-between gap-3 text-muted-foreground"><dt>+ Recargo eq.</dt><dd>{formatMoney(surchargeTotal, currencyCode)}</dd></div> : null}
+              <div className="flex justify-between gap-3 border-t border-window-shadow pt-0.5 text-sm font-bold"><dt>Total</dt><dd>{formatMoney(totals.total + (hasSurcharge ? surchargeTotal : 0), currencyCode)}</dd></div>
             </dl>
           </div>
 

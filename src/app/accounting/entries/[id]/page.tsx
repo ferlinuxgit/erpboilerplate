@@ -7,18 +7,11 @@ import { buttonVariants } from "@/components/ui/button";
 import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { accountingEntrySourceHref } from "@/lib/accounting-documents";
 import { requireContext } from "@/lib/current-context";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { getJournalEntry } from "@/server/accounting/service";
-
-function sourceHref(sourceType: string | null, sourceId: string | null) {
-  if (!sourceId) return null;
-  if (sourceType === "invoice") return `/invoices/${sourceId}`;
-  if (sourceType === "supplierInvoice") return `/expenses/${sourceId}`;
-  if (sourceType === "bankTransaction") return `/treasury/bank-transactions/${sourceId}`;
-  return null;
-}
 
 export default async function JournalEntryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext("accounting.read");
@@ -31,7 +24,7 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
   const difference = debit - credit;
   const balanced = Math.abs(difference) < 0.005;
   const currency = ctx.company.baseCurrencyCode;
-  const originHref = sourceHref(entry.sourceType, entry.sourceId);
+  const originHref = accountingEntrySourceHref(entry.sourceType, entry.sourceId, entry.lines);
   const canWrite = can(ctx.membership.role, "accounting.write");
 
   return (

@@ -59,6 +59,13 @@ RUN mkdir -p /app/.data && chown node:node /app/.data
 USER node
 RUN npm prune --omit=dev && npm cache clean --force
 
+# Commit desplegado (opcional): forma parte de la versión del sistema que figura en la declaración
+# responsable de VERI*FACTU («0.1.0+5122131»). Coolify lo define como SOURCE_COMMIT; si no se pasa en
+# el build, vale el del entorno de ejecución y, si tampoco está, la versión es solo la de package.json.
+# Va al final para no invalidar la caché de las capas anteriores en cada commit.
+ARG SOURCE_COMMIT=
+ENV SOURCE_COMMIT=$SOURCE_COMMIT
+
 EXPOSE 3000
 
 # Liveness only (/api/health does not touch the DB). curl is not present in

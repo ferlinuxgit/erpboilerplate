@@ -45,11 +45,15 @@ import {
   parseSupplierDocumentKind,
   rectificationReferenceProblem,
   supplierLinesProblem,
+  supplierCreditRemainingCents,
+  supplierOutstandingCents,
   supplierPaymentStatus,
   supplierTaxIdProblem,
   surchargeTreatmentProblem,
   type SupplierDocumentKind,
 } from "@/server/supplier-invoices/document-rules";
+import { applySupplierCreditInTransaction, listSupplierCreditApplications, releaseSupplierCreditApplications } from "@/server/supplier-invoices/credits";
+import { loadSupplierInvoiceSettlement, loadSupplierInvoiceSettlements } from "@/server/supplier-invoices/outstanding";
 import { amountToCents, centsToNumber, computeEngineDocument, legacyLineTaxes, type EngineTax } from "@/server/taxation/engine";
 
 export type SupplierInvoiceOrigin = "PURCHASE" | "EXPENSE";
@@ -92,6 +96,8 @@ export type SupplierInvoiceRegisterInput = {
   importDuaDate?: Date;
   /** Exige el NIF del proveedor (art. 64 RIVA) salvo factura simplificada. */
   requireSupplierTaxId?: boolean;
+  /** Proveedor en régimen especial del criterio de caja: el IVA se deduce al pagar. */
+  supplierCashAccounting?: boolean;
 };
 
 export type SupplierInvoiceAttachmentInput = {
@@ -124,7 +130,7 @@ export type CreatePurchaseSupplierInvoiceInput = {
   idempotencyKey?: string;
   /** Tratamiento de IVA; si no se indica se deduce del país del proveedor. */
   vatTreatment?: SupplierVatTreatment;
-} & Pick<SupplierInvoiceRegisterInput, "operationDate" | "isSimplified" | "importDuaNumber" | "importDuaDate" | "requireSupplierTaxId">;
+} & Pick<SupplierInvoiceRegisterInput, "operationDate" | "isSimplified" | "importDuaNumber" | "importDuaDate" | "requireSupplierTaxId" | "supplierCashAccounting">;
 
 export type CreateExpenseInvoiceInput = {
   tenantId: string;
@@ -815,6 +821,7 @@ async function createSupplierInvoiceHeader(input: {
       isSimplified,
       importDuaNumber: vatTreatment === "IMPORT" ? input.importDuaNumber?.trim() || null : null,
       importDuaDate: vatTreatment === "IMPORT" ? importDuaDate ?? null : null,
+      supplierCashAccounting: Boolean(input.supplierCashAccounting),
       notes: input.notes?.trim() || null,
     })
     .returning();
@@ -872,6 +879,16 @@ async function createSupplierInvoiceHeader(input: {
     ),
     dbClient: input.client,
   });
+
+  // Abono enlazado a su factura: se compensa contra lo que esta tenga pendiente (sin asiento: ambos
+  // documentos están en la misma subcuenta del proveedor). Lo que sobre queda como saldo a favor.
+  if (rectified && totals.totalAmount < 0) {
+    await applySupplierCreditInTransaction(
+      input.client,
+      { tenantId: input.tenantId, companyId: input.companyId, actorUserId: input.actorUserId },
+      { creditInvoiceId: header.id, supplierInvoiceId: rectified.id },
+    );
+  }
 
   await recordAudit(
     {
@@ -1229,7 +1246,7 @@ export async function assessExpenseDuplicate(input: {
 }
 
 export async function listExpenseInvoices(companyId: string) {
-  const [invoices, payments] = await Promise.all([
+  const [invoices, settlements] = await Promise.all([
     db
       .select({
         id: supplierInvoice.id,
@@ -1261,25 +1278,19 @@ export async function listExpenseInvoices(companyId: string) {
       .leftJoin(goodsReceipt, eq(goodsReceipt.id, supplierInvoice.goodsReceiptId))
       .where(eq(supplierInvoice.companyId, companyId))
       .orderBy(desc(supplierInvoice.issueDate)),
-    db
-      .select({
-        supplierInvoiceId: supplierInvoicePayment.supplierInvoiceId,
-        paidAmount: sql<string>`coalesce(sum(${supplierInvoicePayment.amountApplied}), '0')`,
-      })
-      .from(supplierInvoicePayment)
-      .where(eq(supplierInvoicePayment.companyId, companyId))
-      .groupBy(supplierInvoicePayment.supplierInvoiceId),
+    loadSupplierInvoiceSettlements(db, companyId),
   ]);
 
-  const paidByInvoice = new Map(payments.map((payment) => [payment.supplierInvoiceId, Number(payment.paidAmount)]));
   return invoices.map((invoice) => {
-    const paidAmount = paidByInvoice.get(invoice.id) ?? 0;
+    const settlement = settlements.get(invoice.id) ?? { paidCents: 0, creditedCents: 0 };
     const totalAmount = Number(invoice.totalAmount);
-    const paymentStatus = invoice.status === "VOID" ? "VOID" : getPaymentStatus(totalAmount, paidAmount, invoice.dueDate);
+    const isVoid = invoice.status === "VOID";
+    const paymentStatus = isVoid ? "VOID" : getPaymentStatus(totalAmount, (settlement.paidCents + settlement.creditedCents) / 100, invoice.dueDate);
     return {
       ...invoice,
-      paidAmount: paidAmount.toFixed(2),
-      outstandingAmount: (invoice.status === "VOID" ? 0 : Math.max(totalAmount - paidAmount, 0)).toFixed(2),
+      paidAmount: (settlement.paidCents / 100).toFixed(2),
+      creditedAmount: (settlement.creditedCents / 100).toFixed(2),
+      outstandingAmount: (supplierOutstandingCents({ totalCents: amountToCents(invoice.totalAmount), ...settlement, isVoid }) / 100).toFixed(2),
       paymentStatus,
     };
   });
@@ -1363,6 +1374,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       isSimplified: supplierInvoice.isSimplified,
       importDuaNumber: supplierInvoice.importDuaNumber,
       importDuaDate: supplierInvoice.importDuaDate,
+      supplierCashAccounting: supplierInvoice.supplierCashAccounting,
       surchargeAmount: supplierInvoice.surchargeAmount,
       issueDate: supplierInvoice.issueDate,
       accountingDate: supplierInvoice.accountingDate,
@@ -1385,7 +1397,7 @@ export async function getExpenseInvoice(companyId: string, id: string) {
     .limit(1);
   if (!invoiceRow) return null;
 
-  const [lines, attachments, payments, rectifications] = await Promise.all([
+  const [lines, attachments, payments, rectifications, creditApplications] = await Promise.all([
     db
       .select({
         id: supplierInvoiceLine.id,
@@ -1440,17 +1452,27 @@ export async function getExpenseInvoice(companyId: string, id: string) {
       .from(supplierInvoice)
       .where(and(eq(supplierInvoice.companyId, companyId), eq(supplierInvoice.rectifiedInvoiceId, id)))
       .orderBy(desc(supplierInvoice.issueDate)),
+    listSupplierCreditApplications(companyId, id),
   ]);
   const paidAmount = payments.reduce((total, payment) => total + Number(payment.amountApplied), 0);
   // Suma (con signo) de las rectificativas vivas: negativa si son abonos.
   const rectifiedAmount = rectifications.filter((row) => row.status !== "VOID").reduce((total, row) => total + amountToCents(row.totalAmount), 0) / 100;
+  const isVoid = invoiceRow.status === "VOID";
+  const totalCents = amountToCents(invoiceRow.totalAmount);
+  // Abonos compensados contra esta factura (reducen lo pendiente) y, si el documento es un abono,
+  // lo que ya se ha compensado o cobrado de él: el resto es saldo a favor frente al proveedor.
+  const creditedCents = creditApplications.asInvoice.reduce((total, row) => total + amountToCents(row.amount), 0);
+  const creditAppliedCents = creditApplications.asCredit.reduce((total, row) => total + amountToCents(row.amount), 0);
   return {
     ...invoiceRow,
     rectifications,
     rectifiedAmount: rectifiedAmount.toFixed(2),
     paidAmount: paidAmount.toFixed(2),
-    outstandingAmount: (invoiceRow.status === "VOID" ? 0 : Math.max(Number(invoiceRow.totalAmount) - paidAmount, 0)).toFixed(2),
-    paymentStatus: invoiceRow.status === "VOID" ? "VOID" : getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount, invoiceRow.dueDate),
+    creditedAmount: (creditedCents / 100).toFixed(2),
+    creditApplications,
+    creditRemainingAmount: (supplierCreditRemainingCents({ totalCents, appliedCents: creditAppliedCents, isVoid }) / 100).toFixed(2),
+    outstandingAmount: (supplierOutstandingCents({ totalCents, paidCents: amountToCents(paidAmount), creditedCents, isVoid }) / 100).toFixed(2),
+    paymentStatus: isVoid ? "VOID" : getPaymentStatus(Number(invoiceRow.totalAmount), paidAmount + creditedCents / 100, invoiceRow.dueDate),
     lines,
     attachments,
     payments,
@@ -1493,6 +1515,9 @@ export async function voidExpenseInvoice(input: { tenantId: string; companyId: s
       .where(and(eq(supplierInvoice.companyId, input.companyId), eq(supplierInvoice.rectifiedInvoiceId, input.id), ne(supplierInvoice.status, "VOID")))
       .limit(1);
     if (activeRectification) throw new Error(`No se puede anular: la factura tiene la rectificativa ${activeRectification.number}. Anula antes la rectificativa.`);
+    // Compensaciones: al anular un abono sus facturas recuperan el pendiente; al anular una factura,
+    // los abonos que la compensaban recuperan su saldo a favor.
+    await releaseSupplierCreditApplications(tx, input.companyId, { id: invoiceRow.id, number: invoiceRow.number });
 
     // La anulación se contabiliza en el periodo de la factura si sigue abierto (la factura y su
     // anulación se compensan en el mismo 303); si ya está cerrado o presentado, hoy.
@@ -1630,11 +1655,9 @@ export async function refreshSupplierInvoicePaymentStatus(companyId: string, sup
     .limit(1);
   if (!invoiceRow) return null;
 
-  const [paymentRow] = await client
-    .select({ paidAmount: sql<string>`coalesce(sum(${supplierInvoicePayment.amountApplied}), '0')` })
-    .from(supplierInvoicePayment)
-    .where(and(eq(supplierInvoicePayment.companyId, companyId), eq(supplierInvoicePayment.supplierInvoiceId, supplierInvoiceId)));
-  const paymentStatus = getPaymentStatus(Number(invoiceRow.totalAmount), Number(paymentRow?.paidAmount ?? 0), invoiceRow.dueDate);
+  // Pagos + abonos compensados: una factura cubierta por su abono queda pagada.
+  const settlement = await loadSupplierInvoiceSettlement(client, companyId, supplierInvoiceId);
+  const paymentStatus = getPaymentStatus(Number(invoiceRow.totalAmount), (settlement.paidCents + settlement.creditedCents) / 100, invoiceRow.dueDate);
   const [updated] = await client
     .update(supplierInvoice)
     .set({ paymentStatus, updatedAt: new Date() })

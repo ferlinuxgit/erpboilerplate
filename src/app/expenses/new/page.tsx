@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CreateExpenseInvoiceForm, type RectifiedInvoicePrefill } from "@/components/expenses/create-expense-invoice-form";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { can } from "@/lib/rbac";
 import { requireContext } from "@/lib/current-context";
 import { db } from "@/lib/db";
@@ -28,6 +29,7 @@ const isFixedAssetPurchaseAccount = (account: { code: string; type: string }) =>
 export default async function NewExpensePage({ searchParams }: { searchParams?: Promise<NewExpenseQuery> }) {
   const ctx = await requireContext("expense.write");
   const query = await searchParams;
+  const taxTerritory = await getCompanyTaxTerritory(ctx.company.id);
   const initialSupplierId = first(query?.supplierId);
   // «Registrar abono / rectificativa» desde una factura: ?rectifies=<id>. Alta directa: ?kind=rectification.
   const rectifiesId = first(query?.rectifies);
@@ -96,7 +98,8 @@ export default async function NewExpensePage({ searchParams }: { searchParams?: 
         ) : (
           <CreateExpenseInvoiceForm
             baseCurrencyCode={ctx.company.baseCurrencyCode}
-            homeCountryCode={await getCompanyTaxTerritory(ctx.company.id)}
+            cashAccountingAvailable={getCountryFiscalProfile(taxTerritory).features.vatReturns}
+            homeCountryCode={taxTerritory}
             expenseAccounts={expenseAccounts}
             expenseSeries={expenseSeries}
             goodsReceipts={relations.receipts}

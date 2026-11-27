@@ -108,6 +108,18 @@ export function surchargeTreatmentProblem(vatTreatment: string | null | undefine
   return "El recargo de equivalencia solo se admite en facturas con IVA repercutido por el proveedor (operación interior o importación).";
 }
 
+/**
+ * Tipo de recargo de equivalencia que corresponde a un tipo de IVA (art. 161 LIVA): 21 → 5,2;
+ * 10 → 1,4; 4 → 0,5. Para cualquier otro tipo (p. ej. el 1,75 del tabaco, que va con el 21) no se
+ * propone nada: se indica a mano.
+ */
+export function defaultSurchargeRate(taxRate: number) {
+  if (taxRate === 21) return 5.2;
+  if (taxRate === 10) return 1.4;
+  if (taxRate === 4) return 0.5;
+  return 0;
+}
+
 /** Bien de inversión por defecto: cuentas de inmovilizado (grupo 2 del PGC) salvo que se indique otra cosa. */
 export function defaultInvestmentGood(accountCode: string | null | undefined) {
   return (accountCode ?? "").startsWith("2");
@@ -146,4 +158,29 @@ export function rectificationLinesFrom(lines: readonly RectificationSourceLine[]
 /** ¿El texto leído de un documento es una rectificativa / abono? (OCR). */
 export function looksLikeRectification(text: string) {
   return /factura[ \t]+rectificativa|rectificativa[ \t]+de|nota[ \t]+de[ \t]+(?:abono|cr[eé]dito)|factura[ \t]+de[ \t]+abono|\babono[ \t]+(?:n[ºo°.]|de[ \t]+factura)|credit[ \t]+(?:note|memo)|corrective[ \t]+invoice/i.test(text);
+}
+
+/**
+ * Pendiente de pago de una factura recibida, en céntimos: total − pagos − abonos compensados.
+ * Nunca negativo; un abono (total ≤ 0) o una factura anulada no tienen nada pendiente.
+ * Es la única regla de «pendiente» de compras: pagos, remesas, tesorería, ficha y panel la comparten
+ * (en SQL, `supplierInvoiceOutstandingSql` de `outstanding.ts` hace el mismo cálculo).
+ */
+export function supplierOutstandingCents(input: { totalCents: number; paidCents: number; creditedCents?: number; isVoid?: boolean }) {
+  if (input.isVoid || input.totalCents <= 0) return 0;
+  return Math.max(input.totalCents - input.paidCents - (input.creditedCents ?? 0), 0);
+}
+
+/** Saldo a favor que le queda a un abono, en céntimos: |total| − lo ya compensado o devuelto. */
+export function supplierCreditRemainingCents(input: { totalCents: number; appliedCents: number; isVoid?: boolean }) {
+  if (input.isVoid || input.totalCents >= 0) return 0;
+  return Math.max(-input.totalCents - input.appliedCents, 0);
+}
+
+/**
+ * Cuánto de un abono se compensa contra una factura: lo menor entre el saldo del abono y lo
+ * pendiente de la factura. El resto del abono queda como saldo a favor del proveedor.
+ */
+export function supplierCreditAllocationCents(creditRemainingCents: number, invoiceOutstandingCents: number) {
+  return Math.max(Math.min(creditRemainingCents, invoiceOutstandingCents), 0);
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import {
   bankAccount,
@@ -20,6 +20,7 @@ import { recordAudit } from "@/server/audit";
 import { resolveOpenPostingDate } from "@/server/fiscal/locks";
 import { buildPain001, validatePain001Input, type Pain001Input } from "@/server/sepa/pain001";
 import { createSupplierPaymentForBank, removeTreasurySupplierPayment, type TreasuryActor } from "@/server/treasury/bank-payments";
+import { supplierInvoiceSettledSql } from "@/server/supplier-invoices/outstanding";
 import { listOpenSupplierInvoices } from "@/server/treasury/workbench";
 
 /*
@@ -160,7 +161,8 @@ export async function createRemittance(
         supplierPartnerId: supplierInvoice.supplierPartnerId,
         status: supplierInvoice.status,
         totalAmount: supplierInvoice.totalAmount,
-        paid: sql<string>`coalesce((select sum(${supplierInvoicePayment.amountApplied}) from ${supplierInvoicePayment} where ${supplierInvoicePayment.supplierInvoiceId} = ${supplierInvoice.id}), 0)`,
+        // Pagos + abonos compensados: la remesa nunca paga lo que ya cubrió un abono del proveedor.
+        paid: supplierInvoiceSettledSql,
         partnerName: partner.name,
       })
       .from(supplierInvoice)

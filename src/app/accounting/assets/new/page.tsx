@@ -5,17 +5,25 @@ import { dateInputValue } from "@/lib/date-input";
 import { formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { formatIsoDate } from "@/server/fixed-assets/schedule";
-import { listFixedAssetAccountOptions, listSupplierInvoiceOptions } from "@/server/fixed-assets/service";
+import { getSupplierInvoiceAssetPrefill, listCostCenterOptions, listFixedAssetAccountOptions, listSupplierInvoiceOptions } from "@/server/fixed-assets/service";
 
-export default async function NewFixedAssetPage({ searchParams }: { searchParams: Promise<{ supplierInvoiceId?: string | string[] }> }) {
+export default async function NewFixedAssetPage({ searchParams }: { searchParams: Promise<{ supplierInvoiceId?: string | string[]; lineId?: string | string[] }> }) {
   const ctx = await requireContext("accounting.read");
   const canWrite = can(ctx.membership.role, "accounting.write");
-  const [accounts, invoices, params] = await Promise.all([listFixedAssetAccountOptions(ctx.company.id), listSupplierInvoiceOptions(ctx.company.id), searchParams]);
+  const [accounts, invoices, costCenters, params] = await Promise.all([listFixedAssetAccountOptions(ctx.company.id), listSupplierInvoiceOptions(ctx.company.id), listCostCenterOptions(ctx.company.id), searchParams]);
   const today = dateInputValue(new Date(), ctx.company.timezone);
   // Alta desde una factura de compra (?supplierInvoiceId=): se propone su fecha y queda enlazada.
   const requestedInvoiceId = typeof params.supplierInvoiceId === "string" ? params.supplierInvoiceId : "";
-  const invoice = invoices.find((row) => row.id === requestedInvoiceId) ?? null;
+  // Con la línea (?lineId=, botón «Dar de alta como inmovilizado» de la factura) se proponen
+  // también la descripción, el importe y la cuenta.
+  const prefill = requestedInvoiceId
+    ? await getSupplierInvoiceAssetPrefill(ctx.company.id, requestedInvoiceId, typeof params.lineId === "string" ? params.lineId : undefined)
+    : null;
+  const invoice = prefill?.invoice ?? null;
+  // La factura puede no estar entre las últimas del desplegable: se añade.
+  if (invoice && !invoices.some((row) => row.id === invoice.id)) invoices.unshift(invoice);
   const acquisitionDate = invoice?.issueDate ?? today;
+  const prefillAccountCode = prefill?.line?.accountCode && accounts.asset.some((account) => account.code === prefill.line?.accountCode) ? prefill.line.accountCode : "";
 
   return (
     <PageShell>
@@ -34,11 +42,12 @@ export default async function NewFixedAssetPage({ searchParams }: { searchParams
         ) : (
           <FixedAssetForm
             accounts={accounts}
+            costCenters={costCenters}
             currencyCode={ctx.company.baseCurrencyCode}
             initialValues={{
-              description: "",
+              description: prefill?.line?.description ?? "",
               notes: "",
-              assetAccountCode: "",
+              assetAccountCode: prefillAccountCode,
               accumulatedAccountCode: "",
               expenseAccountCode: "",
               isDepreciable: true,
@@ -49,10 +58,11 @@ export default async function NewFixedAssetPage({ searchParams }: { searchParams
               acquisitionDate,
               inServiceDate: acquisitionDate,
               depreciationStartDate: "",
-              acquisitionCost: "",
+              acquisitionCost: prefill?.line?.cost.replace(".", ",") ?? "",
               residualValue: "",
               priorAccumulated: "",
               supplierInvoiceId: invoice?.id ?? "",
+              costCenterId: "",
             }}
             supplierInvoices={invoices.map((row) => ({
               id: row.id,

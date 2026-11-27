@@ -20,6 +20,10 @@ function baseAnalysis(patch: Partial<ExpenseInvoiceAiAnalysis> = {}): ExpenseInv
     customer_tax_id: null,
     customer_address: null,
     invoice_number: "F-1",
+    document_kind: "invoice",
+    rectified_invoice_number: null,
+    rectified_invoice_date: null,
+    is_simplified_invoice: false,
     invoice_series: null,
     invoice_issue_date: "2026-06-03",
     invoice_operation_date: null,
@@ -379,5 +383,31 @@ describe("expense analysis model settings", () => {
     expect(expenseAnalysisReasoningEffort()).toBeNull();
     vitest.stubEnv("OPENAI_EXPENSE_ANALYSIS_REASONING_EFFORT", "turbo");
     expect(expenseAnalysisReasoningEffort()).toBe("low");
+  });
+});
+
+describe("clase de documento y datos del libro registro en la lectura con IA", () => {
+  it("una factura normal no lleva clase de documento ni datos de rectificación", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis());
+    expect(draft.documentKind).toBeUndefined();
+    expect(draft.isSimplified).toBeUndefined();
+    expect(draft.operationDate).toBeUndefined();
+  });
+
+  it("devuelve RECTIFICATION con el número y la fecha de la factura rectificada, y bloquea para revisar", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ document_kind: "corrective_invoice", rectified_invoice_number: " A-118 ", rectified_invoice_date: "2026-05-02" }));
+    expect(draft).toMatchObject({ documentKind: "RECTIFICATION", rectifiedDocumentNumber: "A-118", rectifiedIssueDate: expect.stringMatching(/^2026-05-02/), confidence: "low" });
+    expect(draft.warnings.some((warning) => warning.startsWith("Bloqueo:") && /rectificativa/.test(warning))).toBe(true);
+  });
+
+  it("un total negativo es un abono aunque la lectura no lo diga", () => {
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ document_kind: "unknown", total_amount: -121, subtotal_amount: -100, tax_amount: -21 }));
+    expect(draft.documentKind).toBe("RECTIFICATION");
+  });
+
+  it("propone la fecha de operación solo si difiere de la de expedición, el ticket y el recargo", () => {
+    expect(toExpenseInvoiceAiDraft(baseAnalysis({ invoice_operation_date: "2026-06-03" })).operationDate).toBeUndefined();
+    const draft = toExpenseInvoiceAiDraft(baseAnalysis({ invoice_operation_date: "2026-05-28", is_simplified_invoice: true, surcharge_amount: 5.2 }));
+    expect(draft).toMatchObject({ operationDate: expect.stringMatching(/^2026-05-28/), isSimplified: true, hasSurcharge: true });
   });
 });

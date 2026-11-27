@@ -34,7 +34,7 @@ import {
 } from "./expense-batch-model";
 import { supplierTaxIdProblem } from "@/server/supplier-invoices/document-rules";
 
-import { assessReadiness, reviewReasonLabels, selectSafeToPost, type ReviewItem } from "./expense-review";
+import { assessReadiness, parseSurchargeRate, reviewReasonLabels, selectSafeToPost, type ReviewItem } from "./expense-review";
 import { useLeaveWarning } from "./use-leave-warning";
 
 export type ExpenseAiSettings = { externalAiEnabled: boolean; externalAiConfigured: boolean };
@@ -122,7 +122,8 @@ function toReviewItem(item: BatchItem, suppliers: readonly BatchSupplier[], home
     totalTolerance: item.exchange ? Math.max(0.03, item.lines.length * 0.01) : undefined,
     exchangeStale: exchangeIsStale(item),
     vatTreatment: item.vatTreatment,
-    lines: item.lines,
+    // Sin la casilla de recargo marcada, el recargo de las líneas no cuenta.
+    lines: item.hasSurcharge ? item.lines : item.lines.map((line) => ({ ...line, surchargeRate: "0" })),
   };
 }
 
@@ -445,6 +446,10 @@ export function ExpenseBatchUpload({
           documentKind: item.documentKind,
           rectifiedDocumentNumber: item.documentKind === "RECTIFICATION" ? item.rectifiedDocumentNumber.trim() || undefined : undefined,
           rectificationReason: item.documentKind === "RECTIFICATION" ? item.rectificationReason.trim() || undefined : undefined,
+          rectifiedIssueDate: item.documentKind === "RECTIFICATION" && item.rectifiedIssueDate ? isoDate(item.rectifiedIssueDate) : undefined,
+          operationDate: item.operationDate ? isoDate(item.operationDate) : undefined,
+          importDuaNumber: item.vatTreatment === "IMPORT" ? item.importDuaNumber.trim() || undefined : undefined,
+          importDuaDate: item.vatTreatment === "IMPORT" && item.importDuaDate ? isoDate(item.importDuaDate) : undefined,
           isSimplified: item.isSimplified,
           notes: exchangeNote(item),
           ocrJobId: item.jobId,
@@ -457,6 +462,9 @@ export function ExpenseBatchUpload({
             taxRate: parsePercent(line.taxRate),
             taxDeductiblePct: parsePercent(line.taxDeductiblePct),
             retentionRate: parsePercent(line.retentionRate),
+            surchargeRate: item.hasSurcharge ? parseSurchargeRate(line.surchargeRate) : 0,
+            // Sin marcar a mano lo decide el servidor por la cuenta (grupo 2 = bien de inversión).
+            isInvestmentGood: line.isInvestmentGood,
           })),
         }),
       });

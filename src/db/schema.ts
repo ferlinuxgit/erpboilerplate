@@ -1016,9 +1016,6 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   voidedAt: timestamp("voidedAt", { withTimezone: true, mode: "date" }),
   // Clase de documento: INVOICE (factura) o RECTIFICATION (rectificativa / abono del proveedor).
   // Solo una rectificativa admite importes negativos.
-  // Proveedor acogido al régimen especial del criterio de caja (art. 163 quinquiesdecies LIVA):
-  // la cuota de esta factura se deduce al pagarla, no al registrarla.
-  supplierCashAccounting: boolean("supplierCashAccounting").notNull().default(false),
   documentKind: text("documentKind").notNull().default("INVOICE"),
   // Factura que se rectifica: la registrada en el sistema y/o el número y la fecha que figuran en
   // la rectificativa del proveedor (art. 15 RD 1619/2012).
@@ -1035,6 +1032,9 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   // Importaciones: número y fecha del DUA (documento aduanero) que se anota en el libro registro.
   importDuaNumber: text("importDuaNumber"),
   importDuaDate: timestamp("importDuaDate", { withTimezone: true, mode: "date" }),
+  // Proveedor acogido al régimen especial del criterio de caja (art. 163 terdecies LIVA): el IVA
+  // soportado se deduce al pagar (o el 31/12 del año siguiente), no al recibir la factura.
+  supplierCashAccounting: boolean("supplierCashAccounting").notNull().default(false),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -1348,6 +1348,10 @@ export const fixedAsset = pgTable("fixed_asset", {
   disposalProceeds: numeric("disposalProceeds", { precision: 12, scale: 2 }),
   disposalAccountId: text("disposalAccountId").references(() => accountChart.id, { onDelete: "restrict" }),
   disposalNotes: text("disposalNotes"),
+  // Factura de venta emitida con la que se vendió el bien (lleva el cliente y el IVA repercutido).
+  disposalInvoiceId: text("disposalInvoiceId").references((): AnyPgColumn => invoice.id, { onDelete: "set null" }),
+  // Centro de coste al que se imputan las dotaciones del bien (analítica).
+  costCenterId: text("costCenterId").references((): AnyPgColumn => costCenter.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
@@ -1387,6 +1391,22 @@ export const fixedAssetSettings = pgTable("fixed_asset_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   check("fixed_asset_settings_frequency_valid", sql`${table.depreciationFrequency} IN ('monthly', 'annual')`),
+]);
+
+/**
+ * Centros de coste (analítica): maestro al que apunta `journal_line.costCenterId`. Un centro con
+ * apuntes no se borra: se desactiva.
+ */
+export const costCenter = pgTable("cost_center", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("cost_center_company_code_unique").on(table.companyId, table.code),
 ]);
 
 // ---------------------------------------------------------------------------------------------
@@ -1926,6 +1946,32 @@ export const supplierInvoicePayment = pgTable("supplier_invoice_payment", {
 }, (table) => [index("supplier_invoice_payment_invoice_idx").on(table.companyId, table.supplierInvoiceId), check("supplier_invoice_payment_amount_positive", sql`${table.amountApplied} > 0`)]);
 
 /**
+ * Aplicación de un abono de proveedor (rectificativa de total negativo):
+ * - con `supplierInvoiceId`: compensa esa factura (lo pendiente = total − pagos − abonos aplicados).
+ *   No genera asiento: los dos documentos ya están en la subcuenta 400/410 del proveedor.
+ * - sin `supplierInvoiceId`: el proveedor devolvió el dinero por banco (asiento banco a 400/410 con
+ *   `sourceType = 'supplierCreditRefund'` y `sourceId` = id de esta fila).
+ * Lo que queda sin aplicar del abono es el saldo a favor frente al proveedor.
+ */
+export const supplierCreditApplication = pgTable("supplier_credit_application", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  creditInvoiceId: text("creditInvoiceId").notNull().references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  supplierInvoiceId: text("supplierInvoiceId").references(() => supplierInvoice.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  appliedAt: timestamp("appliedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  // Solo en devoluciones por banco.
+  bankAccountId: text("bankAccountId").references(() => bankAccount.id, { onDelete: "set null" }),
+  reference: text("reference"),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("supplier_credit_application_credit_idx").on(table.companyId, table.creditInvoiceId),
+  index("supplier_credit_application_invoice_idx").on(table.supplierInvoiceId),
+  check("supplier_credit_application_amount_positive", sql`${table.amount} > 0`),
+  check("supplier_credit_application_distinct", sql`${table.supplierInvoiceId} IS NULL OR ${table.supplierInvoiceId} <> ${table.creditInvoiceId}`),
+]);
+
+/**
  * VeriFactu (RD 1007/2023 y Orden HAC/1177/2024): registros de facturación de alta y anulación.
  * Cadena de huellas por empresa emisora, estrictamente secuencial (`sequence`) y sin bifurcaciones
  * (único por registro anterior). Los campos que intervienen en la huella son inmutables: lo
@@ -2023,6 +2069,23 @@ export const verifactuCertificate = pgTable("verifactu_certificate", {
   uploadedByUserId: text("uploadedByUserId"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
+
+/**
+ * Histórico de declaraciones responsables del productor (art. 15 Orden HAC/1177/2024), una por
+ * versión del sistema: la primera vez que se muestra una versión nueva se guarda el texto emitido
+ * y su fecha. Es del sistema, no de cada empresa: la declaración es la misma para todas.
+ */
+export const verifactuDeclaration = pgTable("verifactu_declaration", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // Identificador completo de la versión (letra c de la declaración).
+  version: text("version").notNull(),
+  title: text("title").notNull(),
+  // Apartados a) … l) tal como se emitieron: texto que describe el dato y dato.
+  rows: jsonb("rows").$type<Array<{ label: string; value: string }>>().notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("verifactu_declaration_version_unique").on(table.version),
+]);
 
 /**
  * Cabeza de la cadena VeriFactu de cada empresa y entorno (producción y pruebas nunca comparten
