@@ -365,6 +365,9 @@ describe("Modelo 303: rectificación de deducciones y criterio de caja", () => {
     expect([box(boxes, "28"), box(boxes, "29")]).toEqual([1000, 210]);
     // Base sin prorratear y cuota con la prorrata de la rectificativa, con su signo.
     expect([box(boxes, "40"), box(boxes, "41"), box(boxes, "45")]).toEqual([-200, -21, 189]);
+    // Los modelos canarios piden que siga restando en su concepto.
+    const canary = computeSupplierVat([received({ documentKind: "RECTIFICATION", subtotal: -200, taxAmount: -42, totalAmount: -242 })], 100, 7, { separateRectifications: false });
+    expect([canary.deductible.domesticCurrent.tax, canary.deductible.rectification.tax]).toEqual([-4_200, 0]);
     // Una anulación (sign −1) de una factura normal sigue restando en 28-29.
     const voided = computeSupplierVat([received({ sign: -1, voidedAt: issueDate })], 100);
     const voidedBoxes = buildModelo303Boxes(computeIssuedVat([]), voided, { periodYear: 2026 });

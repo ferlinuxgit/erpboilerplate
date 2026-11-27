@@ -291,7 +291,13 @@ export type DeductibleCategory =
 
 /** IVA soportado/deducible, autorepercusiones y retenciones practicadas de facturas recibidas. */
 /** `selfAssessmentRate`: tipo general del país para autorepercutir líneas sin cuota (España: 21 %). */
-export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: number, selfAssessmentRate = 21) {
+/**
+ * `separateRectifications` (por defecto sí): las rectificativas recibidas van a «rectificación de
+ * deducciones» (casillas 40-41 del 303). Con `false` siguen restando en su concepto, como piden
+ * los modelos canarios (420 y 425), que no tienen ese apartado calculado.
+ */
+export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: number, selfAssessmentRate = 21, options: { separateRectifications?: boolean } = {}) {
+  const separateRectifications = options.separateRectifications ?? true;
   const input = new Map<number, CentsBucket>();
   const deductible = {
     domesticCurrent: emptyBaseTax(),
@@ -358,7 +364,7 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
 
     // Rectificativas y abonos del proveedor: su deducción va a «rectificación de deducciones»
     // (casillas 40-41, con su signo), no a las casillas 28-39 del periodo.
-    const isRectification = line.documentKind === "RECTIFICATION";
+    const isRectification = separateRectifications && line.documentKind === "RECTIFICATION";
     const service = isServiceExpenseAccount(line.expenseAccountCode);
     let category: DeductibleCategory;
     if (line.treatment === "INTRA_EU") {

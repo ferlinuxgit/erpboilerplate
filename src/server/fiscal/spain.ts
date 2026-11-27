@@ -1636,7 +1636,10 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
   const supplierLines: SupplierLineInput[] = purchasesCash ? expandSupplierLinesForCash(supplierRaw, { movements: supplierPayments, timeZone, isEligible: purchaseDeferred }) : supplierRaw;
 
   const issuedIn = (target: InstantRange) => computeIssuedVat(issuedLines.filter((line) => inInstantRange(line.accrualDate, target)));
-  const supplierIn = (target: InstantRange) => computeSupplierVat(supplierLines.filter((line) => inInstantRange(supplierLinePeriodDate(line), target)), profile.prorrataPct, selfAssessmentRate);
+  // Los modelos canarios no tienen calculado el apartado de rectificación de deducciones: allí las
+  // rectificativas recibidas siguen restando en su concepto.
+  const supplierOptions = { separateRectifications: !CANARY_MODEL_CODES.has(code) };
+  const supplierIn = (target: InstantRange) => computeSupplierVat(supplierLines.filter((line) => inInstantRange(supplierLinePeriodDate(line), target)), profile.prorrataPct, selfAssessmentRate, supplierOptions);
   const issued = issuedIn(instants);
   const supplier = supplierIn(instants);
 
