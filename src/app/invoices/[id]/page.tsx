@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 
 import { DeleteButton } from "@/components/delete-button";
 import { InvoiceVerifactuCard } from "@/components/fiscal/invoice-verifactu-card";
+import { EInvoiceCard } from "@/components/invoices/einvoice-card";
 import { DuplicateInvoiceButton, IssueInvoiceButton } from "@/components/invoices/invoice-lifecycle-actions";
 import { RegisterInvoicePaymentDialog } from "@/components/invoices/register-invoice-payment-dialog";
 import { buttonVariants } from "@/components/ui/button";
@@ -589,6 +590,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ) : null}
 
       {lifecycle === "ISSUED" ? <InvoiceVerifactuCard companyId={tenantContext.company.id} invoiceId={id} /> : null}
+      {lifecycle === "ISSUED" ? <EInvoiceCard canManage={canEditInvoice} companyId={tenantContext.company.id} invoiceId={id} /> : null}
 
       {lifecycle === "ISSUED" ? (
         <PageSection title="Envíos por email" description="Cada envío de la factura y cada recordatorio de cobro, con su resultado.">

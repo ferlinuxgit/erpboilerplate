@@ -499,6 +499,13 @@ export const customer = pgTable("customer", {
   iban: text("iban"),
   // Cliente en recargo de equivalencia (comerciante minorista).
   equivalenceSurcharge: boolean("equivalenceSurcharge").notNull().default(false),
+  // Administración pública: códigos DIR3 que FACe exige en la factura electrónica (Facturae,
+  // AdministrativeCentres). Oficina contable (rol 01), órgano gestor (02), unidad tramitadora (03)
+  // y, opcional, órgano proponente (04). null = el cliente no es una Administración.
+  dir3AccountingOffice: text("dir3AccountingOffice"),
+  dir3ManagingBody: text("dir3ManagingBody"),
+  dir3ProcessingUnit: text("dir3ProcessingUnit"),
+  dir3ProposingBody: text("dir3ProposingBody"),
   // Grupo de clientes (tarifa y descuento habituales). null = sin grupo.
   customerGroupId: text("customerGroupId").references((): AnyPgColumn => customerGroup.id, { onDelete: "set null" }),
   // Tarifa propia del cliente: manda sobre la de su grupo. null = la del grupo o el precio de venta.
@@ -781,6 +788,65 @@ export const invoiceLineTax = pgTable("invoice_line_tax", {
   index("invoice_line_tax_tax_idx").on(table.taxId),
   check("invoice_line_tax_rate_nonnegative", sql`${table.rate} >= 0`),
   check("invoice_line_tax_operation_valid", sql`${table.operation} IN ('ADD', 'SUBTRACT')`),
+]);
+
+/**
+ * Ficheros de factura electrónica generados para una factura emitida (Facturae 3.2.2, firmado o
+ * no, y UBL 2.1). Se conserva el fichero entregado (almacenamiento privado) con su huella: lo que
+ * se descargó o envió debe poder recuperarse tal cual. Una fila por factura, formato y firma; al
+ * regenerar se sustituye.
+ */
+export const einvoiceDocument = pgTable("einvoice_document", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  // FACTURAE o UBL.
+  format: text("format").notNull(),
+  // Versión del formato: «3.2.2» (Facturae) o «2.1 · urn:cen.eu:en16931:2017» (UBL).
+  formatVersion: text("formatVersion").notNull(),
+  // Firmado con XAdES-EPES (solo Facturae).
+  signed: boolean("signed").notNull().default(false),
+  // Titular del certificado con el que se firmó.
+  signerSubject: text("signerSubject"),
+  sha256: text("sha256").notNull(),
+  storageKey: text("storageKey").notNull(),
+  fileName: text("fileName").notNull(),
+  // GENERATED (generado y descargable). Reservado para el envío por servicio web: SENT, FAILED.
+  status: text("status").notNull().default("GENERATED"),
+  generatedByUserId: text("generatedByUserId").references(() => user.id, { onDelete: "set null" }),
+  generatedAt: timestamp("generatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("einvoice_document_invoice_format_signed_unique").on(table.invoiceId, table.format, table.signed),
+  index("einvoice_document_company_idx").on(table.companyId, table.generatedAt),
+  check("einvoice_document_format_valid", sql`${table.format} IN ('FACTURAE', 'UBL')`),
+  check("einvoice_document_status_valid", sql`${table.status} IN ('GENERATED', 'SENT', 'FAILED')`),
+]);
+
+/**
+ * Estados de la factura electrónica que la norma obliga a comunicar (art. 10 RD 238/2026):
+ * aceptación o rechazo comercial y pago efectivo completo, con sus fechas; además, envío y
+ * recepción. Historial inmutable: cada anotación es una fila.
+ */
+export const einvoiceStatusEvent = pgTable("einvoice_status_event", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  // SENT, RECEIVED, ACCEPTED, REJECTED o PAID.
+  status: text("status").notNull(),
+  // Día en que se produjo el estado (AAAA-MM-DD).
+  effectiveDate: text("effectiveDate").notNull(),
+  // Rechazo: tipo (lista L1 del anexo II de la Orden HAC/1028/2026: 01 comercial, 02 consumo particular) y motivo.
+  rejectionCode: text("rejectionCode"),
+  reason: text("reason"),
+  // MANUAL (anotado por un usuario). Reservado para la solución pública y las plataformas privadas.
+  source: text("source").notNull().default("MANUAL"),
+  createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("einvoice_status_event_invoice_idx").on(table.invoiceId, table.createdAt),
+  index("einvoice_status_event_company_idx").on(table.companyId, table.createdAt),
+  check("einvoice_status_event_status_valid", sql`${table.status} IN ('SENT', 'RECEIVED', 'ACCEPTED', 'REJECTED', 'PAID')`),
 ]);
 
 export const salesQuote = pgTable("sales_quote", {

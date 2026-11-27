@@ -7,6 +7,7 @@ import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { HttpError } from "@/lib/http";
 import { normalizeSpanishTaxId } from "@/lib/spanish-tax-id";
 import { CUSTOMER_HAS_DOCUMENTS_MESSAGE, normalizeIban, type customerBillingSchema } from "@/server/customers/schemas";
+import { normalizeDir3 } from "@/server/einvoice/dir3";
 import { isSalesVatTreatment } from "@/server/invoices/lifecycle";
 import { creditedByInvoiceSubquery, invoiceIsDraftSql, invoiceIsIssuedSql, netOutstandingSql, paidByInvoiceSubquery } from "@/server/invoices/sql";
 import { syncPartnerSubaccounts } from "@/server/accounting/subaccounts";
@@ -32,6 +33,10 @@ export function billingValues(input: BillingInput) {
     ...(input.equivalenceSurcharge !== undefined ? { equivalenceSurcharge: input.equivalenceSurcharge } : {}),
     ...(input.customerGroupId !== undefined ? { customerGroupId: input.customerGroupId || null } : {}),
     ...(input.priceListId !== undefined ? { priceListId: input.priceListId || null } : {}),
+    ...(input.dir3AccountingOffice !== undefined ? { dir3AccountingOffice: normalizeDir3(input.dir3AccountingOffice) } : {}),
+    ...(input.dir3ManagingBody !== undefined ? { dir3ManagingBody: normalizeDir3(input.dir3ManagingBody) } : {}),
+    ...(input.dir3ProcessingUnit !== undefined ? { dir3ProcessingUnit: normalizeDir3(input.dir3ProcessingUnit) } : {}),
+    ...(input.dir3ProposingBody !== undefined ? { dir3ProposingBody: normalizeDir3(input.dir3ProposingBody) } : {}),
   };
 }
 

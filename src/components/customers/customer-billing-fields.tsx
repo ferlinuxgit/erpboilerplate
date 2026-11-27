@@ -89,6 +89,7 @@ export function CustomerBillingFields({
 }) {
   const { features } = getCountryFiscalProfile(homeCountryCode);
   return (
+    <>
     <fieldset className="grid gap-4 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-6 md:grid-cols-6" data-testid="customer-billing-fields">
       <legend className="px-1 font-mono text-xs font-bold uppercase tracking-wide">Condiciones de facturación</legend>
       <p className="text-xs text-muted-foreground md:col-span-6">
@@ -177,6 +178,55 @@ export function CustomerBillingFields({
         </span>
       </label>
       ) : null}
+    </fieldset>
+    {/* Facturae y FACe son españoles: solo donde existe la factura electrónica española. */}
+    {features.eInvoicing === "verifactu" ? <CustomerDir3Fields errors={errors} idPrefix={idPrefix} register={register} /> : null}
+    </>
+  );
+}
+
+const DIR3_FIELDS = [
+  { name: "dir3AccountingOffice", id: "dir3-accounting-office", label: "Oficina contable", help: "Quien contabiliza la factura." },
+  { name: "dir3ManagingBody", id: "dir3-managing-body", label: "Órgano gestor", help: "Quien encargó el trabajo o la compra." },
+  { name: "dir3ProcessingUnit", id: "dir3-processing-unit", label: "Unidad tramitadora", help: "Quien tramita el pago." },
+  { name: "dir3ProposingBody", id: "dir3-proposing-body", label: "Órgano proponente", help: "Opcional; solo si te lo indican." },
+] as const;
+
+/**
+ * Códigos DIR3 de un cliente que es Administración pública: sin ellos FACe no admite la factura
+ * electrónica. El cliente los indica en el contrato o pedido; también se consultan en face.gob.es.
+ */
+export function CustomerDir3Fields({
+  errors,
+  idPrefix = "customer",
+  register,
+}: {
+  errors: FieldErrors<Values>;
+  idPrefix?: string;
+  register: UseFormRegister<Values>;
+}) {
+  return (
+    <fieldset className="grid gap-4 rounded-surface border border-window-dark-shadow bg-window-panel p-3 md:col-span-6 md:grid-cols-4" data-testid="customer-dir3-fields">
+      <legend className="px-1 font-mono text-xs font-bold uppercase tracking-wide">Administración pública</legend>
+      <p className="text-xs text-muted-foreground md:col-span-4">
+        Solo si el cliente es un ayuntamiento, ministerio, universidad u otro organismo público. Son los códigos DIR3 que debe llevar la factura
+        electrónica (Facturae) para presentarla en FACe: te los da el propio organismo y puedes consultarlos en el directorio de face.gob.es.
+        Déjalos vacíos para el resto de clientes.
+      </p>
+      {DIR3_FIELDS.map((field) => (
+        <AccessibleField error={errors[field.name]?.message} helperText={field.help} id={`${idPrefix}-${field.id}`} key={field.name} label={field.label}>
+          <Input
+            autoCapitalize="characters"
+            autoComplete="off"
+            className="font-mono uppercase"
+            data-testid={`${idPrefix}-${field.id}-input`}
+            id={`${idPrefix}-${field.id}`}
+            maxLength={12}
+            placeholder="L01280796"
+            {...register(field.name, emptyToNull)}
+          />
+        </AccessibleField>
+      ))}
     </fieldset>
   );
 }
