@@ -272,14 +272,23 @@ export function fileFingerprint(bytes: Uint8Array) {
   return { sha256Hex: digest.toString("hex"), sha256Base64: digest.toString("base64") };
 }
 
-/** Asientos cuyo número interno no sigue el orden cronológico del Diario (para avisar). */
+/**
+ * Asientos cuyo número interno no sigue el orden cronológico del Diario (para avisar): los que
+ * habría que renumerar como mínimo, es decir, el total menos la subsecuencia creciente más larga.
+ */
 export function outOfOrderNumbers(journal: OrderedBookEntry[]): number {
-  let count = 0;
-  let previous = "";
-  for (const entry of journal) {
-    if (entry.kind !== "normal") continue;
-    if (previous && entry.number.localeCompare(previous) < 0) count += 1;
-    else previous = entry.number;
+  const numbers = journal.filter((entry) => entry.kind === "normal").map((entry) => entry.number);
+  // tails[k]: el menor número final posible de una subsecuencia creciente de longitud k + 1.
+  const tails: string[] = [];
+  for (const number of numbers) {
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (tails[middle].localeCompare(number) < 0) low = middle + 1;
+      else high = middle;
+    }
+    tails[low] = number;
   }
-  return count;
+  return numbers.length - tails.length;
 }

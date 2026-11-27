@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { usesPgcChart } from "@/lib/country-packs/profile";
-import { accountChart, documentSeries, fiscalYear, journalEntry, journalLine } from "@/db/schema";
+import { accountChart, documentSeries, fiscalYear, journalEntry, journalLine, officialBookSubmission } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { createAutomaticEntry, loadPostingSettings, reverseAutomaticEntries, withLineDocument, type PostingLine } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
@@ -380,6 +380,11 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
  * marca como abierto. Solo se permite si ningún ejercicio posterior está cerrado. Tras reabrir,
  * `closeFiscalYear` vuelve a generar los asientos porque ignora los ya anulados.
  * La restricción "solo el propietario" se aplica en la ruta.
+ *
+ * Si los libros del ejercicio ya se legalizaron en el Registro Mercantil, la reapertura no se impide
+ * (puede hacer falta para corregir un error), pero queda en la auditoría y se devuelve en
+ * `legalizedBooks` para que la pantalla lo advierta: un libro legalizado no se puede cambiar sin
+ * rectificar la legalización.
  */
 export async function reopenFiscalYear(input: Actor & { fiscalYearId: string; reason: string }) {
   return db.transaction(async (tx) => {
@@ -418,6 +423,11 @@ export async function reopenFiscalYear(input: Actor & { fiscalYearId: string; re
       .returning({ id: fiscalYear.id, code: fiscalYear.code, startsAt: fiscalYear.startsAt, endsAt: fiscalYear.endsAt, isClosed: fiscalYear.isClosed });
 
     const reversed = { opening, closing, regularization };
+    const [legalizedBooks] = await tx
+      .select({ submittedAt: officialBookSubmission.submittedAt, registryName: officialBookSubmission.registryName })
+      .from(officialBookSubmission)
+      .where(and(eq(officialBookSubmission.companyId, input.companyId), eq(officialBookSubmission.fiscalYearId, year.id), eq(officialBookSubmission.status, "submitted")))
+      .limit(1);
     await recordAudit({
       tenantId: input.tenantId,
       companyId: input.companyId,
@@ -425,10 +435,10 @@ export async function reopenFiscalYear(input: Actor & { fiscalYearId: string; re
       action: "accounting.fiscalYear.reopen",
       entityName: "fiscalYear",
       entityId: year.id,
-      payload: { code: year.code, reason: input.reason, reversed, nextFiscalYearId: nextYear?.id ?? null },
+      payload: { code: year.code, reason: input.reason, reversed, nextFiscalYearId: nextYear?.id ?? null, legalizedBooksSubmittedAt: legalizedBooks?.submittedAt ?? null },
     }, tx);
 
-    return { fiscalYear: updated ?? { ...year, isClosed: false }, reversed };
+    return { fiscalYear: updated ?? { ...year, isClosed: false }, reversed, legalizedBooks: legalizedBooks ?? null };
   });
 }
 
