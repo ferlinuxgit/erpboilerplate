@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { accountChart, company, fiscalYear, journalEntry, journalLine, partner } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
+import { resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { toCents } from "@/server/accounting/money";
 import { ensureJournal } from "@/server/accounting/journals";
@@ -395,10 +396,12 @@ export async function createJournalEntry(
 }
 
 async function fiscalYearIdFor(client: DbClient, companyId: string, date: Date) {
+  // Día civil en la zona horaria de la empresa, como la serie y la numeración de asientos.
+  const day = await resolveAccountingDay(client, companyId, date);
   const [year] = await client
     .select({ id: fiscalYear.id })
     .from(fiscalYear)
-    .where(and(eq(fiscalYear.companyId, companyId), sql`${date} >= ${fiscalYear.startsAt}`, sql`${date} < (${fiscalYear.endsAt} + interval '1 day')`))
+    .where(and(eq(fiscalYear.companyId, companyId), sql`${day} >= ${fiscalYear.startsAt}`, sql`${day} < (${fiscalYear.endsAt} + interval '1 day')`))
     .limit(1);
   return year?.id ?? null;
 }

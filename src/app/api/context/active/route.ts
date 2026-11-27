@@ -36,7 +36,7 @@ export async function GET() {
         .where(inArray(fiscalYear.companyId, ctx.availableCompanies.map((entry) => entry.id)))
         .orderBy(asc(fiscalYear.startsAt)),
       listUserTenants(ctx.user.id),
-      db.select({ businessType: companySettings.businessType }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
+      db.select({ businessType: companySettings.businessType, siiEnabled: companySettings.siiEnabled }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1),
       getEnabledModules(ctx.company.id),
       getTenantBillingAccess(ctx.tenant.id),
     ]);
@@ -49,6 +49,7 @@ export async function GET() {
       availableTenants,
       // Qué vende la empresa activa: la navegación oculta lo que no aplica (p. ej. stock en servicios).
       businessType: parseBusinessType(settings?.businessType),
+      siiEnabled: Boolean(settings?.siiEnabled),
       // Módulos activos de la empresa: el menú, las pestañas y la paleta ocultan el resto.
       modules,
       // País de la empresa activa: decide qué pantallas fiscales se ven (modelos, VERI*FACTU…).

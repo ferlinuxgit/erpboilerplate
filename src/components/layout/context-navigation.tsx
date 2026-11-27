@@ -6,11 +6,11 @@ import { usePathname } from "next/navigation";
 import { filterContextLinks, getActiveContextHref, getContextGroup } from "@/components/layout/navigation-config";
 import { cn } from "@/lib/utils";
 
-export function ContextNavigation({ businessType, countryCode, keyboardMode = false, modules, role }: { businessType?: string | null; countryCode?: string | null; keyboardMode?: boolean; modules?: readonly string[] | null; role?: string | null }) {
+export function ContextNavigation({ businessType, countryCode, keyboardMode = false, modules, role, siiEnabled }: { siiEnabled?: boolean | null; businessType?: string | null; countryCode?: string | null; keyboardMode?: boolean; modules?: readonly string[] | null; role?: string | null }) {
   const pathname = usePathname();
   const group = getContextGroup(pathname);
   if (!group) return null;
-  const links = filterContextLinks(group, { modules, businessType, role, countryCode });
+  const links = filterContextLinks(group, { modules, businessType, role, countryCode, siiEnabled: siiEnabled ?? undefined });
   const activeHref = getActiveContextHref(pathname, links);
 
   return (

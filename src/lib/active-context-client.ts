@@ -29,6 +29,8 @@ export type ActiveContextPayload = {
   availableTenants?: TenantOption[];
   /** Qué vende la empresa activa ("products" | "services" | "both"). */
   businessType?: string;
+  /** Empresa acogida al SII (muestra su pantalla en el menú). */
+  siiEnabled?: boolean;
   /** Módulos opcionales activos en la empresa (ver `src/modules/registry.ts`). */
   modules?: string[];
   /** País de la empresa activa (ISO alfa-2). */
