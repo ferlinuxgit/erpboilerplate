@@ -98,17 +98,51 @@ Los números entre paréntesis son los de la lista original de pendientes, que s
 ### Lo que no se ha podido comprobar
 Todo lo anterior compila, pasa el lint y los tests unitarios, y la migración `0067` se ha probado sobre una base con datos antiguos. **No se ha abierto ninguna pantalla ni ejecutado contra la base de datos real ni contra la AEAT.** Antes de confiar en ello: probar cada flujo en la aplicación y VERI\*FACTU en el entorno de pruebas de la AEAT con un certificado real.
 
-## 3. Sigue pendiente
+## 3. Tercera tanda (misma fecha): implementado
 
-1. **Criterio de caja en el 303** (devengo al cobro y deducción al pago).
-2. **Rectificación de deducciones en las casillas 40-41** del 303 (los abonos de proveedor restan hoy en 28-39) y regularización de prorrata y de bienes de inversión.
-3. **Compensación de un abono de proveedor** contra su factura en pagos y tesorería (hoy queda como saldo a favor en la 400/410).
-4. **Numeración oficial del 390**; claves restantes del 347 y 349; comprobación VIES al emitir.
-5. **Factura simplificada como tipo de documento propio** y canje por factura completa (F3).
-6. **Ejercicio contable en hora local** (un ticket de las 00:30 del 1 de enero se contabiliza en el ejercicio anterior).
-7. **No existen:** nóminas y modelos 190, 180, 123 y 193; Impuesto sobre Sociedades (200 y 202); SII; libros registro en el formato de la AEAT; ficheros de presentación; factura electrónica (Facturae, FACe y la obligación del RD 238/2026).
-8. **VERI\*FACTU:** casilla de «certificado de sello» y datos del certificado en la pantalla de configuración; versión de la declaración ligada al despliegue, histórico y PDF; caducidad del certificado del sistema.
-9. **Inmovilizado:** IVA en la venta de un bien, centros de coste, botón «crear bien» desde la factura de compra.
-10. **Cuentas anuales:** solo el modelo abreviado; faltan el normal, el de PYMES, el estado de cambios en el patrimonio neto, la memoria y la legalización de libros.
-11. **Validación del NIF por dígito de control** en altas: se decidió en su día no bloquear (commit 91a893d) y se ha respetado.
-12. Abonos a clientes en la 700 en negativo en lugar de 708/709; aviso de plazos de pago de más de 60 días; menciones de bienes usados y agencias de viajes.
+### Modelos de IVA
+- **Criterio de caja** en el 303 y el 390: el repercutido se devenga con cada cobro y el soportado con cada pago, con el límite del 31 de diciembre del año siguiente; casillas 62-63 y 74-75. Las facturas recibidas marcadas «proveedor en criterio de caja» se deducen al pago en cualquier empresa.
+- **Rectificación de deducciones** en las casillas 40-41 (abonos de proveedor).
+- **Prorrata definitiva** calculada con las operaciones del año y **regularización** (casilla 44) cuando el usuario la confirma; regularización de **bienes de inversión** (casilla 43).
+- **390 con numeración oficial** de las casillas que el programa calcula.
+- **347:** marcas de inversión del sujeto pasivo, criterio de caja y posible arrendamiento. **349:** bases rectificada y declarada anteriormente, y aviso del umbral de 50.000 €.
+
+### Retenciones, nóminas y Sociedades
+- **Nóminas** (fichas de trabajador, nómina mensual introducida o importada, asiento, pago de nóminas y de seguros sociales).
+- **111 completo** con sus casillas, **190**, **115** y **180** (con inmuebles arrendados), **123** y **193** (dividendos e intereses pagados), con cuadre entre trimestrales y anuales.
+- **Impuesto sobre Sociedades:** liquidación asistida del 200 (ajustes, bases negativas, tipos vigentes por ejercicio), asiento del impuesto, pagos fraccionados del 202 y punto propio en el cierre. El 200 se presenta con Sociedades WEB: el programa prepara los importes.
+
+### Presentación y libros
+- **Ficheros para importar en la sede** de los modelos 303 (ejercicio 2026 en adelante), 111, 115, 130, 347 y 349, según sus diseños de registro.
+- **Libros registro de IVA e IRPF en el formato electrónico de la AEAT** (expedidas, recibidas y bienes de inversión).
+- **SII** para empresas acogidas: bandeja de salida, XML conforme a los esquemas 1.1, envío y seguimiento. Detrás de su ajuste.
+- **Cuentas anuales** en modelo normal y PYMES además del abreviado, estado de cambios en el patrimonio neto, estado de ingresos y gastos reconocidos y memoria con sus cuadros.
+- **Libros oficiales** (Diario, Inventarios y Cuentas Anuales, Mayor) con huellas para Legalia 2 y registro de la legalización. Exportación a A3 (SUENLACE) y ContaPlus (XDiario).
+- **Ejercicio contable en hora local.**
+
+### Facturación
+- **Clase de documento** (completa, simplificada, simplificada cualificada) y **canje** de simplificada por factura completa (F3 en VERI\*FACTU).
+- Rectificativas al alza, abonos en **708/709**, **menciones legales** por factura, comprobación **VIES** al emitir intracomunitarias, avisos de NIF y de plazo de pago.
+- **Factura electrónica:** Facturae 3.2.2 con firma XAdES, códigos DIR3 del cliente, UBL (núcleo EN 16931) y registro de estados de la factura.
+
+### Compras, inmovilizado y VERI\*FACTU
+- **Compensación de abonos de proveedor** contra sus facturas en pagos, remesas y tesorería; cobro de devoluciones.
+- **Inmovilizado:** venta enlazada a su factura, centros de coste, alta desde la factura de compra; la dotación ya no se bloquea por el 303 presentado.
+- **VERI\*FACTU:** casilla de certificado de sello y datos del certificado en pantalla, aviso global de incidencias, caducidad del certificado del sistema, declaración responsable con versión del despliegue, histórico y PDF.
+
+### Lo que no se ha podido comprobar
+Como en las tandas anteriores: compila, pasa lint y tests unitarios (muchos contra Postgres en memoria) y las migraciones se han probado sobre datos antiguos. **No se ha abierto ninguna pantalla, ni se ha importado ningún fichero en la sede, ni se ha enviado nada a la AEAT, a FACe, a Legalia 2 ni a A3/ContaPlus.** Todo esto necesita una prueba real antes de usarse para presentar.
+
+## 4. Sigue pendiente
+
+1. **Probar en real** todo lo anterior: es lo más importante que queda.
+2. **Fichero de presentación** del 390, del 303 en criterio de caja, y de 190, 180, 123 y 193.
+3. **Numeración de casillas del modelo 200.**
+4. **Factura electrónica:** envío a FACe por servicio web; perfil UBL de la AEAT (Orden HAC/1028/2026) y conexión con la solución pública, cuyas especificaciones técnicas no se pudieron contrastar.
+5. **SII:** libros de bienes de inversión y de operaciones intracomunitarias, cobros y pagos de criterio de caja, y arranque del proceso de envío en el contenedor.
+6. **Fichero de envío de Legalia 2** (no hay especificación pública de su sintaxis) y memoria en DOCX.
+7. **Estado de flujos de efectivo** (obligatorio con balance normal) y renumeración de asientos por fecha.
+8. **Nóminas:** otras deducciones, retribución en especie completa, claves restantes del 190; no es un programa de cálculo de nóminas.
+9. Suplidos fuera de la base, descuento por pronto pago y anticipos en factura; datos registrales en el pie; corrección de una F3 errónea.
+10. Listados por fecha y cierre que aún usan límites en UTC; aviso al tocar un ejercicio ya legalizado.
+11. Festivos en los plazos (solo se trasladan fines de semana).
