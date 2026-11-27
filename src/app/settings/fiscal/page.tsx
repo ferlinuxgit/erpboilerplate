@@ -12,6 +12,7 @@ import { companyHasAiem, getCompanyTaxTerritory } from "@/server/company/fiscal-
 import { can } from "@/lib/rbac";
 import { getFiscalSettings } from "@/server/fiscal/settings";
 import { getCompanySalesVatTreatments } from "@/server/invoices/vat-treatments";
+import { certificateSubjectNifs, certificateValidity } from "@/server/verifactu/certificates";
 import { isValidIssuerNifFormat } from "@/server/verifactu/format";
 import { getVerifactuSettings } from "@/server/verifactu/settings";
 import { getVerifactuOverview } from "@/server/verifactu/service";
@@ -80,8 +81,26 @@ export default async function FiscalSettingsPage() {
               notOperationalReason={verifactuOverview.transport.reason}
               hasRecords={verifactuOverview.totalRecords > 0}
               transportEnabled={verifactuOverview.transportActive}
-              certificate={verifactuOverview.certificate.own ? { fileName: verifactuOverview.certificate.own.fileName, uploadedAt: verifactuOverview.certificate.own.uploadedAt.toISOString() } : null}
+              certificate={verifactuOverview.certificate.own
+                ? {
+                    fileName: verifactuOverview.certificate.own.fileName,
+                    uploadedAt: verifactuOverview.certificate.own.uploadedAt.toISOString(),
+                    subject: verifactuOverview.certificate.own.subject,
+                    nifs: certificateSubjectNifs(verifactuOverview.certificate.own.subject ?? ""),
+                    validTo: verifactuOverview.certificate.own.validTo?.toISOString() ?? null,
+                    isSeal: verifactuOverview.certificate.own.isSeal,
+                    ...certificateValidity(verifactuOverview.certificate.own.validTo),
+                  }
+                : null}
               systemCertificate={verifactuOverview.certificate.systemAvailable}
+              systemCertificateInfo={verifactuOverview.certificate.system
+                ? {
+                    subject: verifactuOverview.certificate.system.subject,
+                    validTo: verifactuOverview.certificate.system.validTo?.toISOString() ?? null,
+                    readable: verifactuOverview.certificate.system.readable,
+                    ...certificateValidity(verifactuOverview.certificate.system.validTo),
+                  }
+                : null}
             />
           </PageSection>
           ) : null}

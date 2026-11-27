@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +9,8 @@ vi.mock("@/lib/db", () => ({ db: {} }));
 import {
   certificateSubjectNifs,
   certificateValidity,
+  getSystemCertificateInfo,
+  getVerifactuReadiness,
   readPfxCertificate,
   reviewCertificate,
   subjectLooksLikeSeal,
@@ -90,5 +93,41 @@ describe("VeriFactu · revisión del certificado al subirlo", () => {
     expect(certificateValidity(validTo, new Date("2027-02-10T00:00:00Z"))).toMatchObject({ expired: false, expiringSoon: true, daysLeft: 19 });
     expect(certificateValidity(validTo, new Date("2027-03-01T00:00:01Z"))).toMatchObject({ expired: true, expiringSoon: false });
     expect(certificateValidity(null, DURING)).toEqual({ expired: false, expiringSoon: false, daysLeft: null });
+  });
+});
+
+describe("VeriFactu · certificado del sistema (VERIFACTU_CERT_PATH)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "verifactu-system-cert-"));
+  const certPath = join(dir, "sistema.p12");
+  writeFileSync(certPath, pfx);
+  const env = { VERIFACTU_TRANSPORT: "aeat", VERIFACTU_ENVIRONMENT: "test", VERIFACTU_PRODUCER_NIF: "B12345678", VERIFACTU_CERT_PATH: certPath, VERIFACTU_CERT_PASSWORD: "secreto" };
+  // La empresa no ha subido certificado propio.
+  const noOwnCertificate = { select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) } as never;
+
+  it("lee su titular y su caducidad, igual que el de una empresa", async () => {
+    const info = await getSystemCertificateInfo(env);
+    expect(info).toMatchObject({ readable: true });
+    expect(info?.subject).toContain("O=EMPRESA SL");
+    expect(info?.validTo?.toISOString().slice(0, 10)).toBe("2126-11-03");
+  });
+
+  it("no hay certificado del sistema sin ruta o sin envío activado", async () => {
+    expect(await getSystemCertificateInfo({ ...env, VERIFACTU_CERT_PATH: "" })).toBeNull();
+    expect(await getSystemCertificateInfo({ ...env, VERIFACTU_TRANSPORT: "disabled" })).toBeNull();
+  });
+
+  it("un fichero que no existe o una contraseña incorrecta se informan como ilegibles, sin fallar", async () => {
+    expect(await getSystemCertificateInfo({ ...env, VERIFACTU_CERT_PATH: join(dir, "no-existe.p12") })).toEqual({ subject: null, validTo: null, readable: false });
+    expect(await getSystemCertificateInfo({ ...env, VERIFACTU_CERT_PASSWORD: "otra" })).toMatchObject({ readable: false });
+  });
+
+  it("vigente: la empresa sin certificado propio remite con el del sistema", async () => {
+    await expect(getVerifactuReadiness(noOwnCertificate, "company-1", env, DURING)).resolves.toMatchObject({ operational: true, certificate: "system" });
+  });
+
+  it("caducado: el envío deja de estar operativo, como con el certificado de la empresa", async () => {
+    const readiness = await getVerifactuReadiness(noOwnCertificate, "company-1", env, new Date("2126-12-01T00:00:00Z"));
+    expect(readiness).toMatchObject({ operational: false, certificate: "system", cause: "certificate-expired" });
+    expect(readiness.reason).toMatch(/certificado electrónico del sistema caducó/);
   });
 });

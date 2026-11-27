@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, lt, min, ne, sql } from "drizzle-orm";
 
 import { verifactuEvent, verifactuRecord } from "@/db/schema";
 import { db } from "@/lib/db";
-import { certificateValidity, getCompanyCertificateInfo, getVerifactuReadiness, type CompanyCertificateInfo, type VerifactuReadiness } from "@/server/verifactu/certificates";
+import { certificateValidity, getCompanyCertificateInfo, getSystemCertificateInfo, getVerifactuReadiness, type CompanyCertificateInfo, type VerifactuReadiness } from "@/server/verifactu/certificates";
 import { appendEvent } from "@/server/verifactu/chain";
 import {
   getVerifactuTransportConfig,
@@ -75,6 +75,7 @@ export type VerifactuHealthInput = {
   environment: VerifactuEnvironment | null;
   environmentProblem: string | null;
   readiness: VerifactuReadiness;
+  /** Certificado con el que se remite: el de la empresa o, si no tiene, el del sistema (`readiness.certificate`). */
   certificate: Pick<CompanyCertificateInfo, "validTo"> | null;
   overduePending: number;
   oldestPendingAt: Date | null;
@@ -121,12 +122,16 @@ export function buildVerifactuHealth(input: VerifactuHealthInput): VerifactuHeal
 
   if (sending && input.environment) {
     const validity = certificateValidity(input.certificate?.validTo, input.now);
+    // Con el certificado del sistema, renovarlo es cosa del administrador (o la empresa sube el suyo).
+    const system = input.readiness.certificate === "system";
     if (validity.expired && input.certificate?.validTo) {
       issues.push({
         code: "CERTIFICATE_EXPIRED",
         tone: "danger",
-        title: "El certificado electrónico está caducado",
-        message: `Caducó el ${longDate(input.certificate.validTo)} y la AEAT ya no admite tus envíos. Las facturas se siguen registrando y quedan pendientes: sube un certificado vigente en Configuración › Fiscalidad.`,
+        title: system ? "El certificado electrónico del sistema está caducado" : "El certificado electrónico está caducado",
+        message: system
+          ? `Caducó el ${longDate(input.certificate.validTo)} y la AEAT ya no admite los envíos. Las facturas se siguen registrando y quedan pendientes: avisa al administrador del sistema o sube el certificado de tu empresa en Configuración › Fiscalidad.`
+          : `Caducó el ${longDate(input.certificate.validTo)} y la AEAT ya no admite tus envíos. Las facturas se siguen registrando y quedan pendientes: sube un certificado vigente en Configuración › Fiscalidad.`,
       });
     } else if (!input.readiness.operational && input.readiness.cause === "certificate-missing") {
       issues.push({
@@ -146,8 +151,10 @@ export function buildVerifactuHealth(input: VerifactuHealthInput): VerifactuHeal
       issues.push({
         code: "CERTIFICATE_EXPIRING",
         tone: "warning",
-        title: validity.daysLeft !== null && validity.daysLeft <= 0 ? "El certificado electrónico caduca hoy" : `El certificado electrónico caduca en ${plural(Math.max(1, validity.daysLeft ?? 1), "día", "días")}`,
-        message: `Es válido hasta el ${longDate(input.certificate.validTo)}. Renuévalo y súbelo antes en Configuración › Fiscalidad para no interrumpir los envíos.`,
+        title: `El certificado electrónico${system ? " del sistema" : ""} ${validity.daysLeft !== null && validity.daysLeft <= 0 ? "caduca hoy" : `caduca en ${plural(Math.max(1, validity.daysLeft ?? 1), "día", "días")}`}`,
+        message: system
+          ? `Es válido hasta el ${longDate(input.certificate.validTo)}. Debe renovarlo el administrador del sistema; si no lo hace a tiempo, sube el certificado de tu empresa en Configuración › Fiscalidad para no interrumpir los envíos.`
+          : `Es válido hasta el ${longDate(input.certificate.validTo)}. Renuévalo y súbelo antes en Configuración › Fiscalidad para no interrumpir los envíos.`,
       });
     }
   }
@@ -227,12 +234,14 @@ export async function getVerifactuHealth(companyId: string, now = new Date()): P
       ? db.select({ total: count() }).from(verifactuRecord).where(and(sendable, ne(verifactuRecord.environment, environment)))
       : Promise.resolve([{ total: 0 }]),
   ]);
+  // Sin certificado propio se remite con el del sistema: su caducidad se vigila igual.
+  const systemCertificate = !certificate && readiness.certificate === "system" ? await getSystemCertificateInfo() : null;
   return buildVerifactuHealth({
     mode: settings.mode,
     environment,
     environmentProblem: environmentConfig.problem,
     readiness,
-    certificate,
+    certificate: certificate ?? systemCertificate,
     overduePending: Number(overdue?.total ?? 0),
     oldestPendingAt: overdue?.oldest ?? null,
     rejected: Number(rejected?.total ?? 0),
@@ -307,7 +316,7 @@ export async function getVerifactuOverview(companyId: string) {
     transport: readiness.operational ? { enabled: true as const, reason: null } : { enabled: false as const, reason: readiness.reason ?? "" },
     /** El administrador ha activado el envío a la AEAT (a la empresa puede faltarle el certificado). */
     transportActive: transport.kind === "aeat",
-    certificate: { own: certificate, source: readiness.certificate, systemAvailable: transport.kind === "aeat" && Boolean(transport.certPath) },
+    certificate: { own: certificate, source: readiness.certificate, systemAvailable: transport.kind === "aeat" && Boolean(transport.certPath), system: await getSystemCertificateInfo() },
     counts,
     totalRecords: Object.values(counts).reduce((total, value) => total + value, 0),
     records: records.map((record) => {

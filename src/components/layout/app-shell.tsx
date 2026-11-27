@@ -16,6 +16,7 @@ import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { SessionExpiryWatcher } from "@/components/layout/session-expiry-watcher";
 import { SessionPanel } from "@/components/layout/session-panel";
 import { ThemeSwitcher } from "@/components/layout/theme-switcher";
+import { VerifactuHealthBanner } from "@/components/layout/verifactu-health-banner";
 import {
   filterNavigationGroups,
   getContextGroup,
@@ -432,6 +433,7 @@ export function AppShell({ children }: AppShellProps) {
         ) : null}
 
         <BillingBanner billing={activeContext?.billing} pathname={pathname} />
+        <VerifactuHealthBanner companyId={activeContext?.active.companyId} countryCode={activeContext?.countryCode} pathname={pathname} />
         <ContextNavigation businessType={activeContext?.businessType} countryCode={activeContext?.countryCode} keyboardMode={keyboardMode} modules={activeContext?.modules} role={activeContext?.user.role} />
         <div
           // Reserva el alto de la barra inferior móvil para que no tape el final de la página.
