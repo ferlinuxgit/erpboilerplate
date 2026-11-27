@@ -6,11 +6,12 @@ import { EmptyState, PageHeader, PageSection, PageShell } from "@/components/ui/
 import { requireContext } from "@/lib/current-context";
 import { dateInputValue } from "@/lib/date-input";
 import { can } from "@/lib/rbac";
+import { listLegalizedYears } from "@/server/accounting/books/legalization";
 import { listPartnerOptions, listPostingAccounts } from "@/server/accounting/service";
 
 export default async function NewJournalEntryPage() {
   const ctx = await requireContext("accounting.read");
-  const [accounts, partners] = await Promise.all([listPostingAccounts(ctx.company.id), listPartnerOptions(ctx.company.id)]);
+  const [accounts, partners, legalizedYears] = await Promise.all([listPostingAccounts(ctx.company.id), listPartnerOptions(ctx.company.id), listLegalizedYears(ctx.company.id)]);
   const canWriteAccounting = can(ctx.membership.role, "accounting.write");
 
   return (
@@ -40,6 +41,7 @@ export default async function NewJournalEntryPage() {
           <CreateJournalEntryForm
             accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name }))}
             defaultPostedAt={dateInputValue(new Date(), ctx.company.timezone)}
+            legalizedYears={legalizedYears}
             partners={partners}
             redirectHref="/accounting"
           />

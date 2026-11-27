@@ -10,6 +10,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 const payloadSchema = z.object({
   confirm: z.literal(true),
   reason: z.string().trim().min(5).max(500),
+  // Confirmación expresa cuando los libros del ejercicio ya están presentados a legalizar.
+  acknowledgeLegalizedBooks: z.boolean().optional(),
 });
 
 /**
@@ -41,6 +43,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       actorUserId: user.id,
       fiscalYearId: id,
       reason: parsed.data.reason,
+      acknowledgeLegalizedBooks: parsed.data.acknowledgeLegalizedBooks === true,
     });
     return NextResponse.json(result);
   } catch (error) {

@@ -89,6 +89,7 @@ export async function listJournalEntriesForExport(companyId: string, params: Lis
       reversedAt: journalEntry.reversedAt,
       reversesEntryId: journalEntry.reversesEntryId,
       sourceType: journalEntry.sourceType,
+      fiscalYearId: journalEntry.fiscalYearId,
       debit,
       credit,
     })
@@ -117,6 +118,7 @@ export async function listJournalEntriesPage(companyId: string, params: ListPara
           reversedAt: journalEntry.reversedAt,
           reversesEntryId: journalEntry.reversesEntryId,
           sourceType: journalEntry.sourceType,
+      fiscalYearId: journalEntry.fiscalYearId,
           debit,
           credit,
           total: windowCount(),
@@ -157,6 +159,7 @@ export async function listJournalEntriesPage(companyId: string, params: ListPara
       reversedAt: row.reversedAt,
       reversesEntryId: row.reversesEntryId,
       sourceType: row.sourceType,
+      fiscalYearId: row.fiscalYearId,
       debit: String(row.debit),
       credit: String(row.credit),
     })),

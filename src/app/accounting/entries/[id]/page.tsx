@@ -2,15 +2,19 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { JournalLineDocument } from "@/components/accounting/journal-line-document";
+import { legalizedYearForReversal, reverseEntryConfirmation } from "@/components/accounting/journal-entry-row-actions";
 import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
-import { MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
+import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { accountingEntrySourceHref } from "@/lib/accounting-documents";
 import { requireContext } from "@/lib/current-context";
+import { dateInputValue } from "@/lib/date-input";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { listLegalizedYears } from "@/server/accounting/books/legalization";
+import { legalizedBooksWarning } from "@/server/accounting/books/legalization-model";
 import { getJournalEntry } from "@/server/accounting/service";
 
 export default async function JournalEntryDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -26,6 +30,14 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
   const currency = ctx.company.baseCurrencyCode;
   const originHref = accountingEntrySourceHref(entry.sourceType, entry.sourceId, entry.lines);
   const canWrite = can(ctx.membership.role, "accounting.write");
+  // Libros presentados a legalizar: se avisa en el asiento y antes de revertirlo.
+  const legalizedYears = await listLegalizedYears(ctx.company.id);
+  const entryLegalizedYear = legalizedYears.find((year) => year.fiscalYearId === entry.fiscalYearId) ?? null;
+  const reverse = reverseEntryConfirmation(
+    entry.id,
+    "Se creará un contraasiento y el original conservará toda su trazabilidad.",
+    legalizedYearForReversal(legalizedYears, entry.fiscalYearId, dateInputValue(new Date(), ctx.company.timezone)),
+  );
 
   return (
     <PageShell>
@@ -48,10 +60,16 @@ export default async function JournalEntryDetailPage({ params }: { params: Promi
           <>
             {originHref ? <Link className={buttonVariants({ variant: "outline" })} href={originHref}>Ver documento origen</Link> : null}
             {canWrite && !entry.isAutomatic && !entry.reversedAt && !entry.reversesEntryId ? <Link className={buttonVariants({ variant: "outline" })} href={`/accounting/entries/${entry.id}/edit`}>Editar</Link> : null}
-            {canWrite && !entry.isAutomatic && !entry.reversedAt ? <DeleteButton description="Se creará un contraasiento y el original conservará toda su trazabilidad." label="Revertir" successMessage="Asiento revertido mediante contraasiento." title="Revertir asiento" url={`/api/journal-entries/${entry.id}`} redirectTo="/accounting" /> : null}
+            {canWrite && !entry.isAutomatic && !entry.reversedAt ? <DeleteButton description={reverse.description} label={reverse.label} successMessage="Asiento revertido mediante contraasiento." title="Revertir asiento" url={reverse.url} redirectTo="/accounting" /> : null}
           </>
         }
       />
+
+      {entryLegalizedYear ? (
+        <InlineAlert title={`Ejercicio ${entryLegalizedYear.code} con libros legalizados`} tone="warning">
+          {legalizedBooksWarning({ yearCode: entryLegalizedYear.code, submittedAt: entryLegalizedYear.submittedAt, registryName: entryLegalizedYear.registryName })}
+        </InlineAlert>
+      ) : null}
 
       <section className="grid gap-3 md:grid-cols-3">
         <MetricCard label="Debe" value={formatMoney(debit, ctx.company.baseCurrencyCode)} helper="Total de cargos" />
