@@ -25,7 +25,7 @@ export async function parsePayrollBody<S extends z.ZodType>(request: Request, sc
   return { data: parsed.data };
 }
 
-/** Fecha civil de hoy (AAAA-MM-DD) en la zona horaria de la empresa. */
-export function todayIso(timeZone: string | null | undefined) {
+/** Fecha civil de hoy (AAAA-MM-DD) en hora peninsular (el contexto de las rutas no trae la zona de la empresa). */
+export function todayIso(timeZone?: string | null) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timeZone || "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }

@@ -11,7 +11,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     const { ctx, user } = await requirePermission("accounting.write");
     const actor = payrollActor(ctx, user);
     const { id } = await params;
-    return NextResponse.json(await deletePayrollPayment(actor, id, todayIso(ctx.company.timezone)));
+    return NextResponse.json(await deletePayrollPayment(actor, id, todayIso()));
   } catch (error) {
     return handleRouteError(error, "payroll.payments.delete", "No se pudo anular el pago. Inténtalo de nuevo.");
   }

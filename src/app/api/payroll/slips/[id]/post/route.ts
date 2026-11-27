@@ -23,7 +23,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     const { ctx, user } = await requirePermission("accounting.write");
     const actor = payrollActor(ctx, user);
     const { id } = await params;
-    return NextResponse.json(await unpostSlip(actor, id, todayIso(ctx.company.timezone)));
+    return NextResponse.json(await unpostSlip(actor, id, todayIso()));
   } catch (error) {
     return handleRouteError(error, "payroll.slips.unpost", "No se pudo anular el asiento de la nómina. Inténtalo de nuevo.");
   }
