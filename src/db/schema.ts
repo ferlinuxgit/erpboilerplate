@@ -1261,6 +1261,10 @@ export const fixedAsset = pgTable("fixed_asset", {
   disposalProceeds: numeric("disposalProceeds", { precision: 12, scale: 2 }),
   disposalAccountId: text("disposalAccountId").references(() => accountChart.id, { onDelete: "restrict" }),
   disposalNotes: text("disposalNotes"),
+  // Factura de venta emitida con la que se vendió el bien (lleva el cliente y el IVA repercutido).
+  disposalInvoiceId: text("disposalInvoiceId").references((): AnyPgColumn => invoice.id, { onDelete: "set null" }),
+  // Centro de coste al que se imputan las dotaciones del bien (analítica).
+  costCenterId: text("costCenterId").references((): AnyPgColumn => costCenter.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
@@ -1300,6 +1304,22 @@ export const fixedAssetSettings = pgTable("fixed_asset_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   check("fixed_asset_settings_frequency_valid", sql`${table.depreciationFrequency} IN ('monthly', 'annual')`),
+]);
+
+/**
+ * Centros de coste (analítica): maestro al que apunta `journal_line.costCenterId`. Un centro con
+ * apuntes no se borra: se desactiva.
+ */
+export const costCenter = pgTable("cost_center", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  unique("cost_center_company_code_unique").on(table.companyId, table.code),
 ]);
 
 export const bankTransaction = pgTable("bank_transaction", {

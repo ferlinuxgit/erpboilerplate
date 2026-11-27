@@ -5,12 +5,12 @@ import { dateInputValue } from "@/lib/date-input";
 import { formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { formatIsoDate } from "@/server/fixed-assets/schedule";
-import { getSupplierInvoiceAssetPrefill, listFixedAssetAccountOptions, listSupplierInvoiceOptions } from "@/server/fixed-assets/service";
+import { getSupplierInvoiceAssetPrefill, listCostCenterOptions, listFixedAssetAccountOptions, listSupplierInvoiceOptions } from "@/server/fixed-assets/service";
 
 export default async function NewFixedAssetPage({ searchParams }: { searchParams: Promise<{ supplierInvoiceId?: string | string[]; lineId?: string | string[] }> }) {
   const ctx = await requireContext("accounting.read");
   const canWrite = can(ctx.membership.role, "accounting.write");
-  const [accounts, invoices, params] = await Promise.all([listFixedAssetAccountOptions(ctx.company.id), listSupplierInvoiceOptions(ctx.company.id), searchParams]);
+  const [accounts, invoices, costCenters, params] = await Promise.all([listFixedAssetAccountOptions(ctx.company.id), listSupplierInvoiceOptions(ctx.company.id), listCostCenterOptions(ctx.company.id), searchParams]);
   const today = dateInputValue(new Date(), ctx.company.timezone);
   // Alta desde una factura de compra (?supplierInvoiceId=): se propone su fecha y queda enlazada.
   const requestedInvoiceId = typeof params.supplierInvoiceId === "string" ? params.supplierInvoiceId : "";
@@ -42,6 +42,7 @@ export default async function NewFixedAssetPage({ searchParams }: { searchParams
         ) : (
           <FixedAssetForm
             accounts={accounts}
+            costCenters={costCenters}
             currencyCode={ctx.company.baseCurrencyCode}
             initialValues={{
               description: prefill?.line?.description ?? "",
@@ -61,6 +62,7 @@ export default async function NewFixedAssetPage({ searchParams }: { searchParams
               residualValue: "",
               priorAccumulated: "",
               supplierInvoiceId: invoice?.id ?? "",
+              costCenterId: "",
             }}
             supplierInvoices={invoices.map((row) => ({
               id: row.id,

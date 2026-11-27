@@ -265,3 +265,32 @@ export function assetCostFromInvoiceLineCents(line: {
   const vat = toCents(line.taxAmount);
   return base + (vat - applyPct(vat, Number.isFinite(deductiblePct) ? deductiblePct : 100));
 }
+
+/**
+ * Modelos cuya presentación bloquea una dotación a la amortización. La dotación (68x a 28x) no
+ * mueve IVA ni retenciones: no afecta al 303, 390, 349, 111, 115 ni 347. Sí cambia el rendimiento
+ * neto del pago fraccionado del IRPF en estimación directa (modelo 130), así que un 130 presentado
+ * sigue bloqueando su periodo. El ejercicio cerrado bloquea siempre.
+ */
+export const DEPRECIATION_LOCKING_MODEL_CODES: ReadonlySet<string> = new Set(["130"]);
+
+export type RevenueBalance = { accountId: string; cents: number };
+
+/**
+ * Venta de un bien con factura: la factura ya contabilizó el cliente (430), el IVA repercutido
+ * (477) y un ingreso (7xx) por la base. La venta de inmovilizado no es un ingreso de explotación:
+ * el asiento de baja carga esas mismas cuentas de ingreso por el precio de venta, de modo que
+ * quedan a cero y el resultado va a 77x/67x. Reparte el precio entre las cuentas de ingreso de la
+ * factura (de mayor a menor) y devuelve null si la factura no tiene ingreso suficiente.
+ */
+export function allocateSaleProceeds(proceedsCents: number, revenue: readonly RevenueBalance[]): RevenueBalance[] | null {
+  let pending = proceedsCents;
+  const lines: RevenueBalance[] = [];
+  for (const entry of [...revenue].filter((row) => row.cents > 0).sort((left, right) => right.cents - left.cents)) {
+    if (pending <= 0) break;
+    const cents = Math.min(pending, entry.cents);
+    lines.push({ accountId: entry.accountId, cents });
+    pending -= cents;
+  }
+  return pending > 0 || proceedsCents <= 0 ? null : lines;
+}

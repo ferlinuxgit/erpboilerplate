@@ -37,6 +37,7 @@ export type FixedAssetFormValues = {
   residualValue: string;
   priorAccumulated: string;
   supplierInvoiceId: string;
+  costCenterId: string;
 };
 
 type FixedAssetFormProps = {
@@ -45,6 +46,8 @@ type FixedAssetFormProps = {
   initialValues: FixedAssetFormValues;
   accounts: { asset: AccountOption[]; accumulated: AccountOption[]; expense: AccountOption[] };
   supplierInvoices: Array<{ id: string; label: string }>;
+  /** Centros de coste activos; vacío = la empresa no usa analítica y no se muestra el campo. */
+  costCenters?: Array<{ id: string; code: string; name: string }>;
   currencyCode: string;
   /** Con amortizaciones contabilizadas o de baja: solo descripción, notas, tipo fiscal y factura. */
   economicsLocked?: boolean;
@@ -66,7 +69,7 @@ function optionForCode(options: AccountOption[], code: string) {
  * amortización acumulada, la de gasto y el tipo de elemento de la tabla fiscal; el porcentaje es
  * libre y solo se avisa si se sale del rango fiscal.
  */
-export function FixedAssetForm({ accounts, assetId, currencyCode, economicsLocked = false, initialValues, supplierInvoices }: FixedAssetFormProps) {
+export function FixedAssetForm({ accounts, assetId, costCenters = [], currencyCode, economicsLocked = false, initialValues, supplierInvoices }: FixedAssetFormProps) {
   const router = useRouter();
   const [values, setValues] = useState(initialValues);
   const [inServiceTouched, setInServiceTouched] = useState(Boolean(assetId) || initialValues.inServiceDate !== initialValues.acquisitionDate);
@@ -130,6 +133,7 @@ export function FixedAssetForm({ accounts, assetId, currencyCode, economicsLocke
         residualValue: parseMoney(values.residualValue) ?? 0,
         priorAccumulated: showPrior ? (parseMoney(values.priorAccumulated) ?? 0) : 0,
         supplierInvoiceId: values.supplierInvoiceId || null,
+        costCenterId: values.costCenterId || null,
       };
       const response = await fetch(assetId ? `/api/fixed-assets/${assetId}` : "/api/fixed-assets", {
         method: assetId ? "PATCH" : "POST",
@@ -176,6 +180,16 @@ export function FixedAssetForm({ accounts, assetId, currencyCode, economicsLocke
           ))}
         </Select>
       </AccessibleField>
+      {costCenters.length > 0 ? (
+        <AccessibleField className="md:col-span-2" helperText="Opcional. Las amortizaciones del bien se contabilizan con este centro." id="asset-cost-center" label="Centro de coste">
+          <Select data-testid="asset-cost-center" onChange={(event) => set({ costCenterId: event.target.value })} value={values.costCenterId}>
+            <option value="">Sin centro de coste</option>
+            {costCenters.map((center) => (
+              <option key={center.id} value={center.id}>{center.code} · {center.name}</option>
+            ))}
+          </Select>
+        </AccessibleField>
+      ) : null}
 
       <AccessibleField
         className="md:col-span-3"

@@ -5,7 +5,7 @@ import { PageHeader, PageSection, PageShell } from "@/components/ui/page";
 import { requireContext } from "@/lib/current-context";
 import { formatMoney } from "@/lib/format";
 import { formatIsoDate } from "@/server/fixed-assets/schedule";
-import { getFixedAsset, listFixedAssetAccountOptions, listSupplierInvoiceOptions } from "@/server/fixed-assets/service";
+import { getFixedAsset, listCostCenterOptions, listFixedAssetAccountOptions, listSupplierInvoiceOptions } from "@/server/fixed-assets/service";
 
 /** Número de la base de datos («25.0000») como texto editable («25»). */
 const plainNumber = (value: string | null) => (value === null ? "" : String(Number(value)));
@@ -16,6 +16,7 @@ export default async function EditFixedAssetPage({ params }: { params: Promise<{
   const [detail, accounts, invoices] = await Promise.all([getFixedAsset(ctx.company.id, id), listFixedAssetAccountOptions(ctx.company.id), listSupplierInvoiceOptions(ctx.company.id)]);
   if (!detail) notFound();
   const { asset } = detail;
+  const costCenters = await listCostCenterOptions(ctx.company.id, asset.costCenterId);
   const supplierInvoices = invoices.map((row) => ({
     id: row.id,
     label: `${formatIsoDate(row.issueDate)} · ${row.supplierDocumentNumber ?? row.number} · ${row.supplierName} · ${formatMoney(row.totalAmount, ctx.company.baseCurrencyCode)}`,
@@ -38,6 +39,7 @@ export default async function EditFixedAssetPage({ params }: { params: Promise<{
         <FixedAssetForm
           accounts={accounts}
           assetId={asset.id}
+          costCenters={costCenters}
           currencyCode={ctx.company.baseCurrencyCode}
           economicsLocked={detail.economicsLocked}
           initialValues={{
@@ -58,6 +60,7 @@ export default async function EditFixedAssetPage({ params }: { params: Promise<{
             residualValue: asset.residualValue,
             priorAccumulated: Number(asset.priorAccumulated) > 0 ? asset.priorAccumulated : "",
             supplierInvoiceId: detail.supplierInvoice?.id ?? "",
+            costCenterId: asset.costCenterId ?? "",
           }}
           supplierInvoices={supplierInvoices}
         />

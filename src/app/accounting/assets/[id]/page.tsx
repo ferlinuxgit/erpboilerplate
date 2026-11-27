@@ -14,7 +14,7 @@ import { can } from "@/lib/rbac";
 import { listPostingAccounts } from "@/server/accounting/service";
 import { ASSET_CATEGORY_LABELS, ASSET_STATUS_LABELS, categoryAccounts, type AssetStatus } from "@/server/fixed-assets/model";
 import { formatIsoDate, type ScheduleYear } from "@/server/fixed-assets/schedule";
-import { getFixedAsset } from "@/server/fixed-assets/service";
+import { getFixedAsset, listSaleInvoiceOptions } from "@/server/fixed-assets/service";
 import { taxCoefficientWarning } from "@/server/fixed-assets/tax-coefficients";
 
 const statusTone: Record<AssetStatus, "success" | "info" | "neutral"> = { active: "success", fully_depreciated: "info", disposed: "neutral" };
@@ -60,7 +60,9 @@ export default async function FixedAssetDetailPage({ params }: { params: Promise
   const money = (cents: number) => formatMoney(cents / 100, currency);
   const today = dateInputValue(new Date(), ctx.company.timezone);
   const disposed = detail.status === "disposed";
-  const postingAccounts = canWrite && !disposed ? await listPostingAccounts(ctx.company.id) : [];
+  const [postingAccounts, saleInvoices] = canWrite && !disposed
+    ? await Promise.all([listPostingAccounts(ctx.company.id), listSaleInvoiceOptions(ctx.company.id)])
+    : [[], []];
   const years: ScheduleYear[] = figures.schedule?.years ?? [];
   const warning = asset.isDepreciable ? taxCoefficientWarning(figures.annualPct, asset.taxCoefficientKey) : null;
   const lastPosting = detail.postings.at(-1) ?? null;
@@ -103,6 +105,10 @@ export default async function FixedAssetDetailPage({ params }: { params: Promise
                   minDate={minDisposalDate}
                   netBookValueCents={figures.netBookValueCents}
                   resultAccounts={resultAccounts}
+                  saleInvoices={saleInvoices.map((row) => ({
+                    id: row.id,
+                    label: `${row.number} · ${row.customerName} · ${formatIsoDate(row.issueDate)} · ${formatMoney(row.totalAmount, currency)}`,
+                  }))}
                 />
               )}
               {!detail.economicsLocked ? (
@@ -153,6 +159,7 @@ export default async function FixedAssetDetailPage({ params }: { params: Promise
               </Link>
             ) : "—"}
           </Field>
+          {detail.costCenter?.id ? <Field label="Centro de coste"><span className="font-mono font-semibold">{detail.costCenter.code}</span> {detail.costCenter.name}</Field> : null}
           {asset.depreciationStartDate ? <Field label="El programa amortiza desde">{formatIsoDate(asset.depreciationStartDate)}</Field> : null}
           {figures.priorCents > 0 ? <Field label="Amortización acumulada anterior">{money(figures.priorCents)}</Field> : null}
           {asset.notes ? <div className="sm:col-span-2 lg:col-span-3"><Field label="Notas"><span className="whitespace-pre-wrap">{asset.notes}</span></Field></div> : null}
@@ -165,7 +172,14 @@ export default async function FixedAssetDetailPage({ params }: { params: Promise
             <Field label="Operación">{asset.disposalType === "sale" ? "Venta" : "Baja sin cobro"}</Field>
             <Field label="Fecha de baja">{formatIsoDate(asset.disposalDate)}</Field>
             <Field label="Importe de la venta">{asset.disposalProceeds === null ? "—" : formatMoney(asset.disposalProceeds, currency)}</Field>
-            <Field label="Cuenta de contrapartida"><AccountLink account={detail.disposalAccount} /></Field>
+            {detail.disposalInvoice?.id ? (
+              <Field label="Factura de venta">
+                <Link className="font-mono font-semibold text-link hover:underline" href={`/invoices/${detail.disposalInvoice.id}`}>{detail.disposalInvoice.number}</Link>
+                <span className="block text-xs text-muted-foreground">El cobro y el IVA están en la factura; si hay que anularla, anula antes esta baja.</span>
+              </Field>
+            ) : (
+              <Field label="Cuenta de contrapartida"><AccountLink account={detail.disposalAccount} /></Field>
+            )}
             {asset.disposalNotes ? <div className="sm:col-span-2 lg:col-span-4"><Field label="Notas de la baja"><span className="whitespace-pre-wrap">{asset.disposalNotes}</span></Field></div> : null}
           </dl>
         </PageSection>

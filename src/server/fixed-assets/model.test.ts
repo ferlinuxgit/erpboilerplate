@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assetCostFromInvoiceLineCents, assetStatusFor, buildDisposalLines, buildRegisterRows, effectiveAnnualPct, nextAssetCode, suggestAssetAccounts, validateAssetRules, type AssetRulesInput, type RegisterAsset } from "@/server/fixed-assets/model";
+import { allocateSaleProceeds, assetCostFromInvoiceLineCents, assetStatusFor, DEPRECIATION_LOCKING_MODEL_CODES, buildDisposalLines, buildRegisterRows, effectiveAnnualPct, nextAssetCode, suggestAssetAccounts, validateAssetRules, type AssetRulesInput, type RegisterAsset } from "@/server/fixed-assets/model";
 import { planAssetPostings, FISCAL_PERIOD_LOCKED } from "@/server/fixed-assets/posting-plan";
 import { findTaxCoefficient, suggestedTaxCoefficientKey, TAX_COEFFICIENTS, taxCoefficientWarning } from "@/server/fixed-assets/tax-coefficients";
 
@@ -238,5 +238,41 @@ describe("precio de adquisición desde la línea de la factura de compra", () =>
 
   it("con IVA autorrepercutido (intracomunitaria, inversión del sujeto pasivo) es la base", () => {
     expect(assetCostFromInvoiceLineCents({ subtotalAmount: "1000.00", taxAmount: "210.00", taxDeductiblePct: "0", vatTreatment: "INTRA_EU" })).toBe(100_000);
+  });
+});
+
+describe("venta de un bien con factura emitida", () => {
+  it("carga la cuenta de ingreso de la factura por el precio de venta", () => {
+    expect(allocateSaleProceeds(100_000, [{ accountId: "700", cents: 100_000 }])).toEqual([{ accountId: "700", cents: 100_000 }]);
+  });
+
+  it("reparte entre varias cuentas de ingreso, de mayor a menor, al céntimo", () => {
+    expect(allocateSaleProceeds(120_000, [{ accountId: "705", cents: 30_000 }, { accountId: "700", cents: 100_000 }])).toEqual([
+      { accountId: "700", cents: 100_000 },
+      { accountId: "705", cents: 20_000 },
+    ]);
+  });
+
+  it("rechaza un precio mayor que el ingreso de la factura o no positivo", () => {
+    expect(allocateSaleProceeds(100_001, [{ accountId: "700", cents: 100_000 }])).toBeNull();
+    expect(allocateSaleProceeds(0, [{ accountId: "700", cents: 100_000 }])).toBeNull();
+    expect(allocateSaleProceeds(100, [{ accountId: "700", cents: -500 }])).toBeNull();
+  });
+
+  it("el asiento de baja y el de la factura cuadran juntos sin duplicar el ingreso", () => {
+    // Factura: 430 (1.210) a 700 (1.000) y 477 (210). Bien: coste 3.000, amortizado 2.400, venta 1.000.
+    const { lines, resultCents } = buildDisposalLines({ costCents: 300_000, accumulatedCents: 240_000, proceedsCents: 100_000 });
+    const proceeds = allocateSaleProceeds(100_000, [{ accountId: "700", cents: 100_000 }]) ?? [];
+    const revenueAfter = 100_000 - proceeds.reduce((sum, line) => sum + line.cents, 0);
+    expect(revenueAfter).toBe(0);
+    expect(resultCents).toBe(40_000);
+    expect(lines.reduce((sum, line) => sum + line.debitCents - line.creditCents, 0)).toBe(0);
+  });
+});
+
+describe("bloqueo fiscal de las dotaciones", () => {
+  it("los modelos de IVA y retenciones no bloquean una dotación; el 130 sí", () => {
+    for (const code of ["303", "390", "349", "111", "115", "347"]) expect(DEPRECIATION_LOCKING_MODEL_CODES.has(code)).toBe(false);
+    expect(DEPRECIATION_LOCKING_MODEL_CODES.has("130")).toBe(true);
   });
 });

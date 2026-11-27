@@ -1,21 +1,24 @@
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-import { accountChart, fiscalYear, fixedAsset, fixedAssetDepreciation, fixedAssetSettings, journalEntry, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { accountChart, costCenter, customer, fiscalYear, fixedAsset, fixedAssetDepreciation, fixedAssetSettings, invoice, journalEntry, journalLine, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { createAutomaticEntry, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError, isAccountingRuleError } from "@/server/accounting/errors";
 import { centsToAmount, toCents } from "@/server/accounting/money";
 import { ensureSubaccount, toPostableAccountId } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
-import { assertFiscalPeriodOpen, resolveOpenPostingDate } from "@/server/fiscal/locks";
+import { assertFiscalPeriodOpen, assertFiscalYearOpen, findFiscalPeriodLock, resolveOpenPostingDate } from "@/server/fiscal/locks";
+import { invoiceIsIssuedSql } from "@/server/invoices/sql";
 import {
+  allocateSaleProceeds,
   assetCategoryForCode,
   assetCostFromInvoiceLineCents,
   assetStatusFor,
   buildDisposalLines,
   buildRegisterRows,
   categoryAccounts,
+  DEPRECIATION_LOCKING_MODEL_CODES,
   effectiveAnnualPct,
   FIXED_ASSET_DOCUMENT_TYPE,
   FIXED_ASSET_SOURCE,
@@ -25,7 +28,7 @@ import {
   type DepreciationMethod,
   type RegisterRow,
 } from "@/server/fixed-assets/model";
-import { planAssetPostings, type PlannedPosting, type PostingBlock } from "@/server/fixed-assets/posting-plan";
+import { FISCAL_PERIOD_LOCKED, planAssetPostings, type PlannedPosting, type PostingBlock } from "@/server/fixed-assets/posting-plan";
 import {
   addDays,
   buildDepreciationSchedule,
@@ -331,6 +334,8 @@ export async function getFixedAsset(companyId: string, id: string) {
       expenseAccount: { id: expenseAccount.id, code: expenseAccount.code, name: expenseAccount.name },
       disposalAccount: { id: disposalAccount.id, code: disposalAccount.code, name: disposalAccount.name },
       supplierInvoice: { id: supplierInvoice.id, number: supplierInvoice.number, supplierDocumentNumber: supplierInvoice.supplierDocumentNumber },
+      costCenter: { id: costCenter.id, code: costCenter.code, name: costCenter.name },
+      disposalInvoice: { id: invoice.id, number: invoice.number },
     })
     .from(fixedAsset)
     .innerJoin(assetAccount, eq(assetAccount.id, fixedAsset.assetAccountId))
@@ -338,6 +343,8 @@ export async function getFixedAsset(companyId: string, id: string) {
     .leftJoin(expenseAccount, eq(expenseAccount.id, fixedAsset.expenseAccountId))
     .leftJoin(disposalAccount, eq(disposalAccount.id, fixedAsset.disposalAccountId))
     .leftJoin(supplierInvoice, and(eq(supplierInvoice.id, fixedAsset.supplierInvoiceId), eq(supplierInvoice.companyId, companyId)))
+    .leftJoin(costCenter, and(eq(costCenter.id, fixedAsset.costCenterId), eq(costCenter.companyId, companyId)))
+    .leftJoin(invoice, and(eq(invoice.id, fixedAsset.disposalInvoiceId), eq(invoice.companyId, companyId)))
     .where(and(eq(fixedAsset.companyId, companyId), eq(fixedAsset.id, id)))
     .limit(1);
   if (!row) return null;
@@ -404,6 +411,7 @@ type ResolvedAssetValues = {
   depreciationStartDate: string | null;
   priorAccumulated: string;
   supplierInvoiceId: string | null;
+  costCenterId: string | null;
 };
 
 const ECONOMIC_KEYS = [
@@ -472,6 +480,17 @@ async function resolveAssetValues(client: DbClient, companyId: string, input: Fi
     supplierInvoiceId = invoiceRow.id;
   }
 
+  let costCenterId: string | null = null;
+  if (input.costCenterId) {
+    const [center] = await client
+      .select({ id: costCenter.id })
+      .from(costCenter)
+      .where(and(eq(costCenter.companyId, companyId), eq(costCenter.id, input.costCenterId)))
+      .limit(1);
+    if (!center) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "El centro de coste indicado no existe en esta empresa.");
+    costCenterId = center.id;
+  }
+
   const assetAccount = await ensureSubaccount(companyId, input.assetAccountCode, client);
   const accumulatedAccount = input.isDepreciable && input.accumulatedAccountCode ? await ensureSubaccount(companyId, input.accumulatedAccountCode, client) : null;
   const expenseAccount = input.isDepreciable && input.expenseAccountCode ? await ensureSubaccount(companyId, input.expenseAccountCode, client) : null;
@@ -494,6 +513,7 @@ async function resolveAssetValues(client: DbClient, companyId: string, input: Fi
     depreciationStartDate,
     priorAccumulated: centsToAmount(priorAccumulatedCents),
     supplierInvoiceId,
+    costCenterId,
   };
 }
 
@@ -538,7 +558,8 @@ export async function updateFixedAsset(actor: Actor, id: string, input: FixedAss
       );
     }
     const editable = locked
-      ? { description: values.description, notes: values.notes, supplierInvoiceId: values.supplierInvoiceId, taxCoefficientKey: values.taxCoefficientKey }
+      // El centro de coste se puede cambiar siempre: solo afecta a las dotaciones futuras.
+      ? { description: values.description, notes: values.notes, supplierInvoiceId: values.supplierInvoiceId, taxCoefficientKey: values.taxCoefficientKey, costCenterId: values.costCenterId }
       : {
           ...values,
           status: assetStatusFor({
@@ -577,19 +598,33 @@ export async function deleteFixedAsset(actor: Actor, id: string) {
 // Contabilizar amortizaciones
 // ---------------------------------------------------------------------------------------------
 
-/** Comprueba (con caché por fecha) si una fecha admite apuntes: ejercicio abierto y periodo fiscal sin presentar. */
+/**
+ * ¿Admite la fecha una dotación? (con caché por fecha). Exige el ejercicio abierto, pero no mira los
+ * modelos de IVA o retenciones presentados: una dotación (68x a 28x) no los altera, así que la del
+ * 31/12 se puede contabilizar aunque el 303 del 4T ya esté presentado. Solo la bloquea un modelo
+ * cuyo resultado dependa del gasto (`DEPRECIATION_LOCKING_MODEL_CODES`: el 130).
+ */
 function openDateChecker(companyId: string, client: DbClient) {
   const cache = new Map<string, Promise<PostingBlock | null>>();
+  const check = async (iso: string): Promise<PostingBlock | null> => {
+    const date = isoToDate(iso);
+    try {
+      await assertFiscalYearOpen(companyId, date, client);
+    } catch (error) {
+      if (isAccountingRuleError(error)) return { code: error.code, message: error.message };
+      throw error;
+    }
+    const lock = await findFiscalPeriodLock(companyId, date, client, DEPRECIATION_LOCKING_MODEL_CODES);
+    if (!lock.locked) return null;
+    return {
+      code: FISCAL_PERIOD_LOCKED,
+      message: `El periodo ${lock.period} del modelo ${lock.code} ya está presentado y la amortización cambiaría su resultado. Se acumula en el siguiente periodo abierto del ejercicio o reabre el modelo en Fiscalidad.`,
+    };
+  };
   return (iso: string) => {
     let pending = cache.get(iso);
     if (!pending) {
-      pending = assertFiscalPeriodOpen(companyId, isoToDate(iso), client).then(
-        () => null,
-        (error: unknown) => {
-          if (isAccountingRuleError(error)) return { code: error.code, message: error.message };
-          throw error;
-        },
-      );
+      pending = check(iso);
       cache.set(iso, pending);
     }
     return pending;
@@ -626,6 +661,14 @@ async function postDepreciationEntry(tx: DbClient, actor: Actor, asset: Deprecia
     sourceType: FIXED_ASSET_SOURCE.depreciation,
     sourceId: id,
   });
+  // Centro de coste del bien en el apunte de gasto (68x). `createAutomaticEntry` aún no admite el
+  // centro de coste en sus líneas: se anota justo después de crear el asiento.
+  if (asset.costCenterId) {
+    await tx
+      .update(journalLine)
+      .set({ costCenterId: asset.costCenterId })
+      .where(and(eq(journalLine.journalEntryId, entry.id), gt(journalLine.debit, "0")));
+  }
   await tx.insert(fixedAssetDepreciation).values({
     id,
     companyId: actor.companyId,
@@ -765,8 +808,17 @@ export async function undoLastDepreciation(actor: Actor, assetId: string, today:
 
 /**
  * Baja o venta: amortiza hasta la fecha de baja y da de baja el valor del bien y su amortización
- * acumulada contra la cuenta indicada, llevando la diferencia a pérdidas (67x) o beneficios (77x).
- * No contabiliza el IVA de la venta: si hay factura, el IVA va por el circuito de facturación.
+ * acumulada, llevando la diferencia a pérdidas (67x) o beneficios (77x).
+ *
+ * Venta con factura (`salesInvoiceId`, una factura de venta ya emitida al comprador): la factura
+ * contabilizó   430 Cliente (total)  a  7xx Ingreso (base) + 477 IVA repercutido.
+ * La baja contabiliza   28x Amort. acumulada + 7xx Ingreso de la factura (precio) [+ 67x pérdida]
+ *                       a  21x Bien (coste) [+ 77x beneficio].
+ * El ingreso 7xx queda a cero (la venta de inmovilizado no es cifra de negocios), el cobro y el IVA
+ * los lleva la factura y el resultado de la venta queda en 77x/67x: nada se duplica ni descuadra.
+ *
+ * Venta sin factura (`accountId`): el precio va al debe de la cuenta indicada (banco, 543…) y el
+ * asiento no lleva IVA.
  */
 export async function disposeFixedAsset(actor: Actor, id: string, input: DisposeFixedAssetInput) {
   return db.transaction(async (tx) => {
@@ -780,9 +832,20 @@ export async function disposeFixedAsset(actor: Actor, id: string, input: Dispose
     if (asset.status === "disposed") throw new AccountingRuleError(409, "FIXED_ASSET_DISPOSED", "El bien ya está dado de baja.");
     if (input.date < asset.acquisitionDate) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "La fecha de baja no puede ser anterior a la de adquisición.");
 
-    const proceedsCents = input.type === "sale" ? toCents(input.proceeds ?? 0) : 0;
+    const requestedProceedsCents = input.type === "sale" ? toCents(input.proceeds ?? 0) : 0;
+    const saleInvoice = input.type === "sale" && input.salesInvoiceId ? await loadSaleInvoice(tx, actor.companyId, input.salesInvoiceId, id) : null;
+    // Con factura, el precio de venta es su base imponible salvo que se indique otro (factura con más conceptos).
+    const proceedsCents = input.type !== "sale" ? 0 : saleInvoice && requestedProceedsCents <= 0 ? saleInvoice.revenueCents : requestedProceedsCents;
     if (input.type === "sale" && proceedsCents <= 0) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "Indica el importe de la venta (sin impuestos). Si no se cobra nada, registra una baja.");
-    if (proceedsCents > 0 && !input.accountId) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "Indica la cuenta de contrapartida de la venta (banco, deudor o créditos por enajenación de inmovilizado).");
+    const invoiceProceeds = saleInvoice ? allocateSaleProceeds(proceedsCents, saleInvoice.revenue) : null;
+    if (saleInvoice && !invoiceProceeds) {
+      throw new AccountingRuleError(
+        422,
+        "FIXED_ASSET_INVALID",
+        `El importe de la venta supera la base de la factura ${saleInvoice.number} (${centsToAmount(saleInvoice.revenueCents)}). Indica como mucho esa base.`,
+      );
+    }
+    if (proceedsCents > 0 && !saleInvoice && !input.accountId) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "Elige la factura de venta o indica la cuenta de contrapartida (banco, deudor o créditos por enajenación de inmovilizado).");
 
     await assertFiscalPeriodOpen(actor.companyId, isoToDate(input.date), tx);
 
@@ -828,7 +891,7 @@ export async function disposeFixedAsset(actor: Actor, id: string, input: Dispose
     if (!category) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "La cuenta del bien no es de inmovilizado.");
     const { lines, resultCents } = buildDisposalLines({ costCents: figures.costCents, accumulatedCents, proceedsCents });
     const resultAccounts = categoryAccounts(category);
-    const counterAccountId = proceedsCents > 0 && input.accountId ? await toPostableAccountId(actor.companyId, input.accountId, tx) : null;
+    const counterAccountId = proceedsCents > 0 && !saleInvoice && input.accountId ? await toPostableAccountId(actor.companyId, input.accountId, tx) : null;
     const label = input.type === "sale" ? "Venta" : "Baja";
     const meta = {
       concept: `${label} ${asset.code} · ${asset.description}`.slice(0, 200),
@@ -838,6 +901,13 @@ export async function disposeFixedAsset(actor: Actor, id: string, input: Dispose
     };
     const postingLines = [];
     for (const line of lines) {
+      if (line.role === "proceeds" && saleInvoice && invoiceProceeds) {
+        // El precio de venta salda el ingreso que contabilizó la factura (una línea por cuenta).
+        for (const part of invoiceProceeds) {
+          postingLines.push({ accountId: part.accountId, debit: centsToAmount(part.cents), credit: "0.00", ...meta, concept: `${label} ${asset.code} · factura ${saleInvoice.number}`.slice(0, 200) });
+        }
+        continue;
+      }
       let accountId: string | null;
       if (line.role === "asset") accountId = asset.assetAccountId;
       else if (line.role === "accumulated") accountId = asset.accumulatedAccountId;
@@ -866,12 +936,89 @@ export async function disposeFixedAsset(actor: Actor, id: string, input: Dispose
         disposalType: input.type,
         disposalProceeds: centsToAmount(proceedsCents),
         disposalAccountId: counterAccountId,
+        disposalInvoiceId: saleInvoice?.id ?? null,
         disposalNotes: input.notes?.trim() || null,
         updatedAt: new Date(),
       })
       .where(eq(fixedAsset.id, id));
     return { id, entryId: entry.id, entryNumber: entry.number, resultCents };
   });
+}
+
+/**
+ * Factura de venta con la que se vende un bien: emitida, ordinaria, de la empresa y sin usar en
+ * otra baja. Devuelve el ingreso (grupo 7) que contabilizó su asiento, por cuenta.
+ */
+async function loadSaleInvoice(tx: DbClient, companyId: string, invoiceId: string, assetId: string) {
+  const [row] = await tx
+    .select({ id: invoice.id, number: invoice.number, invoiceType: invoice.invoiceType })
+    .from(invoice)
+    .where(and(eq(invoice.companyId, companyId), eq(invoice.id, invoiceId), invoiceIsIssuedSql))
+    .limit(1);
+  if (!row) throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "La factura de venta no existe o no está emitida. Emítela antes de registrar la venta del bien.");
+  if (row.invoiceType !== "INVOICE") throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", "La venta de un bien se enlaza con una factura ordinaria, no con una rectificativa.");
+  const [used] = await tx
+    .select({ code: fixedAsset.code })
+    .from(fixedAsset)
+    .where(and(eq(fixedAsset.companyId, companyId), eq(fixedAsset.disposalInvoiceId, row.id), ne(fixedAsset.id, assetId)))
+    .limit(1);
+  // Varias bajas contra la misma factura saldarían dos veces su ingreso si no se reparte a mano.
+  const alreadyCents = used ? await disposalProceedsForInvoice(tx, companyId, row.id) : 0;
+  const revenueRows = await tx
+    .select({ accountId: journalLine.accountId, cents: sql<string>`sum(${journalLine.credit} - ${journalLine.debit})` })
+    .from(journalLine)
+    .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
+    .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
+    .where(and(
+      eq(journalEntry.companyId, companyId),
+      eq(journalEntry.sourceType, "invoice"),
+      eq(journalEntry.sourceId, row.id),
+      isNull(journalEntry.reversedAt),
+      isNull(journalEntry.reversesEntryId),
+      sql`${accountChart.code} like '7%'`,
+    ))
+    .groupBy(journalLine.accountId);
+  let revenue = revenueRows.map((line) => ({ accountId: line.accountId, cents: toCents(line.cents) })).filter((line) => line.cents > 0);
+  // Lo que otras bajas ya saldaron de esta factura no está disponible.
+  if (alreadyCents > 0) {
+    const consumed = allocateSaleProceeds(alreadyCents, revenue) ?? revenue;
+    revenue = revenue.map((line) => ({ ...line, cents: line.cents - (consumed.find((part) => part.accountId === line.accountId)?.cents ?? 0) })).filter((line) => line.cents > 0);
+  }
+  const revenueCents = revenue.reduce((sum, line) => sum + line.cents, 0);
+  if (revenueCents <= 0) {
+    throw new AccountingRuleError(422, "FIXED_ASSET_INVALID", `La factura ${row.number} no tiene ingreso contabilizado disponible para esta venta. Comprueba que está emitida y que no se ha usado ya en otra baja.`);
+  }
+  return { id: row.id, number: row.number, revenue, revenueCents };
+}
+
+async function disposalProceedsForInvoice(tx: DbClient, companyId: string, invoiceId: string) {
+  const [row] = await tx
+    .select({ total: sql<string>`coalesce(sum(${fixedAsset.disposalProceeds}), 0)` })
+    .from(fixedAsset)
+    .where(and(eq(fixedAsset.companyId, companyId), eq(fixedAsset.disposalInvoiceId, invoiceId)));
+  return toCents(row?.total ?? 0);
+}
+
+/** Facturas de venta emitidas recientes para enlazar la venta de un bien (número, cliente e importe). */
+export async function listSaleInvoiceOptions(companyId: string, limit = 150) {
+  const rows = await db
+    .select({ id: invoice.id, number: invoice.number, issueDate: invoice.issueDate, totalAmount: invoice.totalAmount, customerName: customer.name })
+    .from(invoice)
+    .innerJoin(customer, eq(customer.id, invoice.customerId))
+    .where(and(eq(invoice.companyId, companyId), eq(invoice.invoiceType, "INVOICE"), invoiceIsIssuedSql))
+    .orderBy(desc(invoice.issueDate), desc(invoice.number))
+    .limit(limit);
+  return rows.map((row) => ({ ...row, issueDate: dateToIso(row.issueDate) }));
+}
+
+/** Centros de coste activos (más el del bien, aunque esté inactivo) para la ficha. */
+export async function listCostCenterOptions(companyId: string, includeId?: string | null) {
+  const rows = await db
+    .select({ id: costCenter.id, code: costCenter.code, name: costCenter.name, isActive: costCenter.isActive })
+    .from(costCenter)
+    .where(eq(costCenter.companyId, companyId))
+    .orderBy(asc(costCenter.code));
+  return rows.filter((row) => row.isActive || row.id === includeId);
 }
 
 /** Anula la baja con un contraasiento. La amortización contabilizada hasta la fecha de baja se conserva. */
@@ -895,7 +1042,7 @@ export async function undoDisposal(actor: Actor, id: string, today: string) {
     const status = assetStatusFor({ disposed: false, isDepreciable: asset.isDepreciable, depreciableCents: figures.depreciableCents, accumulatedCents: figures.accumulatedCents });
     await tx
       .update(fixedAsset)
-      .set({ status, disposalDate: null, disposalType: null, disposalProceeds: null, disposalAccountId: null, disposalNotes: null, updatedAt: new Date() })
+      .set({ status, disposalDate: null, disposalType: null, disposalProceeds: null, disposalAccountId: null, disposalInvoiceId: null, disposalNotes: null, updatedAt: new Date() })
       .where(eq(fixedAsset.id, id));
     await recordAudit({ ...actor, action: "fixedAsset.dispose.undo", entityName: "fixedAsset", entityId: id, payload: { code: asset.code, reversedAt: dateToIso(postedAt) } }, tx);
     return { id };
