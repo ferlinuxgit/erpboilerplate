@@ -517,7 +517,7 @@ export const REVERSE_CHARGE_DEFAULT_RATE = 21;
  * Si la línea trae cuota calculada se usa esa; si no, se aplica el tipo general.
  */
 export function reverseChargeTaxAmount(subtotal: number, lineTaxAmount: number, defaultRate = REVERSE_CHARGE_DEFAULT_RATE) {
-  if (lineTaxAmount > 0) return roundMoney(lineTaxAmount);
+  if (lineTaxAmount !== 0) return roundMoney(lineTaxAmount);
   return roundMoney((subtotal * defaultRate) / 100);
 }
 

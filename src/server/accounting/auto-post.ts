@@ -324,7 +324,7 @@ function absorbRoundingDifference(
   const key = side === "debit" ? "debitCents" : "creditCents";
   let target = -1;
   for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index][key] > 0 && (target < 0 || lines[index][key] >= lines[target][key])) target = index;
+    if (lines[index][key] !== 0 && (target < 0 || Math.abs(lines[index][key]) >= Math.abs(lines[target][key]))) target = index;
   }
   if (target < 0) throw new AccountingRuleError(422, "ENTRY_UNBALANCED", "No se pudo cuadrar el asiento automático.");
   lines[target] = { ...lines[target], [key]: lines[target][key] + difference };
@@ -752,7 +752,8 @@ export function buildSupplierInvoiceLines(input: {
     deductibleCents += deductible;
     subtotalCents += lineSubtotal;
     if (selfAssessed) selfAssessedCents += vatCents;
-    retentionCents += Math.max(toCents(line.retentionAmount ?? 0), 0);
+    // Con signo: un abono del proveedor devuelve también la retención practicada.
+    retentionCents += toCents(line.retentionAmount ?? 0);
   }
 
   const supplierCents = selfAssessed ? subtotalCents - retentionCents : toCents(input.totalAmount);
