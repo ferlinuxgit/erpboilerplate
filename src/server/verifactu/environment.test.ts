@@ -24,11 +24,11 @@ describe("VeriFactu · entorno del despliegue", () => {
     expect(getVerifactuEnvironment({ VERIFACTU_ENVIRONMENT: " Test " })).toBe("test");
   });
 
-  it("has no default when sending is enabled or in a production build", () => {
+  it("has no default when sending to the AEAT is enabled", () => {
     expect(readVerifactuEnvironment({ VERIFACTU_TRANSPORT: "aeat" })).toMatchObject({ environment: null, problem: expect.stringContaining("VERIFACTU_ENVIRONMENT") });
-    expect(readVerifactuEnvironment({ NODE_ENV: "production" }).environment).toBeNull();
-    expect(() => requireVerifactuEnvironment({ NODE_ENV: "production" })).toThrowError(expect.objectContaining({ status: 503 }));
-    // Solo en desarrollo, sin envío, se asume pruebas.
+    expect(() => requireVerifactuEnvironment({ VERIFACTU_TRANSPORT: "aeat", NODE_ENV: "production" })).toThrowError(expect.objectContaining({ status: 503 }));
+    // Sin envío nada sale del sistema: se asume pruebas (y se rotula así), también en producción.
+    expect(getVerifactuEnvironment({ NODE_ENV: "production" })).toBe("test");
     expect(getVerifactuEnvironment({ NODE_ENV: "development" })).toBe("test");
     expect(getVerifactuEnvironment({})).toBe("test");
   });

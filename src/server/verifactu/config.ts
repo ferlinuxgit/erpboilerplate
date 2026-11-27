@@ -3,7 +3,7 @@
  *
  * Variables de entorno:
  * - VERIFACTU_ENVIRONMENT: "production" o "test" (preproducción AEAT). OBLIGATORIA y sin valor por
- *   defecto con VERIFACTU_TRANSPORT=aeat o NODE_ENV=production; solo en desarrollo se asume "test".
+ *   defecto con VERIFACTU_TRANSPORT=aeat; sin envío activado se asume "test".
  *   Cada registro guarda el entorno en el que nació: cambiarla NO mueve los registros existentes
  *   (los del otro entorno dejan de enviarse y se avisa en pantalla).
  * - VERIFACTU_TRANSPORT: "disabled" (por defecto) o "aeat" (envío real con certificado).
@@ -67,7 +67,9 @@ export function readVerifactuEnvironment(env: Env = process.env): VerifactuEnvir
   if (raw) {
     return { environment: null, problem: `VERIFACTU_ENVIRONMENT tiene un valor no válido («${raw}»): debe ser «production» o «test».` };
   }
-  if (env.VERIFACTU_TRANSPORT === "aeat" || env.NODE_ENV === "production") {
+  // Sin envío a la AEAT nada sale del sistema: los registros nacen como «pruebas» (y así se rotulan)
+  // en vez de impedir la emisión. En cuanto se activa el envío, el entorno debe declararse.
+  if (env.VERIFACTU_TRANSPORT === "aeat") {
     return { environment: null, problem: "Falta VERIFACTU_ENVIRONMENT: hay que indicar de forma expresa «production» o «test» (no hay valor por defecto)." };
   }
   return { environment: "test", problem: null };

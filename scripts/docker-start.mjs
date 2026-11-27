@@ -45,7 +45,7 @@ function validateRuntimeEnv() {
     process.exit(1);
   }
   if (!verifactuEnvironment) {
-    console.warn('WARNING: VERIFACTU_ENVIRONMENT is not set. Companies with VERI*FACTU enabled will not be able to issue invoices until it is set to "production" or "test".');
+    console.warn('WARNING: VERIFACTU_ENVIRONMENT is not set and sending to the AEAT is disabled. Invoice records are generated as TEST records and never reach the tax agency.');
   } else if (verifactuEnvironment === "test" && process.env.NODE_ENV === "production") {
     console.warn("WARNING: VERIFACTU_ENVIRONMENT=test. Invoice records are generated for the AEAT TEST environment and never reach the tax agency.");
   }
