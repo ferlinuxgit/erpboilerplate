@@ -14,8 +14,8 @@ type Anomaly = { sequence: number | null; code: string; message: string };
 type VerifyResult = { ok: boolean; recordCount: number; eventCount: number; anomalies: Anomaly[] };
 
 /**
- * "Subsanar": vuelve a registrar una factura cuyo registro rechazó (o aceptó con errores) la AEAT,
- * con los datos de cliente y empresa tal y como están ahora en sus fichas.
+ * "Subsanar": vuelve a registrar una factura cuyo registro rechazó (o aceptó con errores) la AEAT.
+ * La factura y su destinatario no cambian; si el error es del cliente, procede una rectificativa.
  */
 export function VerifactuSubsanarButton({ invoiceId, invoiceNumber }: { invoiceId: string; invoiceNumber: string }) {
   const router = useRouter();
@@ -72,9 +72,13 @@ export function VerifactuActions({ canWrite, transportEnabled, pendingCount }: {
     try {
       const response = await fetch("/api/verifactu/send", { method: "POST", headers: { ...getCsrfHeader() } });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo enviar a la AEAT."));
-      const body = (await response.json()) as { summaries?: Array<{ accepted: number; rejected: number; failed: number }> };
-      const totals = (body.summaries ?? []).reduce((acc, row) => ({ accepted: acc.accepted + row.accepted, rejected: acc.rejected + row.rejected, failed: acc.failed + row.failed }), { accepted: 0, rejected: 0, failed: 0 });
-      toast.success(`Envío terminado: ${formatCount(totals.accepted, "aceptado")}, ${formatCount(totals.rejected, "rechazado")} y ${formatCount(totals.failed, "pendiente")} de reintento.`);
+      const body = (await response.json()) as { message?: string; summaries?: Array<{ sent: number; accepted: number; rejected: number; failed: number; error?: string | null }> };
+      const summaries = body.summaries ?? [];
+      const totals = summaries.reduce((acc, row) => ({ sent: acc.sent + row.sent, accepted: acc.accepted + row.accepted, rejected: acc.rejected + row.rejected, failed: acc.failed + row.failed }), { sent: 0, accepted: 0, rejected: 0, failed: 0 });
+      // Sin nada enviado (espera que pide la AEAT, certificado caducado…) el servidor explica por qué.
+      if (totals.sent === 0) toast.info(body.message ?? "No hay registros que se puedan enviar ahora mismo.");
+      else if (totals.failed > 0 || totals.rejected > 0) toast.warning(`Envío terminado: ${formatCount(totals.accepted, "aceptado")}, ${formatCount(totals.rejected, "rechazado")} y ${formatCount(totals.failed, "pendiente")} de reintento.`);
+      else toast.success(`Envío terminado: ${formatCount(totals.accepted, "aceptado")}.`);
       router.refresh();
     } catch (error) {
       toast.error(errorMessage(error, "No se pudo completar la operación."));

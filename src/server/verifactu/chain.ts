@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { verifactuChainHead, verifactuEvent, verifactuRecord } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { formatAeatDateTime } from "@/server/verifactu/format";
 import { computeAltaHash, computeAnulacionHash, computeEventHash } from "@/server/verifactu/hash";
 import type { VerifactuAltaContent } from "@/server/verifactu/mapping";
-import type { VerifactuSystemInfo } from "@/server/verifactu/config";
+import { requireVerifactuEnvironment, type VerifactuEnvironment, type VerifactuSystemInfo } from "@/server/verifactu/config";
 
 /**
  * Encadenamiento de registros VeriFactu.
@@ -13,8 +13,11 @@ import type { VerifactuSystemInfo } from "@/server/verifactu/config";
  * Todo ocurre dentro de la transacción de emisión: se bloquea la cabeza de la cadena de la empresa
  * (`verifactu_chain_head` … FOR UPDATE), se lee el registro anterior, se calcula la huella y se
  * inserta el registro con la secuencia siguiente. Dos emisiones concurrentes se serializan en el
- * bloqueo; además, los índices únicos (empresa, secuencia) y (empresa, registro anterior) impiden
- * una bifurcación aunque alguien escribiera sin pasar por aquí.
+ * bloqueo; además, los índices únicos (empresa, entorno, secuencia) y (empresa, registro anterior)
+ * impiden una bifurcación aunque alguien escribiera sin pasar por aquí.
+ *
+ * Hay una cadena por empresa Y entorno de la AEAT: los registros de pruebas y los de producción
+ * nunca se encadenan entre sí. El entorno se fija al crear el registro y ya no cambia.
  */
 
 export type VerifactuRecordRow = typeof verifactuRecord.$inferSelect;
@@ -22,12 +25,15 @@ export type VerifactuMode = "VERIFACTU" | "NO_VERIFACTU";
 
 type ChainHead = typeof verifactuChainHead.$inferSelect;
 
-export async function lockChainHead(tx: DbClient, companyId: string): Promise<ChainHead> {
-  await tx.insert(verifactuChainHead).values({ companyId }).onConflictDoNothing();
+const headOf = (companyId: string, environment: VerifactuEnvironment) =>
+  and(eq(verifactuChainHead.companyId, companyId), eq(verifactuChainHead.environment, environment));
+
+export async function lockChainHead(tx: DbClient, companyId: string, environment: VerifactuEnvironment): Promise<ChainHead> {
+  await tx.insert(verifactuChainHead).values({ companyId, environment }).onConflictDoNothing();
   const [head] = await tx
     .select()
     .from(verifactuChainHead)
-    .where(eq(verifactuChainHead.companyId, companyId))
+    .where(headOf(companyId, environment))
     .for("update")
     .limit(1);
   if (!head) throw new Error("No se pudo bloquear la cadena VeriFactu de la empresa.");
@@ -65,6 +71,8 @@ type BaseDraft = {
   companyId: string;
   invoiceId: string;
   mode: VerifactuMode;
+  /** Entorno de la AEAT en el que nace el registro (el del despliegue que lo genera). */
+  environment: VerifactuEnvironment;
   issuerTaxId: string;
   issuerName: string;
   invoiceNumber: string;
@@ -92,7 +100,7 @@ async function insertChained(
   build: (chain: { previousHash: string | null; generatedAtText: string }) => { hash: string; values: Partial<typeof verifactuRecord.$inferInsert> },
   now: Date,
 ): Promise<VerifactuRecordRow> {
-  const head = await lockChainHead(tx, draft.companyId);
+  const head = await lockChainHead(tx, draft.companyId, draft.environment);
   const previous = await loadPrevious(tx, head);
   const generatedAt = monotonicNow(now, previous?.generatedAt);
   const generatedAtText = formatAeatDateTime(generatedAt);
@@ -105,6 +113,7 @@ async function insertChained(
       companyId: draft.companyId,
       invoiceId: draft.invoiceId,
       mode: draft.mode,
+      environment: draft.environment,
       recordType: "ALTA",
       sequence,
       issuerTaxId: draft.issuerTaxId,
@@ -128,7 +137,7 @@ async function insertChained(
   await tx
     .update(verifactuChainHead)
     .set({ lastRecordId: created.id, lastSequence: sequence, lastHash: hash, updatedAt: generatedAt })
-    .where(eq(verifactuChainHead.companyId, draft.companyId));
+    .where(headOf(draft.companyId, draft.environment));
 
   return created;
 }
@@ -190,13 +199,17 @@ export type VerifactuEventType =
   | "SUBMISSION_ERROR"
   | "SUBSANACION";
 
-/** Registro de eventos encadenado (misma cabeza de cadena, secuencia propia). */
+/**
+ * Registro de eventos encadenado (misma cabeza de cadena, secuencia propia). Como la cadena, es
+ * uno por empresa y entorno: sin `environment` se anota en el del despliegue.
+ */
 export async function appendEvent(
   tx: DbClient,
-  input: { companyId: string; eventType: VerifactuEventType; description: string; payload?: Record<string, unknown>; actorUserId?: string | null },
+  input: { companyId: string; environment?: VerifactuEnvironment; eventType: VerifactuEventType; description: string; payload?: Record<string, unknown>; actorUserId?: string | null },
   now = new Date(),
 ) {
-  const head = await lockChainHead(tx, input.companyId);
+  const environment = input.environment ?? requireVerifactuEnvironment();
+  const head = await lockChainHead(tx, input.companyId, environment);
   const sequence = head.lastEventSequence + 1;
   const generatedAtText = formatAeatDateTime(now);
   const payload = input.payload ?? {};
@@ -213,6 +226,7 @@ export async function appendEvent(
     .insert(verifactuEvent)
     .values({
       companyId: input.companyId,
+      environment,
       sequence,
       eventType: input.eventType,
       description: input.description,
@@ -227,6 +241,6 @@ export async function appendEvent(
   await tx
     .update(verifactuChainHead)
     .set({ lastEventSequence: sequence, lastEventHash: hash, updatedAt: now })
-    .where(eq(verifactuChainHead.companyId, input.companyId));
+    .where(headOf(input.companyId, environment));
   return created;
 }

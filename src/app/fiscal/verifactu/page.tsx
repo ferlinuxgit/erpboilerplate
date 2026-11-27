@@ -8,9 +8,9 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { MobileRecord, MobileRecordField, MobileRecordFields, MobileRecordList, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireContext } from "@/lib/current-context";
 import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
-import { formatCount } from "@/lib/pluralize";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { TEST_ENVIRONMENT_LABEL, verifactuEnvironmentLabels } from "@/server/verifactu/config";
 import { verifactuInvoiceTypeLabels } from "@/server/verifactu/mapping";
 import { getVerifactuOverview, verifactuStatusLabels, verifactuStatusTone } from "@/server/verifactu/service";
 
@@ -47,7 +47,8 @@ export default async function VerifactuPage() {
   const overview = await getVerifactuOverview(ctx.company.id);
   const canWrite = can(ctx.membership.role, "fiscal.write");
   const pending = overview.counts.PENDING_SEND ?? 0;
-  const rejected = overview.counts.REJECTED ?? 0;
+  const health = overview.health;
+  const testEnvironment = overview.environment === "test";
   const accepted = (overview.counts.ACCEPTED ?? 0) + (overview.counts.ACCEPTED_WITH_ERRORS ?? 0);
   const active = overview.settings.mode !== "pending";
 
@@ -59,7 +60,12 @@ export default async function VerifactuPage() {
         description="Registro inalterable de tus facturas (Ley Antifraude). Cada factura emitida genera un registro con una huella encadenada a la anterior."
         backHref="/fiscal"
         backLabel="Volver a fiscalidad"
-        meta={<StatusBadge tone={overview.settings.mode === "verifactu" ? "success" : active ? "info" : "warning"}>{modeLabels[overview.settings.mode]}</StatusBadge>}
+        meta={(
+          <>
+            <StatusBadge tone={overview.settings.mode === "verifactu" ? "success" : active ? "danger" : "warning"}>{modeLabels[overview.settings.mode]}</StatusBadge>
+            {testEnvironment ? <StatusBadge tone="warning">{TEST_ENVIRONMENT_LABEL}</StatusBadge> : null}
+          </>
+        )}
         actions={(
           <>
             <Link className={buttonVariants({ variant: "outline" })} href="/fiscal/verifactu/declaracion">Declaración responsable</Link>
@@ -76,30 +82,18 @@ export default async function VerifactuPage() {
         </InlineAlert>
       ) : null}
 
-      {overview.settings.mode === "verifactu" && !overview.transport.enabled ? (
-        <InlineAlert tone="danger" title="Tus facturas no se están enviando a la AEAT">
-          {overview.transport.reason} Las facturas se siguen registrando con su huella y quedan <strong>pendientes de envío</strong>, pero mientras
-          tanto no llevan la leyenda «VERI*FACTU». Se enviarán todas, en orden, en cuanto se resuelva
-          {overview.transportActive ? <>: sube el certificado en <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Configuración › Fiscalidad</Link>.</> : " (lo configura el administrador del sistema)."}
+      {/* Incidencias: entorno, certificado, registros sin remitir y rechazos. Siempre a la vista. */}
+      {health.issues.map((issue) => (
+        <InlineAlert key={issue.code} tone={issue.tone} title={issue.title}>
+          {issue.message}
+          {issue.code === "LEGACY_MODE" || issue.code.startsWith("CERTIFICATE_") ? (
+            <> <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Ir a Configuración › Fiscalidad</Link>.</>
+          ) : null}
         </InlineAlert>
-      ) : null}
-
-      {overview.settings.mode === "non_verifactu" ? (
-        <InlineAlert tone="warning" title="La modalidad NO VERI*FACTU ya no está disponible">
-          Este sistema solo funciona como VERI*FACTU. Tus facturas siguen registrándose, pero para cumplir la norma debes activar VERI*FACTU en{" "}
-          <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Configuración › Fiscalidad</Link>.
-        </InlineAlert>
-      ) : null}
-
-      {rejected > 0 ? (
-        <InlineAlert tone="danger" title={`${formatCount(rejected, "registro rechazado", "registros rechazados")} por la AEAT`}>
-          Revisa el motivo en la tabla. Normalmente se debe a datos del cliente (NIF o nombre) o de la empresa: corrígelos en su ficha y pulsa
-          «Subsanar» en el registro para volver a enviarlo. Si lo erróneo son los importes, emite una factura rectificativa.
-        </InlineAlert>
-      ) : null}
+      ))}
 
       <section className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Registros" value={overview.totalRecords} helper={`Entorno AEAT: ${overview.environment === "production" ? "producción" : "pruebas"}`} />
+        <MetricCard label="Registros" value={overview.totalRecords} helper={`Entorno AEAT: ${overview.environment ? verifactuEnvironmentLabels[overview.environment] : "sin configurar"}`} tone={overview.environment === "production" ? "neutral" : "warning"} />
         <MetricCard label="Pendientes de envío" value={pending} helper={overview.transport.enabled ? "Se envían automáticamente" : "Envío sin configurar"} tone={pending > 0 ? "warning" : "success"} />
         <MetricCard label="Aceptados por la AEAT" value={accepted} tone={accepted > 0 ? "success" : "neutral"} />
         <MetricCard
@@ -138,6 +132,7 @@ export default async function VerifactuPage() {
                     <TableCell>
                       <Link className="font-mono font-semibold text-link hover:underline" href={`/invoices/${record.invoiceId}`}>{record.invoiceNumber}</Link>
                       <span className="block text-xs text-muted-foreground">{record.invoiceIssueDate} · generado {formatDate(record.generatedAt)}</span>
+                      {record.isTest ? <span className="mt-1 block"><StatusBadge tone="warning">{TEST_ENVIRONMENT_LABEL}</StatusBadge></span> : null}
                     </TableCell>
                     <TableCell className="text-xs">{recordTypeLabel(record)}</TableCell>
                     <TableCell className="text-right font-mono">{record.totalAmount ? formatMoney(record.totalAmount, ctx.company.baseCurrencyCode) : "—"}</TableCell>
@@ -146,6 +141,7 @@ export default async function VerifactuPage() {
                       <StatusBadge tone={verifactuStatusTone[record.status] ?? "neutral"}>{verifactuStatusLabels[record.status] ?? record.status}</StatusBadge>
                       {record.aeatErrorMessage ? <span className="mt-1 block max-w-xs text-xs text-muted-foreground">{aeatErrorText(record)}</span> : null}
                       {canWrite && record.canSubsanar ? <span className="mt-1 block"><VerifactuSubsanarButton invoiceId={record.invoiceId} invoiceNumber={record.invoiceNumber} /></span> : null}
+                      {record.subsanarHint ? <span className="mt-1 block max-w-xs text-xs font-semibold text-danger-text">{record.subsanarHint}</span> : null}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -169,6 +165,8 @@ export default async function VerifactuPage() {
                 </MobileRecordFields>
                 {record.aeatErrorMessage ? <p className="mt-2 border-t border-window-shadow pt-2 text-danger-text">{aeatErrorText(record)}</p> : null}
                 {canWrite && record.canSubsanar ? <div className="mt-2"><VerifactuSubsanarButton invoiceId={record.invoiceId} invoiceNumber={record.invoiceNumber} /></div> : null}
+                {record.subsanarHint ? <p className="mt-2 font-semibold text-danger-text">{record.subsanarHint}</p> : null}
+                {record.isTest ? <div className="mt-2"><StatusBadge tone="warning">{TEST_ENVIRONMENT_LABEL}</StatusBadge></div> : null}
               </MobileRecord>
             ))}
           </MobileRecordList>

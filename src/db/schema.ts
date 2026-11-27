@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 // ACCOUNTANT = gestor/asesor externo; VIEWER = solo lectura (ver `src/lib/rbac.ts`).
 export const membershipRoleEnum = pgEnum("membership_role", ["OWNER", "ADMIN", "MEMBER", "ACCOUNTANT", "VIEWER"]);
@@ -1454,6 +1454,9 @@ export const verifactuRecord = pgTable("verifactu_record", {
   recordType: text("recordType").notNull(),
   // VERIFACTU (remisión a la AEAT) o NO_VERIFACTU (conservación local).
   mode: text("mode").notNull(),
+  // Entorno de la AEAT en el que nace el registro ('production' | 'test'). Forma parte de su
+  // identidad: de él salen el punto de acceso del envío y la URL del QR, y cada entorno tiene su cadena.
+  environment: text("environment").notNull(),
   sequence: integer("sequence").notNull(),
   issuerTaxId: text("issuerTaxId").notNull(),
   issuerName: text("issuerName").notNull(),
@@ -1498,14 +1501,15 @@ export const verifactuRecord = pgTable("verifactu_record", {
   aeatErrorMessage: text("aeatErrorMessage"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  unique("verifactu_record_company_sequence_unique").on(table.companyId, table.sequence),
-  // Sin bifurcaciones: cada registro solo puede tener un sucesor y solo hay un primer registro.
+  unique("verifactu_record_company_env_sequence_unique").on(table.companyId, table.environment, table.sequence),
+  // Sin bifurcaciones: cada registro solo puede tener un sucesor y solo hay un primer registro por entorno.
   uniqueIndex("verifactu_record_company_previous_unique").on(table.companyId, table.previousRecordId).where(sql`${table.previousRecordId} IS NOT NULL`),
-  uniqueIndex("verifactu_record_company_first_unique").on(table.companyId).where(sql`${table.previousRecordId} IS NULL`),
+  uniqueIndex("verifactu_record_company_env_first_unique").on(table.companyId, table.environment).where(sql`${table.previousRecordId} IS NULL`),
   index("verifactu_record_invoice_idx").on(table.invoiceId),
   index("verifactu_record_status_idx").on(table.status, table.nextAttemptAt),
   check("verifactu_record_type_valid", sql`${table.recordType} IN ('ALTA', 'ANULACION')`),
   check("verifactu_record_mode_valid", sql`${table.mode} IN ('VERIFACTU', 'NO_VERIFACTU')`),
+  check("verifactu_record_environment_valid", sql`${table.environment} IN ('production', 'test')`),
   check("verifactu_record_status_valid", sql`${table.status} IN ('PENDING_SEND', 'SENT', 'ACCEPTED', 'ACCEPTED_WITH_ERRORS', 'REJECTED', 'NOT_REQUIRED')`),
   check("verifactu_record_hash_format", sql`${table.hash} ~ '^[0-9A-F]{64}$'`),
   check("verifactu_record_subsanacion_valid", sql`${table.subsanacion} IS NULL OR ${table.subsanacion} = 'S'`),
@@ -1525,25 +1529,40 @@ export const verifactuCertificate = pgTable("verifactu_certificate", {
   fileName: text("fileName"),
   subject: text("subject"),
   validTo: timestamp("validTo", { withTimezone: true, mode: "date" }),
+  // Certificado de sello electrónico: la AEAT tiene para ellos un punto de acceso propio (www10 / prewww10).
+  isSeal: boolean("isSeal").notNull().default(false),
   uploadedByUserId: text("uploadedByUserId"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
-/** Cabeza de la cadena VeriFactu de cada empresa: se bloquea (FOR UPDATE) para encadenar sin bifurcaciones. */
+/**
+ * Cabeza de la cadena VeriFactu de cada empresa y entorno (producción y pruebas nunca comparten
+ * cadena): se bloquea (FOR UPDATE) para encadenar sin bifurcaciones. Guarda también el control de
+ * flujo de la AEAT (art. 16.2 de la Orden HAC/1177/2024): cuándo fue el último envío y cuántos
+ * segundos pidió esperar antes del siguiente.
+ */
 export const verifactuChainHead = pgTable("verifactu_chain_head", {
-  companyId: text("companyId").primaryKey().references(() => company.id, { onDelete: "cascade" }),
+  companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  environment: text("environment").notNull(),
   lastRecordId: text("lastRecordId").references((): AnyPgColumn => verifactuRecord.id, { onDelete: "restrict" }),
   lastSequence: integer("lastSequence").notNull().default(0),
   lastHash: text("lastHash"),
   lastEventSequence: integer("lastEventSequence").notNull().default(0),
   lastEventHash: text("lastEventHash"),
+  lastSubmissionAt: timestamp("lastSubmissionAt", { withTimezone: true, mode: "date" }),
+  waitSeconds: integer("waitSeconds"),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.environment] }),
+  check("verifactu_chain_head_environment_valid", sql`${table.environment} IN ('production', 'test')`),
+]);
 
 /** Registro de eventos del sistema informático de facturación (arranque, anomalías, exportaciones…), encadenado. */
 export const verifactuEvent = pgTable("verifactu_event", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
+  // El registro de eventos va con la cadena: uno por empresa y entorno.
+  environment: text("environment").notNull(),
   sequence: integer("sequence").notNull(),
   eventType: text("eventType").notNull(),
   description: text("description").notNull(),
@@ -1554,7 +1573,8 @@ export const verifactuEvent = pgTable("verifactu_event", {
   generatedAtText: text("generatedAtText").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  unique("verifactu_event_company_sequence_unique").on(table.companyId, table.sequence),
+  unique("verifactu_event_company_env_sequence_unique").on(table.companyId, table.environment, table.sequence),
+  check("verifactu_event_environment_valid", sql`${table.environment} IN ('production', 'test')`),
   index("verifactu_event_company_created_idx").on(table.companyId, table.createdAt),
   check("verifactu_event_hash_format", sql`${table.hash} ~ '^[0-9A-F]{64}$'`),
 ]);

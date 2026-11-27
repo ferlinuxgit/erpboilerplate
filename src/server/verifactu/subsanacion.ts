@@ -16,10 +16,13 @@ type Actor = { tenantId: string; companyId: string; actorUserId: string };
 /**
  * Subsana el registro VERI*FACTU de una factura emitida que la AEAT rechazó o aceptó con errores.
  *
- * La factura no cambia (importes, número y fecha son los emitidos). Lo que se vuelve a leer son los
- * datos identificativos que provocan casi todos los rechazos: el NIF y el nombre del cliente y la
- * razón social de la empresa, tal y como estén ahora en sus fichas. El flujo es: corregir la ficha
- * y pulsar «Subsanar»; el registro nuevo se envía con el siguiente lote.
+ * La factura no cambia: importes, número, fecha y DESTINATARIO son los emitidos (los datos del
+ * cliente se toman de la copia congelada en la factura, nunca de su ficha actual). Lo único que se
+ * vuelve a leer es la razón social de la propia empresa, por si se corrigió tras el rechazo.
+ *
+ * Si lo que la AEAT rechaza es la identificación del destinatario (NIF o nombre), no hay
+ * subsanación posible: esos datos son contenido de la factura y lo que procede es una factura
+ * rectificativa (lo comprueba `registerSubsanacionRecord`, igual que los errores no subsanables).
  */
 export async function subsanarInvoiceRecord(actor: Actor, invoiceId: string) {
   return db.transaction(async (tx) => {
@@ -28,13 +31,14 @@ export async function subsanarInvoiceRecord(actor: Actor, invoiceId: string) {
     if (invoiceLifecycle(row) !== "ISSUED") throw new HttpError(409, "Solo se subsanan registros de facturas emitidas.");
 
     const isCreditNote = row.invoiceType === "CREDIT_NOTE";
-    const [lines, currentIssuer, currentCustomer] = await Promise.all([
+    const [lines, currentIssuer] = await Promise.all([
       loadStoredLines(tx, row.id),
       loadIssuerSnapshot(tx, actor.companyId),
-      loadCustomerSnapshot(tx, actor.companyId, row.customerId),
     ]);
     const frozenIssuer = row.issuerSnapshot ?? currentIssuer;
-    const customer = currentCustomer ?? row.customerSnapshot ?? null;
+    // Destinatario: el congelado al emitir. Solo las facturas anteriores a la congelación de datos
+    // (sin copia) recurren a la ficha.
+    const customer = row.customerSnapshot ?? await loadCustomerSnapshot(tx, actor.companyId, row.customerId) ?? null;
     if (!frozenIssuer) throw new HttpError(404, "Empresa no encontrada.");
     const totals = calculateInvoiceTotals(lines, { allowNegative: isCreditNote });
 

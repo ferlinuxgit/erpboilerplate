@@ -75,12 +75,13 @@ const styles = StyleSheet.create({
   noticeTitle: { fontSize: 8, fontWeight: 700, color: "#7c2d12", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
   noticeLine: { color: "#431407", marginBottom: 2 },
   draftBanner: { marginBottom: 14, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: "#fef2f2", borderLeft: "3 solid #b91c1c", color: "#7f1d1d", fontSize: 8.5, fontWeight: 700 },
-  // «QR tributario:» encima, centrado; la leyenda VERI*FACTU debajo (documento técnico del QR de la AEAT).
-  verifactu: { flexDirection: "column", alignItems: "center", alignSelf: "flex-start", marginBottom: 14 },
-  verifactuCaption: { fontSize: 8.2, color: "#101b2c", marginBottom: 3 },
-  // 90 pt ≈ 31,75 mm: dentro del rango 30–40 mm exigido para el QR.
-  verifactuQr: { width: 90, height: 90 },
-  verifactuLegend: { fontSize: 9, fontWeight: 700, color: "#101b2c", marginTop: 3, letterSpacing: 0.4 },
+  // QR tributario (documento técnico de la AEAT): arriba y centrado; la imagen (37 mm) incluye 4
+  // módulos en blanco por lado, así que el código mide más de 30 mm y deja más de 2 mm de margen.
+  // Rótulo y leyenda, con letra no menor que el cuerpo de la factura (9,4 pt).
+  verifactu: { flexDirection: "column", alignItems: "center", alignSelf: "center", marginBottom: 12 },
+  verifactuCaption: { fontSize: 9.4, color: "#101b2c", marginBottom: 1 },
+  verifactuQr: { width: 105, height: 105 },
+  verifactuLegend: { fontSize: 9.4, fontWeight: 700, color: "#101b2c", marginTop: 1, letterSpacing: 0.4 },
   legalNotes: { marginTop: 14, paddingTop: 8, borderTop: "1 solid #dfe5e9" },
   legalNote: { fontSize: 8.2, color: "#354255", marginBottom: 2 },
 });
@@ -127,6 +128,19 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
   return (
     <Document>
       <Page size="A4" style={styles.page}>
+        {/*
+          QR tributario: lo primero de la factura, arriba y centrado, antes de cualquier otro
+          contenido (documento técnico de la AEAT «Características del QR»). Solo en la primera página.
+        */}
+        {verifactu ? (
+          <View style={styles.verifactu} wrap={false}>
+            <Text style={styles.verifactuCaption}>{verifactu.caption ?? "QR tributario:"}</Text>
+            {/* eslint-disable-next-line jsx-a11y/alt-text */}
+            <Image src={verifactu.qrDataUrl} style={styles.verifactuQr} />
+            {verifactu.legends.map((legend) => <Text key={legend} style={styles.verifactuLegend}>{legend}</Text>)}
+          </View>
+        ) : null}
+
         <View style={styles.header}>
           <View style={styles.brandBlock}>
             {display.showLogo && company.logoDataUrl ? (
@@ -147,15 +161,6 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
             <Text style={styles.number}>{number}</Text>
           </View>
         </View>
-
-        {verifactu ? (
-          <View style={styles.verifactu} wrap={false}>
-            <Text style={styles.verifactuCaption}>{verifactu.caption ?? "QR tributario:"}</Text>
-            {/* eslint-disable-next-line jsx-a11y/alt-text */}
-            <Image src={verifactu.qrDataUrl} style={styles.verifactuQr} />
-            {verifactu.legends.map((legend) => <Text key={legend} style={styles.verifactuLegend}>{legend}</Text>)}
-          </View>
-        ) : null}
 
         {draft ? (
           <Text style={styles.draftBanner}>BORRADOR · Documento sin validez fiscal. El número definitivo se asigna al emitir la factura.</Text>

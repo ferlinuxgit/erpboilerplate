@@ -1,7 +1,8 @@
 import Link from "next/link";
 
-import { PageSection } from "@/components/ui/page";
+import { InlineAlert, PageSection } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { TEST_ENVIRONMENT_LABEL } from "@/server/verifactu/config";
 import { getInvoiceVerifactuInfo, getInvoiceVerifactuQrSvg, verifactuStatusTone } from "@/server/verifactu/service";
 
 /** QR de cotejo, leyenda y estado del registro VERI*FACTU en la ficha de una factura emitida. */
@@ -25,6 +26,11 @@ export async function InvoiceVerifactuCard({ companyId, invoiceId }: { companyId
           {info.legends.map((legend) => <p className="font-bold" key={legend}>{legend}</p>)}
         </div>
         <div className="min-w-0 space-y-2 text-sm">
+          {info.isTest ? (
+            <InlineAlert tone="warning" title={TEST_ENVIRONMENT_LABEL}>
+              Este registro se generó contra el entorno de pruebas de la AEAT: la factura no consta en Hacienda y el QR lleva al cotejo de pruebas.
+            </InlineAlert>
+          ) : null}
           {info.mode === "VERIFACTU" && info.legends.length === 0 && info.status !== "REJECTED" ? (
             <p className="text-xs text-danger-text">El envío a la AEAT no está operativo: la factura no lleva la leyenda «VERI*FACTU» hasta que se resuelva.</p>
           ) : null}

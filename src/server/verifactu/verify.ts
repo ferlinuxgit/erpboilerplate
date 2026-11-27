@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { verifactuChainHead, verifactuEvent, verifactuRecord } from "@/db/schema";
 import { db } from "@/lib/db";
 import { appendEvent } from "@/server/verifactu/chain";
+import { isVerifactuEnvironment, requireVerifactuEnvironment, verifactuEnvironmentLabels } from "@/server/verifactu/config";
 import { computeEventHash, recomputeRecordHash, type StoredRecordForHash } from "@/server/verifactu/hash";
 
 export type ChainAnomaly = { sequence: number | null; code: string; message: string };
@@ -92,17 +93,39 @@ export function verifyRecordChain(
   return { ok: anomalies.length === 0, recordCount: records.length, lastSequence: last?.sequence ?? 0, lastHash: last?.hash ?? null, anomalies };
 }
 
-/** Recalcula toda la cadena de la empresa y deja constancia en el registro de eventos. */
+/**
+ * Recalcula las cadenas de la empresa (una por entorno de la AEAT: registros y eventos de pruebas y
+ * de producción se encadenan por separado) y deja constancia en el registro de eventos.
+ */
 export async function verifyCompanyChain(companyId: string, actorUserId: string | null): Promise<ChainVerification> {
-  const [records, [head], events] = await Promise.all([
+  const current = requireVerifactuEnvironment();
+  const [records, heads, events] = await Promise.all([
     db.select().from(verifactuRecord).where(eq(verifactuRecord.companyId, companyId)).orderBy(asc(verifactuRecord.sequence)),
-    db.select().from(verifactuChainHead).where(eq(verifactuChainHead.companyId, companyId)).limit(1),
+    db.select().from(verifactuChainHead).where(eq(verifactuChainHead.companyId, companyId)),
     db.select().from(verifactuEvent).where(eq(verifactuEvent.companyId, companyId)).orderBy(asc(verifactuEvent.sequence)),
   ]);
-  const result = verifyRecordChain(records, head ?? null, events);
+  const environments = new Set<string>([current, ...records.map((record) => record.environment), ...heads.map((head) => head.environment), ...events.map((event) => event.environment)]);
+  const anomalies: ChainAnomaly[] = [];
+  let lastSequence = 0;
+  let lastHash: string | null = null;
+  for (const environment of environments) {
+    const partial = verifyRecordChain(
+      records.filter((record) => record.environment === environment),
+      heads.find((head) => head.environment === environment) ?? null,
+      events.filter((event) => event.environment === environment),
+    );
+    const label = isVerifactuEnvironment(environment) ? verifactuEnvironmentLabels[environment] : environment;
+    anomalies.push(...partial.anomalies.map((anomaly) => (environments.size > 1 ? { ...anomaly, message: `[Entorno de ${label}] ${anomaly.message}` } : anomaly)));
+    if (environment === current) {
+      lastSequence = partial.lastSequence;
+      lastHash = partial.lastHash;
+    }
+  }
+  const result = { ok: anomalies.length === 0, recordCount: records.length, lastSequence, lastHash, anomalies };
   const checkedAt = new Date();
   await db.transaction((tx) => appendEvent(tx, {
     companyId,
+    environment: current,
     eventType: result.ok ? "CHAIN_VERIFIED" : "ANOMALY_DETECTED",
     description: result.ok
       ? `Verificación de integridad correcta: ${result.recordCount} registro(s) y ${events.length} evento(s).`

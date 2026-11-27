@@ -225,6 +225,11 @@ export type AeatLineResult = {
   status: "Correcto" | "AceptadoConErrores" | "Incorrecto" | string;
   errorCode: string | null;
   errorMessage: string | null;
+  /**
+   * EstadoRegistroDuplicado: cuando la AEAT rechaza por duplicado (3000), el estado del registro
+   * que ya tenía: "Correcta", "AceptadaConErrores" o "Anulada". null si no viene.
+   */
+  duplicateStatus?: string | null;
 };
 
 export type AeatSubmissionResponse = {
@@ -269,6 +274,7 @@ export function parseAeatResponse(xml: string): AeatSubmissionResponse {
       status: firstTag(block, "EstadoRegistro") ?? "Incorrecto",
       errorCode: firstTag(block, "CodigoErrorRegistro"),
       errorMessage: firstTag(block, "DescripcionErrorRegistro"),
+      duplicateStatus: firstTag(block, "EstadoRegistroDuplicado") ?? undefined,
     })),
   };
 }
