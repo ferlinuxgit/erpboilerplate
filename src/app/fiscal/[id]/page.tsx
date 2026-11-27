@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { FiscalBoxesTable } from "@/components/fiscal/fiscal-boxes-table";
+import { FiscalFileDownloads } from "@/components/fiscal/fiscal-file-downloads";
 import { FiscalReportRowActions } from "@/components/fiscal/fiscal-report-row-actions";
 import { MarkFiscalReportFiledButton } from "@/components/fiscal/mark-fiscal-report-filed-button";
 import { HelpTerm } from "@/components/help/help-term";
@@ -84,6 +85,8 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
           {glossaryTerm ? <HelpTerm term={glossaryTerm}>Más información</HelpTerm> : null}
         </p>
       ) : null}
+
+      <FiscalFileDownloads code={report.code} reportId={report.id} />
 
       {report.status === "FILED" ? (
         <InlineAlert title="Presentado" tone="success">
