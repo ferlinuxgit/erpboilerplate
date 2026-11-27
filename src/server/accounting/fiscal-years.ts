@@ -1,10 +1,11 @@
-import { and, asc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { usesPgcChart } from "@/lib/country-packs/profile";
 import { accountChart, documentSeries, fiscalYear, journalEntry, journalLine } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { createAutomaticEntry, loadPostingSettings, reverseAutomaticEntries, withLineDocument, type PostingLine } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
+import { fiscalYearAccountingRange, fiscalYearClosingInstants, loadCompanyTimeZone, postedInRangeSql, accountingRange, type AccountingRange } from "@/server/accounting/fiscal-year-date";
 import { centsToAmount, sumCents, toCents } from "@/server/accounting/money";
 import { ensureSubaccount } from "@/server/accounting/subaccounts";
 import { recordAudit } from "@/server/audit";
@@ -159,7 +160,7 @@ export async function getFiscalYearLifecycle(companyId: string, activeFiscalYear
 async function accountBalances(
   client: DbClient,
   companyId: string,
-  range: { from?: Date; toExclusive: Date },
+  range: AccountingRange,
 ): Promise<AccountBalance[]> {
   const rows = await client
     .select({
@@ -173,8 +174,8 @@ async function accountBalances(
     .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
     .where(and(
       eq(journalEntry.companyId, companyId),
-      range.from ? gte(journalEntry.postedAt, range.from) : undefined,
-      lt(journalEntry.postedAt, range.toExclusive),
+      // Límites en hora local (los asientos del ciclo, por su fecha civil): ver `fiscal-year-date.ts`.
+      postedInRangeSql(range),
     ))
     .groupBy(journalLine.accountId, accountChart.code, accountChart.type)
     .orderBy(accountChart.code);
@@ -275,9 +276,9 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
     }
 
     const settings = await loadPostingSettings(input.companyId, tx);
-    const endExclusive = fiscalYearEndExclusive(year.endsAt);
-    const regularizationDate = new Date(endExclusive.getTime() - 2_000);
-    const closingDate = new Date(endExclusive.getTime() - 1_000);
+    // Últimos segundos del ejercicio en la hora local de la empresa (no en UTC).
+    const timeZone = await loadCompanyTimeZone(tx, input.companyId);
+    const { regularization: regularizationDate, closing: closingDate } = fiscalYearClosingInstants(year, timeZone);
 
     // 1) Regularización.
     let regularizationEntryId: string | null = null;
@@ -285,7 +286,7 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
     if (existingRegularization) {
       regularizationEntryId = existingRegularization.id;
     } else {
-      const yearBalances = await accountBalances(tx, input.companyId, { from: year.startsAt, toExclusive: endExclusive });
+      const yearBalances = await accountBalances(tx, input.companyId, fiscalYearAccountingRange(year, timeZone));
       const profitAndLoss = yearBalances.filter((row) => isProfitAndLossAccount(row, settings.countryCode));
       const regularizationLines = buildRegularizationLines(profitAndLoss, await findResultAccountId(tx, input.companyId));
       if (regularizationLines.length > 0) {
@@ -311,7 +312,7 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
     if (existingClosing) {
       closingEntryId = existingClosing.id;
     } else {
-      const cumulative = await accountBalances(tx, input.companyId, { toExclusive: endExclusive });
+      const cumulative = await accountBalances(tx, input.companyId, accountingRange({ toExclusive: fiscalYearEndExclusive(year.endsAt) }, timeZone));
       const pendingProfitAndLoss = cumulative.filter((row) => isProfitAndLossAccount(row, settings.countryCode) && row.balanceCents !== 0);
       const balanceSheet = cumulative.filter((row) => !isProfitAndLossAccount(row, settings.countryCode));
       // Grupos 8 y 9: no son cuentas de balance; si se cerraran tal cual, el asiento de apertura
@@ -397,9 +398,9 @@ export async function reopenFiscalYear(input: Actor & { fiscalYearId: string; re
 
     const nextRange = nextFiscalYearRange(year);
     const nextYear = years.find((candidate) => candidate.startsAt.getTime() === nextRange.startsAt.getTime()) ?? null;
-    const endExclusive = fiscalYearEndExclusive(year.endsAt);
-    const regularizationDate = new Date(endExclusive.getTime() - 2_000);
-    const closingDate = new Date(endExclusive.getTime() - 1_000);
+    // Últimos segundos del ejercicio en la hora local de la empresa (no en UTC).
+    const timeZone = await loadCompanyTimeZone(tx, input.companyId);
+    const { regularization: regularizationDate, closing: closingDate } = fiscalYearClosingInstants(year, timeZone);
     const reference = `Anulación por reapertura del ejercicio ${year.code}: ${input.reason}`;
     const actor = { tenantId: input.tenantId, companyId: input.companyId, actorUserId: input.actorUserId, dbClient: tx };
 

@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { fiscalYear, journalEntryNumberSequence } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
 import { formatFiscalYearJournalEntryNumber, formatJournalEntryNumber } from "@/lib/journal-entry-number";
+import { resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
 
 export type ReservedJournalEntryNumber = { number: string; fiscalYearId: string | null };
 
@@ -11,8 +12,11 @@ export type ReservedJournalEntryNumber = { number: string; fiscalYearId: string 
  * `postedAt` (AS-2026/000001…). El contador vive en la fila del ejercicio y se incrementa con un
  * UPDATE atómico, así que dos transacciones concurrentes nunca obtienen el mismo número.
  * Sin ejercicio para la fecha (planes antiguos) se usa la numeración global AS000001.
+ * El ejercicio es el del día civil local de la fecha (ver `fiscal-year-date.ts`): un ticket del 1 de
+ * enero a las 00:30 de Madrid se numera ya en el ejercicio nuevo.
  */
 export async function reserveJournalEntryNumber(dbClient: DbClient, companyId: string, postedAt: Date): Promise<ReservedJournalEntryNumber> {
+  const day = await resolveAccountingDay(dbClient, companyId, postedAt);
   const [year] = await dbClient
     .update(fiscalYear)
     .set({ nextJournalEntryNumber: sql`${fiscalYear.nextJournalEntryNumber} + 1` })
@@ -21,8 +25,8 @@ export async function reserveJournalEntryNumber(dbClient: DbClient, companyId: s
       sql`${fiscalYear.id} = (
         select fy."id" from "fiscal_year" fy
         where fy."companyId" = ${companyId}
-          and ${postedAt} >= fy."startsAt"
-          and ${postedAt} < (fy."endsAt" + interval '1 day')
+          and ${day} >= fy."startsAt"
+          and ${day} < (fy."endsAt" + interval '1 day')
         order by fy."startsAt" desc
         limit 1
       )`,
