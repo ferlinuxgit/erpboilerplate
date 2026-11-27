@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -13,6 +14,8 @@ const payloadSchema = z.object({
   taxPeriodicity: z.enum(["monthly", "quarterly"]),
   siiEnabled: z.boolean(),
   prorrataPct: z.number().min(0).max(100),
+  // Cuotas de IVA a compensar de ejercicios anteriores, por ejercicio. Solo se tocan los años enviados.
+  vatCompensationOpening: z.record(z.string().regex(/^20\d{2}$/), z.number().min(0).max(99_999_999)).optional(),
 });
 
 /**
@@ -27,8 +30,22 @@ export async function PUT(request: Request) {
     const parsed = payloadSchema.safeParse(raw);
     if (!parsed.success) return NextResponse.json({ message: "Revisa los datos del perfil fiscal." }, { status: 400 });
 
-    const values = { ...parsed.data, prorrataPct: parsed.data.prorrataPct.toFixed(3) };
+    const { vatCompensationOpening, ...profile } = parsed.data;
     const row = await db.transaction(async (tx) => {
+      // Se fusiona con lo guardado: los ejercicios que no vienen en la petición se conservan.
+      const [existing] = vatCompensationOpening
+        ? await tx.select({ opening: companySettings.vatCompensationOpening }).from(companySettings).where(eq(companySettings.companyId, ctx.company.id)).limit(1).for("update")
+        : [];
+      const mergedOpening: Record<string, string> = { ...(existing?.opening ?? {}) };
+      for (const [year, amount] of Object.entries(vatCompensationOpening ?? {})) {
+        if (amount > 0) mergedOpening[year] = amount.toFixed(2);
+        else delete mergedOpening[year];
+      }
+      const values = {
+        ...profile,
+        prorrataPct: profile.prorrataPct.toFixed(3),
+        ...(vatCompensationOpening ? { vatCompensationOpening: mergedOpening } : {}),
+      };
       const [saved] = await tx
         .insert(companySettings)
         .values({ companyId: ctx.company.id, ...values })

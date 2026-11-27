@@ -21,13 +21,20 @@ export function fiscalSummaryToCsvRows(summary: SpanishFiscalSummary): Array<Arr
     for (const operator of summary.modelo349.operators) rows.push(["Operadores 349", operator.key, operator.name, operator.taxId, operator.amount]);
     for (const operator of summary.modelo349.rectifications) rows.push(["Rectificaciones 349", operator.key, `${operator.name} (periodo ${operator.originalPeriod})`, operator.taxId, operator.amount]);
   } else {
-    if (summary.code === "303" || summary.code === "390") {
+    if (summary.code === "303") {
       for (const box of summary.modelo303Boxes) rows.push(["Casillas 303", box.box, box.label, null, box.amount]);
     }
+    // 390: resumen anual sin numeración oficial (las casillas del 390 no están contrastadas).
+    for (const box of summary.annualSummaryBoxes ?? []) rows.push(["Resumen anual 390 (sin número de casilla)", box.box, box.label, null, box.amount]);
     for (const bucket of summary.buckets) rows.push(["IVA repercutido", `${bucket.rate}%`, "Base", null, bucket.base], ["IVA repercutido", `${bucket.rate}%`, "Cuota", null, bucket.tax]);
     for (const bucket of summary.inputBuckets) rows.push(["IVA soportado", `${bucket.rate}%`, "Base", null, bucket.base], ["IVA soportado", `${bucket.rate}%`, "Cuota", null, bucket.tax]);
     for (const bucket of summary.withholdingBuckets) rows.push(["Retenciones", `${bucket.rate}%`, "Base", null, bucket.base], ["Retenciones", `${bucket.rate}%`, "Retención", null, bucket.tax]);
-    for (const operation of summary.thirdPartyOperations ?? []) rows.push(["Operaciones 347", operation.type === "customer" ? "Cliente" : "Proveedor", operation.name, operation.taxId, operation.amount]);
+    for (const operation of summary.thirdPartyOperations ?? []) {
+      const kind = operation.type === "customer" ? "Cliente" : "Proveedor";
+      rows.push(["Operaciones 347", kind, operation.name, operation.taxId, operation.amount]);
+      (operation.quarters ?? []).forEach((amount, index) => rows.push(["Operaciones 347 por trimestre", `${kind} · ${index + 1}T`, operation.name, operation.taxId, amount]));
+      if (operation.cashAmount !== undefined) rows.push(["Operaciones 347 en metálico", kind, operation.name, operation.taxId, operation.cashAmount]);
+    }
   }
   for (const document of summary.sourceDocuments.salesInvoices) rows.push(["Facturas emitidas", document.issueDate.slice(0, 10), document.number, null, document.taxBase]);
   for (const document of summary.sourceDocuments.supplierInvoices) rows.push(["Facturas recibidas", document.issueDate.slice(0, 10), document.number, null, document.taxBase]);

@@ -14,6 +14,10 @@ describe("calendario fiscal", () => {
       ["2026-Q2", "2026-07-20"],
       ["2026-Q3", "2026-10-20"],
     ]);
+    // Plazo de domiciliación junto al de presentación (fechas del calendario de la AEAT de 2026).
+    expect(calendar.filter((entry) => entry.code === "303").map((entry) => entry.directDebitDate?.slice(0, 10))).toEqual(["2026-01-27", "2026-04-15", "2026-07-15", "2026-10-15"]);
+    // Los informativos no se domicilian.
+    expect(calendar.find((entry) => entry.code === "347")?.directDebitDate).toBeNull();
     expect(calendar.find((entry) => entry.code === "390")).toMatchObject({ period: "2025", requirement: "required" });
     expect(calendar.find((entry) => entry.code === "347")).toMatchObject({ period: "2025", requirement: "if-applicable" });
     expect(calendar.some((entry) => entry.code === "130")).toBe(false);

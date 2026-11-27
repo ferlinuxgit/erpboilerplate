@@ -10,6 +10,7 @@ import {
 } from "@/lib/fiscal-spain";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { recordAudit } from "@/server/audit";
+import { buildFiledSnapshot, diffFiledSnapshot, readFiledSnapshot, type FiscalSnapshotDifference } from "@/server/fiscal/snapshot";
 import { calculateSpanishFiscalSummary, type SpanishFiscalSummary } from "@/server/fiscal/spain";
 
 type FiscalReportPayload = {
@@ -19,8 +20,24 @@ type FiscalReportPayload = {
   reopenReason?: string;
 };
 
-export type FiscalReportWithSummary = Awaited<ReturnType<typeof listFiscalReports>>[number] & {
+type FiscalReportRow = Awaited<ReturnType<typeof listFiscalReports>>[number];
+
+/**
+ * De dónde sale el resumen que se enseña:
+ * - `live`: cálculo con los datos actuales (borradores y preparados);
+ * - `snapshot`: foto guardada al marcar el modelo como presentado;
+ * - `live-unsnapshotted`: modelo presentado antes de que existiera la foto: se recalcula en vivo.
+ */
+export type FiscalSummarySource = "live" | "snapshot" | "live-unsnapshotted";
+
+export type FiscalReportWithSummary = FiscalReportRow & {
   summary: SpanishFiscalSummary | null;
+  summarySource: FiscalSummarySource;
+};
+
+export type FiscalReportView = FiscalReportWithSummary & {
+  /** Cambios entre lo presentado y los datos actuales; null si no hay foto con la que comparar. */
+  snapshotDifferences: FiscalSnapshotDifference[] | null;
 };
 
 export function normalizeFiscalReportPayload(payload: FiscalReportPayload) {
@@ -41,15 +58,61 @@ export async function listFiscalReports(companyId: string) {
   return db.select().from(fiscalReport).where(eq(fiscalReport.companyId, companyId)).orderBy(desc(fiscalReport.period), desc(fiscalReport.updatedAt));
 }
 
+/**
+ * Modelos con el resumen que se enseña en listados y calendario. Un modelo presentado con foto usa
+ * la foto (no se recalcula); el resto, el cálculo en vivo. La foto no viaja en la fila (`filedSnapshot`
+ * queda a null): ya va en `summary` y así no se envía dos veces a los componentes de cliente.
+ */
 export async function listFiscalReportsWithSummary(companyId: string): Promise<FiscalReportWithSummary[]> {
   const reports = await listFiscalReports(companyId);
 
   return Promise.all(
-    reports.map(async (report) => ({
-      ...report,
-      summary: isSpanishFiscalModelCode(report.code) ? await calculateSpanishFiscalSummary(companyId, report.code, report.period) : null,
-    })),
+    reports.map(async (report) => {
+      const filed = report.status === "FILED" ? readFiledSnapshot(report.filedSnapshot) : null;
+      if (filed) return { ...report, filedSnapshot: null, summary: filed, summarySource: "snapshot" as const };
+      return {
+        ...report,
+        filedSnapshot: null,
+        summary: isSpanishFiscalModelCode(report.code) ? await calculateSpanishFiscalSummary(companyId, report.code, report.period) : null,
+        summarySource: report.status === "FILED" ? "live-unsnapshotted" as const : "live" as const,
+      };
+    }),
   );
+}
+
+/**
+ * Resumen de un modelo para exportarlo (PDF, CSV, JSON): lo presentado si hay foto; si no, en vivo.
+ * La foto no guarda la lista de documentos: se completa con los documentos actuales del periodo.
+ */
+export async function resolveFiscalReportSummary(companyId: string, report: FiscalReportRow): Promise<{ summary: SpanishFiscalSummary; source: FiscalSummarySource } | null> {
+  if (!isSpanishFiscalModelCode(report.code)) return null;
+  const live = await calculateSpanishFiscalSummary(companyId, report.code, report.period);
+  const filed = report.status === "FILED" ? readFiledSnapshot(report.filedSnapshot) : null;
+  if (filed) return { summary: { ...filed, sourceDocuments: live.sourceDocuments }, source: "snapshot" };
+  return { summary: live, source: report.status === "FILED" ? "live-unsnapshotted" : "live" };
+}
+
+/**
+ * Vista de un modelo. Si está presentado y tiene foto, enseña la foto tal cual y la compara con el
+ * cálculo en vivo (`snapshotDifferences`): si algo ha cambiado puede proceder una complementaria.
+ */
+export async function getFiscalReportView(companyId: string, id: string): Promise<FiscalReportView | null> {
+  const report = await getFiscalReport(companyId, id);
+  if (!report) return null;
+  if (!isSpanishFiscalModelCode(report.code)) return { ...report, filedSnapshot: null, summary: null, summarySource: "live", snapshotDifferences: null };
+
+  const live = await calculateSpanishFiscalSummary(companyId, report.code, report.period);
+  const filed = report.status === "FILED" ? readFiledSnapshot(report.filedSnapshot) : null;
+  if (!filed) {
+    return { ...report, filedSnapshot: null, summary: live, summarySource: report.status === "FILED" ? "live-unsnapshotted" : "live", snapshotDifferences: null };
+  }
+  return {
+    ...report,
+    filedSnapshot: null,
+    summary: { ...filed, sourceDocuments: live.sourceDocuments },
+    summarySource: "snapshot",
+    snapshotDifferences: diffFiledSnapshot(filed, live),
+  };
 }
 
 export async function getFiscalReport(companyId: string, id: string) {
@@ -88,13 +151,18 @@ export async function updateFiscalReport(companyId: string, tenantId: string, ac
   if (current.status === "FILED" && normalized.status !== "FILED" && !payload.reopenReason?.trim()) {
     throw new AccountingRuleError(422, "REOPEN_REASON_REQUIRED", "Debes indicar el motivo para reabrir una declaración presentada.");
   }
+  // La foto de lo presentado es de ese modelo y periodo: no puede quedarse pegada a otro distinto.
+  if (current.status === "FILED" && normalized.status === "FILED" && (current.code !== normalized.code || current.period !== normalized.period)) {
+    throw new AccountingRuleError(409, "FISCAL_REPORT_FILED", "No se puede cambiar el modelo ni el periodo de una declaración presentada; reábrela primero indicando el motivo.");
+  }
 
   const [updated] = await db
     .update(fiscalReport)
     .set({
       ...normalized,
       filedAt: normalized.status === "FILED" ? current.filedAt ?? new Date() : null,
-      ...(normalized.status === "FILED" ? {} : { filingReceiptNumber: null, paymentNrc: null }),
+      // Al reabrir se descarta la foto: el modelo vuelve a calcularse en vivo hasta la nueva presentación.
+      ...(normalized.status === "FILED" ? {} : { filingReceiptNumber: null, paymentNrc: null, filedSnapshot: null, filedSnapshotAt: null }),
       updatedAt: new Date(),
     })
     .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId)))
@@ -138,6 +206,7 @@ export function normalizeMarkFiledPayload(payload: MarkFiledPayload, now = new D
 /**
  * Marca un modelo como presentado con su fecha, justificante y (si hubo pago) NRC.
  * Bloquea el periodo: ya no se pueden registrar documentos con fecha dentro de él.
+ * Guarda la foto de lo presentado (casillas, totales y terceros calculados en ese momento).
  */
 export async function markFiscalReportFiled(companyId: string, tenantId: string, actorUserId: string, id: string, payload: MarkFiledPayload) {
   const normalized = normalizeMarkFiledPayload(payload);
@@ -146,6 +215,11 @@ export async function markFiscalReportFiled(companyId: string, tenantId: string,
   if (!current) return null;
   if (current.status === "FILED") throw new AccountingRuleError(409, "FISCAL_REPORT_FILED", "Este modelo ya está marcado como presentado.");
 
+  const snapshotAt = new Date();
+  const snapshot = isSpanishFiscalModelCode(current.code)
+    ? buildFiledSnapshot(await calculateSpanishFiscalSummary(companyId, current.code, current.period), snapshotAt)
+    : null;
+
   const [updated] = await db
     .update(fiscalReport)
     .set({
@@ -153,9 +227,12 @@ export async function markFiscalReportFiled(companyId: string, tenantId: string,
       filedAt: normalized.data.filedAt,
       filingReceiptNumber: normalized.data.receiptNumber,
       paymentNrc: normalized.data.nrc,
+      filedSnapshot: snapshot,
+      filedSnapshotAt: snapshot ? snapshotAt : null,
       updatedAt: new Date(),
     })
-    .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId)))
+    // Solo si sigue sin presentar: dos peticiones simultáneas no pisan la foto de la primera.
+    .where(and(eq(fiscalReport.id, id), eq(fiscalReport.companyId, companyId), ne(fiscalReport.status, "FILED")))
     .returning();
   if (!updated) return null;
   await recordAudit({
@@ -165,7 +242,7 @@ export async function markFiscalReportFiled(companyId: string, tenantId: string,
     action: "fiscal.file",
     entityName: "fiscalReport",
     entityId: id,
-    payload: { code: current.code, period: current.period, filedAt: normalized.data.filedAt, receiptNumber: normalized.data.receiptNumber, nrc: normalized.data.nrc },
+    payload: { code: current.code, period: current.period, filedAt: normalized.data.filedAt, receiptNumber: normalized.data.receiptNumber, nrc: normalized.data.nrc, amountDue: readFiledSnapshot(snapshot)?.amountDue ?? null },
   });
   return updated;
 }

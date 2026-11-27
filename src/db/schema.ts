@@ -383,6 +383,9 @@ export const companySettings = pgTable("company_settings", {
   // Tipo de contribuyente: "company" (sociedad, IS) o "individual" (autónomo en IRPF: modelo 130).
   taxpayerType: text("taxpayerType").notNull().default("company"),
   prorrataPct: numeric("prorrataPct", { precision: 6, scale: 3 }).notNull().default("100"),
+  // Cuotas de IVA a compensar que vienen de ejercicios anteriores, por ejercicio: { "2026": "1250.00" }.
+  // Es el saldo inicial de la casilla 110 del modelo 303 en el primer periodo de ese ejercicio.
+  vatCompensationOpening: jsonb("vatCompensationOpening").$type<Record<string, string>>(),
   defaultCustomerAccountCode: text("defaultCustomerAccountCode").notNull().default("4300"),
   defaultSupplierAccountCode: text("defaultSupplierAccountCode").notNull().default("4100"),
   defaultSalesAccountCode: text("defaultSalesAccountCode").notNull().default("700"),
@@ -1344,6 +1347,13 @@ export const tax = pgTable("tax", {
   check("tax_operation_valid", sql`${table.operation} IN ('ADD', 'SUBTRACT')`),
 ]);
 
+/** Foto de un modelo presentado; `summary` es el resumen calculado en ese momento (ver `@/server/fiscal/snapshot`). */
+export type FiscalReportSnapshot = {
+  version: number;
+  takenAt: string;
+  summary: Record<string, unknown>;
+};
+
 export const fiscalReport = pgTable(
   "fiscal_report",
   {
@@ -1356,6 +1366,11 @@ export const fiscalReport = pgTable(
     // Presentación en la sede de la AEAT: número de justificante (13 dígitos) y, si hubo pago, NRC del banco.
     filingReceiptNumber: text("filingReceiptNumber"),
     paymentNrc: text("paymentNrc"),
+    // Foto de lo presentado (casillas, totales y terceros) tomada al marcar el modelo como presentado.
+    // La vista de un modelo presentado enseña esta foto, no el cálculo en vivo. null = sin foto
+    // (borradores y presentaciones anteriores a esta columna).
+    filedSnapshot: jsonb("filedSnapshot").$type<FiscalReportSnapshot>(),
+    filedSnapshotAt: timestamp("filedSnapshotAt", { withTimezone: true, mode: "date" }),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },

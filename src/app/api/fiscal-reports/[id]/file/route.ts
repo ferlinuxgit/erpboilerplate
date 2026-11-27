@@ -33,7 +33,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       nrc: payload.data.nrc ?? null,
     });
     if (!updated) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
-    return NextResponse.json(updated);
+    // La foto de lo presentado no se devuelve: es voluminosa y se consulta en la vista del modelo.
+    return NextResponse.json({ ...updated, filedSnapshot: undefined });
   } catch (error) {
     return handleRouteError(error, "fiscal-reports.file", "No se pudo marcar el modelo como presentado. Inténtalo de nuevo.");
   }

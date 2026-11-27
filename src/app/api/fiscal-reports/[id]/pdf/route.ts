@@ -3,8 +3,7 @@ import { NextResponse } from "next/server";
 import { requireContext } from "@/lib/current-context";
 import { handleRouteError } from "@/lib/http";
 import { isSpanishFiscalModelCode } from "@/lib/fiscal-spain";
-import { getFiscalReport } from "@/server/fiscal/service";
-import { calculateSpanishFiscalSummary } from "@/server/fiscal/spain";
+import { getFiscalReport, resolveFiscalReportSummary } from "@/server/fiscal/service";
 import { renderFiscalReportPdf } from "@/server/pdf/render";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,7 +15,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!report) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
   if (!isSpanishFiscalModelCode(report.code)) return NextResponse.json({ message: "Modelo fiscal no soportado." }, { status: 400 });
 
-  const summary = await calculateSpanishFiscalSummary(ctx.company.id, report.code, report.period);
+  // Un modelo presentado se exporta tal como se presentó (foto guardada), no recalculado.
+  const resolved = await resolveFiscalReportSummary(ctx.company.id, report);
+  if (!resolved) return NextResponse.json({ message: "Modelo fiscal no soportado." }, { status: 400 });
+  const { summary } = resolved;
   const pdf = await renderFiscalReportPdf({ companyName: ctx.company.name, summary });
 
   return new Response(new Uint8Array(pdf), {

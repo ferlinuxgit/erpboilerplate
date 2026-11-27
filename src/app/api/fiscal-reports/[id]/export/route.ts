@@ -4,8 +4,7 @@ import { requireContext } from "@/lib/current-context";
 import { handleRouteError } from "@/lib/http";
 import { isSpanishFiscalModelCode } from "@/lib/fiscal-spain";
 import { fiscalSummaryToCsv } from "@/server/fiscal/export";
-import { getFiscalReport } from "@/server/fiscal/service";
-import { calculateSpanishFiscalSummary } from "@/server/fiscal/spain";
+import { getFiscalReport, resolveFiscalReportSummary } from "@/server/fiscal/service";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireApiContext("fiscal.read");
@@ -16,7 +15,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!report) return NextResponse.json({ message: "Modelo no encontrado." }, { status: 404 });
   if (!isSpanishFiscalModelCode(report.code)) return NextResponse.json({ message: "Modelo fiscal no soportado." }, { status: 400 });
 
-  const summary = await calculateSpanishFiscalSummary(ctx.company.id, report.code, report.period);
+  // Un modelo presentado se exporta tal como se presentó (foto guardada), no recalculado.
+  const resolved = await resolveFiscalReportSummary(ctx.company.id, report);
+  if (!resolved) return NextResponse.json({ message: "Modelo fiscal no soportado." }, { status: 400 });
+  const { summary } = resolved;
 
   // ?format=csv → hoja de cálculo con las mismas casillas/operadores que el PDF.
   if (new URL(request.url).searchParams.get("format") === "csv") {
@@ -38,6 +40,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         period: report.period,
         status: report.status,
         filedAt: report.filedAt,
+        // "snapshot": importes tal como se presentaron; "live": calculados ahora.
+        summarySource: resolved.source,
         createdAt: report.createdAt,
         updatedAt: report.updatedAt,
       },

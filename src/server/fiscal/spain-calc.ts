@@ -32,6 +32,8 @@ export type FiscalSourceDocument = {
   sourceId?: string;
   number: string;
   issueDate: string;
+  /** Fecha de devengo aplicada (solo emitidas, cuando difiere de la de expedición). */
+  accrualDate?: string;
   /** Fecha de registro (solo recibidas): la que determina el periodo. */
   registrationDate?: string;
   /** Cuota de IVA soportada según la factura (solo recibidas; `taxAmount` es la deducible). */
@@ -56,6 +58,10 @@ export type IssuedLineInput = {
   invoiceId: string;
   number: string;
   issueDate: Date;
+  /** Fecha de devengo que decide el periodo (fecha de operación si procede); por defecto la de expedición. */
+  accrualDate?: Date;
+  /** CREDIT_NOTE = factura rectificativa: en el 303 va a «modificación de bases y cuotas» (14-15 y 25-26). */
+  invoiceType?: string | null;
   totalAmount: string | number;
   status?: string | null;
   treatment: SalesVatTreatment;
@@ -91,7 +97,8 @@ export type SupplierLineInput = {
 };
 
 type CentsBucket = { rate: number; base: number; tax: number };
-type BaseTax = { base: number; tax: number };
+/** `fullBase`: base íntegra (sin prorratear) de las líneas con alguna cuota deducible. */
+type BaseTax = { base: number; tax: number; fullBase: number };
 
 function num(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -109,13 +116,14 @@ function addBucket(map: Map<number, CentsBucket>, rate: number, base: number, ta
   map.set(rate, bucket);
 }
 
-function addBaseTax(target: BaseTax, base: number, tax: number) {
+function addBaseTax(target: BaseTax, base: number, tax: number, fullBase = base) {
   target.base += base;
   target.tax += tax;
+  target.fullBase += fullBase;
 }
 
 function emptyBaseTax(): BaseTax {
-  return { base: 0, tax: 0 };
+  return { base: 0, tax: 0, fullBase: 0 };
 }
 
 export function bucketsToNumbers(map: Map<number, CentsBucket>): VatBucket[] {
@@ -137,6 +145,8 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
   const vat = new Map<number, CentsBucket>();
   const surcharge = new Map<number, CentsBucket>();
   const withholdings = new Map<number, CentsBucket>();
+  // Parte de `vat` y `surcharge` que procede de facturas rectificativas (ya incluida en ellos).
+  const rectification = { vat: new Map<number, CentsBucket>(), surcharge: new Map<number, CentsBucket>() };
   const zeroRated: Record<SalesVatTreatment, number> = { DOMESTIC: 0, EXEMPT: 0, INTRA_EU: 0, INTRA_EU_SERVICES: 0, EXPORT: 0, REVERSE_CHARGE: 0, NOT_SUBJECT: 0 };
   let otherTaxCents = 0;
   const documents = new Map<string, { doc: FiscalSourceDocument; base: number; tax: number; withholding: number }>();
@@ -144,6 +154,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
 
   for (const line of lines) {
     const fallbackBase = lineBaseCents(line);
+    const isRectification = line.invoiceType === "CREDIT_NOTE";
     let lineBase = fallbackBase;
     let lineTax = 0;
     let lineWithholding = 0;
@@ -160,10 +171,12 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
           lineWithholding += amount;
         } else if (tax.kind === "SURCHARGE") {
           addBucket(surcharge, rate, base, amount);
+          if (isRectification) addBucket(rectification.surcharge, rate, base, amount);
           lineTax += amount;
         } else if (tax.kind === "VAT" || !tax.kind) {
           if (rate > 0) {
             addBucket(vat, rate, base, amount);
+            if (isRectification) addBucket(rectification.vat, rate, base, amount);
             hasVat = true;
           }
           lineTax += amount;
@@ -177,6 +190,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
       const tax = toCents((centsToNumber(fallbackBase) * rate) / 100);
       if (rate > 0) {
         addBucket(vat, rate, fallbackBase, tax);
+        if (isRectification) addBucket(rectification.vat, rate, fallbackBase, tax);
         hasVat = true;
         lineTax += tax;
       }
@@ -197,6 +211,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
         id: line.invoiceId,
         number: line.number,
         issueDate: line.issueDate.toISOString(),
+        ...(line.accrualDate && line.accrualDate.getTime() !== line.issueDate.getTime() ? { accrualDate: line.accrualDate.toISOString() } : {}),
         totalAmount: centsToNumber(toCents(line.totalAmount)),
         taxBase: 0,
         taxAmount: 0,
@@ -217,6 +232,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
   return {
     vat,
     surcharge,
+    rectification,
     withholdings,
     zeroRated,
     otherTaxCents,
@@ -273,6 +289,9 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     const effectivePct = (lineDeductiblePct * lineProrrataPct) / 100;
     const lineDeductible = applyPct(vat, effectivePct);
     const deductibleBase = vat !== 0 ? applyPct(base, effectivePct) : 0;
+    // Instrucciones del 303 (IVA deducible): «las bases figurarán sin prorratear». La base íntegra
+    // entra si la cuota es deducible total o parcialmente; las líneas sin cuota o no deducibles, no.
+    const fullBase = vat !== 0 && effectivePct > 0 ? base : 0;
     const investment = (line.expenseAccountCode ?? "").startsWith("2");
 
     if (vat !== 0 || base !== 0) addBucket(input, rate, base, vat);
@@ -281,14 +300,14 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
 
     if (line.treatment === "INTRA_EU") {
       addBaseTax(selfAssessed.intraEu, base, vat);
-      addBaseTax(investment ? deductible.intraEuInvestment : deductible.intraEuCurrent, deductibleBase, lineDeductible);
+      addBaseTax(investment ? deductible.intraEuInvestment : deductible.intraEuCurrent, deductibleBase, lineDeductible, fullBase);
     } else if (line.treatment === "REVERSE_CHARGE") {
       addBaseTax(selfAssessed.reverseCharge, base, vat);
-      addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible);
+      addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible, fullBase);
     } else if (line.treatment === "IMPORT") {
-      addBaseTax(investment ? deductible.importInvestment : deductible.importCurrent, deductibleBase, lineDeductible);
+      addBaseTax(investment ? deductible.importInvestment : deductible.importCurrent, deductibleBase, lineDeductible, fullBase);
     } else {
-      addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible);
+      addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible, fullBase);
     }
 
     const withholding = sign * toCents(line.retentionAmount ?? 0);
@@ -396,12 +415,105 @@ export function computeModelo303Totals(issued: IssuedVatResult, supplier: Suppli
   };
 }
 
+export type Modelo303Compensation = {
+  /** Casilla 110: cuotas a compensar pendientes de periodos anteriores. */
+  pendingBeforeCents: number;
+  /** Casilla 78: cuotas de periodos anteriores aplicadas en este periodo. */
+  appliedCents: number;
+  /** Casilla 87: cuotas de periodos anteriores pendientes para periodos posteriores (110 − 78). */
+  pendingAfterCents: number;
+  /** Casillas 69 y 71: resultado tras la compensación (negativo = a compensar o devolver). */
+  resultCents: number;
+  /** Saldo a compensar que nace en este periodo (resultado negativo); no forma parte de la casilla 87. */
+  generatedCents: number;
+  /** Saldo total a favor al terminar el periodo: 87 + el generado en él. */
+  carryForwardCents: number;
+};
+
 /**
- * Casillas del modelo 303 (diseño AEAT vigente). Solo casillas de importe; los tipos (02, 05…)
- * se indican en la etiqueta. Las que no aplican a este MVP (regularizaciones, compensaciones,
- * régimen simplificado) no se muestran.
+ * Compensación de cuotas del modelo 303 (casillas 110, 78 y 87; instrucciones AEAT de 2025).
+ *
+ * - `openingCents`: saldo a compensar que viene de ejercicios anteriores (configuración de la empresa).
+ * - `previousResultsCents`: resultado (casilla 66) de cada periodo anterior del mismo ejercicio, en
+ *   orden. Un resultado negativo aumenta el saldo; uno positivo lo consume hasta donde alcance.
+ * - `resultCents`: resultado del periodo que se liquida, antes de compensar (casilla 66).
+ *
+ * En el periodo: 110 = saldo pendiente; 78 = lo aplicado, como máximo el resultado positivo;
+ * 87 = 110 − 78; 69 = 66 − 78 (sin importaciones diferidas, casilla 77, ni regularizaciones 68/108).
+ * Se supone que los resultados negativos anteriores se dejaron a compensar (no se pidió devolución).
  */
-export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierVatResult, options: { periodYear: number }): Modelo303Box[] {
+export function computeModelo303Compensation(input: { openingCents: number; previousResultsCents: number[]; resultCents: number }): Modelo303Compensation {
+  let pending = Math.max(0, Math.round(input.openingCents));
+  for (const previous of input.previousResultsCents) {
+    if (previous < 0) pending += -previous;
+    else pending -= Math.min(pending, previous);
+  }
+  const applied = input.resultCents > 0 ? Math.min(pending, input.resultCents) : 0;
+  const pendingAfter = pending - applied;
+  const result = input.resultCents - applied;
+  const generated = result < 0 ? -result : 0;
+  return {
+    pendingBeforeCents: pending,
+    appliedCents: applied,
+    pendingAfterCents: pendingAfter,
+    resultCents: result,
+    generatedCents: generated,
+    carryForwardCents: pendingAfter + generated,
+  };
+}
+
+function subtractBucket(bucket: CentsBucket | undefined, minus: CentsBucket | undefined, rate: number): CentsBucket {
+  return { rate, base: (bucket?.base ?? 0) - (minus?.base ?? 0), tax: (bucket?.tax ?? 0) - (minus?.tax ?? 0) };
+}
+
+/**
+ * Volumen de operaciones del ejercicio (casillas 80, 93, 94, 83, 84, 125 y 88 del 303). Según las
+ * instrucciones solo lo rellenan, en el último periodo, quienes están exonerados del 390
+ * (arrendadores, régimen simplificado o libros en la sede: SII). `yearIssued` son las facturas
+ * emitidas de todo el año natural. No se calculan 81 (criterio de caja), 126-128, 86, 95-98,
+ * ni las minoraciones 79 y 99 (inmuebles y bienes de inversión): el programa no las distingue.
+ */
+export function buildModelo303VolumeBoxes(yearIssued: IssuedVatResult, options: { numbered?: boolean } = {}): Modelo303Box[] {
+  const numbered = options.numbered ?? true;
+  const money = (cents: number) => centsToNumber(cents);
+  const general = sumMap(yearIssued.vat).base;
+  const intraEu = yearIssued.zeroRated.INTRA_EU + yearIssued.zeroRated.INTRA_EU_SERVICES;
+  const exports = yearIssued.zeroRated.EXPORT;
+  const exempt = yearIssued.zeroRated.EXEMPT + yearIssued.zeroRated.DOMESTIC;
+  const notSubject = yearIssued.zeroRated.NOT_SUBJECT;
+  const reverseCharge = yearIssued.zeroRated.REVERSE_CHARGE;
+  const rows: Array<[string, string, number]> = [
+    ["80", "Volumen del año · operaciones en régimen general (sin IVA ni recargo)", general],
+    ["93", "Volumen del año · entregas intracomunitarias de bienes y servicios", intraEu],
+    ["94", "Volumen del año · exportaciones y otras exentas con derecho a deducción", exports],
+    ["83", "Volumen del año · exentas sin derecho a deducción y líneas sin IVA (si alguna es a tipo cero, va en la 94)", exempt],
+    ["84", "Volumen del año · no sujetas por reglas de localización", notSubject],
+    ["125", "Volumen del año · sujetas con inversión del sujeto pasivo", reverseCharge],
+    ["88", "Total volumen de operaciones del ejercicio (art. 121 LIVA)", general + intraEu + exports + exempt + notSubject + reverseCharge],
+  ];
+  return rows
+    .filter(([box, , cents]) => cents !== 0 || box === "80" || box === "88")
+    .map(([box, label, cents]) => ({ box: numbered ? box : "", label, amount: money(cents), kind: "info" as const }));
+}
+
+export type Modelo303BoxOptions = {
+  periodYear: number;
+  /** Compensación de cuotas (110, 78, 87, 69). Sin ella, la 71 repite el resultado del régimen general. */
+  compensation?: Modelo303Compensation;
+  /** Solo en el último periodo (4T o mes 12): emitidas de todo el ejercicio, para el volumen de operaciones. */
+  yearIssued?: IssuedVatResult;
+};
+
+/**
+ * Casillas del modelo 303 (instrucciones AEAT de 2025). Solo casillas de importe; los tipos (02,
+ * 05…) se indican en la etiqueta. No se calculan: régimen simplificado, regularizaciones (40-44),
+ * importaciones con IVA diferido (77) ni la tributación conjunta con haciendas forales (65, 68).
+ *
+ * - Las facturas rectificativas emitidas van a «modificación de bases y cuotas» (14-15; recargo en
+ *   25-26), sin desglose por tipos y con su signo, no dentro de 01-09.
+ * - Las bases deducibles (28-39) figuran sin prorratear; las cuotas, ya prorrateadas.
+ */
+export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierVatResult, options: Modelo303BoxOptions): Modelo303Box[] {
   const boxes: Modelo303Box[] = [];
   const money = (cents: number) => centsToNumber(cents);
   const zeroDomestic = issued.zeroRated.DOMESTIC;
@@ -411,8 +523,11 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   if (zeroDomestic !== 0 && options.periodYear <= 2024) outputRates.add(0);
   for (const rate of [...outputRates].sort((left, right) => left - right)) {
     const mapping = rateBoxes.output[String(rate)];
-    const bucket = issued.vat.get(rate) ?? { rate, base: rate === 0 ? zeroDomestic : 0, tax: 0 };
+    const bucket = rate === 0 && !issued.vat.has(0)
+      ? { rate, base: zeroDomestic, tax: 0 }
+      : subtractBucket(issued.vat.get(rate), issued.rectification.vat.get(rate), rate);
     if (!mapping) {
+      if (bucket.base === 0 && bucket.tax === 0) continue;
       boxes.push({ box: "REV", label: `Revisar: IVA devengado al ${rate}% no tiene casilla en el 303 vigente`, amount: money(bucket.tax), kind: "tax" });
       continue;
     }
@@ -425,14 +540,27 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   boxes.push({ box: "12", label: "Base otras operaciones con inversión del sujeto pasivo", amount: money(supplier.selfAssessed.reverseCharge.base), kind: "base" });
   boxes.push({ box: "13", label: "Cuota otras operaciones con inversión del sujeto pasivo", amount: money(supplier.selfAssessed.reverseCharge.tax), kind: "tax" });
 
-  for (const bucket of [...issued.surcharge.values()].sort((left, right) => left.rate - right.rate)) {
-    const mapping = rateBoxes.surcharge[String(bucket.rate)];
+  const vatModification = sumMap(issued.rectification.vat);
+  if (vatModification.base !== 0 || vatModification.tax !== 0) {
+    boxes.push({ box: "14", label: "Modificación de bases (facturas rectificativas emitidas)", amount: money(vatModification.base), kind: "base" });
+    boxes.push({ box: "15", label: "Modificación de cuotas (facturas rectificativas emitidas)", amount: money(vatModification.tax), kind: "tax" });
+  }
+
+  for (const rate of [...issued.surcharge.keys()].sort((left, right) => left - right)) {
+    const bucket = subtractBucket(issued.surcharge.get(rate), issued.rectification.surcharge.get(rate), rate);
+    if (bucket.base === 0 && bucket.tax === 0) continue;
+    const mapping = rateBoxes.surcharge[String(rate)];
     if (!mapping) {
-      boxes.push({ box: "REV", label: `Revisar: recargo de equivalencia al ${bucket.rate}% sin casilla`, amount: money(bucket.tax), kind: "tax" });
+      boxes.push({ box: "REV", label: `Revisar: recargo de equivalencia al ${rate}% sin casilla`, amount: money(bucket.tax), kind: "tax" });
       continue;
     }
-    boxes.push({ box: mapping.base, label: `Base recargo de equivalencia ${bucket.rate}%`, amount: money(bucket.base), kind: "base" });
-    boxes.push({ box: mapping.tax, label: `Cuota recargo de equivalencia ${bucket.rate}%`, amount: money(bucket.tax), kind: "tax" });
+    boxes.push({ box: mapping.base, label: `Base recargo de equivalencia ${rate}%`, amount: money(bucket.base), kind: "base" });
+    boxes.push({ box: mapping.tax, label: `Cuota recargo de equivalencia ${rate}%`, amount: money(bucket.tax), kind: "tax" });
+  }
+  const surchargeModification = sumMap(issued.rectification.surcharge);
+  if (surchargeModification.base !== 0 || surchargeModification.tax !== 0) {
+    boxes.push({ box: "25", label: "Modificación de bases del recargo de equivalencia (rectificativas)", amount: money(surchargeModification.base), kind: "base" });
+    boxes.push({ box: "26", label: "Modificación de cuotas del recargo de equivalencia (rectificativas)", amount: money(surchargeModification.tax), kind: "tax" });
   }
 
   const totals = computeModelo303Totals(issued, supplier);
@@ -448,13 +576,30 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   ];
   for (const [baseBox, taxBox, label, values] of deductibleBoxes) {
     const always = baseBox === "28";
-    if (!always && values.base === 0 && values.tax === 0) continue;
-    boxes.push({ box: baseBox, label: `Base deducible · ${label}`, amount: money(values.base), kind: "base" });
+    if (!always && values.fullBase === 0 && values.tax === 0) continue;
+    boxes.push({ box: baseBox, label: `Base deducible · ${label} (sin prorratear)`, amount: money(values.fullBase), kind: "base" });
     boxes.push({ box: taxBox, label: `Cuota deducible · ${label}`, amount: money(values.tax), kind: "tax" });
   }
   boxes.push({ box: "45", label: "Total a deducir", amount: money(totals.deductibleCents), kind: "tax" });
   boxes.push({ box: "46", label: "Resultado régimen general (27 − 45)", amount: money(totals.resultCents), kind: "settlement" });
-  boxes.push({ box: "71", label: "Resultado de la liquidación (sin compensaciones de periodos anteriores)", amount: money(totals.resultCents), kind: "settlement" });
+
+  const compensation = options.compensation;
+  if (compensation) {
+    boxes.push({ box: "64", label: "Suma de resultados (46; sin régimen simplificado)", amount: money(totals.resultCents), kind: "settlement" });
+    boxes.push({ box: "66", label: "Atribuible a la Administración del Estado (100 %)", amount: money(totals.resultCents), kind: "settlement" });
+    boxes.push({ box: "110", label: "Cuotas a compensar pendientes de periodos anteriores", amount: money(compensation.pendingBeforeCents), kind: "settlement" });
+    boxes.push({ box: "78", label: "Cuotas a compensar de periodos anteriores aplicadas en este periodo", amount: money(compensation.appliedCents), kind: "settlement" });
+    boxes.push({ box: "87", label: "Cuotas a compensar de periodos previos pendientes para periodos posteriores (110 − 78)", amount: money(compensation.pendingAfterCents), kind: "settlement" });
+    boxes.push({ box: "69", label: "Resultado (66 − 78)", amount: money(compensation.resultCents), kind: "settlement" });
+    boxes.push({
+      box: "71",
+      label: compensation.resultCents > 0 ? "Resultado de la liquidación: a ingresar" : compensation.resultCents < 0 ? "Resultado de la liquidación: a compensar o devolver" : "Resultado de la liquidación: cero",
+      amount: money(compensation.resultCents),
+      kind: "settlement",
+    });
+  } else {
+    boxes.push({ box: "71", label: "Resultado de la liquidación (sin compensaciones de periodos anteriores)", amount: money(totals.resultCents), kind: "settlement" });
+  }
 
   const informative: Array<[string, string, number]> = [
     // Casilla 59: entregas intracomunitarias de bienes y prestaciones de servicios a empresas de la UE
@@ -471,8 +616,88 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   if (exempt !== 0) {
     boxes.push({ box: "EXE", label: "Operaciones exentas o sin IVA (no van en el 303; se declaran en el 390)", amount: money(exempt), kind: "info" });
   }
+  if (options.yearIssued) boxes.push(...buildModelo303VolumeBoxes(options.yearIssued));
 
   return boxes;
+}
+
+export type VatPeriodResult = { period: string; resultCents: number };
+
+/**
+ * Resumen anual del IVA para preparar el 390. SIN NUMERACIÓN OFICIAL: las casillas del 390 no se
+ * han podido contrastar con sus instrucciones, así que las filas van sin número (se identifican por
+ * su concepto) en vez de inventarlo o de reutilizar las del 303.
+ */
+export function buildModelo390Summary(
+  issued: IssuedVatResult,
+  supplier: SupplierVatResult,
+  options: { periodResults?: VatPeriodResult[]; openingCents?: number } = {},
+): Modelo303Box[] {
+  const rows: Modelo303Box[] = [];
+  const money = (cents: number) => centsToNumber(cents);
+  const push = (label: string, cents: number, kind: Modelo303Box["kind"]) => rows.push({ box: "", label, amount: money(cents), kind });
+
+  for (const rate of [...issued.vat.keys()].sort((left, right) => left - right)) {
+    const bucket = subtractBucket(issued.vat.get(rate), issued.rectification.vat.get(rate), rate);
+    if (bucket.base === 0 && bucket.tax === 0) continue;
+    push(`Devengado · base al ${rate}%`, bucket.base, "base");
+    push(`Devengado · cuota al ${rate}%`, bucket.tax, "tax");
+  }
+  const vatModification = sumMap(issued.rectification.vat);
+  if (vatModification.base !== 0 || vatModification.tax !== 0) {
+    push("Devengado · modificación de bases (rectificativas)", vatModification.base, "base");
+    push("Devengado · modificación de cuotas (rectificativas)", vatModification.tax, "tax");
+  }
+  if (supplier.selfAssessed.intraEu.base !== 0 || supplier.selfAssessed.intraEu.tax !== 0) {
+    push("Devengado · base adquisiciones intracomunitarias", supplier.selfAssessed.intraEu.base, "base");
+    push("Devengado · cuota adquisiciones intracomunitarias", supplier.selfAssessed.intraEu.tax, "tax");
+  }
+  if (supplier.selfAssessed.reverseCharge.base !== 0 || supplier.selfAssessed.reverseCharge.tax !== 0) {
+    push("Devengado · base inversión del sujeto pasivo", supplier.selfAssessed.reverseCharge.base, "base");
+    push("Devengado · cuota inversión del sujeto pasivo", supplier.selfAssessed.reverseCharge.tax, "tax");
+  }
+  for (const rate of [...issued.surcharge.keys()].sort((left, right) => left - right)) {
+    const bucket = issued.surcharge.get(rate);
+    if (!bucket || (bucket.base === 0 && bucket.tax === 0)) continue;
+    push(`Devengado · base recargo de equivalencia ${rate}%`, bucket.base, "base");
+    push(`Devengado · cuota recargo de equivalencia ${rate}%`, bucket.tax, "tax");
+  }
+  const totals = computeModelo303Totals(issued, supplier);
+  push("Total cuotas devengadas del ejercicio", totals.accruedCents, "tax");
+
+  const deductible: Array<[string, BaseTax]> = [
+    ["operaciones interiores corrientes", supplier.deductible.domesticCurrent],
+    ["operaciones interiores con bienes de inversión", supplier.deductible.domesticInvestment],
+    ["importaciones de bienes corrientes", supplier.deductible.importCurrent],
+    ["importaciones de bienes de inversión", supplier.deductible.importInvestment],
+    ["adquisiciones intracomunitarias corrientes", supplier.deductible.intraEuCurrent],
+    ["adquisiciones intracomunitarias de bienes de inversión", supplier.deductible.intraEuInvestment],
+  ];
+  for (const [label, values] of deductible) {
+    if (values.fullBase === 0 && values.tax === 0) continue;
+    push(`Deducible · base ${label} (sin prorratear)`, values.fullBase, "base");
+    push(`Deducible · cuota ${label}`, values.tax, "tax");
+  }
+  push("Total cuotas deducibles del ejercicio", totals.deductibleCents, "tax");
+  push("Resultado del ejercicio (devengado − deducible)", totals.resultCents, "settlement");
+
+  if (options.periodResults && options.periodResults.length > 0) {
+    const openingCents = options.openingCents ?? 0;
+    let toPay = 0;
+    const previous: number[] = [];
+    let last: Modelo303Compensation | null = null;
+    for (const period of options.periodResults) {
+      last = computeModelo303Compensation({ openingCents, previousResultsCents: previous, resultCents: period.resultCents });
+      if (last.resultCents > 0) toPay += last.resultCents;
+      previous.push(period.resultCents);
+    }
+    if (openingCents !== 0) push("Liquidaciones · cuotas a compensar de ejercicios anteriores", openingCents, "settlement");
+    push("Liquidaciones · suma de resultados a ingresar de las autoliquidaciones (303) del año", toPay, "settlement");
+    push("Liquidaciones · saldo a compensar o devolver al final del ejercicio", last?.carryForwardCents ?? 0, "settlement");
+  }
+
+  rows.push(...buildModelo303VolumeBoxes(issued, { numbered: false }));
+  return rows;
 }
 
 // ---------------------------------------------------------------------------------------------
