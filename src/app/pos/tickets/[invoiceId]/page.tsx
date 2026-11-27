@@ -1,10 +1,15 @@
+import { and, eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AutoPrint } from "@/components/pos/auto-print";
 import { PrintButton } from "@/components/pos/print-button";
+import { invoice } from "@/db/schema";
 import { requireContext } from "@/lib/current-context";
+import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
+import { documentClassTitle, effectiveDocumentClass } from "@/server/invoices/document-class";
+import { commercialReasonLabels, isCommercialReason } from "@/server/invoices/lifecycle";
 import { getTicketPrint } from "@/server/pos/service";
 
 export const metadata: Metadata = { title: "Ticket" };
@@ -16,6 +21,9 @@ function address(party: { address: string | null; postalCode: string | null; cit
 /**
  * Ticket de 80 mm (factura simplificada, art. 7 RD 1619/2012): número y serie, fecha, emisor con NIF,
  * conceptos, tipo de IVA y desglose si hay varios, total; QR y leyenda VERI*FACTU si procede.
+ * El título sale de la clase de documento congelada al emitir: con los datos del cliente sigue
+ * siendo una factura simplificada (arts. 7.2 y 7.3) salvo que se emitiera como factura completa.
+ * El ticket de devolución (rectificativa) imprime el motivo (art. 15.3: causa de la rectificación).
  */
 export default async function TicketPrintPage({ params, searchParams }: { params: Promise<{ invoiceId: string }>; searchParams: Promise<{ print?: string }> }) {
   const ctx = await requireContext("pos.read");
@@ -29,6 +37,14 @@ export default async function TicketPrintPage({ params, searchParams }: { params
   const isRefund = ticket.invoice.invoiceType === "CREDIT_NOTE";
   const identified = Boolean(customer?.taxId);
   const issued = new Date(ticket.invoice.issuedAt ?? ticket.invoice.issueDate);
+  const [extra] = await db
+    .select({ documentClass: invoice.documentClass, rectificationDescription: invoice.rectificationDescription, commercialReason: invoice.commercialReason })
+    .from(invoice)
+    .where(and(eq(invoice.id, invoiceId), eq(invoice.companyId, ctx.company.id)))
+    .limit(1);
+  const title = documentClassTitle(effectiveDocumentClass({ documentClass: extra?.documentClass, customerTaxId: customer?.taxId })).toUpperCase();
+  // El motivo guardado lleva al final una marca técnica «[xxxxxxxx]» (evita devoluciones duplicadas): no se imprime.
+  const refundReason = isRefund ? (extra?.rectificationDescription ?? "").replace(/\s*\[[0-9a-f-]{6,}\]\s*$/i, "").trim() : "";
 
   return (
     <div className="mx-auto w-[80mm] bg-white p-2 font-mono text-[11px] leading-tight text-black print:w-full print:p-0" data-testid="pos-ticket-print">
@@ -54,10 +70,15 @@ export default async function TicketPrintPage({ params, searchParams }: { params
         {address(issuer) ? <p>{address(issuer)}</p> : null}
       </header>
       <hr className="my-1 border-dashed border-black" />
-      <p className="font-bold">{isRefund ? "FACTURA RECTIFICATIVA" : identified ? "FACTURA" : "FACTURA SIMPLIFICADA"}</p>
+      <p className="font-bold" data-testid="pos-ticket-title">{isRefund ? "FACTURA RECTIFICATIVA" : title}</p>
       <p>Nº {ticket.invoice.number}</p>
       <p>{issued.toLocaleDateString("es-ES")} {issued.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}{ticket.payment?.registerName ? ` · ${ticket.payment.registerName}` : ""}</p>
       {isRefund && ticket.originalNumber ? <p>Rectifica el ticket {ticket.originalNumber}</p> : null}
+      {isRefund && (refundReason || isCommercialReason(extra?.commercialReason)) ? (
+        <p data-testid="pos-ticket-refund-reason">
+          Motivo: {refundReason || (isCommercialReason(extra?.commercialReason) ? commercialReasonLabels[extra.commercialReason] : "")}
+        </p>
+      ) : null}
       {identified && customer ? (
         <div className="mt-1">
           <p>Cliente: {customer.name}</p>

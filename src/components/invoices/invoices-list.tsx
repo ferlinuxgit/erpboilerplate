@@ -1,5 +1,6 @@
 "use client";
 
+import { documentClassShortLabels, isSimplifiedClass, type InvoiceDocumentClass } from "@/server/invoices/document-class";
 import Link from "next/link";
 
 import { BulkInvoiceEmailButton } from "@/components/invoice-email/bulk-invoice-email-actions";
@@ -25,6 +26,10 @@ type InvoiceListRow = {
   status: string;
   lifecycle: "DRAFT" | "ISSUED" | "VOID";
   invoiceType: "INVOICE" | "CREDIT_NOTE";
+  /** Clase de documento (null: borrador sin elección). */
+  documentClass?: InvoiceDocumentClass | null;
+  /** Factura completa emitida en sustitución de simplificadas (canje). */
+  isSubstitutive?: boolean;
   totalAmount: string;
   totalAmountLabel: string;
   outstandingAmount: number;
@@ -85,7 +90,7 @@ function rowLabel(invoice: InvoiceListRow) {
 
 /** Drafts and credit notes have nothing to collect. */
 function hasOutstanding(invoice: InvoiceListRow) {
-  return invoice.lifecycle !== "DRAFT" && invoice.invoiceType !== "CREDIT_NOTE";
+  return invoice.lifecycle !== "DRAFT" && invoice.invoiceType !== "CREDIT_NOTE" && !invoice.isSubstitutive;
 }
 
 function typeFilterValue(invoice: InvoiceListRow) {
@@ -98,6 +103,8 @@ function DocumentBadges({ invoice }: { invoice: InvoiceListRow }) {
     <>
       {invoice.lifecycle === "DRAFT" ? <StatusBadge tone="neutral">Borrador</StatusBadge> : null}
       {invoice.invoiceType === "CREDIT_NOTE" ? <StatusBadge tone="info">Rectificativa</StatusBadge> : null}
+      {isSimplifiedClass(invoice.documentClass) ? <StatusBadge tone="neutral">{documentClassShortLabels[invoice.documentClass!]}</StatusBadge> : null}
+      {invoice.isSubstitutive ? <StatusBadge tone="info">Sustitutiva</StatusBadge> : null}
     </>
   );
 }
@@ -120,6 +127,8 @@ function statusExportValue(invoice: InvoiceListRow) {
   return [
     invoice.lifecycle === "DRAFT" ? "Borrador" : null,
     invoice.invoiceType === "CREDIT_NOTE" ? "Rectificativa" : null,
+    isSimplifiedClass(invoice.documentClass) ? documentClassShortLabels[invoice.documentClass!] : null,
+    invoice.isSubstitutive ? "Sustitutiva de simplificada" : null,
     invoice.lifecycle === "DRAFT" && invoice.status !== "VOID" ? null : statusLabel(invoicePaymentStatusLabels, invoice.status),
     invoice.isOverdue && invoice.status !== "OVERDUE" ? "Vencida" : null,
   ]
