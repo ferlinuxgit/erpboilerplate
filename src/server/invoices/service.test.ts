@@ -199,7 +199,9 @@ import {
   voidInvoice,
   type InvoiceActor,
   composeCreditNoteLines,
+  substituteSimplifiedInvoices,
 } from "@/server/invoices/service";
+import { loadCustomerSnapshot } from "@/server/invoices/snapshot";
 import { invoiceLifecycle } from "@/server/invoices/lifecycle";
 
 const actor: InvoiceActor = {
@@ -490,5 +492,109 @@ describe("composeCreditNoteLines", () => {
 
   it("anula y vuelve a facturar: originales en negativo más las correctas", () => {
     expect(composeCreditNoteLines({ type: "SUBSTITUTION", scope: "FULL" }, original, extra).map((line) => line.quantity)).toEqual([-2, -1, 1]);
+  });
+});
+
+describe("clase de documento y canje de simplificadas", () => {
+  const withoutTaxId = { name: "Clientes varios", taxId: null, address: null, addressLine2: null, postalCode: null, city: null, province: null, countryCode: "ES" };
+
+  it("al emitir se congela la clase: con NIF completa, sin NIF simplificada, y la elegida si es posible", async () => {
+    const full = await createInvoice(actor, baseInput);
+    expect(invoiceRow(full.id)).toMatchObject({ documentClass: "FULL" });
+
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    const simplified = await createInvoice(actor, baseInput);
+    expect(invoiceRow(simplified.id)).toMatchObject({ documentClass: "SIMPLIFIED" });
+
+    const qualified = await createInvoice(actor, { ...baseInput, documentClass: "SIMPLIFIED_QUALIFIED" });
+    expect(invoiceRow(qualified.id)).toMatchObject({ documentClass: "SIMPLIFIED_QUALIFIED" });
+
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    await expect(createInvoice(actor, { ...baseInput, documentClass: "FULL" })).rejects.toMatchObject({ status: 422 });
+    // La simplificada elegida a mano también respeta el límite (400 € por defecto).
+    await expect(createInvoice(actor, { ...baseInput, documentClass: "SIMPLIFIED_QUALIFIED", lines: [{ description: "Obra", quantity: 1, unitPrice: 500, taxIds: [VAT_21] }] })).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("la rectificativa hereda la clase de la factura que rectifica y guarda el motivo comercial", async () => {
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    const ticket = await createInvoice(actor, baseInput);
+    const note = await createCreditNote(actor, ticket.id, { reason: "R5", type: "DIFFERENCES", scope: "FULL", description: "Devolución completa", commercialReason: "RETURN" });
+    expect(invoiceRow(note!.id)).toMatchObject({ documentClass: "SIMPLIFIED", commercialReason: "RETURN" });
+    expect(mocks.postCreditNote).toHaveBeenCalledWith(expect.objectContaining({ commercialReason: "RETURN", totalAmount: -374 }));
+  });
+
+  it("rectificación al alza: importe positivo, parcial, sin tope de lo pendiente", async () => {
+    const invoice = await createInvoice(actor, baseInput);
+    const note = await createCreditNote(actor, invoice.id, {
+      reason: "R4",
+      type: "DIFFERENCES",
+      scope: "PARTIAL",
+      direction: "INCREASE",
+      description: "Precio facturado por debajo",
+      lines: [{ description: "Diferencia de precio", quantity: 1, unitPrice: 50, taxIds: [VAT_21] }],
+    });
+    expect(note).toMatchObject({ totalAmount: 60.5 });
+    expect(invoiceRow(note!.id)).toMatchObject({ invoiceType: "CREDIT_NOTE", totalAmount: "60.50", status: "SENT" });
+    expect(mocks.postCreditNote).toHaveBeenCalledWith(expect.objectContaining({ subtotal: 50, taxAmount: 10.5, totalAmount: 60.5 }));
+  });
+
+  it("canje: factura completa que cita la simplificada, sin asiento de venta ni cobro propio", async () => {
+    rows("customer").push({ id: "customer-2", companyId: "company-1", status: "ACTIVE", countryCode: "ES" });
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    const ticket = await createInvoice(actor, baseInput);
+    expect(mocks.postSalesInvoice).toHaveBeenCalledTimes(1);
+    vi.clearAllMocks();
+
+    const substitutive = await substituteSimplifiedInvoices(actor, ticket.id, { customerId: "customer-2" });
+
+    expect(substitutive).toMatchObject({ number: "FA000001", totalAmount: 374, substitutedNumbers: ["FA000001"] });
+    const stored = invoiceRow(substitutive!.id);
+    expect(stored).toMatchObject({
+      customerId: "customer-2",
+      invoiceType: "INVOICE",
+      isSubstitutive: true,
+      substitutesInvoiceIds: [ticket.id],
+      documentClass: "FULL",
+      status: "SENT",
+      paymentStatus: "PAID",
+      dueDate: null,
+      totalAmount: "374.00",
+    });
+    expect(stored.customerSnapshot).toMatchObject({ taxId: "B12345674" });
+    // La fecha de la venta original queda como fecha de operación.
+    expect((stored.operationDate as Date).toISOString()).toBe("2026-05-09T00:00:00.000Z");
+    expect(rows("invoice_line").filter((line) => line.invoiceId === substitutive!.id)).toHaveLength(2);
+    // Ni venta ni abono nuevos: la venta ya se contabilizó con la simplificada.
+    expect(mocks.postSalesInvoice).not.toHaveBeenCalled();
+    expect(mocks.postCreditNote).not.toHaveBeenCalled();
+    expect(auditActions()).toEqual(["invoice.substitute"]);
+    // La simplificada sigue igual.
+    expect(invoiceRow(ticket.id)).toMatchObject({ status: "SENT", paymentStatus: "PENDING", documentClass: "SIMPLIFIED" });
+
+    // La sustitutiva no se rectifica ni se duplica: se rectifica la simplificada original.
+    await expect(createCreditNote(actor, substitutive!.id, { reason: "R4", type: "DIFFERENCES", scope: "FULL", description: "Anulación" })).rejects.toMatchObject({ status: 409 });
+    await expect(duplicateInvoice(actor, substitutive!.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("canje: solo simplificadas emitidas, sin rectificativas, y a un cliente con NIF", async () => {
+    rows("customer").push({ id: "customer-2", companyId: "company-1", status: "ACTIVE", countryCode: "ES" });
+    const full = await createInvoice(actor, baseInput);
+    await expect(substituteSimplifiedInvoices(actor, full.id, { customerId: "customer-2" })).rejects.toMatchObject({ status: 409 });
+
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    const draft = await createInvoice(actor, { ...baseInput, mode: "draft" });
+    await expect(substituteSimplifiedInvoices(actor, draft.id, { customerId: "customer-2" })).rejects.toMatchObject({ status: 409 });
+
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    const ticket = await createInvoice(actor, baseInput);
+    // El cliente elegido tampoco tiene NIF.
+    vi.mocked(loadCustomerSnapshot).mockResolvedValueOnce(withoutTaxId);
+    await expect(substituteSimplifiedInvoices(actor, ticket.id, { customerId: "customer-2" })).rejects.toMatchObject({ status: 422 });
+    // Fecha anterior a la de la simplificada.
+    await expect(substituteSimplifiedInvoices(actor, ticket.id, { customerId: "customer-2", issueDate: "2026-05-01" })).rejects.toMatchObject({ status: 400 });
+    // Con una rectificativa ya emitida no se convierte.
+    await createCreditNote(actor, ticket.id, { reason: "R5", type: "DIFFERENCES", scope: "FULL", description: "Devolución" });
+    await expect(substituteSimplifiedInvoices(actor, ticket.id, { customerId: "customer-2" })).rejects.toMatchObject({ status: 409 });
+    expect(await substituteSimplifiedInvoices(actor, "no-existe", { customerId: "customer-2" })).toBeNull();
   });
 });
