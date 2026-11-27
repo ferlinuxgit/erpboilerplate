@@ -18,6 +18,7 @@ import {
   type VatBucket,
 } from "@/lib/fiscal-spain";
 import { applyPct, centsToNumber, toCents } from "@/server/accounting/money";
+import { portionCents, type CashPortion } from "@/server/fiscal/cash-accounting";
 
 export type Modelo303Box = {
   box: string;
@@ -44,6 +45,8 @@ export type FiscalSourceDocument = {
   withholdingAmount?: number;
   status?: string;
   vatTreatment?: string;
+  /** Importes del tramo devengado o deducido en criterio de caja (no de la factura entera). */
+  cashAccounting?: boolean;
 };
 
 type TaxInput = {
@@ -71,6 +74,10 @@ export type IssuedLineInput = {
   taxRate?: string | number | null;
   retentionRate?: string | number | null;
   taxes?: TaxInput[] | null;
+  /** Criterio de caja: tramo de la factura que se devenga en esta fila (ver `cash-accounting.ts`). */
+  portion?: CashPortion | null;
+  /** Operación acogida al régimen especial del criterio de caja. */
+  cashAccounting?: boolean;
 };
 
 export type SupplierLineInput = {
@@ -96,6 +103,19 @@ export type SupplierLineInput = {
   voidedAt?: Date | null;
   /** −1 en la fila de anulación de una factura recibida (resta en el periodo de la anulación). */
   sign?: 1 | -1;
+  /** RECTIFICATION = rectificativa o abono del proveedor: su deducción va a las casillas 40-41 del 303. */
+  documentKind?: string | null;
+  /** Factura rectificada (si está registrada). */
+  rectifiedInvoiceId?: string | null;
+  /** Fecha de la operación si difiere de la de la factura. */
+  operationDate?: Date | null;
+  /** Proveedor acogido al criterio de caja: la cuota se deduce al pago. */
+  supplierCashAccounting?: boolean | null;
+  /** Criterio de caja: tramo de la factura que se deduce en esta fila y fecha en que se deduce. */
+  portion?: CashPortion | null;
+  cashAccounting?: boolean;
+  cashReason?: string;
+  deductionDate?: Date;
 };
 
 type CentsBucket = { rate: number; base: number; tax: number };
@@ -149,14 +169,20 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
   const withholdings = new Map<number, CentsBucket>();
   // Parte de `vat` y `surcharge` que procede de facturas rectificativas (ya incluida en ellos).
   const rectification = { vat: new Map<number, CentsBucket>(), surcharge: new Map<number, CentsBucket>() };
+  // Parte de `vat` (sin rectificativas) devengada en criterio de caja: el 390 la declara en casillas propias.
+  const cashVat = new Map<number, CentsBucket>();
   const zeroRated: Record<SalesVatTreatment, number> = { DOMESTIC: 0, EXEMPT: 0, INTRA_EU: 0, INTRA_EU_SERVICES: 0, EXPORT: 0, REVERSE_CHARGE: 0, NOT_SUBJECT: 0 };
   let otherTaxCents = 0;
   const documents = new Map<string, { doc: FiscalSourceDocument; base: number; tax: number; withholding: number }>();
   const drafts = new Set<string>();
 
   for (const line of lines) {
-    const fallbackBase = lineBaseCents(line);
+    // Criterio de caja: cada importe de la línea se reduce al tramo que se devenga en esta fila.
+    const part = (cents: number) => portionCents(cents, line.portion);
+    const fullFallbackBase = lineBaseCents(line);
+    const fallbackBase = part(fullFallbackBase);
     const isRectification = line.invoiceType === "CREDIT_NOTE";
+    const isCash = Boolean(line.cashAccounting) && !isRectification;
     let lineBase = fallbackBase;
     let lineTax = 0;
     let lineWithholding = 0;
@@ -164,8 +190,9 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
 
     if (line.taxes && line.taxes.length > 0) {
       for (const tax of line.taxes) {
-        const base = tax.baseAmount !== undefined && tax.baseAmount !== null ? toCents(tax.baseAmount) : fallbackBase;
-        const amount = tax.amount !== undefined && tax.amount !== null ? toCents(tax.amount) : toCents((centsToNumber(base) * num(tax.rate)) / 100);
+        const fullBase = tax.baseAmount !== undefined && tax.baseAmount !== null ? toCents(tax.baseAmount) : fullFallbackBase;
+        const base = part(fullBase);
+        const amount = part(tax.amount !== undefined && tax.amount !== null ? toCents(tax.amount) : toCents((centsToNumber(fullBase) * num(tax.rate)) / 100));
         lineBase = base;
         const rate = rateKey(tax.rate);
         if (tax.operation === "SUBTRACT") {
@@ -179,6 +206,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
           if (rate > 0) {
             addBucket(vat, rate, base, amount);
             if (isRectification) addBucket(rectification.vat, rate, base, amount);
+            if (isCash) addBucket(cashVat, rate, base, amount);
             hasVat = true;
           }
           lineTax += amount;
@@ -189,16 +217,17 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
       }
     } else {
       const rate = rateKey(line.taxRate);
-      const tax = toCents((centsToNumber(fallbackBase) * rate) / 100);
+      const tax = part(toCents((centsToNumber(fullFallbackBase) * rate) / 100));
       if (rate > 0) {
         addBucket(vat, rate, fallbackBase, tax);
         if (isRectification) addBucket(rectification.vat, rate, fallbackBase, tax);
+        if (isCash) addBucket(cashVat, rate, fallbackBase, tax);
         hasVat = true;
         lineTax += tax;
       }
       const retentionRate = rateKey(line.retentionRate);
       if (retentionRate > 0) {
-        const withholding = toCents((centsToNumber(fallbackBase) * retentionRate) / 100);
+        const withholding = part(toCents((centsToNumber(fullFallbackBase) * retentionRate) / 100));
         addBucket(withholdings, retentionRate, fallbackBase, withholding);
         lineWithholding += withholding;
       }
@@ -214,6 +243,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
         number: line.number,
         issueDate: line.issueDate.toISOString(),
         ...(line.accrualDate && line.accrualDate.getTime() !== line.issueDate.getTime() ? { accrualDate: line.accrualDate.toISOString() } : {}),
+        ...(line.cashAccounting ? { cashAccounting: true } : {}),
         totalAmount: centsToNumber(toCents(line.totalAmount)),
         taxBase: 0,
         taxAmount: 0,
@@ -235,6 +265,7 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
     vat,
     surcharge,
     rectification,
+    cashVat,
     withholdings,
     zeroRated,
     otherTaxCents,
@@ -248,9 +279,25 @@ export function computeIssuedVat(lines: IssuedLineInput[]) {
 
 export type SupplierVatResult = ReturnType<typeof computeSupplierVat>;
 
+/** Conceptos de IVA deducible con el detalle que pide el 390 (adquisiciones intracomunitarias: bienes y servicios aparte). */
+export type DeductibleCategory =
+  | "domesticCurrent"
+  | "domesticInvestment"
+  | "importCurrent"
+  | "importInvestment"
+  | "intraEuGoodsCurrent"
+  | "intraEuGoodsInvestment"
+  | "intraEuServices";
+
 /** IVA soportado/deducible, autorepercusiones y retenciones practicadas de facturas recibidas. */
 /** `selfAssessmentRate`: tipo general del país para autorepercutir líneas sin cuota (España: 21 %). */
-export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: number, selfAssessmentRate = 21) {
+/**
+ * `separateRectifications` (por defecto sí): las rectificativas recibidas van a «rectificación de
+ * deducciones» (casillas 40-41 del 303). Con `false` siguen restando en su concepto, como piden
+ * los modelos canarios (420 y 425), que no tienen ese apartado calculado.
+ */
+export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: number, selfAssessmentRate = 21, options: { separateRectifications?: boolean } = {}) {
+  const separateRectifications = options.separateRectifications ?? true;
   const input = new Map<number, CentsBucket>();
   const deductible = {
     domesticCurrent: emptyBaseTax(),
@@ -259,8 +306,21 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     importInvestment: emptyBaseTax(),
     intraEuCurrent: emptyBaseTax(),
     intraEuInvestment: emptyBaseTax(),
+    // Rectificación de deducciones (casillas 40-41): rectificativas y abonos recibidos.
+    rectification: emptyBaseTax(),
   };
   const selfAssessed = { intraEu: emptyBaseTax(), reverseCharge: emptyBaseTax() };
+  // Desglose por tipo que pide el 390 (bases sin prorratear); no incluye las rectificativas.
+  const deductibleByRate: Record<DeductibleCategory, Map<number, CentsBucket>> = {
+    domesticCurrent: new Map(),
+    domesticInvestment: new Map(),
+    importCurrent: new Map(),
+    importInvestment: new Map(),
+    intraEuGoodsCurrent: new Map(),
+    intraEuGoodsInvestment: new Map(),
+    intraEuServices: new Map(),
+  };
+  const selfAssessedByRate = { intraEuGoods: new Map<number, CentsBucket>(), intraEuServices: new Map<number, CentsBucket>() };
   const professional = new Map<number, CentsBucket>();
   const rent = new Map<number, CentsBucket>();
   let totalTax = 0;
@@ -273,10 +333,12 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
   for (const line of lines) {
     // Importes de la factura tal cual; en la fila de anulación se restan.
     const sign = line.sign ?? 1;
-    const base = sign * toCents(line.subtotal);
-    const charged = sign * toCents(line.taxAmount);
+    // Criterio de caja: cada importe se reduce al tramo que se deduce en esta fila.
+    const part = (cents: number) => portionCents(cents, line.portion);
+    const base = sign * part(toCents(line.subtotal));
+    const charged = sign * part(toCents(line.taxAmount));
     const selfAssessedLine = isSelfAssessedTreatment(line.treatment);
-    const vat = selfAssessedLine ? sign * toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount), selfAssessmentRate)) : charged;
+    const vat = selfAssessedLine ? sign * part(toCents(reverseChargeTaxAmount(num(line.subtotal), num(line.taxAmount), selfAssessmentRate))) : charged;
     const rate = selfAssessedLine && charged === 0 ? selfAssessmentRate : rateKey(line.taxRate);
     if (selfAssessedLine && charged === 0 && base !== 0 && sign === 1) defaultRateLines += 1;
     if (selfAssessedLine && sign === 1) {
@@ -300,26 +362,40 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
     totalTax += vat;
     deductibleTotal += lineDeductible;
 
+    // Rectificativas y abonos del proveedor: su deducción va a «rectificación de deducciones»
+    // (casillas 40-41, con su signo), no a las casillas 28-39 del periodo.
+    const isRectification = separateRectifications && line.documentKind === "RECTIFICATION";
+    const service = isServiceExpenseAccount(line.expenseAccountCode);
+    let category: DeductibleCategory;
     if (line.treatment === "INTRA_EU") {
       addBaseTax(selfAssessed.intraEu, base, vat);
-      addBaseTax(investment ? deductible.intraEuInvestment : deductible.intraEuCurrent, deductibleBase, lineDeductible, fullBase);
+      if (vat !== 0 || base !== 0) addBucket(service ? selfAssessedByRate.intraEuServices : selfAssessedByRate.intraEuGoods, rate, base, vat);
+      category = service ? "intraEuServices" : investment ? "intraEuGoodsInvestment" : "intraEuGoodsCurrent";
+      if (!isRectification) addBaseTax(investment ? deductible.intraEuInvestment : deductible.intraEuCurrent, deductibleBase, lineDeductible, fullBase);
     } else if (line.treatment === "REVERSE_CHARGE") {
       addBaseTax(selfAssessed.reverseCharge, base, vat);
-      addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible, fullBase);
+      category = investment ? "domesticInvestment" : "domesticCurrent";
+      if (!isRectification) addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible, fullBase);
     } else if (line.treatment === "IMPORT") {
-      addBaseTax(investment ? deductible.importInvestment : deductible.importCurrent, deductibleBase, lineDeductible, fullBase);
+      category = investment ? "importInvestment" : "importCurrent";
+      if (!isRectification) addBaseTax(investment ? deductible.importInvestment : deductible.importCurrent, deductibleBase, lineDeductible, fullBase);
     } else {
-      addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible, fullBase);
+      category = investment ? "domesticInvestment" : "domesticCurrent";
+      if (!isRectification) addBaseTax(investment ? deductible.domesticInvestment : deductible.domesticCurrent, deductibleBase, lineDeductible, fullBase);
     }
+    if (isRectification) addBaseTax(deductible.rectification, deductibleBase, lineDeductible, fullBase);
+    else if (fullBase !== 0 || lineDeductible !== 0) addBucket(deductibleByRate[category], rate, fullBase, lineDeductible);
 
-    const withholding = sign * toCents(line.retentionAmount ?? 0);
+    const withholding = sign * part(toCents(line.retentionAmount ?? 0));
     if (withholding !== 0) {
       const retentionRate = rateKey(line.retentionRate) || (base !== 0 ? Math.round((withholding / base) * 10_000) / 100 : 0);
       // Arrendamientos (cuenta 621) → modelo 115; resto (profesionales) → modelo 111.
       addBucket((line.expenseAccountCode ?? "").startsWith("621") ? rent : professional, retentionRate, base, withholding);
     }
 
-    const documentId = sign === 1 ? line.invoiceId : `${line.invoiceId}:anulacion`;
+    // En criterio de caja una factura puede deducirse en varios tramos: un documento por tramo.
+    const portionKey = line.portion ? `:${line.deductionDate?.toISOString() ?? ""}:${line.portion.from}` : "";
+    const documentId = sign === 1 ? `${line.invoiceId}${portionKey}` : `${line.invoiceId}:anulacion`;
     const entry = documents.get(documentId) ?? {
       doc: {
         id: documentId,
@@ -327,6 +403,8 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
         number: sign === 1 ? line.number : `${line.number} (anulación)`,
         issueDate: line.issueDate.toISOString(),
         registrationDate: (line.accountingDate ?? line.issueDate).toISOString(),
+        ...(line.deductionDate ? { accrualDate: line.deductionDate.toISOString() } : {}),
+        ...(line.cashAccounting ? { cashAccounting: true } : {}),
         totalAmount: centsToNumber(sign * toCents(line.totalAmount)),
         taxBase: 0,
         taxAmount: 0,
@@ -348,7 +426,9 @@ export function computeSupplierVat(lines: SupplierLineInput[], prorrataPct: numb
   return {
     input,
     deductible,
+    deductibleByRate,
     selfAssessed,
+    selfAssessedByRate,
     professional,
     rent,
     totalTaxCents: totalTax,
@@ -402,15 +482,24 @@ export type Modelo303Totals = {
   selfAssessedCents: number;
 };
 
-export function computeModelo303Totals(issued: IssuedVatResult, supplier: SupplierVatResult): Modelo303Totals {
+/** Regularizaciones de deducciones del último periodo: aumentan (o, en negativo, reducen) la casilla 45. */
+export type Modelo303Adjustments = {
+  /** Casilla 43: regularización de bienes de inversión (arts. 107 a 110 LIVA). */
+  investmentRegularizationCents?: number;
+  /** Casilla 44: regularización por el porcentaje definitivo de prorrata (art. 105.Cuatro LIVA). */
+  prorrataRegularizationCents?: number;
+};
+
+export function computeModelo303Totals(issued: IssuedVatResult, supplier: SupplierVatResult, adjustments: Modelo303Adjustments = {}): Modelo303Totals {
   const domesticOutput = sumMap(issued.vat).tax;
   const surcharge = sumMap(issued.surcharge).tax;
   const selfAssessed = supplier.selfAssessed.intraEu.tax + supplier.selfAssessed.reverseCharge.tax;
   const accrued = domesticOutput + surcharge + selfAssessed;
+  const deductible = supplier.deductibleCents + (adjustments.investmentRegularizationCents ?? 0) + (adjustments.prorrataRegularizationCents ?? 0);
   return {
     accruedCents: accrued,
-    deductibleCents: supplier.deductibleCents,
-    resultCents: accrued - supplier.deductibleCents,
+    deductibleCents: deductible,
+    resultCents: accrued - deductible,
     domesticOutputCents: domesticOutput,
     surchargeCents: surcharge,
     selfAssessedCents: selfAssessed,
@@ -472,30 +561,42 @@ function subtractBucket(bucket: CentsBucket | undefined, minus: CentsBucket | un
  * Volumen de operaciones del ejercicio (casillas 80, 93, 94, 83, 84, 125 y 88 del 303). Según las
  * instrucciones solo lo rellenan, en el último periodo, quienes están exonerados del 390
  * (arrendadores, régimen simplificado o libros en la sede: SII). `yearIssued` son las facturas
- * emitidas de todo el año natural. No se calculan 81 (criterio de caja), 126-128, 86, 95-98,
- * ni las minoraciones 79 y 99 (inmuebles y bienes de inversión): el programa no las distingue.
+ * emitidas de todo el año natural por la regla general de devengo (art. 75 LIVA).
+ *
+ * Casilla 81 (y 653 del 390): operaciones en criterio de caja «como si no se les hubiera aplicado
+ * el régimen»; `cashYearIssued` son esas facturas, también por la regla general, y `yearIssued` el
+ * resto. No se calculan, porque el programa no tiene datos que las distingan: 126-127 (ventanilla
+ * única), 128 (grupo de entidades), 86 (régimen simplificado), 95 (agricultura), 96 (recargo de
+ * equivalencia propio), 97 (bienes usados), 98 (agencias de viajes) ni las minoraciones 79 y 99
+ * (inmuebles, operaciones financieras no habituales y entregas de bienes de inversión).
  */
-export function buildModelo303VolumeBoxes(yearIssued: IssuedVatResult, options: { numbered?: boolean } = {}): Modelo303Box[] {
+export function buildModelo303VolumeBoxes(yearIssued: IssuedVatResult, options: { numbered?: boolean; cashYearIssued?: IssuedVatResult; model?: "303" | "390" } = {}): Modelo303Box[] {
   const numbered = options.numbered ?? true;
   const money = (cents: number) => centsToNumber(cents);
+  const cash = options.cashYearIssued;
+  const cashGeneral = cash ? sumMap(cash.vat).base : 0;
+  const zero = (treatment: SalesVatTreatment) => yearIssued.zeroRated[treatment] + (cash?.zeroRated[treatment] ?? 0);
   const general = sumMap(yearIssued.vat).base;
-  const intraEu = yearIssued.zeroRated.INTRA_EU + yearIssued.zeroRated.INTRA_EU_SERVICES;
-  const exports = yearIssued.zeroRated.EXPORT;
-  const exempt = yearIssued.zeroRated.EXEMPT + yearIssued.zeroRated.DOMESTIC;
-  const notSubject = yearIssued.zeroRated.NOT_SUBJECT;
-  const reverseCharge = yearIssued.zeroRated.REVERSE_CHARGE;
-  const rows: Array<[string, string, number]> = [
-    ["80", "Volumen del año · operaciones en régimen general (sin IVA ni recargo)", general],
-    ["93", "Volumen del año · entregas intracomunitarias de bienes y servicios", intraEu],
-    ["94", "Volumen del año · exportaciones y otras exentas con derecho a deducción", exports],
-    ["83", "Volumen del año · exentas sin derecho a deducción y líneas sin IVA (si alguna es a tipo cero, va en la 94)", exempt],
-    ["84", "Volumen del año · no sujetas por reglas de localización", notSubject],
-    ["125", "Volumen del año · sujetas con inversión del sujeto pasivo", reverseCharge],
-    ["88", "Total volumen de operaciones del ejercicio (art. 121 LIVA)", general + intraEu + exports + exempt + notSubject + reverseCharge],
+  const intraEu = zero("INTRA_EU") + zero("INTRA_EU_SERVICES");
+  const exports = zero("EXPORT");
+  const exempt = zero("EXEMPT") + zero("DOMESTIC");
+  const notSubject = zero("NOT_SUBJECT");
+  const reverseCharge = zero("REVERSE_CHARGE");
+  // Numeración del 303 (instrucciones de 2025) y su equivalente del apartado 10 del 390.
+  const rows: Array<[string, string, string, number]> = [
+    ["80", "99", "Volumen del año · operaciones en régimen general (sin IVA ni recargo)", general],
+    ["81", "653", "Volumen del año · operaciones en criterio de caja, por la regla general de devengo (art. 75 LIVA)", cashGeneral],
+    ["93", "103", "Volumen del año · entregas intracomunitarias de bienes y servicios", intraEu],
+    ["94", "104", "Volumen del año · exportaciones y otras exentas con derecho a deducción", exports],
+    ["83", "105", "Volumen del año · exentas sin derecho a deducción y líneas sin IVA (si alguna es a tipo cero, va con las de derecho a deducción)", exempt],
+    ["84", "110", "Volumen del año · no sujetas por reglas de localización", notSubject],
+    ["125", "125", "Volumen del año · sujetas con inversión del sujeto pasivo", reverseCharge],
+    ["88", "108", "Total volumen de operaciones del ejercicio (art. 121 LIVA)", general + cashGeneral + intraEu + exports + exempt + notSubject + reverseCharge],
   ];
+  const annual = options.model === "390";
   return rows
-    .filter(([box, , cents]) => cents !== 0 || box === "80" || box === "88")
-    .map(([box, label, cents]) => ({ box: numbered ? box : "", label, amount: money(cents), kind: "info" as const }));
+    .filter(([box, , , cents]) => cents !== 0 || box === "80" || box === "88")
+    .map(([box, annualBox, label, cents]) => ({ box: numbered ? (annual ? annualBox : box) : "", label, amount: money(cents), kind: "info" as const }));
 }
 
 export type Modelo303BoxOptions = {
@@ -504,12 +605,35 @@ export type Modelo303BoxOptions = {
   compensation?: Modelo303Compensation;
   /** Solo en el último periodo (4T o mes 12): emitidas de todo el ejercicio, para el volumen de operaciones. */
   yearIssued?: IssuedVatResult;
+  /** Solo en el último periodo: emitidas del ejercicio en criterio de caja, por la regla general (casilla 81). */
+  cashYearIssued?: IssuedVatResult;
+  /** Regularizaciones del último periodo (casillas 43 y 44). */
+  adjustments?: Modelo303Adjustments;
+  /** Casillas informativas del criterio de caja (62, 63, 74 y 75): importes por la regla general de devengo. */
+  cashInfo?: Modelo303CashInfo;
+};
+
+/** Operaciones afectadas por el criterio de caja «como si no se les hubiera aplicado» (art. 75 LIVA). */
+export type Modelo303CashInfo = {
+  /** Casillas 62 y 63: entregas y servicios propios en criterio de caja. */
+  salesBaseCents: number;
+  salesTaxCents: number;
+  /** Casillas 74 y 75: adquisiciones afectadas por el criterio de caja (propio o del proveedor). */
+  purchaseBaseCents: number;
+  purchaseTaxCents: number;
 };
 
 /**
  * Casillas del modelo 303 (instrucciones AEAT de 2025). Solo casillas de importe; los tipos (02,
- * 05…) se indican en la etiqueta. No se calculan: régimen simplificado, regularizaciones (40-44),
- * importaciones con IVA diferido (77) ni la tributación conjunta con haciendas forales (65, 68).
+ * 05…) se indican en la etiqueta. No se calculan: régimen simplificado, compensaciones del régimen
+ * de la agricultura (42), importaciones con IVA diferido (77) ni la tributación conjunta con
+ * haciendas forales (65, 68).
+ *
+ * - Las rectificativas y abonos recibidos van a «rectificación de deducciones» (40-41), con su
+ *   signo, no dentro de 28-39.
+ * - 43 y 44 (regularización de bienes de inversión y de la prorrata) solo en el último periodo y si
+ *   se indican en `adjustments`.
+ * - 62-63 y 74-75: informativas del criterio de caja, si se indican en `cashInfo`.
  *
  * - Las facturas rectificativas emitidas van a «modificación de bases y cuotas» (14-15; recargo en
  *   25-26), sin desglose por tipos y con su signo, no dentro de 01-09.
@@ -565,7 +689,7 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
     boxes.push({ box: "26", label: "Modificación de cuotas del recargo de equivalencia (rectificativas)", amount: money(surchargeModification.tax), kind: "tax" });
   }
 
-  const totals = computeModelo303Totals(issued, supplier);
+  const totals = computeModelo303Totals(issued, supplier, options.adjustments);
   boxes.push({ box: "27", label: "Total cuota devengada", amount: money(totals.accruedCents), kind: "tax" });
 
   const deductibleBoxes: Array<[string, string, string, BaseTax]> = [
@@ -581,6 +705,19 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
     if (!always && values.fullBase === 0 && values.tax === 0) continue;
     boxes.push({ box: baseBox, label: `Base deducible · ${label} (sin prorratear)`, amount: money(values.fullBase), kind: "base" });
     boxes.push({ box: taxBox, label: `Cuota deducible · ${label}`, amount: money(values.tax), kind: "tax" });
+  }
+  const rectified = supplier.deductible.rectification;
+  if (rectified.fullBase !== 0 || rectified.tax !== 0) {
+    boxes.push({ box: "40", label: "Rectificación de deducciones · base (rectificativas y abonos recibidos, sin prorratear)", amount: money(rectified.fullBase), kind: "base" });
+    boxes.push({ box: "41", label: "Rectificación de deducciones · cuota", amount: money(rectified.tax), kind: "tax" });
+  }
+  const investmentRegularization = options.adjustments?.investmentRegularizationCents;
+  if (investmentRegularization !== undefined && investmentRegularization !== 0) {
+    boxes.push({ box: "43", label: "Regularización de bienes de inversión (negativa si reduce la deducción)", amount: money(investmentRegularization), kind: "tax" });
+  }
+  const prorrataRegularization = options.adjustments?.prorrataRegularizationCents;
+  if (prorrataRegularization !== undefined) {
+    boxes.push({ box: "44", label: "Regularización por el porcentaje definitivo de prorrata (negativa si reduce la deducción)", amount: money(prorrataRegularization), kind: "tax" });
   }
   boxes.push({ box: "45", label: "Total a deducir", amount: money(totals.deductibleCents), kind: "tax" });
   boxes.push({ box: "46", label: "Resultado régimen general (27 − 45)", amount: money(totals.resultCents), kind: "settlement" });
@@ -618,70 +755,156 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   if (exempt !== 0) {
     boxes.push({ box: "EXE", label: "Operaciones exentas o sin IVA (no van en el 303; se declaran en el 390)", amount: money(exempt), kind: "info" });
   }
-  if (options.yearIssued) boxes.push(...buildModelo303VolumeBoxes(options.yearIssued));
+  const cashInfo = options.cashInfo;
+  if (cashInfo) {
+    const cashRows: Array<[string, string, number]> = [
+      ["62", "Criterio de caja · base de tus entregas y servicios del periodo según la regla general de devengo", cashInfo.salesBaseCents],
+      ["63", "Criterio de caja · cuota de tus entregas y servicios del periodo según la regla general de devengo", cashInfo.salesTaxCents],
+      ["74", "Criterio de caja · base de las adquisiciones afectadas, según la regla general de devengo", cashInfo.purchaseBaseCents],
+      ["75", "Criterio de caja · cuota soportada de las adquisiciones afectadas, según la regla general de devengo", cashInfo.purchaseTaxCents],
+    ];
+    for (const [box, label, cents] of cashRows) {
+      if (cents !== 0) boxes.push({ box, label, amount: money(cents), kind: "info" });
+    }
+  }
+  if (options.yearIssued) boxes.push(...buildModelo303VolumeBoxes(options.yearIssued, { cashYearIssued: options.cashYearIssued }));
 
   return boxes;
 }
 
 export type VatPeriodResult = { period: string; resultCents: number };
 
+type RateBoxes = Record<string, [string, string]>;
+
 /**
- * Resumen anual del IVA para preparar el 390. SIN NUMERACIÓN OFICIAL: las casillas del 390 no se
- * han podido contrastar con sus instrucciones, así que las filas van sin número (se identifican por
- * su concepto) en vez de inventarlo o de reutilizar las del 303.
+ * Casillas del modelo 390 (apartado 5, IVA devengado), contrastadas con las instrucciones del
+ * ejercicio 2025 y el diseño de registro de la sede de la AEAT (dr390e2025 y dr390e2026: la
+ * numeración no cambia). Pares [base, cuota] por tipo. Los tipos del 2 %, 5 % y 7,5 % ya no están
+ * vigentes: el diseño obliga a dejarlos a cero, así que un importe a esos tipos se marca para revisar.
  */
-export function buildModelo390Summary(
-  issued: IssuedVatResult,
-  supplier: SupplierVatResult,
-  options: { periodResults?: VatPeriodResult[]; openingCents?: number } = {},
-): Modelo303Box[] {
+const MODELO_390_OUTPUT = {
+  ordinary: { "4": ["01", "02"], "10": ["03", "04"], "21": ["05", "06"] } as RateBoxes,
+  cash: { "4": ["643", "644"], "10": ["645", "646"], "21": ["647", "648"] } as RateBoxes,
+  intraEuGoods: { "4": ["21", "22"], "10": ["23", "24"], "21": ["25", "26"] } as RateBoxes,
+  intraEuServices: { "4": ["545", "546"], "10": ["547", "548"], "21": ["551", "552"] } as RateBoxes,
+  surcharge: { "0.5": ["35", "36"], "1.4": ["599", "600"], "5.2": ["601", "602"], "1.75": ["41", "42"] } as RateBoxes,
+};
+
+/** Apartado 5, IVA deducible: desglose por tipo y casillas de total [base, cuota] de cada concepto. */
+const MODELO_390_DEDUCTIBLE: Array<{ category: DeductibleCategory; label: string; rates: RateBoxes; total: [string, string] }> = [
+  { category: "domesticCurrent", label: "operaciones interiores corrientes", rates: { "2": ["695", "696"], "4": ["190", "191"], "5": ["724", "725"], "7.5": ["697", "698"], "10": ["603", "604"], "21": ["605", "606"] }, total: ["48", "49"] },
+  { category: "domesticInvestment", label: "operaciones interiores de bienes de inversión", rates: { "4": ["196", "197"], "10": ["611", "612"], "21": ["613", "614"] }, total: ["50", "51"] },
+  { category: "importCurrent", label: "importaciones de bienes corrientes", rates: { "2": ["757", "758"], "4": ["202", "203"], "5": ["732", "733"], "7.5": ["759", "760"], "10": ["619", "620"], "21": ["621", "622"] }, total: ["52", "53"] },
+  { category: "importInvestment", label: "importaciones de bienes de inversión", rates: { "4": ["208", "209"], "10": ["623", "624"], "21": ["625", "626"] }, total: ["54", "55"] },
+  { category: "intraEuGoodsCurrent", label: "adquisiciones intracomunitarias de bienes corrientes", rates: { "2": ["765", "766"], "4": ["214", "215"], "5": ["736", "737"], "7.5": ["767", "768"], "10": ["627", "628"], "21": ["629", "630"] }, total: ["56", "57"] },
+  { category: "intraEuGoodsInvestment", label: "adquisiciones intracomunitarias de bienes de inversión", rates: { "4": ["220", "221"], "10": ["631", "632"], "21": ["633", "634"] }, total: ["58", "59"] },
+  { category: "intraEuServices", label: "adquisiciones intracomunitarias de servicios", rates: { "4": ["587", "588"], "10": ["635", "636"], "21": ["637", "638"] }, total: ["597", "598"] },
+];
+
+export type Modelo390Options = {
+  periodResults?: VatPeriodResult[];
+  openingCents?: number;
+  /** Regularizaciones del ejercicio (casillas 63 y 522). */
+  adjustments?: Modelo303Adjustments;
+  /** Emitidas del ejercicio por la regla general de devengo, para el volumen de operaciones (por defecto, `issued`). */
+  volumeIssued?: IssuedVatResult;
+  /** Emitidas del ejercicio en criterio de caja, por la regla general (casilla 653). */
+  cashYearIssued?: IssuedVatResult;
+  /** Apartado 11: operaciones en criterio de caja según la regla general (654-657). */
+  cashInfo?: Modelo303CashInfo;
+  /** Apartado 12: prorrata general del ejercicio (casillas 115, 116 y 118). */
+  prorrata?: { totalCents: number; deductibleCents: number; pct: number };
+};
+
+/**
+ * Resumen anual del IVA con la numeración oficial del modelo 390 (ejercicio 2025 y siguientes).
+ * Solo se numeran las casillas que el programa calcula. No se calculan: operaciones intragrupo,
+ * regímenes especiales (bienes usados, agencias de viajes, simplificado, agricultura), modificación
+ * por concurso o créditos incobrables (31-32, 45-46), tributación por territorios (87-94),
+ * devoluciones mensuales (96, 524) ni el desglose por actividades y sectores diferenciados.
+ *
+ * - `issued` es lo devengado en el ejercicio (en criterio de caja, lo cobrado): las cuotas del
+ *   régimen del criterio de caja van en sus casillas (643-648), no en 01-06.
+ * - Un importe a un tipo sin casilla vigente sale como fila «REV» para revisarlo a mano.
+ * - 85: cuotas a compensar que vienen del ejercicio anterior; 86 = 84 − 85 (sin IVA a la
+ *   importación liquidado por la Aduana, 659). 95: suma de los resultados a ingresar de los 303.
+ *   97: saldo a compensar al cerrar el último periodo (si se pide la devolución, va en la 98).
+ */
+export function buildModelo390Summary(issued: IssuedVatResult, supplier: SupplierVatResult, options: Modelo390Options = {}): Modelo303Box[] {
   const rows: Modelo303Box[] = [];
   const money = (cents: number) => centsToNumber(cents);
-  const push = (label: string, cents: number, kind: Modelo303Box["kind"]) => rows.push({ box: "", label, amount: money(cents), kind });
+  const push = (box: string, label: string, cents: number, kind: Modelo303Box["kind"]) => rows.push({ box, label, amount: money(cents), kind });
+  const pushRates = (map: Map<number, CentsBucket>, boxes: RateBoxes, label: string, kinds: { always?: number[] } = {}) => {
+    const rates = new Set<number>([...(kinds.always ?? []), ...map.keys()]);
+    for (const rate of [...rates].sort((left, right) => left - right)) {
+      const bucket = map.get(rate) ?? { rate, base: 0, tax: 0 };
+      const mapping = boxes[String(rate)];
+      if (bucket.base === 0 && bucket.tax === 0 && !(mapping && kinds.always?.includes(rate))) continue;
+      if (!mapping) {
+        push("REV", `Revisar: ${label} al ${rate}% no tiene casilla vigente en el 390 (base ${money(bucket.base).toFixed(2)} €)`, bucket.tax, "tax");
+        continue;
+      }
+      push(mapping[0], `${label} · base al ${rate}%`, bucket.base, "base");
+      push(mapping[1], `${label} · cuota al ${rate}%`, bucket.tax, "tax");
+    }
+  };
+  const net = (map: Map<number, CentsBucket>, ...minus: Array<Map<number, CentsBucket>>) => {
+    const result = new Map<number, CentsBucket>();
+    for (const rate of new Set([...map.keys(), ...minus.flatMap((entry) => [...entry.keys()])])) {
+      let bucket = subtractBucket(map.get(rate), undefined, rate);
+      for (const entry of minus) bucket = subtractBucket(bucket, entry.get(rate), rate);
+      if (bucket.base !== 0 || bucket.tax !== 0) result.set(rate, bucket);
+    }
+    return result;
+  };
 
-  for (const rate of [...issued.vat.keys()].sort((left, right) => left - right)) {
-    const bucket = subtractBucket(issued.vat.get(rate), issued.rectification.vat.get(rate), rate);
-    if (bucket.base === 0 && bucket.tax === 0) continue;
-    push(`Devengado · base al ${rate}%`, bucket.base, "base");
-    push(`Devengado · cuota al ${rate}%`, bucket.tax, "tax");
+  // Rectificativas en criterio de caja: `cashVat` ya las excluye; el resto del régimen ordinario
+  // es lo devengado menos las rectificativas (29-30) y menos lo del criterio de caja.
+  const hasCash = issued.cashVat.size > 0;
+  pushRates(net(issued.vat, issued.rectification.vat, issued.cashVat), MODELO_390_OUTPUT.ordinary, "Devengado · régimen ordinario", { always: hasCash ? [] : [4, 10, 21] });
+  if (hasCash) pushRates(issued.cashVat, MODELO_390_OUTPUT.cash, "Devengado · régimen especial del criterio de caja");
+  pushRates(supplier.selfAssessedByRate.intraEuGoods, MODELO_390_OUTPUT.intraEuGoods, "Devengado · adquisiciones intracomunitarias de bienes");
+  pushRates(supplier.selfAssessedByRate.intraEuServices, MODELO_390_OUTPUT.intraEuServices, "Devengado · adquisiciones intracomunitarias de servicios");
+  if (supplier.selfAssessed.reverseCharge.base !== 0 || supplier.selfAssessed.reverseCharge.tax !== 0) {
+    push("27", "Devengado · base de otros supuestos de inversión del sujeto pasivo", supplier.selfAssessed.reverseCharge.base, "base");
+    push("28", "Devengado · cuota de otros supuestos de inversión del sujeto pasivo", supplier.selfAssessed.reverseCharge.tax, "tax");
   }
   const vatModification = sumMap(issued.rectification.vat);
   if (vatModification.base !== 0 || vatModification.tax !== 0) {
-    push("Devengado · modificación de bases (rectificativas)", vatModification.base, "base");
-    push("Devengado · modificación de cuotas (rectificativas)", vatModification.tax, "tax");
+    push("29", "Devengado · modificación de bases (facturas rectificativas emitidas)", vatModification.base, "base");
+    push("30", "Devengado · modificación de cuotas (facturas rectificativas emitidas)", vatModification.tax, "tax");
   }
-  if (supplier.selfAssessed.intraEu.base !== 0 || supplier.selfAssessed.intraEu.tax !== 0) {
-    push("Devengado · base adquisiciones intracomunitarias", supplier.selfAssessed.intraEu.base, "base");
-    push("Devengado · cuota adquisiciones intracomunitarias", supplier.selfAssessed.intraEu.tax, "tax");
+  const outputVat = sumMap(issued.vat);
+  push("33", "Total bases IVA", outputVat.base + supplier.selfAssessed.intraEu.base + supplier.selfAssessed.reverseCharge.base, "base");
+  push("34", "Total cuotas IVA", outputVat.tax + supplier.selfAssessed.intraEu.tax + supplier.selfAssessed.reverseCharge.tax, "tax");
+  pushRates(net(issued.surcharge, issued.rectification.surcharge), MODELO_390_OUTPUT.surcharge, "Devengado · recargo de equivalencia");
+  const surchargeModification = sumMap(issued.rectification.surcharge);
+  if (surchargeModification.base !== 0 || surchargeModification.tax !== 0) {
+    push("43", "Devengado · modificación de bases del recargo de equivalencia", surchargeModification.base, "base");
+    push("44", "Devengado · modificación de cuotas del recargo de equivalencia", surchargeModification.tax, "tax");
   }
-  if (supplier.selfAssessed.reverseCharge.base !== 0 || supplier.selfAssessed.reverseCharge.tax !== 0) {
-    push("Devengado · base inversión del sujeto pasivo", supplier.selfAssessed.reverseCharge.base, "base");
-    push("Devengado · cuota inversión del sujeto pasivo", supplier.selfAssessed.reverseCharge.tax, "tax");
-  }
-  for (const rate of [...issued.surcharge.keys()].sort((left, right) => left - right)) {
-    const bucket = issued.surcharge.get(rate);
-    if (!bucket || (bucket.base === 0 && bucket.tax === 0)) continue;
-    push(`Devengado · base recargo de equivalencia ${rate}%`, bucket.base, "base");
-    push(`Devengado · cuota recargo de equivalencia ${rate}%`, bucket.tax, "tax");
-  }
-  const totals = computeModelo303Totals(issued, supplier);
-  push("Total cuotas devengadas del ejercicio", totals.accruedCents, "tax");
+  const totals = computeModelo303Totals(issued, supplier, options.adjustments);
+  push("47", "Total cuotas IVA y recargo de equivalencia", totals.accruedCents, "tax");
 
-  const deductible: Array<[string, BaseTax]> = [
-    ["operaciones interiores corrientes", supplier.deductible.domesticCurrent],
-    ["operaciones interiores con bienes de inversión", supplier.deductible.domesticInvestment],
-    ["importaciones de bienes corrientes", supplier.deductible.importCurrent],
-    ["importaciones de bienes de inversión", supplier.deductible.importInvestment],
-    ["adquisiciones intracomunitarias corrientes", supplier.deductible.intraEuCurrent],
-    ["adquisiciones intracomunitarias de bienes de inversión", supplier.deductible.intraEuInvestment],
-  ];
-  for (const [label, values] of deductible) {
-    if (values.fullBase === 0 && values.tax === 0) continue;
-    push(`Deducible · base ${label} (sin prorratear)`, values.fullBase, "base");
-    push(`Deducible · cuota ${label}`, values.tax, "tax");
+  for (const concept of MODELO_390_DEDUCTIBLE) {
+    const map = supplier.deductibleByRate[concept.category];
+    const total = sumMap(map);
+    if (total.base === 0 && total.tax === 0) continue;
+    pushRates(map, concept.rates, `Deducible · ${concept.label} (base sin prorratear)`);
+    push(concept.total[0], `Deducible · total bases de ${concept.label}`, total.base, "base");
+    push(concept.total[1], `Deducible · total cuotas de ${concept.label}`, total.tax, "tax");
   }
-  push("Total cuotas deducibles del ejercicio", totals.deductibleCents, "tax");
-  push("Resultado del ejercicio (devengado − deducible)", totals.resultCents, "settlement");
+  const rectified = supplier.deductible.rectification;
+  if (rectified.fullBase !== 0 || rectified.tax !== 0) {
+    push("639", "Deducible · rectificación de deducciones, base (rectificativas y abonos recibidos)", rectified.fullBase, "base");
+    push("62", "Deducible · rectificación de deducciones, cuota", rectified.tax, "tax");
+  }
+  const investmentRegularization = options.adjustments?.investmentRegularizationCents;
+  if (investmentRegularization !== undefined && investmentRegularization !== 0) push("63", "Regularización de bienes de inversión", investmentRegularization, "tax");
+  const prorrataRegularization = options.adjustments?.prorrataRegularizationCents;
+  if (prorrataRegularization !== undefined) push("522", "Regularización por el porcentaje definitivo de prorrata", prorrataRegularization, "tax");
+  push("64", "Suma de deducciones", totals.deductibleCents, "tax");
+  push("65", "Resultado régimen general (47 − 64)", totals.resultCents, "settlement");
 
   if (options.periodResults && options.periodResults.length > 0) {
     const openingCents = options.openingCents ?? 0;
@@ -693,12 +916,32 @@ export function buildModelo390Summary(
       if (last.resultCents > 0) toPay += last.resultCents;
       previous.push(period.resultCents);
     }
-    if (openingCents !== 0) push("Liquidaciones · cuotas a compensar de ejercicios anteriores", openingCents, "settlement");
-    push("Liquidaciones · suma de resultados a ingresar de las autoliquidaciones (303) del año", toPay, "settlement");
-    push("Liquidaciones · saldo a compensar o devolver al final del ejercicio", last?.carryForwardCents ?? 0, "settlement");
+    push("84", "Suma de resultados (65; sin régimen simplificado)", totals.resultCents, "settlement");
+    push("85", "Compensación de cuotas del ejercicio anterior", openingCents, "settlement");
+    push("86", "Resultado de la liquidación (84 − 85)", totals.resultCents - openingCents, "settlement");
+    push("95", "Total de resultados a ingresar en las autoliquidaciones (303) del ejercicio", toPay, "settlement");
+    push("97", "A compensar al cerrar el último periodo (si pediste la devolución, es la casilla 98)", last?.carryForwardCents ?? 0, "settlement");
   }
 
-  rows.push(...buildModelo303VolumeBoxes(issued, { numbered: false }));
+  rows.push(...buildModelo303VolumeBoxes(options.volumeIssued ?? issued, { model: "390", cashYearIssued: options.cashYearIssued }));
+
+  const cashInfo = options.cashInfo;
+  if (cashInfo) {
+    const cashRows: Array<[string, string, number]> = [
+      ["654", "Criterio de caja · base de tus entregas y servicios según la regla general de devengo", cashInfo.salesBaseCents],
+      ["655", "Criterio de caja · cuota de tus entregas y servicios según la regla general de devengo", cashInfo.salesTaxCents],
+      ["656", "Criterio de caja · base de las adquisiciones afectadas, según la regla general de devengo", cashInfo.purchaseBaseCents],
+      ["657", "Criterio de caja · cuota soportada de las adquisiciones afectadas, según la regla general de devengo", cashInfo.purchaseTaxCents],
+    ];
+    for (const [box, label, cents] of cashRows) {
+      if (cents !== 0) push(box, label, cents, "info");
+    }
+  }
+  if (options.prorrata) {
+    // El porcentaje (casilla 118) no es un importe: va en el texto para no mostrarlo como euros.
+    push("115", `Prorrata general (porcentaje definitivo, casilla 118: ${options.prorrata.pct} %) · importe total de las operaciones`, options.prorrata.totalCents, "info");
+    push("116", "Prorrata general · importe de las operaciones con derecho a deducción", options.prorrata.deductibleCents, "info");
+  }
   return rows;
 }
 
@@ -706,7 +949,15 @@ export function buildModelo390Summary(
 // Modelo 349: declaración recapitulativa de operaciones intracomunitarias.
 // ---------------------------------------------------------------------------------------------
 
-/** Claves del 349: E entregas de bienes, A adquisiciones de bienes, S servicios prestados, I servicios adquiridos. */
+/**
+ * Claves del 349 que el programa asigna: E entregas de bienes, A adquisiciones de bienes, S
+ * servicios prestados, I servicios adquiridos. El diseño de registro (Orden HAC/174/2020) tiene
+ * además T (entregas subsiguientes en operaciones triangulares), M y H (entregas posteriores a una
+ * importación exenta, la H por el representante fiscal) y R, D y C (transferencias, devoluciones y
+ * sustituciones en ventas de bienes en consigna). El programa no tiene ningún dato que distinga
+ * esas operaciones (no hay marca de triangular, de importación previa ni de consigna), así que no
+ * las asigna: quien las realice debe cambiar la clave a mano al presentar.
+ */
 export type Modelo349Key = "E" | "A" | "S" | "I";
 
 export const modelo349KeyLabels: Record<Modelo349Key, string> = {
@@ -734,7 +985,29 @@ export type Modelo349Operator = {
   amount: number;
 };
 
-export type Modelo349Rectification = Modelo349Operator & { originalPeriod: string };
+export type Modelo349Rectification = Modelo349Operator & {
+  originalPeriod: string;
+  /**
+   * Como lo pide el modelo: «base imponible declarada anteriormente» (lo consignado en el periodo
+   * que se corrige) y «base imponible rectificada» (el importe total correcto, no la diferencia).
+   * `amount` es la diferencia. Sin dato del periodo original quedan sin informar.
+   */
+  previousAmount?: number;
+  rectifiedAmount?: number;
+};
+
+/** Art. 81.2 RIVA: por encima de este importe de entregas y servicios, el 349 es mensual. */
+export const MODELO_349_MONTHLY_THRESHOLD = 50_000;
+
+/**
+ * Periodicidad del 349 (art. 81.2 RIVA): es trimestral solo si ni en el trimestre de referencia ni
+ * en ninguno de los cuatro trimestres naturales anteriores las entregas de bienes y prestaciones de
+ * servicios intracomunitarias (claves E, M, H, T y S; no las adquisiciones) superan 50.000 €.
+ * `quarterTotalsCents`: importes de esos trimestres (el de referencia y hasta cuatro anteriores).
+ */
+export function modelo349RequiresMonthly(quarterTotalsCents: number[]) {
+  return quarterTotalsCents.some((cents) => cents > MODELO_349_MONTHLY_THRESHOLD * 100);
+}
 
 export type Modelo349Result = {
   operators: Modelo349Operator[];
@@ -743,6 +1016,10 @@ export type Modelo349Result = {
   totalAmount: number;
   rectificationAmount: number;
   issues: Array<{ code: string; message: string }>;
+  /** Entregas y servicios (claves E y S) del periodo: el importe que cuenta para el umbral de 50.000 €. */
+  deliveriesAmount?: number;
+  /** true si por el umbral del art. 81.2 RIVA corresponde presentar el 349 cada mes. */
+  monthlyRequired?: boolean;
 };
 
 /** Clave de una venta (E/S) o compra (A/I) intracomunitaria. */

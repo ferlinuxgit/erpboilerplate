@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ db: {} }));
 
 import { buildSupplierInvoiceLines, normalizePostingLines } from "@/server/accounting/auto-post";
-import { buildModelo303Boxes, buildModelo303VolumeBoxes, buildModelo390Summary, computeIssuedVat, computeModelo303Compensation, computeModelo303Totals, computeSupplierVat, type IssuedLineInput, type SupplierLineInput } from "@/server/fiscal/spain-calc";
-import { groupCashCollections, groupThirdPartyOperations, issuedInvoiceFiscalFilter, modelo349SaleKey, normalizeVatCompensationOpening, supplierInvoiceFiscalFilter } from "@/server/fiscal/spain";
+import { buildModelo303Boxes, buildModelo303VolumeBoxes, buildModelo390Summary, computeIssuedVat, computeModelo303Compensation, computeModelo303Totals, computeSupplierVat, modelo349RequiresMonthly, type IssuedLineInput, type SupplierLineInput } from "@/server/fiscal/spain-calc";
+import { attachCashAccruals, groupCashCollections, groupThirdPartyOperations, issuedInvoiceFiscalFilter, modelo349SaleKey, normalizeVatCompensationOpening, supplierInvoiceFiscalFilter } from "@/server/fiscal/spain";
 
 vi.mock("@/server/audit", () => ({ recordAudit: vi.fn() }));
 
@@ -281,21 +281,111 @@ describe("Modelo 303: bases deducibles, rectificativas y último periodo", () =>
   });
 });
 
-describe("Modelo 390: resumen anual sin numeración oficial", () => {
-  it("no lleva números de casilla y encadena las liquidaciones del año", () => {
+describe("Modelo 390: numeración oficial (instrucciones y diseño de registro de 2025)", () => {
+  const annualBox = (rows: ReturnType<typeof buildModelo390Summary>, code: string) => rows.find((row) => row.box === code)?.amount;
+
+  it("numera devengado, deducible y resultado, y encadena las liquidaciones del año", () => {
     const issuedVat = computeIssuedVat([issued({ unitPrice: 10_000, taxRate: 21 })]);
     const supplierVat = computeSupplierVat([received({ subtotal: 1000, taxAmount: 210, totalAmount: 1210 })], 100);
     const rows = buildModelo390Summary(issuedVat, supplierVat, {
+      openingCents: 10_000,
       periodResults: [{ period: "2026-Q1", resultCents: -80_000 }, { period: "2026-Q2", resultCents: 100_000 }, { period: "2026-Q3", resultCents: 50_000 }, { period: "2026-Q4", resultCents: -30_000 }],
     });
-    expect(rows.every((row) => row.box === "")).toBe(true);
-    const amount = (label: string) => rows.find((row) => row.label.startsWith(label))?.amount;
-    expect(amount("Devengado · base al 21%")).toBe(10_000);
-    expect(amount("Total cuotas devengadas")).toBe(2100);
-    expect(amount("Total cuotas deducibles")).toBe(210);
-    // T2: 1.000 − 800 = 200; T3: 500 → 700 a ingresar en el año. T4 deja 300 a compensar o devolver.
-    expect(amount("Liquidaciones · suma de resultados a ingresar")).toBe(700);
-    expect(amount("Liquidaciones · saldo a compensar o devolver")).toBe(300);
+    expect(rows.every((row) => row.box !== "")).toBe(true);
+    // Régimen ordinario: 01-06 siempre; el 21 % en 05 y 06. Totales 33, 34 y 47.
+    expect([annualBox(rows, "01"), annualBox(rows, "03"), annualBox(rows, "05"), annualBox(rows, "06")]).toEqual([0, 0, 10_000, 2100]);
+    expect([annualBox(rows, "33"), annualBox(rows, "34"), annualBox(rows, "47")]).toEqual([10_000, 2100, 2100]);
+    // Deducible interior corriente al 21 %: 605 y 606, con sus totales 48 y 49.
+    expect([annualBox(rows, "605"), annualBox(rows, "606"), annualBox(rows, "48"), annualBox(rows, "49")]).toEqual([1000, 210, 1000, 210]);
+    expect([annualBox(rows, "64"), annualBox(rows, "65"), annualBox(rows, "84")]).toEqual([210, 1890, 1890]);
+    // 85: saldo del ejercicio anterior; 86 = 84 − 85.
+    expect([annualBox(rows, "85"), annualBox(rows, "86")]).toEqual([100, 1790]);
+    // 1T: −800 (más 100 de saldo inicial = 900 a compensar). 2T: 1.000 − 900 = 100; 3T: 500 → 600 a
+    // ingresar en el año. 4T deja 300 a compensar o devolver.
+    expect([annualBox(rows, "95"), annualBox(rows, "97")]).toEqual([600, 300]);
+    // Volumen de operaciones: 99 y total 108.
+    expect([annualBox(rows, "99"), annualBox(rows, "108")]).toEqual([10_000, 10_000]);
+  });
+
+  it("separa adquisiciones intracomunitarias de bienes y de servicios, la inversión del sujeto pasivo y las rectificativas", () => {
+    const issuedVat = computeIssuedVat([
+      issued({ invoiceId: "a", unitPrice: 1000, taxRate: 10 }),
+      issued({ invoiceId: "r", unitPrice: -100, taxRate: 10, invoiceType: "CREDIT_NOTE" }),
+    ]);
+    const supplierVat = computeSupplierVat([
+      received({ invoiceId: "bienes", treatment: "INTRA_EU", subtotal: 500, taxAmount: 0, totalAmount: 500, expenseAccountCode: "600" }),
+      received({ invoiceId: "servicios", treatment: "INTRA_EU", subtotal: 300, taxAmount: 0, totalAmount: 300, expenseAccountCode: "623" }),
+      received({ invoiceId: "isp", treatment: "REVERSE_CHARGE", subtotal: 200, taxAmount: 0, totalAmount: 200, expenseAccountCode: "607" }),
+      received({ invoiceId: "abono", documentKind: "RECTIFICATION", subtotal: -50, taxAmount: -10.5, totalAmount: -60.5 }),
+    ], 100);
+    const rows = buildModelo390Summary(issuedVat, supplierVat);
+    expect([annualBox(rows, "03"), annualBox(rows, "04"), annualBox(rows, "29"), annualBox(rows, "30")]).toEqual([1000, 100, -100, -10]);
+    expect([annualBox(rows, "25"), annualBox(rows, "26"), annualBox(rows, "551"), annualBox(rows, "552"), annualBox(rows, "27"), annualBox(rows, "28")]).toEqual([500, 105, 300, 63, 200, 42]);
+    // Deducible: bienes UE 629-630 (total 56-57), servicios UE 637-638 (total 597-598), ISP en interiores.
+    expect([annualBox(rows, "629"), annualBox(rows, "57"), annualBox(rows, "637"), annualBox(rows, "598"), annualBox(rows, "606")]).toEqual([500, 105, 300, 63, 42]);
+    expect([annualBox(rows, "639"), annualBox(rows, "62")]).toEqual([-50, -10.5]);
+    // 47 = cuotas de ventas (90) + autorepercutidas (210); 64 = 105 + 63 + 42 − 10,5.
+    expect([annualBox(rows, "47"), annualBox(rows, "64")]).toEqual([300, 199.5]);
+  });
+
+  it("lleva lo devengado en criterio de caja a 643-648 y el recargo a sus casillas; un tipo sin casilla se marca REV", () => {
+    const issuedVat = computeIssuedVat([
+      issued({ invoiceId: "caja", unitPrice: 1000, taxRate: 21, cashAccounting: true, portion: { from: 0, to: 0.5 } }),
+      issued({ invoiceId: "general", unitPrice: 100, taxRate: 21 }),
+      issued({ invoiceId: "viejo", unitPrice: 100, taxRate: 5 }),
+      issued({ invoiceId: "recargo", taxRate: 21, taxes: [
+        { rate: 21, kind: "VAT", operation: "ADD", baseAmount: "100.00", amount: "21.00" },
+        { rate: 5.2, kind: "SURCHARGE", operation: "ADD", baseAmount: "100.00", amount: "5.20" },
+      ] }),
+    ]);
+    const rows = buildModelo390Summary(issuedVat, computeSupplierVat([], 100), {
+      cashYearIssued: computeIssuedVat([issued({ invoiceId: "caja", unitPrice: 1000, taxRate: 21 })]),
+      volumeIssued: computeIssuedVat([issued({ invoiceId: "general", unitPrice: 100, taxRate: 21 })]),
+      cashInfo: { salesBaseCents: 100_000, salesTaxCents: 21_000, purchaseBaseCents: 0, purchaseTaxCents: 0 },
+      prorrata: { totalCents: 110_000, deductibleCents: 110_000, pct: 100 },
+    });
+    expect([annualBox(rows, "647"), annualBox(rows, "648"), annualBox(rows, "05"), annualBox(rows, "06")]).toEqual([500, 105, 200, 42]);
+    expect([annualBox(rows, "601"), annualBox(rows, "602")]).toEqual([100, 5.2]);
+    expect(rows.find((row) => row.box === "REV")?.amount).toBe(5);
+    // Volumen: 99 régimen general, 653 criterio de caja por la regla general, 108 total.
+    expect([annualBox(rows, "99"), annualBox(rows, "653"), annualBox(rows, "108")]).toEqual([100, 1000, 1100]);
+    expect([annualBox(rows, "654"), annualBox(rows, "655"), annualBox(rows, "656")]).toEqual([1000, 210, undefined]);
+    expect([annualBox(rows, "115"), annualBox(rows, "116")]).toEqual([1100, 1100]);
+    expect(rows.find((row) => row.box === "115")?.label).toContain("casilla 118: 100 %");
+  });
+});
+
+describe("Modelo 303: rectificación de deducciones y criterio de caja", () => {
+  it("lleva las rectificativas recibidas a las casillas 40-41 y no a 28-29", () => {
+    const supplierVat = computeSupplierVat([
+      received({ invoiceId: "compra", subtotal: 1000, taxAmount: 210, totalAmount: 1210 }),
+      received({ invoiceId: "abono", documentKind: "RECTIFICATION", subtotal: -200, taxAmount: -42, totalAmount: -242, prorrataPct: 50 }),
+    ], 100);
+    const boxes = buildModelo303Boxes(computeIssuedVat([]), supplierVat, { periodYear: 2026 });
+    expect([box(boxes, "28"), box(boxes, "29")]).toEqual([1000, 210]);
+    // Base sin prorratear y cuota con la prorrata de la rectificativa, con su signo.
+    expect([box(boxes, "40"), box(boxes, "41"), box(boxes, "45")]).toEqual([-200, -21, 189]);
+    // Los modelos canarios piden que siga restando en su concepto.
+    const canary = computeSupplierVat([received({ documentKind: "RECTIFICATION", subtotal: -200, taxAmount: -42, totalAmount: -242 })], 100, 7, { separateRectifications: false });
+    expect([canary.deductible.domesticCurrent.tax, canary.deductible.rectification.tax]).toEqual([-4_200, 0]);
+    // Una anulación (sign −1) de una factura normal sigue restando en 28-29.
+    const voided = computeSupplierVat([received({ sign: -1, voidedAt: issueDate })], 100);
+    const voidedBoxes = buildModelo303Boxes(computeIssuedVat([]), voided, { periodYear: 2026 });
+    expect([box(voidedBoxes, "29"), box(voidedBoxes, "41")]).toEqual([-21, undefined]);
+  });
+
+  it("informa 62-63 y 74-75, y la casilla 81 del volumen en el último periodo", () => {
+    const issuedVat = computeIssuedVat([issued({ unitPrice: 1000, cashAccounting: true, portion: { from: 0, to: 0.25 } })]);
+    const boxes = buildModelo303Boxes(issuedVat, computeSupplierVat([], 100), {
+      periodYear: 2026,
+      cashInfo: { salesBaseCents: 100_000, salesTaxCents: 21_000, purchaseBaseCents: 50_000, purchaseTaxCents: 10_500 },
+      yearIssued: computeIssuedVat([issued({ invoiceId: "exenta", unitPrice: 300, taxRate: 0, treatment: "EXEMPT" })]),
+      cashYearIssued: computeIssuedVat([issued({ unitPrice: 1000 })]),
+    });
+    // Devengado: solo el 25 % cobrado.
+    expect([box(boxes, "07"), box(boxes, "09")]).toEqual([250, 52.5]);
+    expect([box(boxes, "62"), box(boxes, "63"), box(boxes, "74"), box(boxes, "75")]).toEqual([1000, 210, 500, 105]);
+    expect([box(boxes, "80"), box(boxes, "81"), box(boxes, "83"), box(boxes, "88")]).toEqual([0, 1000, 300, 1300]);
   });
 });
 
@@ -318,5 +408,49 @@ describe("Filtros fiscales: límites de periodo en hora local", () => {
     expect(isoParams(query.params)).toEqual(expect.arrayContaining(["2026-03-31T22:00:00.000Z", "2026-06-30T22:00:00.000Z"]));
     const canary = dialect.sqlToQuery(supplierInvoiceFiscalFilter("company-1", new Date(Date.UTC(2026, 0, 1)), new Date(Date.UTC(2026, 3, 1)), "Atlantic/Canary")!);
     expect(isoParams(canary.params)).toEqual(expect.arrayContaining(["2026-01-01T00:00:00.000Z", "2026-03-31T23:00:00.000Z"]));
+  });
+});
+
+describe("Modelo 347: registros separados y criterio de caja", () => {
+  it("separa en filas propias las operaciones con marca, mirando el umbral sobre el total del tercero", () => {
+    const rows = groupThirdPartyOperations("supplier", [
+      { taxId: "B12345678", name: "Proveedor", amount: 2000, quarter: 1 },
+      { taxId: "ES-B12345678", name: "Proveedor (otra ficha)", amount: 1500, quarter: 2, flags: { reverseCharge: true } },
+      { taxId: "B12345678", name: "Proveedor", amount: 500, quarter: 3, flags: { lease: true } },
+      { taxId: "A00000000", name: "Pequeño", amount: 3000, quarter: 1, flags: { lease: true } },
+    ]);
+    // 4.000 € en total: se declara, en tres registros. El de 3.000 € no llega al umbral.
+    expect(rows.map((row) => [row.taxId, row.amount, row.flags ?? null])).toEqual([
+      ["B12345678", 2000, null],
+      ["B12345678", 1500, { reverseCharge: true }],
+      ["B12345678", 500, { lease: true }],
+    ]);
+    expect(rows[1].quarters).toEqual([0, 1500, 0, 0]);
+  });
+
+  it("las operaciones en criterio de caja van en cómputo anual, con el importe devengado según el régimen", () => {
+    const operations = groupThirdPartyOperations("customer", [
+      { taxId: "B12345678", name: "Cliente", amount: 6050, quarter: 1, flags: { cashAccounting: true } },
+    ]);
+    expect(operations[0]).toMatchObject({ amount: 6050, quarters: [0, 0, 0, 0], flags: { cashAccounting: true } });
+    const withAccruals = attachCashAccruals("customer", operations, [
+      { taxId: "B-12345678", name: "Cliente", cents: 242_000 },
+      { taxId: "B12345678", name: "Cliente", cents: 121_000 },
+      // Solo cobros de facturas del año anterior: fila nueva si supera el umbral; si no, nada.
+      { taxId: "B99999999", name: "Cobrado del año pasado", cents: 400_000 },
+      { taxId: "B11111111", name: "Poco", cents: 100_000 },
+    ]);
+    expect(withAccruals.map((row) => [row.taxId, row.amount, row.cashAccrualAmount])).toEqual([
+      ["B12345678", 6050, 3630],
+      ["B99999999", 0, 4000],
+    ]);
+  });
+});
+
+describe("Modelo 349: umbral de periodicidad mensual (art. 81.2 RIVA)", () => {
+  it("es mensual si algún trimestre supera 50.000 € de entregas y servicios", () => {
+    expect(modelo349RequiresMonthly([4_000_000, 5_000_000, 1_000])).toBe(false);
+    expect(modelo349RequiresMonthly([4_000_000, 5_000_001])).toBe(true);
+    expect(modelo349RequiresMonthly([])).toBe(false);
   });
 });
