@@ -535,7 +535,8 @@ export async function detectSiiRecords(companyId: string, options: { client?: Db
 
   const settings = await ensureSiiSettings(client, profile, options.now);
   const extraHolidays = parseExtraHolidays(env.SII_EXTRA_HOLIDAYS);
-  await syncBook(client, companyId, environment.environment, "ISSUED", await loadIssuedDocuments(client, profile, settings.since, extraHolidays), summary);
+  const issuedDocuments = await loadIssuedDocuments(client, profile, settings.since, extraHolidays);
+  await syncBook(client, companyId, environment.environment, "ISSUED", issuedDocuments, summary);
   await syncBook(client, companyId, environment.environment, "RECEIVED", await loadReceivedDocuments(client, profile, settings.since, extraHolidays), summary);
   await client.update(siiSettings).set({ lastDetectionAt: options.now ?? new Date(), updatedAt: new Date() }).where(eq(siiSettings.companyId, companyId));
   return summary;
