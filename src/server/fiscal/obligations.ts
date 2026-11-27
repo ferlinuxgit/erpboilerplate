@@ -19,6 +19,8 @@ import {
   type FiscalReportStatus,
   type SpanishFiscalModelCode,
 } from "@/lib/fiscal-spain";
+import { upcomingCorporateDeadlines } from "@/server/corporate-tax/calendar";
+import { getCorporateTaxCalendarData } from "@/server/corporate-tax/service";
 import { issuedInvoiceFiscalFilter, supplierInvoiceFiscalFilter } from "@/server/fiscal/spain";
 
 /**
@@ -39,6 +41,8 @@ export type FiscalObligation = {
   requirement: "required" | "not-needed";
   reason: string;
   report: { id: string; status: FiscalReportStatus; amountDue: number | null } | null;
+  /** Pantalla propia donde se prepara (modelos 200 y 202); sin ella, el borrador de Fiscalidad. */
+  href?: string;
 };
 
 type ExistingReport = { id: string; code: string; period: string; status: FiscalReportStatus; summary: { amountDue: number | null } | null };
@@ -190,7 +194,29 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
     }
   }
 
-  return entries.flatMap((entry) => {
+  // Sociedades: modelos 200 y 202 cuando se acerca su plazo (se preparan en su asistente).
+  const corporateData = taxpayerType === "company" ? await getCorporateTaxCalendarData(companyId, territory) : null;
+  const corporate = (corporateData ? upcomingCorporateDeadlines(corporateData, now) : []).flatMap((deadline): FiscalObligation[] => {
+    const model = deadline.code === "200" || deadline.code === "202" ? getSpanishFiscalModel(deadline.code) : null;
+    if (!model || (deadline.code !== "200" && deadline.code !== "202")) return [];
+    const notNeeded = deadline.kind === "installment" && deadline.status !== "none" && deadline.amountDue === 0;
+    return [{
+      code: deadline.code,
+      name: model.name,
+      plainHelp: model.plainHelp,
+      period: deadline.period,
+      periodLabel: deadline.periodLabel,
+      dueDate: deadline.dueDate.toISOString(),
+      daysUntilDue: getDaysUntilDue(deadline.dueDate, now),
+      dueStatus: getFiscalDueStatus(deadline.dueDate, now),
+      requirement: notNeeded ? "not-needed" : "required",
+      reason: deadline.reason,
+      report: deadline.status === "none" ? null : { id: "", status: deadline.status === "filed" ? "FILED" : "DRAFT", amountDue: deadline.amountDue !== null && deadline.amountDue < 0 ? null : deadline.amountDue },
+      href: deadline.href,
+    }];
+  });
+
+  return [...entries.flatMap((entry) => {
     const model = getSpanishFiscalModel(entry.code);
     const range = parseSpanishFiscalPeriod(entry.period, entry.code);
     const dueDate = getSpanishFiscalDueDate(entry.period, entry.code);
@@ -209,5 +235,5 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
       reason: entry.reason,
       report: report ? { id: report.id, status: report.status, amountDue: report.summary?.amountDue ?? null } : null,
     }];
-  });
+  }), ...corporate];
 }

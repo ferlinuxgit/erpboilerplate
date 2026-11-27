@@ -241,6 +241,7 @@ export const contextGroups: ContextGroup[] = [
       { href: "/fiscal", label: "Modelos", exact: true, keywords: "303 111 130 390 347 349 iva impuestos declaraciones", countryFeature: "taxReports" },
       { href: "/fiscal", label: "Resumen de impuestos", exact: true, commandLabel: "Resumen de impuestos (IVA)", keywords: "iva vat impuestos repercutido soportado periodo trimestre declaración", unlessCountryFeature: "taxReports" },
       { href: "/fiscal/calendar", label: "Calendario fiscal", keywords: "plazos vencimientos trimestre fechas hacienda", countryFeature: "taxReports" },
+      { href: "/fiscal/sociedades", label: "Impuesto sobre Sociedades", keywords: "sociedades modelo 200 202 pago fraccionado liquidación impuesto beneficios bases negativas cuota", countryFeature: "taxReports" },
       { href: "/fiscal/verifactu", label: "VERI*FACTU", keywords: "verifactu registro aeat facturación antifraude", countryFeature: "eInvoicing" },
       { href: "/fiscal/sii", label: "SII", commandLabel: "SII (Suministro Inmediato de Información)", keywords: "sii suministro inmediato información libros registro aeat iva facturas expedidas recibidas", countryFeature: "taxReports", requiresSii: true },
       { href: "/settings/fiscal", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo periodicidad" },

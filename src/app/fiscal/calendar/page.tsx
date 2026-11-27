@@ -12,6 +12,7 @@ import { requireContext } from "@/lib/current-context";
 import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 import { formatDate, formatMoney } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { getCorporateTaxCalendarData } from "@/server/corporate-tax/service";
 import { buildFiscalCalendar, type FiscalCalendarEntry } from "@/server/fiscal/calendar";
 import { listFiscalReportsWithSummary } from "@/server/fiscal/service";
 import { getFiscalSettings } from "@/server/fiscal/settings";
@@ -47,6 +48,7 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
     territory,
     aiem: territory === "ES-CN" && (await companyHasAiem(ctx.company.id)),
     reports,
+    corporateTax: await getCorporateTaxCalendarData(ctx.company.id, ctx.company.countryCode),
   });
   const overdue = entries.filter((entry) => entry.state === "overdue");
   const dueSoon = entries.filter((entry) => entry.state === "due-soon");
@@ -93,7 +95,7 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
                   <span className="min-w-0 text-sm">
                     <span className="font-semibold">{entry.name} · {entry.periodLabel}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {entry.requirement === "if-applicable" ? "Solo si aplica. " : ""}
+                      {entry.requirement === "if-applicable" ? "Solo si aplica. " : entry.requirement === "reminder" ? "Recordatorio. " : ""}
                       {entry.reason}
                     </span>
                     {entry.directDebitDate && entry.state !== "filed" ? (
@@ -105,7 +107,9 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
                     {entry.report?.amountDue !== null && entry.report?.amountDue !== undefined ? (
                       <span className="font-mono text-xs">{entry.report.amountDue >= 0 ? "A ingresar" : "A compensar"} {formatMoney(Math.abs(entry.report.amountDue))}</span>
                     ) : null}
-                    {entry.report ? (
+                    {entry.href ? (
+                      <Link className={buttonVariants({ size: "sm", variant: "outline" })} href={entry.href}>{entry.requirement === "reminder" ? "Ver" : "Abrir"}</Link>
+                    ) : entry.report ? (
                       <Link className={buttonVariants({ size: "sm", variant: "outline" })} href={`/fiscal/${entry.report.id}`}>Abrir</Link>
                     ) : canWrite && entry.state !== "past" ? (
                       <Link className={buttonVariants({ size: "sm", variant: entry.requirement === "required" ? "default" : "outline" })} href={`/fiscal/new?code=${entry.code}&period=${entry.period}`}>

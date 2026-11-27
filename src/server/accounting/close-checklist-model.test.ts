@@ -79,6 +79,41 @@ describe("comprobaciones antes del cierre del ejercicio", () => {
     expect(checklist.requiresOverride).toBe(false);
   });
 
+  describe("Impuesto sobre Sociedades (solo sociedades)", () => {
+    const tax = { fiscalYearId: "fy-1", posted: false, upToDate: false, entryCents: 250_000, netQuotaCents: 250_000, manualTaxExpenseCents: 0 };
+    const item = (corporateTax: typeof tax | null | undefined) => evaluateCloseChecklist({ ...clean, corporateTax }).items.find((entry) => entry.id === "corporate-tax");
+
+    it("autónomos y otros países: el punto no aparece", () => {
+      expect(item(null)).toBeUndefined();
+      expect(item(undefined)).toBeUndefined();
+    });
+
+    it("sin contabilizar: pendiente, con enlace a la liquidación del ejercicio, y exige motivo", () => {
+      const checklist = evaluateCloseChecklist({ ...clean, corporateTax: tax });
+      const entry = checklist.items.find((candidate) => candidate.id === "corporate-tax");
+      expect(entry).toMatchObject({ status: "pending", title: "Impuesto sobre Sociedades contabilizado", href: "/fiscal/sociedades?year=fy-1" });
+      expect(entry?.detail).toContain("2500,00");
+      expect(checklist.requiresOverride).toBe(true);
+      expect(checklist.blocked).toBe(false);
+    });
+
+    it("contabilizado y al día: correcto", () => {
+      expect(item({ ...tax, posted: true, upToDate: true })?.status).toBe("ok");
+    });
+
+    it("contabilizado pero la liquidación ha cambiado: pendiente de actualizar", () => {
+      expect(item({ ...tax, posted: true, upToDate: false })).toMatchObject({ status: "pending", actionLabel: "Actualizar el asiento" });
+    });
+
+    it("gasto por impuesto contabilizado a mano: recordatorio que no bloquea", () => {
+      expect(item({ ...tax, manualTaxExpenseCents: 240_000 })?.status).toBe("review");
+    });
+
+    it("sin cuota ni pagos a cuenta: no hay asiento que hacer", () => {
+      expect(item({ ...tax, entryCents: 0, netQuotaCents: 0 })?.status).toBe("ok");
+    });
+  });
+
   it("sin 303 (recargo de equivalencia o exenta) no se comprueba el IVA", () => {
     const checklist = evaluateCloseChecklist({ ...clean, lastVatReturn: null });
     expect(checklist.items.some((item) => item.id === "vat-q4-filed")).toBe(false);

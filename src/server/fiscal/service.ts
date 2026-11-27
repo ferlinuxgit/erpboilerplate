@@ -3,6 +3,7 @@ import { and, desc, eq, ne } from "drizzle-orm";
 import { fiscalReport } from "@/db/schema";
 import { db } from "@/lib/db";
 import {
+  isCorporateTaxModelCode,
   isSpanishFiscalModelCode,
   normalizeSpanishFiscalCode,
   normalizeSpanishFiscalPeriod,
@@ -42,7 +43,8 @@ export type FiscalReportView = FiscalReportWithSummary & {
 
 export function normalizeFiscalReportPayload(payload: FiscalReportPayload) {
   const code = normalizeSpanishFiscalCode(payload.code);
-  if (!isSpanishFiscalModelCode(code)) return null;
+  // Los modelos 200 y 202 se preparan en su asistente (Fiscalidad › Sociedades), no como borrador.
+  if (!isSpanishFiscalModelCode(code) || isCorporateTaxModelCode(code)) return null;
 
   const period = normalizeSpanishFiscalPeriod(payload.period, code);
   if (!period) return null;

@@ -763,6 +763,176 @@
   "body": "const payloadSchema = z\n  .object({\n    tenantId: z.string().trim().min(1).optional(),\n    companyId: z.string().trim().min(1).optional(),\n    fiscalYearId: z.string().trim().min(1).optional(),\n  })\n  .refine((value) => Boolean(value.tenantId) || (Boolean(value.companyId) && Boolean(value.fiscalYearId)), {\n    message: \"Indica el espacio o la empresa y el ejercicio.\",\n  })\n  .refine((value) => Boolean(value.companyId) === Boolean(value.fiscalYearId), {\n    message: \"Empresa y ejercicio deben indicarse juntos.\",\n  })"
  },
  {
+  "method": "POST",
+  "path": "/api/corporate-tax/installments/{fiscalYearId}/{period}/payment",
+  "area": "corporate-tax",
+  "summary": "Contabiliza el pago de un modelo 202: (473) HP, retenciones y pagos a cuenta, al debe, y la cuenta del banco al haber, con la fecha del pago. Por defecto, el importe guardado del periodo (céntimos).",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payInstallmentSchema = z.object({\n  date: isoDate(\"La fecha del pago no es válida.\"),\n  bankAccountId: z.string().trim().min(1).max(80).nullable().optional(),\n  amountCents: cents().min(1, \"El importe del pago debe ser mayor que cero.\").nullable().optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/corporate-tax/installments/{fiscalYearId}/{period}/payment",
+  "area": "corporate-tax",
+  "summary": "Anula el asiento del pago de un modelo 202 con un contraasiento.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/corporate-tax/installments/{fiscalYearId}/{period}/preview",
+  "area": "corporate-tax",
+  "summary": "Calcula un pago fraccionado con los datos enviados sin guardar nada (vista previa). Importes en céntimos.",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "body": "const installmentSchema = z.object({\n  method: z.enum([\"quota\", \"base\"]),\n  increasesCents: cents(),\n  decreasesCents: cents(),\n  bonusesCents: cents(),\n  withholdingsCents: optionalCents(),\n  lossCompensationCents: optionalCents(),\n  quotaBaseCents: optionalCents(),\n  filed: z.boolean().optional(),\n  receiptNumber: z.string().trim().max(40, \"El número de justificante es demasiado largo.\").nullable().optional(),\n})"
+ },
+ {
+  "method": "PUT",
+  "path": "/api/corporate-tax/installments/{fiscalYearId}/{period}",
+  "area": "corporate-tax",
+  "summary": "Guarda el cálculo de un pago fraccionado (periodo 1P, 2P o 3P): modalidad, ajustes del periodo, bonificaciones y retenciones. Con `filed: true` lo marca como presentado y con `filed: false` lo reabre. Importes en céntimos. El modelo 202 se presenta en la sede de la AEAT.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const installmentSchema = z.object({\n  method: z.enum([\"quota\", \"base\"]),\n  increasesCents: cents(),\n  decreasesCents: cents(),\n  bonusesCents: cents(),\n  withholdingsCents: optionalCents(),\n  lossCompensationCents: optionalCents(),\n  quotaBaseCents: optionalCents(),\n  filed: z.boolean().optional(),\n  receiptNumber: z.string().trim().max(40, \"El número de justificante es demasiado largo.\").nullable().optional(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/corporate-tax/installments/{fiscalYearId}",
+  "area": "corporate-tax",
+  "summary": "Pagos fraccionados del Impuesto sobre Sociedades (modelo 202) del ejercicio: los tres periodos (1P abril, 2P octubre, 3P diciembre) con el cálculo de las dos modalidades (art. 40.2 y 40.3 de la Ley 27/2014), lo ya ingresado y el pago contabilizado. Importes en céntimos.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/corporate-tax/losses/{id}",
+  "area": "corporate-tax",
+  "summary": "Borra una base negativa anotada a mano.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/corporate-tax/losses",
+  "area": "corporate-tax",
+  "summary": "Registro de bases imponibles negativas por ejercicio de origen: importe, lo compensado y lo pendiente (céntimos).",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/corporate-tax/losses",
+  "area": "corporate-tax",
+  "summary": "Anota (o corrige) la base negativa pendiente de un ejercicio anterior al uso del programa. Importe en céntimos.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const corporateTaxLossSchema = z.object({\n  originYear: z.number().int().min(1990, \"El ejercicio de origen no es válido.\").max(2100, \"El ejercicio de origen no es válido.\"),\n  amountCents: cents().min(1, \"Indica el importe pendiente de compensar.\"),\n  notes: z.string().trim().max(300).nullable().optional(),\n})"
+ },
+ {
+  "method": "POST",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}/entry",
+  "area": "corporate-tax",
+  "summary": "Contabiliza el Impuesto sobre Sociedades del ejercicio con fecha de su último día: (6300) al debe; (473) y (4752) al haber, o (4709) al debe si sale a devolver; impuesto diferido (6301, 4740, 479) solo si hay diferencias temporarias. Si ya había asiento, lo anula y genera el nuevo.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}/entry",
+  "area": "corporate-tax",
+  "summary": "Anula el asiento del Impuesto sobre Sociedades del ejercicio con un contraasiento.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}/export",
+  "area": "corporate-tax",
+  "summary": "Hoja de cálculo con lo que hay que trasladar a Sociedades WEB: la liquidación del ejercicio y el balance y la cuenta de pérdidas y ganancias en el modelo abreviado. No es un fichero de presentación: los importes se copian a mano en la sede de la AEAT.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}/filing",
+  "area": "corporate-tax",
+  "summary": "Marca la liquidación como presentada (el modelo 200 se presenta fuera, con Sociedades WEB) y guarda la foto del cálculo: de ella salen las bases negativas a compensar en ejercicios siguientes.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const fileCorporateTaxReturnSchema = z.object({\n  receiptNumber: z.string().trim().max(40, \"El número de justificante es demasiado largo.\").nullable().optional(),\n})"
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}/filing",
+  "area": "corporate-tax",
+  "summary": "Reabre una liquidación marcada como presentada para poder cambiarla.",
+  "permissions": [
+   "fiscal.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}/preview",
+  "area": "corporate-tax",
+  "summary": "Calcula la liquidación con los datos enviados sin guardar nada (vista previa del asistente). Importes en céntimos.",
+  "permissions": [
+   "fiscal.read"
+  ],
+  "body": "const corporateTaxReturnSchema = z.object({\n  regime: z.enum(CORPORATE_TAX_REGIMES as unknown as [string, ...string[]]),\n  customRatePct: z.number().min(0, \"El tipo no puede ser negativo.\").max(100, \"El tipo no puede superar el 100 %.\").nullable().optional(),\n  priorYearRevenueCents: optionalCents(),\n  adjustments: z.array(adjustmentSchema).max(100, \"Demasiados ajustes.\"),\n  capitalizationReserveCents: cents(),\n  lossCompensationCents: optionalCents(),\n  levelingReductionCents: cents(),\n  levelingAdditionCents: cents(),\n  credits: z.array(creditSchema).max(50, \"Demasiadas deducciones.\"),\n  withholdingsOverrideCents: optionalCents(),\n  installmentsOverrideCents: optionalCents(),\n}).refine((value) => value.regime !== \"custom\" || (value.customRatePct !== null && value.customRatePct !== undefined), {\n  message: \"Indica el tipo de gravamen.\",\n  path: [\"customRatePct\"],\n})\n\nconst adjustmentSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  kind: z.string().trim().min(1).max(60),\n  concept: z.string().trim().min(1, \"Indica el concepto del ajuste.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  sign: z.enum([\"increase\", \"decrease\"]),\n  amountCents: cents(),\n  nature: z.enum([\"permanent\", \"temporaryOrigin\", \"temporaryReversal\"]),\n})\n\nconst creditSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  concept: z.string().trim().min(1, \"Indica el concepto de la deducción o bonificación.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  amountCents: cents(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}",
+  "area": "corporate-tax",
+  "summary": "Liquidación del Impuesto sobre Sociedades (modelo 200) del ejercicio: del resultado contable a la cuota diferencial, con los ajustes guardados, las bases negativas pendientes, el asiento propuesto y la conciliación con la contabilidad. Importes en céntimos. Solo sociedades.",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "PUT",
+  "path": "/api/corporate-tax/returns/{fiscalYearId}",
+  "area": "corporate-tax",
+  "summary": "Guarda los datos de la liquidación del ejercicio (tipo de gravamen, ajustes extracontables, reservas, compensación de bases negativas, deducciones y retenciones). Importes en céntimos. No presenta nada en la AEAT: el modelo 200 se presenta con Sociedades WEB.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const corporateTaxReturnSchema = z.object({\n  regime: z.enum(CORPORATE_TAX_REGIMES as unknown as [string, ...string[]]),\n  customRatePct: z.number().min(0, \"El tipo no puede ser negativo.\").max(100, \"El tipo no puede superar el 100 %.\").nullable().optional(),\n  priorYearRevenueCents: optionalCents(),\n  adjustments: z.array(adjustmentSchema).max(100, \"Demasiados ajustes.\"),\n  capitalizationReserveCents: cents(),\n  lossCompensationCents: optionalCents(),\n  levelingReductionCents: cents(),\n  levelingAdditionCents: cents(),\n  credits: z.array(creditSchema).max(50, \"Demasiadas deducciones.\"),\n  withholdingsOverrideCents: optionalCents(),\n  installmentsOverrideCents: optionalCents(),\n}).refine((value) => value.regime !== \"custom\" || (value.customRatePct !== null && value.customRatePct !== undefined), {\n  message: \"Indica el tipo de gravamen.\",\n  path: [\"customRatePct\"],\n})\n\nconst adjustmentSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  kind: z.string().trim().min(1).max(60),\n  concept: z.string().trim().min(1, \"Indica el concepto del ajuste.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  sign: z.enum([\"increase\", \"decrease\"]),\n  amountCents: cents(),\n  nature: z.enum([\"permanent\", \"temporaryOrigin\", \"temporaryReversal\"]),\n})\n\nconst creditSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  concept: z.string().trim().min(1, \"Indica el concepto de la deducción o bonificación.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  amountCents: cents(),\n})"
+ },
+ {
+  "method": "GET",
+  "path": "/api/corporate-tax/settings",
+  "area": "corporate-tax",
+  "summary": "Recordatorios de la sociedad que se muestran en el calendario fiscal (modelo 232, legalización de libros y depósito de cuentas).",
+  "permissions": [
+   "fiscal.read"
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/corporate-tax/settings",
+  "area": "corporate-tax",
+  "summary": "Activa o desactiva los recordatorios informativos de la sociedad en el calendario fiscal.",
+  "permissions": [
+   "fiscal.write"
+  ],
+  "body": "const reminderSettingsSchema = z.object({\n  relatedParties: z.boolean(),\n  books: z.boolean(),\n  annualAccounts: z.boolean(),\n})"
+ },
+ {
   "method": "PATCH",
   "path": "/api/crm/activities/{id}",
   "area": "crm",
