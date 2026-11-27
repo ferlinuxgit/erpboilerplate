@@ -48,7 +48,9 @@ export function FiscalObligationsCard({ canWrite, obligations }: { canWrite: boo
                 {obligation.report && obligation.report.amountDue !== null ? (
                   <span className="font-mono text-xs">{obligation.report.amountDue >= 0 ? "A ingresar" : "A compensar"}: {formatMoney(Math.abs(obligation.report.amountDue))}</span>
                 ) : <span />}
-                {obligation.report ? (
+                {obligation.href ? (
+                  <Link className={buttonVariants({ size: "sm", variant: obligation.report ? "outline" : "default" })} href={obligation.href}>{obligation.report ? "Abrir" : "Preparar"}</Link>
+                ) : obligation.report ? (
                   <Link className={buttonVariants({ size: "sm", variant: "outline" })} href={`/fiscal/${obligation.report.id}`}>Ver borrador</Link>
                 ) : canWrite ? (
                   <Link className={buttonVariants({ size: "sm" })} href={`/fiscal/new?code=${obligation.code}&period=${obligation.period}`}>Preparar borrador</Link>

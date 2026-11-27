@@ -2,7 +2,7 @@ import { normalizeCountryCode } from "@/lib/countries";
 import { isIntraCommunity, normalizeHomeCountry, suggestSupplierVatTreatment, type SalesVatTreatment, type SupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
 import { centsToNumber, lineBaseCents, roundHalfAwayFromZero, taxOnBaseCents } from "@/server/taxation/engine";
 
-export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130", "420", "425", "450"] as const;
+export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130", "420", "425", "450", "200", "202"] as const;
 
 export type SpanishFiscalModelCode = (typeof spanishFiscalModelCodes)[number];
 
@@ -13,7 +13,8 @@ export type SpanishFiscalModel = {
   name: string;
   shortName: string;
   description: string;
-  cadence: "monthly-or-quarterly" | "quarterly" | "annual";
+  /** installments: pagos fraccionados del Impuesto sobre Sociedades (periodos 2026-1P, 2026-2P y 2026-3P). */
+  cadence: "monthly-or-quarterly" | "quarterly" | "annual" | "installments";
   periodHint: string;
   /** Explicación en lenguaje llano: qué es y quién lo presenta. */
   plainHelp: string;
@@ -27,6 +28,8 @@ export type SpanishFiscalModel = {
   territories?: readonly string[];
   /** Solo si la empresa factura el AIEM (Canarias). */
   requiresAiem?: boolean;
+  /** Pantalla propia donde se prepara (no es un borrador de `fiscal_report`). */
+  assistantHref?: string;
 };
 
 /** Modelos de la Agencia Tributaria Canaria. */
@@ -204,6 +207,41 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
   },
 ];
 
+/**
+ * Modelos del Impuesto sobre Sociedades (solo sociedades). Se preparan en su asistente
+ * (`/fiscal/sociedades`), no como borradores de `fiscal_report`: por eso no están en
+ * `spanishFiscalModels`, que es la lista de los modelos que se crean desde Fiscalidad › Nuevo.
+ */
+export const corporateTaxFiscalModels: SpanishFiscalModel[] = [
+  {
+    code: "200",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GE04.shtml",
+    assistantHref: "/fiscal/sociedades",
+    name: "Modelo 200",
+    shortName: "Impuesto sobre Sociedades",
+    description: "Liquidación anual del Impuesto sobre Sociedades: del resultado contable a la cuota a ingresar o a devolver.",
+    cadence: "annual",
+    periodHint: "2026",
+    plainHelp: "El impuesto sobre el beneficio de la sociedad. Se presenta una vez al año con Sociedades WEB, del 1 al 25 de julio si el ejercicio coincide con el año natural.",
+  },
+  {
+    code: "202",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GE00.shtml",
+    assistantHref: "/fiscal/sociedades/pagos-fraccionados",
+    name: "Modelo 202",
+    shortName: "Pago fraccionado de Sociedades",
+    description: "Pago a cuenta del Impuesto sobre Sociedades del ejercicio en curso.",
+    cadence: "installments",
+    periodHint: "2026-1P",
+    plainHelp: "Adelanto del Impuesto sobre Sociedades de este año. Se ingresa del 1 al 20 de abril, octubre y diciembre; si no sale nada a pagar, en general no hay que presentarlo.",
+  },
+];
+
+/** Los modelos de sociedades tienen su propio asistente y no se guardan en `fiscal_report`. */
+export function isCorporateTaxModelCode(code: string) {
+  return code === "200" || code === "202";
+}
+
 export const fiscalStatusLabels: Record<FiscalReportStatus, string> = {
   DRAFT: "Borrador",
   READY: "Preparado",
@@ -215,7 +253,7 @@ export function isSpanishFiscalModelCode(value: string): value is SpanishFiscalM
 }
 
 export function getSpanishFiscalModel(code: string) {
-  return spanishFiscalModels.find((model) => model.code === code);
+  return spanishFiscalModels.find((model) => model.code === code) ?? corporateTaxFiscalModels.find((model) => model.code === code);
 }
 
 export function normalizeSpanishFiscalCode(value: string) {
@@ -230,6 +268,18 @@ export function parseSpanishFiscalPeriod(period: string, modelCode: SpanishFisca
   const model = getSpanishFiscalModel(modelCode);
 
   if (!model) return null;
+
+  // Pagos fraccionados de sociedades: 1P (enero-marzo), 2P (enero-septiembre) y 3P (enero-noviembre).
+  if (model.cadence === "installments") {
+    const installmentMatch = /^(20\d{2})-([123])P$/.exec(value);
+    if (!installmentMatch) return null;
+    const year = Number(installmentMatch[1]);
+    return {
+      label: `${year} ${installmentMatch[2]}P`,
+      start: new Date(Date.UTC(year, 0, 1)),
+      endExclusive: new Date(Date.UTC(year, [3, 9, 11][Number(installmentMatch[2]) - 1], 1)),
+    };
+  }
 
   if (model.cadence === "annual") {
     if (!annualMatch) return null;
@@ -456,8 +506,15 @@ function nominalSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalMod
   const quarterMatch = /^(20\d{2})-Q([1-4])$/.exec(value);
   const monthMatch = /^(20\d{2})-(0[1-9]|1[0-2])$/.exec(value);
 
+  // Modelo 202: 20 de abril, octubre y diciembre (art. 40.1 de la Ley 27/2014).
+  const installmentMatch = modelCode === "202" ? /^(20\d{2})-([123])P$/.exec(value) : null;
+  if (installmentMatch) return new Date(Date.UTC(Number(installmentMatch[1]), [3, 9, 11][Number(installmentMatch[2]) - 1], 20));
+
   if (annualMatch) {
     const year = Number(annualMatch[1]);
+    // Modelo 200 de un ejercicio que coincide con el año natural: 25 de julio (art. 124.1 de la Ley 27/2014).
+    // Para otros cierres, ver `corporateTaxReturnWindow` en `@/server/corporate-tax/deadlines`.
+    if (modelCode === "200") return new Date(Date.UTC(year + 1, 6, 25));
     if (modelCode === "390" || modelCode === "425") return new Date(Date.UTC(year + 1, 0, 30));
     if (modelCode === "347") return lastDayOfMonthUtc(year + 1, 2);
     return null;

@@ -10,7 +10,7 @@
 export type CloseChecklistStatus = "ok" | "pending" | "blocking" | "review";
 
 export type CloseChecklistItem = {
-  id: "vat-q4-filed" | "draft-invoices" | "bank-555" | "ledger-balanced" | "depreciation";
+  id: "vat-q4-filed" | "draft-invoices" | "bank-555" | "ledger-balanced" | "depreciation" | "corporate-tax";
   title: string;
   status: CloseChecklistStatus;
   detail: string;
@@ -37,6 +37,21 @@ export type CloseChecklistFacts = {
     /** Saldo de los grupos 20, 21 y 22 al cierre: si hay saldo pero ningún bien registrado, se recuerda. */
     fixedAssetBalanceCents: number;
   };
+  /**
+   * Impuesto sobre Sociedades (solo sociedades; null o ausente en autónomos y otros países):
+   * si el asiento del impuesto está contabilizado y coincide con la liquidación actual.
+   */
+  corporateTax?: {
+    /** Ejercicio de la liquidación (para el enlace). */
+    fiscalYearId?: string;
+    posted: boolean;
+    upToDate: boolean;
+    /** Importe del asiento que saldría hoy; 0 = no hay nada que contabilizar. */
+    entryCents: number;
+    netQuotaCents: number;
+    /** Gasto por impuesto contabilizado a mano (cuentas 630, 633 y 638), fuera del asiento del programa. */
+    manualTaxExpenseCents: number;
+  } | null;
 };
 
 export type CloseChecklist = {
@@ -145,6 +160,22 @@ export function evaluateCloseChecklist(facts: CloseChecklistFacts): CloseCheckli
       href: "/accounting/assets",
       actionLabel: "Ver inmovilizado",
     });
+  }
+
+  const corporateTax = facts.corporateTax;
+  if (corporateTax) {
+    const base = { id: "corporate-tax" as const, title: "Impuesto sobre Sociedades contabilizado", href: corporateTax.fiscalYearId ? `/fiscal/sociedades?year=${encodeURIComponent(corporateTax.fiscalYearId)}` : "/fiscal/sociedades", actionLabel: "Abrir la liquidación" };
+    if (corporateTax.posted && corporateTax.upToDate) {
+      items.push({ ...base, status: "ok", detail: `El asiento del impuesto de ${facts.yearCode} está contabilizado (${euros(corporateTax.netQuotaCents)} de impuesto corriente) y coincide con la liquidación.` });
+    } else if (corporateTax.posted) {
+      items.push({ ...base, status: "pending", detail: `El asiento del impuesto de ${facts.yearCode} ya no coincide con la liquidación: han cambiado la contabilidad o los ajustes. Vuelve a contabilizarlo para actualizarlo.`, actionLabel: "Actualizar el asiento" });
+    } else if (corporateTax.manualTaxExpenseCents !== 0) {
+      items.push({ ...base, status: "review", detail: `Hay ${euros(corporateTax.manualTaxExpenseCents)} de gasto por impuesto sobre beneficios contabilizados a mano (cuentas 630, 633 o 638). Comprueba que coinciden con la liquidación: la cuota líquida calculada es de ${euros(corporateTax.netQuotaCents)}.` });
+    } else if (corporateTax.entryCents === 0) {
+      items.push({ ...base, status: "ok", detail: `La liquidación de ${facts.yearCode} no da cuota ni hay retenciones o pagos a cuenta que regularizar: no hay asiento que hacer.` });
+    } else {
+      items.push({ ...base, status: "pending", detail: `Falta el asiento del Impuesto sobre Sociedades de ${facts.yearCode} (${euros(corporateTax.netQuotaCents)} de impuesto corriente). Debe contabilizarse antes de cerrar para que el resultado del ejercicio sea el de después de impuestos.`, actionLabel: "Contabilizar el impuesto" });
+    }
   }
 
   return {

@@ -11,6 +11,8 @@ import {
   type SpanishFiscalModelCode,
   type TaxpayerType,
 } from "@/lib/fiscal-spain";
+import { corporateDeadlinesDueIn, type CorporateCalendarInput } from "@/server/corporate-tax/calendar";
+import type { CorporateReminderCode } from "@/server/corporate-tax/deadlines";
 
 /**
  * Calendario fiscal del año (función pura): todos los plazos que vencen en el año natural según
@@ -18,10 +20,11 @@ import {
  * enero) y los resúmenes anuales 390 y 347 del año anterior.
  */
 
-export type FiscalCalendarRequirement = "required" | "if-applicable";
+/** reminder: recordatorio informativo (libros, cuentas anuales, modelo 232); el programa no lo calcula. */
+export type FiscalCalendarRequirement = "required" | "if-applicable" | "reminder";
 
 export type FiscalCalendarEntry = {
-  code: SpanishFiscalModelCode;
+  code: SpanishFiscalModelCode | CorporateReminderCode;
   name: string;
   period: string;
   periodLabel: string;
@@ -35,6 +38,8 @@ export type FiscalCalendarEntry = {
   report: { id: string; status: FiscalReportStatus; amountDue: number | null } | null;
   /** Estado para mostrar: presentado, vencido (obligatorio sin presentar), próximo, planificado o pasado sin actividad. */
   state: "filed" | "overdue" | "due-soon" | "planned" | "past";
+  /** Pantalla propia donde se prepara (modelos de sociedades y recordatorios); sin ella, el borrador de Fiscalidad. */
+  href?: string;
 };
 
 export type FiscalCalendarInput = {
@@ -49,6 +54,8 @@ export type FiscalCalendarInput = {
   /** La empresa factura el AIEM (Canarias). */
   aiem?: boolean;
   reports: Array<{ id: string; code: string; period: string; status: FiscalReportStatus; summary?: { amountDue: number | null } | null }>;
+  /** Solo sociedades: modelos 200 y 202 y recordatorios mercantiles. Sin él, el calendario no cambia. */
+  corporateTax?: CorporateCalendarInput | null;
   now?: Date;
 };
 
@@ -135,6 +142,31 @@ export function buildFiscalCalendar(input: FiscalCalendarInput): FiscalCalendarE
       state,
     }];
   });
+
+  // Sociedades: el 200 solo figura como vencido si la liquidación se empezó en el programa y no se
+  // marcó como presentada; quien no usa el asistente lo ve como plazo pasado, no como aviso.
+  for (const deadline of input.corporateTax && input.taxpayerType === "company" ? corporateDeadlinesDueIn(input.corporateTax, input.year) : []) {
+    const dueStatus = getFiscalDueStatus(deadline.dueDate, now);
+    entries.push({
+      code: deadline.code,
+      name: deadline.name,
+      period: deadline.period,
+      periodLabel: deadline.periodLabel,
+      dueDate: deadline.dueDate.toISOString(),
+      directDebitDate: null,
+      daysUntilDue: getDaysUntilDue(deadline.dueDate, now),
+      dueStatus,
+      requirement: deadline.requirement,
+      reason: deadline.reason,
+      report: null,
+      state: deadline.status === "filed"
+        ? "filed"
+        : dueStatus === "overdue"
+          ? deadline.status === "draft" && deadline.requirement === "required" ? "overdue" : "past"
+          : dueStatus === "due-soon" ? "due-soon" : "planned",
+      href: deadline.href,
+    });
+  }
 
   return entries.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.code.localeCompare(b.code));
 }

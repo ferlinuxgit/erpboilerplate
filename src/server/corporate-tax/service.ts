@@ -1036,6 +1036,7 @@ export async function getCorporateTaxCloseFacts(companyId: string, fiscalYearId:
   if (!(await isCorporateTaxCompany(companyId, row?.countryCode))) return null;
   const view = await getCorporateTaxYear(companyId, fiscalYearId);
   return {
+    fiscalYearId,
     posted: Boolean(view.entry.posted),
     upToDate: view.entry.upToDate,
     /** Importe del asiento que saldría hoy (0 = no hay nada que contabilizar). */
