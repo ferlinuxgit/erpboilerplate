@@ -4,7 +4,7 @@ vi.mock("@/lib/db", () => ({ db: {} }));
 
 import { getVerifactuSystemInfo } from "@/server/verifactu/config";
 import { outcomeForLine, retryDelayMs } from "@/server/verifactu/sender";
-import { buildRecordsExportXml, buildRegFactuSoapEnvelope, parseAeatResponse, SUMINISTRO_INFORMACION_NS, SUMINISTRO_LR_NS, type XmlRecord } from "@/server/verifactu/xml";
+import { buildRecordsExportXml, buildRecordXml, buildRegFactuSoapEnvelope, parseAeatResponse, SUMINISTRO_INFORMACION_NS, SUMINISTRO_LR_NS, type XmlRecord } from "@/server/verifactu/xml";
 
 const systemInfo = getVerifactuSystemInfo("company-1", { VERIFACTU_PRODUCER_NIF: "B00000000", VERIFACTU_PRODUCER_NAME: "Software SL" });
 
@@ -231,5 +231,22 @@ describe("VeriFactu XML · subsanación, fecha de operación e incidencia", () =
     expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat", VERIFACTU_ENVIRONMENT: "test", VERIFACTU_PRODUCER_NIF: "B00000000" })).toMatchObject({ kind: "aeat", environment: "test", certPath: null });
     expect(getVerifactuDeclaration({ VERIFACTU_PRODUCER_NIF: "B00000000" }).complete).toBe(false);
     expect(getVerifactuDeclaration({ VERIFACTU_PRODUCER_NIF: "B00000000", VERIFACTU_PRODUCER_NAME: "Software SL", VERIFACTU_PRODUCER_ADDRESS: "Calle 1, Madrid", VERIFACTU_DECLARATION_DATE: "2026-11-23", VERIFACTU_DECLARATION_PLACE: "Madrid" })).toMatchObject({ complete: true, onlyVerifactu: true });
+  });
+});
+
+describe("factura de canje (F3) y simplificada con destinatario", () => {
+  it("F3: FacturasSustituidas tras el tipo de factura y antes de la descripción", () => {
+    const xml = buildRecordXml({ ...first, invoiceTypeCode: "F3", substitutedInvoices: [{ issuerTaxId: "89890001K", invoiceNumber: "T-000007", invoiceIssueDate: "30-12-2023" }] });
+    expect(xml).toMatch(/<sum1:TipoFactura>F3<\/sum1:TipoFactura>\s*<sum1:FacturasSustituidas>\s*<sum1:IDFacturaSustituida>\s*<sum1:IDEmisorFactura>89890001K<\/sum1:IDEmisorFactura>\s*<sum1:NumSerieFactura>T-000007<\/sum1:NumSerieFactura>\s*<sum1:FechaExpedicionFactura>30-12-2023<\/sum1:FechaExpedicionFactura>\s*<\/sum1:IDFacturaSustituida>\s*<\/sum1:FacturasSustituidas>\s*<sum1:DescripcionOperacion>/);
+    expect(xml).toMatch(/<sum1:Destinatarios>/);
+  });
+
+  it("FacturaSimplificadaArt7273 = S entre la descripción y los destinatarios; ausente en el resto", () => {
+    const xml = buildRecordXml({ ...first, simplifiedArt7273: "S" });
+    expect(xml).toMatch(/<\/sum1:DescripcionOperacion>\s*<sum1:FacturaSimplificadaArt7273>S<\/sum1:FacturaSimplificadaArt7273>\s*<sum1:Destinatarios>/);
+    const plain = buildRecordXml(first) + buildRecordXml({ ...first, substitutedInvoices: [{ issuerTaxId: "X", invoiceNumber: "Y", invoiceIssueDate: "01-01-2024" }] });
+    expect(plain).not.toContain("FacturaSimplificadaArt7273");
+    // Sin tipo F3 la agrupación no se emite aunque el registro la traiga.
+    expect(plain).not.toContain("FacturasSustituidas");
   });
 });

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { company, companySettings, customer, invoice, invoicePaymentMethod, partner, type InvoicePartySnapshot } from "@/db/schema";
@@ -15,7 +15,11 @@ import {
   type RectificationReason,
   type RectificationType,
 } from "@/server/invoices/lifecycle";
+import { documentClassTitle, effectiveDocumentClass } from "@/server/invoices/document-class";
 import { civilDateKey } from "@/server/invoices/issue-checks";
+import { legalMentionLines, untaxedBaseLegalNote } from "@/server/invoices/legal-mentions";
+import { verifactuTaxCodeFor } from "@/server/verifactu/mapping";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { loadStoredLines } from "@/server/invoices/service";
 import type { InvoicePdfInput } from "@/server/pdf/render";
 import { getInvoiceVerifactuInfo, getInvoiceVerifactuQrPng } from "@/server/verifactu/service";
@@ -64,6 +68,11 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       invoiceType: invoice.invoiceType,
       vatTreatment: invoice.vatTreatment,
       operationDate: invoice.operationDate,
+      vatExemptionCode: invoice.vatExemptionCode,
+      documentClass: invoice.documentClass,
+      legalMentions: invoice.legalMentions,
+      isSubstitutive: invoice.isSubstitutive,
+      substitutesInvoiceIds: invoice.substitutesInvoiceIds,
       rectifiedInvoiceId: invoice.rectifiedInvoiceId,
       rectificationReason: invoice.rectificationReason,
       rectificationType: invoice.rectificationType,
@@ -120,7 +129,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   const lifecycle = invoiceLifecycle(row);
   const currency = row.companyBaseCurrencyCode;
 
-  const [lines, selectedPaymentMethods, [original]] = await Promise.all([
+  const [lines, selectedPaymentMethods, [original], substituted] = await Promise.all([
     loadStoredLines(db, invoiceId),
     db.select({
       name: invoicePaymentMethod.name,
@@ -135,6 +144,12 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
           .from(invoice)
           .where(and(eq(invoice.id, row.rectifiedInvoiceId), eq(invoice.companyId, companyId)))
           .limit(1)
+      : Promise.resolve([]),
+    row.isSubstitutive && (row.substitutesInvoiceIds ?? []).length > 0
+      ? db.select({ number: invoice.number, issueDate: invoice.issueDate })
+          .from(invoice)
+          .where(and(eq(invoice.companyId, companyId), inArray(invoice.id, row.substitutesInvoiceIds ?? [])))
+          .orderBy(asc(invoice.issueDate))
       : Promise.resolve([]),
   ]);
 
@@ -173,9 +188,26 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   const vatTreatment = isSalesVatTreatment(row.vatTreatment) ? row.vatTreatment : defaultSalesVatTreatment(customerParty.countryCode, issuer.countryCode);
   // Fecha de la operación, cuando no coincide con la de expedición (art. 6.1.i RD 1619/2012).
   const operationDate = row.operationDate && formatDate(row.operationDate) !== formatDate(row.issueDate) ? formatDate(row.operationDate) : null;
+  // Clase de documento: la congelada al emitir; antes de emitir, la elegida o la que resulta del NIF.
+  const documentClass = effectiveDocumentClass({ documentClass: row.documentClass, customerTaxId: customerParty.taxId });
+  const territory = taxTerritoryOf(issuer);
   const legalNotes = [
+    // Canje (art. 7.2 del Reglamento de facturación): referencia a las simplificadas sustituidas.
+    substituted.length > 0
+      ? `Factura expedida en sustitución de ${substituted.length === 1 ? "la factura simplificada" : "las facturas simplificadas"} ${substituted.map((entry) => `${entry.number} (${formatDate(entry.issueDate)})`).join(", ")}.`
+      : null,
     operationDate ? `Fecha de la operación: ${operationDate}.` : null,
-    vatTreatmentLegalNote(vatTreatment, taxTerritoryOf(issuer), row.fiscalRegime),
+    vatTreatmentLegalNote(vatTreatment, territory, row.fiscalRegime),
+    // Art. 6.1.j: causa de exención de las bases sin IVA de una factura nacional.
+    untaxedBaseLegalNote({
+      vatTreatment,
+      commonVatTerritory: getCountryFiscalProfile(issuer.countryCode).features.eInvoicing === "verifactu" && verifactuTaxCodeFor(territory) === "01",
+      exemptionCode: row.vatExemptionCode,
+      legalMentions: row.legalMentions,
+      totals,
+    }),
+    // Menciones propias de la factura (regímenes especiales, artículo de la exención…).
+    ...legalMentionLines(row.legalMentions),
     // Art. 6.1.p del Reglamento de facturación (también en el IGIC, art. 163 decies LIVA y Ley 20/1991).
     row.fiscalRegime === "cash_accounting" ? "Régimen especial del criterio de caja." : null,
   ].filter((note): note is string => Boolean(note));
@@ -195,7 +227,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   return {
     filename: safeInvoiceFilename(row.number, isCreditNote),
     input: {
-      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : isCreditNote ? "Factura rectificativa" : customerParty.taxId?.trim() ? "Factura" : "Factura simplificada",
+      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : isCreditNote ? "Factura rectificativa" : documentClassTitle(documentClass),
       documentEyebrow: lifecycle === "DRAFT" ? "Documento sin validez fiscal" : lifecycle === "VOID" ? "Documento anulado" : "Documento comercial",
       number: row.number,
       issueDate: formatDate(row.issueDate) ?? "",

@@ -391,6 +391,23 @@ describe("VeriFactu · subsanación, aislamiento de lotes y reglas de activació
     expect(seen[0].xml).toContain("<sum1:Incidencia>S</sum1:Incidencia>");
   });
 
+  it("registra el canje como F3 con las simplificadas sustituidas y marca la simplificada con destinatario", async () => {
+    await state.db.transaction(async (tx: never) => {
+      const canje = await registerIssuedInvoiceRecord(tx, hookInput(6, { documentClass: "FULL", substituted: [{ id: "invoice-1", number: "T-000001", issueDate: new Date(Date.UTC(2026, 8, 1)) }] }));
+      expect(canje).toMatchObject({ invoiceTypeCode: "F3", simplifiedArt7273: null });
+      expect(canje?.substitutedInvoices).toHaveLength(1);
+      expect(canje?.substitutedInvoices?.[0]).toMatchObject({ issuerTaxId: "B12345678" });
+      expect(canje?.recipient).toMatchObject({ taxId: "B87654321" });
+      const qualified = await registerIssuedInvoiceRecord(tx, hookInput(6, { documentClass: "SIMPLIFIED_QUALIFIED" }));
+      expect(qualified).toMatchObject({ invoiceTypeCode: "F1", simplifiedArt7273: "S", substitutedInvoices: null });
+      const simplified = await registerIssuedInvoiceRecord(tx, hookInput(6, { documentClass: "SIMPLIFIED" }));
+      expect(simplified).toMatchObject({ invoiceTypeCode: "F2", recipient: null, simplifiedArt7273: null });
+      throw new Error("rollback");
+    }).catch((error: Error) => expect(error.message).toBe("rollback"));
+    // Sin NIF del destinatario no puede haber F3.
+    await expect(state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(6, { customer: null, substituted: [{ id: "invoice-1", number: "T-000001", issueDate: new Date(Date.UTC(2026, 8, 1)) }] })))).rejects.toMatchObject({ status: 422 });
+  });
+
   it("subsana un registro rechazado (RechazoPrevio X) y uno aceptado con errores (sin rechazo previo)", async () => {
     const rejected = (await allRecords()).find((record: { invoiceNumber: string }) => record.invoiceNumber === "LOTE-2");
     const fixed = await state.db.transaction((tx: never) => registerSubsanacionRecord(tx, hookInput(2, { number: "OTRO", customer: { ...issuer, name: "Cliente Corregido SL", legalName: null, taxId: "B11111111" } })));

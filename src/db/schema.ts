@@ -677,10 +677,28 @@ export const invoice = pgTable(
     pdfFileName: text("pdfFileName"),
     pdfSha256: text("pdfSha256"),
     pdfGeneratedAt: timestamp("pdfGeneratedAt", { withTimezone: true, mode: "date" }),
+    // Clase de documento (arts. 4, 6 y 7 RD 1619/2012): FULL (completa), SIMPLIFIED (simplificada,
+    // art. 7.1) o SIMPLIFIED_QUALIFIED (simplificada con los datos del destinatario, arts. 7.2 y 7.3).
+    // Se fija al emitir. null = se deduce como siempre: con NIF del cliente completa, sin NIF simplificada.
+    documentClass: text("documentClass"),
+    // Factura expedida en sustitución de facturas simplificadas (canje, art. 7.2 / tipo F3 de
+    // VERI*FACTU): no vuelve a contabilizar la venta ni cuenta en los modelos (ya lo hicieron las
+    // simplificadas que sustituye, cuyos ids van en `substitutesInvoiceIds`).
+    isSubstitutive: boolean("isSubstitutive").notNull().default(false),
+    substitutesInvoiceIds: jsonb("substitutesInvoiceIds").$type<string[]>(),
+    // Rectificativas: motivo comercial que decide la cuenta del abono. RETURN (devolución de
+    // mercancía → 708), DISCOUNT (descuento o rappel posterior → 709) o ERROR / null (corrige la
+    // cuenta de ventas, comportamiento de siempre).
+    commercialReason: text("commercialReason"),
+    // Menciones legales propias de la factura (art. 6.1.j-p RD 1619/2012): se imprimen en el PDF y
+    // quedan congeladas al emitir.
+    legalMentions: text("legalMentions"),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
+    check("invoice_document_class_valid", sql`${table.documentClass} IS NULL OR ${table.documentClass} IN ('FULL', 'SIMPLIFIED', 'SIMPLIFIED_QUALIFIED')`),
+    check("invoice_commercial_reason_valid", sql`${table.commercialReason} IS NULL OR ${table.commercialReason} IN ('RETURN', 'DISCOUNT', 'ERROR')`),
     unique("invoice_company_number_unique").on(table.companyId, table.number),
     index("invoice_company_customer_idx").on(table.companyId, table.customerId),
     // Listas por fecha, rangos de fechas, panel (ventas por mes) y modelos fiscales.
@@ -1593,6 +1611,10 @@ export const verifactuRecord = pgTable("verifactu_record", {
   // S (sustitución) o I (diferencias), solo rectificativas.
   rectificationKind: text("rectificationKind"),
   rectifiedInvoices: jsonb("rectifiedInvoices").$type<Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }>>(),
+  // FacturasSustituidas: simplificadas a las que sustituye una F3 (canje).
+  substitutedInvoices: jsonb("substitutedInvoices").$type<Array<{ issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string }>>(),
+  // FacturaSimplificadaArt7273: "S" si es una simplificada que identifica al destinatario; null si no.
+  simplifiedArt7273: text("simplifiedArt7273"),
   // Subsanación de un registro anterior de la misma factura: "S" o null (alta normal).
   subsanacion: text("subsanacion"),
   // "X" (el alta anterior fue rechazada: la factura no consta en la AEAT), "S" (la subsanación anterior fue rechazada) o null.

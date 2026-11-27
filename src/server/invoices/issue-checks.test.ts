@@ -6,10 +6,16 @@ import {
   chronologicalOrderProblem,
   civilDateKey,
   equivalenceSurchargeProblem,
+  intraEuCustomerProblem,
   isEntityTaxId,
+  issueWarnings,
   issuerDataProblem,
+  paymentTermDays,
+  paymentTermWarning,
   recipientDataProblem,
   simplifiedLimitProblem,
+  spanishTaxIdCheckDigitWarning,
+  viesValidationProblem,
 } from "@/server/invoices/issue-checks";
 
 const party = (values: Partial<InvoicePartySnapshot>): InvoicePartySnapshot => ({
@@ -79,5 +85,66 @@ describe("comprobaciones antes de emitir", () => {
     expect(cashPaymentProblem({ methodType: "TRANSFER", invoiceTotal: 50_000, customerCountry: "ES" })).toBeNull();
     expect(cashPaymentProblem({ methodType: "CASH", invoiceTotal: 5_000, customerCountry: "FR", customerTaxId: null })).toBeNull();
     expect(cashPaymentProblem({ methodType: "CASH", invoiceTotal: 12_000, customerCountry: "FR", customerTaxId: null })).toContain("10.000 €");
+  });
+});
+
+
+describe("límite de la simplificada según la clase de documento", () => {
+  it("se aplica a las dos clases simplificadas y nunca a la completa", () => {
+    expect(simplifiedLimitProblem({ documentClass: "FULL", customerTaxId: null, totalAmount: 5_000, limit: 400 })).toBeNull();
+    expect(simplifiedLimitProblem({ documentClass: "SIMPLIFIED", customerTaxId: "B12345674", totalAmount: 401, limit: 400 })).toContain("factura completa");
+    expect(simplifiedLimitProblem({ documentClass: "SIMPLIFIED_QUALIFIED", customerTaxId: "B12345674", totalAmount: 401, limit: 400 })).toContain("400,00 €");
+    expect(simplifiedLimitProblem({ documentClass: "SIMPLIFIED_QUALIFIED", customerTaxId: "B12345674", totalAmount: 400, limit: 400 })).toBeNull();
+  });
+});
+
+describe("operaciones intracomunitarias", () => {
+  it("el cliente debe ser de otro país de la UE", () => {
+    expect(intraEuCustomerProblem({ customerCountry: "FR", issuerCountry: "ES" })).toBeNull();
+    expect(intraEuCustomerProblem({ customerCountry: "ES", issuerCountry: "ES" })).toMatch(/OTRO país/);
+    expect(intraEuCustomerProblem({ customerCountry: "US", issuerCountry: "ES" })).toMatch(/no es de la UE/);
+    expect(intraEuCustomerProblem({ customerCountry: null, issuerCountry: "ES" })).not.toBeNull();
+  });
+
+  it("VIES: válido y reciente, o hace falta confirmación", () => {
+    const at = new Date("2026-11-27T10:00:00Z");
+    expect(viesValidationProblem({ status: "VALID", checkedAt: new Date("2026-10-01T00:00:00Z"), at })).toBeNull();
+    expect(viesValidationProblem({ status: "VALID", checkedAt: new Date("2026-06-01T00:00:00Z"), at })).toMatch(/más de 90 días/);
+    expect(viesValidationProblem({ status: "INVALID", checkedAt: new Date("2026-11-20T00:00:00Z"), at })).toMatch(/NO consta/);
+    expect(viesValidationProblem({ status: null, checkedAt: null, at })).toMatch(/no está comprobado/);
+    expect(viesValidationProblem({ status: "UNAVAILABLE", checkedAt: new Date("2026-11-20T00:00:00Z"), at })).toMatch(/no está comprobado/);
+  });
+});
+
+describe("avisos que no bloquean", () => {
+  it("plazo de pago de más de 60 días", () => {
+    expect(paymentTermWarning(60)).toBeNull();
+    expect(paymentTermWarning(null)).toBeNull();
+    expect(paymentTermWarning(90)).toMatch(/Ley 3\/2004/);
+    expect(paymentTermDays(new Date("2026-01-01T00:00:00Z"), new Date("2026-04-01T00:00:00Z"))).toBe(90);
+  });
+
+  it("NIF español con el dígito de control mal", () => {
+    expect(spanishTaxIdCheckDigitWarning("B12345674", "ES")).toBeNull();
+    expect(spanishTaxIdCheckDigitWarning("B12345678", "ES")).toMatch(/control/);
+    expect(spanishTaxIdCheckDigitWarning("12345678A", null)).toMatch(/control/);
+    expect(spanishTaxIdCheckDigitWarning("12345678Z", "ES")).toBeNull();
+    // Formato no español o cliente extranjero: no se opina.
+    expect(spanishTaxIdCheckDigitWarning("FR12345678901", "FR")).toBeNull();
+    expect(spanishTaxIdCheckDigitWarning("ABC", "ES")).toBeNull();
+    expect(spanishTaxIdCheckDigitWarning(null, "ES")).toBeNull();
+  });
+
+  it("reúne los avisos de un borrador", () => {
+    const base = { invoiceType: "INVOICE", customerTaxId: "FR12345678901", customerCountry: "FR", issuerCountry: "ES", issueDate: new Date("2026-11-27T00:00:00Z"), dueDate: null };
+    const intra = issueWarnings({ ...base, vatTreatment: "INTRA_EU", vies: null });
+    expect(intra).toEqual([expect.objectContaining({ code: "VIES", requiresConfirmation: true })]);
+    expect(issueWarnings({ ...base, vatTreatment: "INTRA_EU", vies: { status: "VALID", checkedAt: new Date("2026-11-01T00:00:00Z") } })).toEqual([]);
+    expect(issueWarnings({ ...base, vatTreatment: "EXPORT" }).map((warning) => warning.code)).toEqual(["EXPORT_COUNTRY"]);
+    expect(issueWarnings({ ...base, vatTreatment: "DOMESTIC", dueDate: new Date("2027-03-27T00:00:00Z") }).map((warning) => warning.code)).toEqual(["PAYMENT_TERM"]);
+    expect(issueWarnings({ ...base, vatTreatment: "DOMESTIC", defaultTermDays: 90, customerTaxId: null }).map((warning) => warning.code)).toEqual([]);
+    expect(issueWarnings({ ...base, vatTreatment: "DOMESTIC", hasUntaxedDomesticBase: true }).map((warning) => warning.code)).toEqual(["UNTAXED_BASE"]);
+    expect(issueWarnings({ ...base, vatTreatment: "DOMESTIC", hasUntaxedDomesticBase: true, hasExemptionCause: true })).toEqual([]);
+    expect(issueWarnings({ ...base, invoiceType: "CREDIT_NOTE", vatTreatment: "INTRA_EU", customerTaxId: "B12345678", customerCountry: "ES" }).map((warning) => warning.code)).toEqual(["TAX_ID"]);
   });
 });

@@ -915,9 +915,15 @@ export async function postBankTransaction(
  * una rectificativa en negativo (abono) invierte el asiento original — 700 y 477 al debe, 430 y
  * 473 al haber — y una en positivo (rectificación al alza) se contabiliza como una venta.
  * Exige total + retención = base + cuota (lo garantiza el motor fiscal), así que siempre cuadra.
+ *
+ * `accounts.salesAdjustment`: cuenta que recibe TODA la base en lugar de las cuentas de ventas.
+ * Es la (708) «Devoluciones de ventas y operaciones similares» en un abono por devolución de
+ * mercancía y la (709) «Rappels sobre ventas» en uno por descuento o rappel posterior (PGC, cuarta
+ * parte, subgrupo 70). Sin ella —error en la factura, anulación— se corrige la propia cuenta de
+ * ventas (700, 705…), como siempre.
  */
 export function buildCreditNoteLines(
-  accounts: { customer: string; sales: string; vatOutput: string; withholdingReceivable: string },
+  accounts: { customer: string; sales: string; vatOutput: string; withholdingReceivable: string; salesAdjustment?: string | null },
   amounts: { subtotal: number; taxAmount: number; totalAmount: number; retentionAmount?: number },
   salesByAccount?: Array<{ accountId: string; subtotal: number }>,
 ): PostingLine[] {
@@ -935,7 +941,9 @@ export function buildCreditNoteLines(
   const signed = [
     { accountId: accounts.customer, net: total },
     { accountId: accounts.withholdingReceivable, net: retention },
-    ...splitSales(subtotal, accounts.sales, salesByAccount).map((entry) => ({ accountId: entry.accountId, net: -entry.cents })),
+    ...(accounts.salesAdjustment
+      ? [{ accountId: accounts.salesAdjustment, net: -subtotal }]
+      : splitSales(subtotal, accounts.sales, salesByAccount).map((entry) => ({ accountId: entry.accountId, net: -entry.cents }))),
     { accountId: accounts.vatOutput, net: -tax },
   ];
   // Importes negativos → lado contrario (un abono queda como el asiento inverso de la venta).
@@ -944,6 +952,15 @@ export function buildCreditNoteLines(
     debit: line.net > 0 ? centsToAmount(line.net) : "0.00",
     credit: line.net < 0 ? centsToAmount(-line.net) : "0.00",
   }));
+}
+
+/** Cuenta del PGC para el abono según su motivo comercial; null = las cuentas de ventas. */
+export function creditNoteAdjustmentAccountCode(commercialReason: string | null | undefined, subtotal: number): { code: string; name: string } | null {
+  // Solo los abonos (base negativa): una rectificación al alza es más venta.
+  if (subtotal >= 0) return null;
+  if (commercialReason === "RETURN") return { code: "708", name: "Devoluciones de ventas y operaciones similares" };
+  if (commercialReason === "DISCOUNT") return { code: "709", name: "Rappels sobre ventas" };
+  return null;
 }
 
 /** Factura rectificativa emitida: asiento inverso (o complementario) al de la factura original. */
@@ -955,6 +972,8 @@ export async function postCreditNote(
     totalAmount: number;
     retentionAmount?: number;
     lines?: SalesLineInput[];
+    /** Motivo comercial: RETURN → 708, DISCOUNT → 709; ERROR o nada → cuentas de ventas. */
+    commercialReason?: string | null;
   },
 ) {
   const client = input.dbClient ?? db;
@@ -964,13 +983,16 @@ export async function postCreditNote(
   const context = await loadInvoicePostingContext(client, input.companyId, input.invoiceId);
   const customerId = await partyAccountId(client, input.companyId, context?.partnerId ?? null, "customer", ids.customer);
   const salesSplit = await resolveSalesSplit(client, input.companyId, settings, input.lines);
+  // 708 / 709 solo existen en el plan español (PGC).
+  const adjustment = usesPgcChart(settings.countryCode) ? creditNoteAdjustmentAccountCode(input.commercialReason, input.subtotal) : null;
+  const salesAdjustment = adjustment ? (await ensureSubaccount(input.companyId, adjustment.code, client, adjustment.name)).id : null;
   await createAutomaticEntry({
     ...input,
     action: "accounting.autopost.creditNote",
     entityName: "invoice",
     entityId: input.invoiceId,
     lines: withLineDocument(await withAiemAccount(client, input.companyId, settings, input.invoiceId, ids.vatOutput, buildCreditNoteLines(
-      { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId },
+      { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId, salesAdjustment },
       input,
       salesSplit,
     )), context ? invoiceLineDocument(context) : null, [customerId]),

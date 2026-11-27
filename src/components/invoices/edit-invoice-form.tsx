@@ -67,6 +67,9 @@ export function EditInvoiceForm({
   defaultNotes,
   defaultOperationDate = "",
   defaultVatExemptionCode = null,
+  defaultDocumentClass = null,
+  defaultLegalMentions = null,
+  spanishFiscalExtras = false,
   defaultPaymentMethodIds,
   defaultTotalAmount,
   defaultVatTreatment,
@@ -95,6 +98,10 @@ export function EditInvoiceForm({
   defaultNotes: string | null;
   defaultOperationDate?: string;
   defaultVatExemptionCode?: UpdateInvoicePayload["vatExemptionCode"];
+  defaultDocumentClass?: string | null;
+  defaultLegalMentions?: string | null;
+  /** Empresa con normativa española: ofrece la clase de factura y las menciones habituales. */
+  spanishFiscalExtras?: boolean;
   defaultPaymentMethodIds: string[];
   defaultTotalAmount: number;
   defaultVatTreatment: SalesVatTreatmentCode | null;
@@ -134,6 +141,8 @@ export function EditInvoiceForm({
       dueDate: defaultDueDate,
       operationDate: defaultOperationDate,
       vatExemptionCode: defaultVatExemptionCode,
+      documentClass: defaultDocumentClass ?? null,
+      legalMentions: defaultLegalMentions ?? "",
       notes: defaultNotes ?? "",
       paymentMethodIds: defaultPaymentMethodIds,
       totalAmount: defaultTotalAmount,
@@ -420,6 +429,10 @@ export function EditInvoiceForm({
           <InvoiceFiscalExtrasFields
             control={control}
             exemptionCodeName="vatExemptionCode"
+            documentClassName={spanishFiscalExtras ? "documentClass" : undefined}
+            legalMentionPresets={spanishFiscalExtras}
+            legalMentionsError={errors.legalMentions?.message}
+            legalMentionsName="legalMentions"
             operationDateError={errors.operationDate?.message}
             operationDateName="operationDate"
             treatmentName="vatTreatment"

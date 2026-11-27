@@ -58,6 +58,7 @@ export async function registerInvoicePayment(actor: PaymentActor, input: Registe
         issuedAt: invoice.issuedAt,
         invoiceType: invoice.invoiceType,
         customerSnapshot: invoice.customerSnapshot,
+        isSubstitutive: invoice.isSubstitutive,
       })
       .from(invoice)
       .where(and(eq(invoice.id, input.invoiceId), eq(invoice.companyId, actor.companyId)))
@@ -68,6 +69,7 @@ export async function registerInvoicePayment(actor: PaymentActor, input: Registe
     if (lifecycle === "VOID") throw new AccountingRuleError(409, "INVOICE_VOID", `No se puede cobrar la factura ${ownedInvoice.number}: está anulada.`);
     if (lifecycle === "DRAFT") throw new AccountingRuleError(409, "INVOICE_DRAFT", "La factura es un borrador: emítela antes de registrar cobros.");
     if (ownedInvoice.invoiceType === "CREDIT_NOTE") throw new AccountingRuleError(409, "INVOICE_CREDIT_NOTE", "Una factura rectificativa no se cobra: se aplica a la factura original.");
+    if (ownedInvoice.isSubstitutive) throw new AccountingRuleError(409, "INVOICE_SUBSTITUTIVE", `La factura ${ownedInvoice.number} sustituye a una factura simplificada: el cobro se registra en la simplificada, no aquí (se cobraría dos veces).`);
     await assertFiscalPeriodOpen(actor.companyId, input.postedAt, tx);
 
     let methodId: string | null = null;

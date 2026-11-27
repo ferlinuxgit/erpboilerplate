@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ db: {} }));
 
-import { buildCreditNoteLines, buildSalesInvoiceLines, normalizePostingLines } from "@/server/accounting/auto-post";
+import { buildCreditNoteLines, buildSalesInvoiceLines, creditNoteAdjustmentAccountCode, normalizePostingLines } from "@/server/accounting/auto-post";
 
 const accounts = { customer: "430", sales: "700", vatOutput: "477", withholdingReceivable: "473" };
 
@@ -44,5 +44,54 @@ describe("buildCreditNoteLines", () => {
 
   it("rechaza importes incoherentes (no cuadran)", () => {
     expect(() => buildCreditNoteLines(accounts, { subtotal: -100, taxAmount: -21, totalAmount: -120 })).toThrow(/no cuadra/);
+  });
+});
+
+describe("abonos en la 708 y la 709 (PGC, subgrupo 70)", () => {
+  it("una devolución de mercancía lleva toda la base a la 708, sin tocar las cuentas de ventas", () => {
+    const lines = normalizePostingLines(buildCreditNoteLines(
+      { ...accounts, salesAdjustment: "708" },
+      { subtotal: -320, taxAmount: -54, totalAmount: -374 },
+      [{ accountId: "700", subtotal: -200 }, { accountId: "705", subtotal: -120 }],
+    ));
+    expect(byAccount(lines)).toEqual({
+      430: { debit: "0.00", credit: "374.00" },
+      708: { debit: "320.00", credit: "0.00" },
+      477: { debit: "54.00", credit: "0.00" },
+    });
+  });
+
+  it("un descuento o rappel posterior va a la 709, con su retención", () => {
+    const lines = normalizePostingLines(buildCreditNoteLines({ ...accounts, salesAdjustment: "709" }, { subtotal: -1000, taxAmount: -210, retentionAmount: -150, totalAmount: -1060 }));
+    expect(byAccount(lines)).toEqual({
+      430: { debit: "0.00", credit: "1060.00" },
+      473: { debit: "0.00", credit: "150.00" },
+      709: { debit: "1000.00", credit: "0.00" },
+      477: { debit: "210.00", credit: "0.00" },
+    });
+  });
+
+  it("sin cuenta de ajuste (error, anulación) se reparte entre las cuentas de ventas, como siempre", () => {
+    const lines = normalizePostingLines(buildCreditNoteLines(
+      { ...accounts, salesAdjustment: null },
+      { subtotal: -320, taxAmount: -54, totalAmount: -374 },
+      [{ accountId: "700", subtotal: -200 }, { accountId: "705", subtotal: -120 }],
+    ));
+    expect(byAccount(lines)).toEqual({
+      430: { debit: "0.00", credit: "374.00" },
+      700: { debit: "200.00", credit: "0.00" },
+      705: { debit: "120.00", credit: "0.00" },
+      477: { debit: "54.00", credit: "0.00" },
+    });
+  });
+
+  it("el motivo comercial decide la cuenta solo en los abonos", () => {
+    expect(creditNoteAdjustmentAccountCode("RETURN", -100)?.code).toBe("708");
+    expect(creditNoteAdjustmentAccountCode("DISCOUNT", -100)?.code).toBe("709");
+    expect(creditNoteAdjustmentAccountCode("ERROR", -100)).toBeNull();
+    expect(creditNoteAdjustmentAccountCode(null, -100)).toBeNull();
+    expect(creditNoteAdjustmentAccountCode(undefined, -100)).toBeNull();
+    // Rectificación al alza: es más venta, nunca una devolución.
+    expect(creditNoteAdjustmentAccountCode("RETURN", 100)).toBeNull();
   });
 });

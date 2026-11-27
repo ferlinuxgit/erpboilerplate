@@ -14,8 +14,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ message: "No tienes permisos para emitir facturas." }, { status: 403 });
     }
     const { id } = await params;
+    // Cuerpo opcional: `{ "confirmVies": true }` confirma el NIF-IVA de un cliente intracomunitario
+    // que no tiene una comprobación reciente en VIES.
+    const body = (await request.json().catch(() => null)) as { confirmVies?: unknown } | null;
     try {
-      const issued = await issueInvoice(toInvoiceActor(actor), id);
+      const issued = await issueInvoice(toInvoiceActor(actor), id, { confirmVies: body?.confirmVies === true });
       return NextResponse.json({ ...issued, pdfUrl: `/api/invoices/${issued.id}/pdf` });
     } catch (error) {
       return invoiceErrorResponse(error, "invoice.issue", "No se pudo emitir la factura.");

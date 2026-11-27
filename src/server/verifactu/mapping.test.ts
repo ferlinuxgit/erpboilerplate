@@ -130,6 +130,53 @@ describe("VeriFactu mapping", () => {
   });
 });
 
+describe("clase de documento y sustitutivas (validaciones AEAT v1.2.2, apdos. 5, 8 y 13)", () => {
+  const invoiceTotals = totals([{ description: "Menú", quantity: 1, unitPrice: 100, taxes: [vat21] }]);
+  const withNif = { name: "Cliente SL", taxId: "B87654321", countryCode: "ES" };
+  const base = { invoiceType: "INVOICE", rectificationReason: null, vatTreatment: "DOMESTIC" as const, description: "Menú", totals: invoiceTotals };
+
+  it("simplificada con datos del destinatario: F1 con destinatario y FacturaSimplificadaArt7273", () => {
+    const content = mapInvoiceToAlta({ ...base, customer: withNif, documentClass: "SIMPLIFIED_QUALIFIED" });
+    expect(content.invoiceTypeCode).toBe("F1");
+    expect(content.recipient).toMatchObject({ taxId: "B87654321" });
+    expect(content.simplifiedArt7273).toBe(true);
+    expect(content.simplifiedOverLimit).toBe(false);
+  });
+
+  it("simplificada sin datos: F2 sin destinatario aunque el cliente tenga NIF", () => {
+    const content = mapInvoiceToAlta({ ...base, customer: withNif, documentClass: "SIMPLIFIED" });
+    expect(content.invoiceTypeCode).toBe("F2");
+    expect(content.recipient).toBeNull();
+    expect(content.simplifiedArt7273).toBe(false);
+  });
+
+  it("completa y facturas sin clase: como siempre", () => {
+    expect(mapInvoiceToAlta({ ...base, customer: withNif, documentClass: "FULL" })).toMatchObject({ invoiceTypeCode: "F1", simplifiedArt7273: false, substitutedInvoices: null });
+    expect(mapInvoiceToAlta({ ...base, customer: withNif }).invoiceTypeCode).toBe("F1");
+    expect(mapInvoiceToAlta({ ...base, customer: null }).invoiceTypeCode).toBe("F2");
+  });
+
+  it("sustitutiva de simplificadas: F3 con FacturasSustituidas y destinatario", () => {
+    const substituted = [{ issuerTaxId: "B12345678", invoiceNumber: "T-000007", invoiceIssueDate: "02-09-2026" }];
+    const content = mapInvoiceToAlta({ ...base, customer: withNif, documentClass: "FULL", substituted });
+    expect(content.invoiceTypeCode).toBe("F3");
+    expect(content.substitutedInvoices).toEqual(substituted);
+    expect(content.recipient).not.toBeNull();
+    expect(content.rectificationKind).toBeNull();
+    expect(content.rectifiedInvoices).toBeNull();
+    expect(content.totalAmount).toBe("121.00");
+  });
+
+  it("rectificativa de una simplificada con destinatario: R1–R4 con la marca; de una simplificada sin registro previo: R5", () => {
+    const creditTotals = totals([{ description: "Abono", quantity: -1, unitPrice: 100, taxes: [vat21] }], true);
+    const original = { issuerTaxId: "B12345678", invoiceNumber: "T-000007", invoiceIssueDate: "02-09-2026", invoiceTypeCode: "F1" };
+    const qualified = mapInvoiceToAlta({ invoiceType: "CREDIT_NOTE", rectificationReason: "R1", vatTreatment: "DOMESTIC", customer: withNif, totals: creditTotals, description: "x", original, documentClass: "SIMPLIFIED_QUALIFIED" });
+    expect(qualified).toMatchObject({ invoiceTypeCode: "R1", simplifiedArt7273: true });
+    const legacy = mapInvoiceToAlta({ invoiceType: "CREDIT_NOTE", rectificationReason: "R4", vatTreatment: "DOMESTIC", customer: withNif, totals: creditTotals, description: "x", original: { ...original, invoiceTypeCode: null }, documentClass: "SIMPLIFIED" });
+    expect(legacy).toMatchObject({ invoiceTypeCode: "R5", recipient: null, simplifiedArt7273: false });
+  });
+});
+
 describe("territorios con IGIC / IPSI", () => {
   const totals = { subtotal: 100, taxBuckets: [{ key: "ADD|VAT|7", name: "IGIC general 7%", kind: "VAT", rate: 7, operation: "ADD" as const, baseAmount: 100, amount: 7 }] };
 

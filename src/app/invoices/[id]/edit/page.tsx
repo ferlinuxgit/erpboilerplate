@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
-import { vatContextFor } from "@/server/company/fiscal-context";
+import { getCompanyFiscalContext, vatContextFor } from "@/server/company/fiscal-context";
 import { getCompanySalesVatTreatments } from "@/server/invoices/vat-treatments";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import Link from "next/link";
 
+import { isCommercialReason } from "@/server/invoices/lifecycle";
 import { CreditNoteForm } from "@/components/invoices/credit-note-form";
 import { EditInvoiceForm } from "@/components/invoices/edit-invoice-form";
 import { IssuedInvoiceEditForm } from "@/components/invoices/issued-invoice-edit-form";
@@ -184,6 +185,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
               invoiceNumber={creditNoteDraft.original.number}
               lines={creditNoteDraft.originalLines}
               pendingToRectify={creditNoteDraft.pendingToRectify}
+              showAccounts={(await getCompanyFiscalContext(ctx.company.id)).profile.features.eInvoicing === "verifactu"}
             />
           </PageSection>
         ) : (
@@ -203,6 +205,9 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
             canCreateCustomer={canManageCustomers(ctx.membership.role)}
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
             vatContext={await vatContextFor(ctx.company.id)}
+            spanishFiscalExtras={(await getCompanyFiscalContext(ctx.company.id)).profile.features.eInvoicing === "verifactu"}
+            defaultDocumentClass={data.documentClass}
+            defaultLegalMentions={data.legalMentions}
             vatTreatments={(await getCompanySalesVatTreatments(ctx.company.id)).enabled}
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultCustomerId={data.customerId}
@@ -248,7 +253,7 @@ function toSourceLine(line: CreditNoteSource, sign: 1 | -1) {
 async function loadCreditNoteDraft(
   companyId: string,
   originalId: string,
-  draft: { id: string; totalAmount: string; rectificationReason: string | null; rectificationType: string | null; rectificationDescription: string | null },
+  draft: { id: string; totalAmount: string; rectificationReason: string | null; rectificationType: string | null; rectificationDescription: string | null; commercialReason: string | null },
 ) {
   const [original] = await db.select().from(invoice).where(and(eq(invoice.id, originalId), eq(invoice.companyId, companyId))).limit(1);
   if (!original) return null;
@@ -259,9 +264,11 @@ async function loadCreditNoteDraft(
   ]);
   const type: RectificationType = draft.rectificationType === "SUBSTITUTION" ? "SUBSTITUTION" : "DIFFERENCES";
   const isFull = type === "DIFFERENCES" && Math.abs(Number(draft.totalAmount) + Number(original.totalAmount)) < 0.005 && draftLines.length === originalLines.length;
+  // Parcial al alza: todas las líneas van en positivo (lo que faltaba por facturar).
+  const increase = type === "DIFFERENCES" && Number(draft.totalAmount) > 0;
   const editableLines = type === "SUBSTITUTION"
     ? draftLines.filter((line) => line.quantity > 0).map((line) => toSourceLine(line, 1))
-    : draftLines.map((line) => toSourceLine(line, -1));
+    : draftLines.map((line) => toSourceLine(line, increase ? 1 : -1));
   // Lo que queda por rectificar sin contar este borrador (aún no emitido).
   const pendingToRectify = Math.max(balance.totalCents + balance.creditedCents, 0) / 100;
   return {
@@ -274,6 +281,8 @@ async function loadCreditNoteDraft(
       type,
       scope: (isFull ? "FULL" : "PARTIAL") as "FULL" | "PARTIAL",
       description: draft.rectificationDescription ?? "",
+      direction: (increase ? "INCREASE" : "DECREASE") as "INCREASE" | "DECREASE",
+      commercialReason: isCommercialReason(draft.commercialReason) ? draft.commercialReason : null,
       lines: editableLines,
     },
   };

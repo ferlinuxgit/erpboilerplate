@@ -13,6 +13,7 @@ import { dateInputValue } from "@/lib/date-input";
 import { formatDate, formatMoney } from "@/lib/format";
 import { invoiceLifecycle } from "@/server/invoices/lifecycle";
 import { getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
+import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
 
 export const metadata: Metadata = { title: "Factura rectificativa" };
 
@@ -28,7 +29,7 @@ export default async function RectifyInvoicePage({ params }: { params: Promise<{
 
   const currencyCode = ctx.company.baseCurrencyCode;
   const lifecycle = invoiceLifecycle(original);
-  const canRectify = lifecycle === "ISSUED" && original.invoiceType === "INVOICE";
+  const canRectify = lifecycle === "ISSUED" && original.invoiceType === "INVOICE" && !original.isSubstitutive;
   const [lines, balance] = await Promise.all([
     loadStoredLines(db, original.id),
     getInvoiceBalance(db, ctx.company.id, original.id, original.totalAmount),
@@ -52,7 +53,9 @@ export default async function RectifyInvoicePage({ params }: { params: Promise<{
           <InlineAlert title={lifecycle === "DRAFT" ? "Es un borrador" : "Documento no rectificable"} tone="warning">
             {lifecycle === "DRAFT"
               ? "Los borradores no necesitan rectificativa: edítalo directamente."
-              : original.invoiceType === "CREDIT_NOTE"
+              : original.isSubstitutive
+                ? "Esta factura sustituye a una factura simplificada: la devolución o el error se rectifican en la simplificada original."
+                : original.invoiceType === "CREDIT_NOTE"
                 ? "Esto ya es una rectificativa. Para corregirla, rectifica la factura original."
                 : "La factura está anulada."}
             <p className="mt-2">
@@ -84,6 +87,7 @@ export default async function RectifyInvoicePage({ params }: { params: Promise<{
               taxes: (line.taxes ?? []).map((selectedTax) => ({ ...selectedTax, id: selectedTax.id ?? null })),
             }))}
             pendingToRectify={pendingToRectify}
+            showAccounts={(await getCompanyFiscalContext(ctx.company.id)).profile.features.eInvoicing === "verifactu"}
           />
         </PageSection>
       )}

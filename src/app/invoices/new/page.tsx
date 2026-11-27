@@ -1,5 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { vatContextFor } from "@/server/company/fiscal-context";
+import { getCompanyFiscalContext, vatContextFor } from "@/server/company/fiscal-context";
 import { getCompanySalesVatTreatments } from "@/server/invoices/vat-treatments";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -95,6 +95,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             canCreateCustomer={canCreateCustomer}
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
             vatContext={await vatContextFor(tenantContext.company.id)}
+            spanishFiscalExtras={(await getCompanyFiscalContext(tenantContext.company.id)).profile.features.eInvoicing === "verifactu"}
             vatTreatments={(await getCompanySalesVatTreatments(tenantContext.company.id)).enabled}
             customers={customers.map((row) => ({ ...row, defaultRetentionRate: row.defaultRetentionRate === null ? null : Number(row.defaultRetentionRate) }))}
             defaultIssueDate={defaultIssueDate}

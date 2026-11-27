@@ -1,3 +1,4 @@
+import { isInvoiceDocumentClass } from "@/server/invoices/document-class";
 import { and, asc, count, eq, inArray, not, sql } from "drizzle-orm";
 
 import { customer, invoice, invoiceLine, invoiceLineTax, paymentStatusEnum } from "@/db/schema";
@@ -75,6 +76,13 @@ function listParts(companyId: string, params: InvoiceListParams, timezone: strin
     status: invoice.status,
     paymentStatus: invoice.paymentStatus,
     invoiceType: invoice.invoiceType,
+    // Clase de documento congelada; en las facturas emitidas antes de existir la columna se deduce
+    // del NIF congelado del cliente (sin NIF, simplificada). Los borradores sin elección quedan en null.
+    documentClass: sql<string | null>`coalesce(${invoice.documentClass}, case
+      when ${invoice.customerSnapshot} is null then null
+      when coalesce(trim(${invoice.customerSnapshot}->>'taxId'), '') = '' then 'SIMPLIFIED'
+      else 'FULL' end)`,
+    isSubstitutive: invoice.isSubstitutive,
     lifecycle: invoiceLifecycleSql,
     totalAmount: invoice.totalAmount,
     issueDate: invoice.issueDate,
@@ -166,6 +174,8 @@ function toListRow(row: InvoiceListDbRow, currencyCode: string, amounts: Invoice
     status: row.paymentStatus,
     lifecycle: row.lifecycle,
     invoiceType: row.invoiceType === "CREDIT_NOTE" ? "CREDIT_NOTE" as const : "INVOICE" as const,
+    documentClass: isInvoiceDocumentClass(row.documentClass) ? row.documentClass : null,
+    isSubstitutive: row.isSubstitutive,
     totalAmount: row.totalAmount,
     totalAmountLabel: formatMoney(row.totalAmount.toString(), currencyCode),
     outstandingAmount,

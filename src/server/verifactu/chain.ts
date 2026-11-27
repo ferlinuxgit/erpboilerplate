@@ -162,6 +162,8 @@ export function appendAltaRecord(tx: DbClient, draft: AltaDraft, now = new Date(
         invoiceTypeCode: draft.content.invoiceTypeCode,
         rectificationKind: draft.content.rectificationKind,
         rectifiedInvoices: draft.content.rectifiedInvoices,
+        substitutedInvoices: draft.content.substitutedInvoices ?? null,
+        simplifiedArt7273: draft.content.simplifiedArt7273 ? "S" : null,
         subsanacion: draft.subsanacion ?? null,
         rechazoPrevio: draft.rechazoPrevio ?? null,
         operationDate: draft.content.operationDate ?? null,
