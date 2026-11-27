@@ -72,7 +72,7 @@ export default async function VerifactuPage() {
         <InlineAlert tone="warning" title="VERI*FACTU no está activado">
           Tus facturas todavía no generan registros de facturación. Actívalo en{" "}
           <Link className="font-bold text-link underline underline-offset-2" href="/settings/fiscal#verifactu">Configuración › Fiscalidad</Link> antes de la fecha en la que te sea obligatorio
-          (según el calendario vigente, a partir de 2027 para la mayoría de empresas y autónomos; confírmalo con tu asesor).
+          (el Real Decreto-ley 43/2026 ha vuelto a aplazarla y la liga al calendario de la factura electrónica obligatoria del Real Decreto 238/2026; confirma tu fecha con tu asesor).
         </InlineAlert>
       ) : null}
 

@@ -140,11 +140,12 @@ describe("territorios con IGIC / IPSI", () => {
     expect(verifactuTaxCodeFor("ES-ML")).toBe("02");
   });
 
-  it("IGIC conserva la clave de régimen; IPSI no la informa", () => {
+  it("IGIC conserva la clave de régimen; IPSI informa siempre una de las que admite la AEAT", () => {
     expect(buildBreakdown("DOMESTIC", totals, "03").lines[0]).toEqual({ Impuesto: "03", ClaveRegimen: "01", CalificacionOperacion: "S1", TipoImpositivo: "7.00", BaseImponibleOimporteNoSujeto: "100.00", CuotaRepercutida: "7.00" });
     const ipsi = buildBreakdown("DOMESTIC", totals, "02").lines[0];
-    expect(ipsi).toMatchObject({ Impuesto: "02", CalificacionOperacion: "S1" });
-    expect(ipsi).not.toHaveProperty("ClaveRegimen");
+    expect(ipsi).toMatchObject({ Impuesto: "02", CalificacionOperacion: "S1", ClaveRegimen: "01" });
+    // Una exportación lleva 02 con IVA/IGIC; con IPSI esa clave no existe y va la de régimen general.
+    expect(buildBreakdown("EXPORT", { subtotal: 50, taxBuckets: [] }, "02").lines[0]).toMatchObject({ Impuesto: "02", ClaveRegimen: "01" });
     expect(buildBreakdown("EXPORT", { subtotal: 50, taxBuckets: [] }, "03").lines[0]).toMatchObject({ Impuesto: "03", ClaveRegimen: "02", OperacionExenta: "E2" });
   });
 });

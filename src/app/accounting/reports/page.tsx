@@ -23,10 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { requireContext } from "@/lib/current-context";
 import { formatBalance, formatMoney } from "@/lib/format";
 import { listFiscalYears } from "@/server/accounting/fiscal-years";
-import { getFinancialStatements } from "@/server/accounting/statements";
+import { buildOfficialStatements, type OfficialStatementLine } from "@/server/accounting/official-statements-model";
+import { getFinancialStatements, loadStatementAccountRows } from "@/server/accounting/statements";
 import {
   periodDateKeys,
   resolveStatementPeriod,
@@ -63,6 +65,15 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
     toExclusive: period.toExclusive,
   });
   const { balanceSheet, incomeStatement, trialBalance, trialBalanceGroups, totals } = statements;
+  // Cuentas anuales en el modelo abreviado del PGC (solo empresas españolas), con el mismo
+  // periodo del ejercicio anterior como columna comparativa.
+  const usesSpanishModels = getCountryFiscalProfile(ctx.company.countryCode).features.taxReports === "es-aeat";
+  const previousYear = [...years].reverse().find((candidate) => candidate.startsAt < year.startsAt) ?? null;
+  const previousPeriod = previousYear ? resolveStatementPeriod(previousYear, period.key) : null;
+  const previousRows = usesSpanishModels && previousYear && previousPeriod && previousPeriod.key === period.key
+    ? await loadStatementAccountRows(ctx.company.id, { yearStart: previousYear.startsAt, from: previousPeriod.from, toExclusive: previousPeriod.toExclusive })
+    : null;
+  const official = usesSpanishModels ? buildOfficialStatements(statements.rows, previousRows) : null;
   const dates = periodDateKeys(period);
   const ledgerHref = (accountId: string) => `/accounting/ledger/${accountId}?from=${dates.from}&to=${dates.to}`;
   const money = (value: number) => formatMoney(value, currency);
@@ -152,6 +163,24 @@ export default async function AccountingReportsPage({ searchParams }: { searchPa
         </PageSection>
       </div>
 
+      {official ? (
+        <PageSection
+          title="Cuentas anuales · modelo abreviado del PGC"
+          description={`Balance al ${formatDateKey(dates.to)} y cuenta de pérdidas y ganancias del periodo con los epígrafes oficiales (Real Decreto 1514/2007)${previousYear && previousRows ? `, comparados con ${previousYear.code}` : ""}. Antes de depositarlas, revísalas con tu asesor.`}
+        >
+          {official.unmapped.length > 0 ? (
+            <InlineAlert title="Cuentas fuera del modelo oficial" tone="warning">
+              {official.unmapped.slice(0, 8).map((account) => account.code).join(", ")}{official.unmapped.length > 8 ? "…" : ""} no tienen epígrafe en el modelo abreviado. Se han sumado en «Otros deudores», «Otras deudas a corto plazo» u «Otros resultados»: reclasifícalas si no corresponde.
+            </InlineAlert>
+          ) : null}
+          <div className="grid gap-3 xl:grid-cols-2">
+            <OfficialTable caption="Activo" currentLabel={year.code} lines={official.assets} money={money} previousLabel={previousRows ? previousYear?.code : undefined} />
+            <OfficialTable caption="Patrimonio neto y pasivo" currentLabel={year.code} lines={official.equityAndLiabilities} money={money} previousLabel={previousRows ? previousYear?.code : undefined} />
+          </div>
+          <OfficialTable caption="Cuenta de pérdidas y ganancias" currentLabel={year.code} lines={official.incomeStatement} money={money} previousLabel={previousRows ? previousYear?.code : undefined} />
+        </PageSection>
+      ) : null}
+
       <PageSection
         title="Balance de sumas y saldos"
         description="Saldo inicial, movimientos del periodo y saldo final de cada subcuenta, con el subtotal de su cuenta de 3 dígitos."
@@ -219,6 +248,48 @@ function formatDateKey(key: string) {
 /** Nombre de cuenta con ancho acotado en móvil para que la columna fija no tape las cifras. */
 function AccountName({ children }: { children: ReactNode }) {
   return <span className="block min-w-36 max-sm:w-40">{children}</span>;
+}
+
+/** Estado en el modelo oficial: epígrafes con sangría, totales en negrita y columna del ejercicio anterior. */
+function OfficialTable({
+  caption,
+  currentLabel,
+  lines,
+  money,
+  previousLabel,
+}: {
+  caption: string;
+  currentLabel: string;
+  lines: OfficialStatementLine[];
+  money: (value: number) => string;
+  previousLabel?: string;
+}) {
+  const indent = ["", "pl-5", "pl-8", "pl-11"];
+  return (
+    <TableContainer label={caption}>
+      <Table className="[&_td:not(:first-child)]:whitespace-nowrap">
+        <TableHeader>
+          <TableRow>
+            <TableHead>{caption}</TableHead>
+            <TableHead className="text-right">{currentLabel}</TableHead>
+            {previousLabel ? <TableHead className="text-right">{previousLabel}</TableHead> : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {lines.map((line) => {
+            const strong = line.kind === "total" || line.depth === 0;
+            return (
+              <TableRow className={strong ? "bg-window-panel font-bold" : undefined} key={line.id}>
+                <TableCell className={indent[Math.min(line.depth, indent.length - 1)]}>{line.label}</TableCell>
+                <TableCell className="text-right">{line.amount === 0 && !strong ? "—" : money(line.amount)}</TableCell>
+                {previousLabel ? <TableCell className="text-right">{!line.previous && !strong ? "—" : money(line.previous ?? 0)}</TableCell> : null}
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
 }
 
 function StatementTable({

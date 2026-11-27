@@ -84,14 +84,21 @@ describe("Modelo 130", () => {
     expect([box(result, "01"), box(result, "03"), box(result, "04"), box(result, "05"), box(result, "06"), box(result, "19")]).toEqual([18_000, 12_000, 2_400, 900, 500, 1_000]);
   });
 
-  it("never computes a negative 04 and carries negative results to later quarters (casilla 15)", () => {
+  it("never computes a negative 04 and floors casilla 12 at zero without deducting the negative 07 twice", () => {
     const loss = computeModelo130([quarter(1_000, 3_000, 150)], 1);
     expect(box(loss, "04")).toBe(0);
-    expect(box(loss, "19")).toBe(-150);
+    expect([box(loss, "07"), box(loss, "12"), box(loss, "19")]).toEqual([-150, 0, 0]);
 
     const recovered = computeModelo130([quarter(1_000, 3_000, 150), quarter(10_000, 2_000, 0)], 2);
-    // Acumulado 11.000 − 5.000 = 6.000 → 1.200; 05 = 0; 06 = 150 → 07 = 1.050; 15 = 150 → 19 = 900.
-    expect([box(recovered, "04"), box(recovered, "05"), box(recovered, "06"), box(recovered, "07"), box(recovered, "15"), box(recovered, "19")]).toEqual([1_200, 0, 150, 1_050, 150, 900]);
+    // Acumulado 11.000 − 5.000 = 6.000 → 1.200; 05 = 0; 06 = 150 (ya recoge la retención del T1) → 07 = 1.050 = 19.
+    expect([box(recovered, "04"), box(recovered, "05"), box(recovered, "06"), box(recovered, "07"), box(recovered, "15"), box(recovered, "19")]).toEqual([1_200, 0, 150, 1_050, 0, 1_050]);
+  });
+
+  it("matches the official example: withholdings above 20 % in T1 are recovered once, through the cumulative 06", () => {
+    // T1: 1.000 de ingresos con 150 de retención y 500 de gastos → 04 = 100, 07 = −50, a ingresar 0.
+    expect(computeModelo130([quarter(1_000, 500, 150)], 1).resultCents).toBe(0);
+    // T2 acumulado: 3.000 de ingresos, 500 de gastos → 04 = 500, 06 = 150 → 350 a ingresar (no 300).
+    expect(computeModelo130([quarter(1_000, 500, 150), quarter(2_000, 0, 0)], 2).resultCents).toBe(35_000);
   });
 
   it("reports the share of income subject to withholding (70 % rule)", () => {
@@ -136,11 +143,11 @@ describe("periods and due dates of the new models", () => {
     expect(normalizeSpanishFiscalPeriod("2026-07", "349")).toBe("2026-07");
   });
 
-  it("uses 20th of next month and 30 January for the last period", () => {
+  it("uses 20th of next month and 30 January (moved to Monday 1 February in 2027) for the last period", () => {
     expect(getSpanishFiscalDueDate("2026-Q3", "130")?.toISOString()).toBe("2026-10-20T00:00:00.000Z");
-    expect(getSpanishFiscalDueDate("2026-Q4", "130")?.toISOString()).toBe("2027-01-30T00:00:00.000Z");
-    expect(getSpanishFiscalDueDate("2026-Q4", "349")?.toISOString()).toBe("2027-01-30T00:00:00.000Z");
-    expect(getSpanishFiscalDueDate("2026-12", "349")?.toISOString()).toBe("2027-01-30T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2026-Q4", "130")?.toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2026-Q4", "349")?.toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2026-12", "349")?.toISOString()).toBe("2027-02-01T00:00:00.000Z");
     expect(getSpanishFiscalDueDate("2026-Q4", "115")?.toISOString()).toBe("2027-01-20T00:00:00.000Z");
   });
 

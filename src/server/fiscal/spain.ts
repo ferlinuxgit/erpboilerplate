@@ -147,6 +147,8 @@ type ReconciliationLine = {
 };
 
 const THIRD_PARTY_THRESHOLD = 3005.06;
+/** Cliente genérico del TPV (mismo nombre que `GENERIC_CUSTOMER_NAME` de `@/server/pos/service`). */
+const GENERIC_POS_CUSTOMER_NAME = "Clientes varios (TPV)";
 const STANDARD_VAT_RATES = new Set([0, 4, 5, 10, 21]);
 /** Asientos que no son operaciones del periodo y no deben entrar en la conciliación de IVA. */
 const NON_OPERATIONAL_SOURCES = ["fiscalYearRegularization", "fiscalYearClosing", "fiscalYearOpening"];
@@ -250,13 +252,16 @@ export function issuedInvoiceFiscalFilter(companyId: string, start: Date, endExc
   );
 }
 
-/** Facturas recibidas que computan en un periodo: sin anuladas (VOID) ni borradores. */
+/**
+ * Facturas recibidas que computan en un periodo: sin anuladas (VOID) ni borradores, por su fecha de
+ * registro (la misma que usa el 303), que es el periodo en que se anotan en el libro registro.
+ */
 export function supplierInvoiceFiscalFilter(companyId: string, start: Date, endExclusive: Date) {
   return and(
     eq(supplierInvoice.companyId, companyId),
     notInArray(supplierInvoice.status, ["VOID", "DRAFT"]),
-    gte(supplierInvoice.issueDate, start),
-    lt(supplierInvoice.issueDate, endExclusive),
+    gte(supplierInvoice.accountingDate, start),
+    lt(supplierInvoice.accountingDate, endExclusive),
   );
 }
 
@@ -323,6 +328,7 @@ async function fetchSupplierLines(companyId: string, start: Date, endExclusive: 
     number: supplierInvoice.number,
     issueDate: supplierInvoice.issueDate,
     accountingDate: supplierInvoice.accountingDate,
+    voidedAt: supplierInvoice.voidedAt,
     prorrataPct: supplierInvoice.prorrataPct,
     totalAmount: supplierInvoice.totalAmount,
     vatTreatment: supplierInvoice.vatTreatment,
@@ -470,14 +476,43 @@ async function fetchModelo130(companyId: string, rangeStart: Date, endExclusive:
   }
   for (let index = 0; index < 4; index += 1) {
     quarters[index].expenseCents = computeIncomeTaxExpenseCents(
-      supplierLines.filter((line) => quarterIndex(line.issueDate) === index),
+      // Mismo criterio que el filtro: fecha de registro, o la de anulación en la fila que resta.
+      supplierLines.filter((line) => quarterIndex((line.sign === -1 ? line.voidedAt : null) ?? line.accountingDate ?? line.issueDate) === index),
       prorrataPct,
     );
   }
   return computeModelo130(quarters, quarterIndex(new Date(endExclusive.getTime() - 1)) + 1);
 }
 
-/** Clientes españoles (> 3.005,06 €/año): sin anuladas, sin facturas con retención (van al 190). */
+/** NIF sin espacios, guiones ni prefijo de país: dos fichas del mismo tercero suman juntas. */
+function normalizeThirdPartyTaxId(taxId: string | null | undefined) {
+  const value = (taxId ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return value.startsWith("ES") && value.length === 11 ? value.slice(2) : value;
+}
+
+/**
+ * Agrupa por NIF (una persona o entidad es un solo declarado aunque tenga varias fichas) y deja las
+ * que superan 3.005,06 € en valor absoluto. Sin NIF no se puede agrupar: cada ficha va por separado.
+ */
+export function groupThirdPartyOperations<T extends "customer" | "supplier">(type: T, rows: Array<{ taxId: string | null; name: string; amount: string | number }>) {
+  const groups = new Map<string, { taxId: string; name: string; cents: number }>();
+  for (const row of rows) {
+    const taxId = normalizeThirdPartyTaxId(row.taxId);
+    const key = taxId || `sin-nif:${row.name}`;
+    const group = groups.get(key) ?? { taxId: taxId || "Sin NIF", name: row.name, cents: 0 };
+    group.cents += toCents(row.amount);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .map((group) => ({ type, taxId: group.taxId, name: group.name, amount: centsToNumber(group.cents) }))
+    .filter((row) => Math.abs(row.amount) > THIRD_PARTY_THRESHOLD)
+    .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount));
+}
+
+/**
+ * Clientes españoles (> 3.005,06 €/año): sin anuladas, sin facturas con retención (van al 190) y
+ * sin el cliente genérico del TPV (ventas a consumidores no identificados, que no se declaran).
+ */
 async function fetchThirdPartyOperations(companyId: string, start: Date, endExclusive: Date) {
   const withholdingLine = sql`exists (select 1 from ${invoiceLine} il where il."invoiceId" = ${invoice.id} and il."retentionRate" > 0)`;
   const withholdingTax = sql`exists (select 1 from ${invoiceLineTax} ilt inner join ${invoiceLine} il2 on il2.id = ilt."invoiceLineId" where il2."invoiceId" = ${invoice.id} and ilt.operation = 'SUBTRACT')`;
@@ -496,18 +531,11 @@ async function fetchThirdPartyOperations(companyId: string, start: Date, endExcl
       or(isNull(partner.countryCode), eq(partner.countryCode, "ES")),
       sql`not ${withholdingLine}`,
       sql`not ${withholdingTax}`,
+      sql`not (${customer.name} = ${GENERIC_POS_CUSTOMER_NAME} and coalesce(${partner.taxId}, '') = '')`,
     ))
     .groupBy(partner.taxId, partner.name, customer.name);
 
-  return rows
-    .map((row) => ({
-      type: "customer" as const,
-      taxId: row.taxId?.trim() || "Sin NIF",
-      name: row.partnerName ?? row.customerName,
-      amount: centsToNumber(toCents(row.amount)),
-    }))
-    .filter((row) => row.amount >= THIRD_PARTY_THRESHOLD)
-    .sort((left, right) => right.amount - left.amount);
+  return groupThirdPartyOperations("customer", rows.map((row) => ({ taxId: row.taxId, name: row.partnerName ?? row.customerName, amount: row.amount })));
 }
 
 /** Proveedores españoles (> 3.005,06 €/año): sin anuladas ni facturas con retención. */
@@ -527,15 +555,7 @@ async function fetchSupplierThirdPartyOperations(companyId: string, start: Date,
     ))
     .groupBy(partner.taxId, partner.name);
 
-  return rows
-    .map((row) => ({
-      type: "supplier" as const,
-      taxId: row.taxId?.trim() || "Sin NIF",
-      name: row.name,
-      amount: centsToNumber(toCents(row.amount)),
-    }))
-    .filter((row) => row.amount >= THIRD_PARTY_THRESHOLD)
-    .sort((left, right) => right.amount - left.amount);
+  return groupThirdPartyOperations("supplier", rows);
 }
 
 /** Saldos del periodo de 477, 472, 4751 y 473 (incluye subcuentas), sin asientos de cierre/apertura. */

@@ -5,7 +5,7 @@ vi.mock("@/lib/db", () => ({ db: {} }));
 
 import { buildSupplierInvoiceLines, normalizePostingLines } from "@/server/accounting/auto-post";
 import { buildModelo303Boxes, computeIssuedVat, computeModelo303Totals, computeSupplierVat, type IssuedLineInput, type SupplierLineInput } from "@/server/fiscal/spain-calc";
-import { issuedInvoiceFiscalFilter, supplierInvoiceFiscalFilter } from "@/server/fiscal/spain";
+import { groupThirdPartyOperations, issuedInvoiceFiscalFilter, supplierInvoiceFiscalFilter } from "@/server/fiscal/spain";
 
 vi.mock("@/server/audit", () => ({ recordAudit: vi.fn() }));
 
@@ -24,7 +24,7 @@ function box(boxes: ReturnType<typeof buildModelo303Boxes>, code: string) {
 }
 
 describe("Modelo 303 computation", () => {
-  it("fills 4/5/10/21 buckets with their current AEAT boxes", () => {
+  it("fills 4/10/21 buckets with their current AEAT boxes and flags the expired 5 % rate", () => {
     const result = computeIssuedVat([
       issued({ invoiceId: "a", unitPrice: 100, taxRate: 4 }),
       issued({ invoiceId: "b", unitPrice: 100, taxRate: 5 }),
@@ -32,8 +32,29 @@ describe("Modelo 303 computation", () => {
       issued({ invoiceId: "d", unitPrice: 100, taxRate: 21 }),
     ]);
     const boxes = buildModelo303Boxes(result, computeSupplierVat([], 100), { periodYear: 2026 });
-    expect([box(boxes, "01"), box(boxes, "03"), box(boxes, "153"), box(boxes, "155"), box(boxes, "04"), box(boxes, "06"), box(boxes, "07"), box(boxes, "09")]).toEqual([100, 4, 100, 5, 100, 10, 100, 21]);
+    expect([box(boxes, "01"), box(boxes, "03"), box(boxes, "04"), box(boxes, "06"), box(boxes, "07"), box(boxes, "09")]).toEqual([100, 4, 100, 10, 100, 21]);
+    // Desde 2025 el 5 % no tiene casilla (153-155 quedaron sin tipo asignado): se marca para revisar.
+    expect(box(boxes, "153")).toBeUndefined();
+    expect(box(boxes, "REV")).toBe(5);
     expect(box(boxes, "27")).toBe(40);
+    // Un periodo de 2024 conserva el diseño de entonces.
+    const boxes2024 = buildModelo303Boxes(result, computeSupplierVat([], 100), { periodYear: 2024 });
+    expect([box(boxes2024, "153"), box(boxes2024, "155")]).toEqual([100, 5]);
+  });
+
+  it("declares the 0,5 % surcharge in 168-170 from 2025 (16-18 until 2024)", () => {
+    const result = computeIssuedVat([issued({
+      taxRate: 4,
+      taxes: [
+        { rate: 4, kind: "VAT", operation: "ADD", baseAmount: "100.00", amount: "4.00" },
+        { rate: 0.5, kind: "SURCHARGE", operation: "ADD", baseAmount: "100.00", amount: "0.50" },
+      ],
+    })]);
+    const supplier = computeSupplierVat([], 100);
+    const boxes = buildModelo303Boxes(result, supplier, { periodYear: 2026 });
+    expect([box(boxes, "168"), box(boxes, "170"), box(boxes, "16")]).toEqual([100, 0.5, undefined]);
+    const boxes2024 = buildModelo303Boxes(result, supplier, { periodYear: 2024 });
+    expect([box(boxes2024, "16"), box(boxes2024, "18")]).toEqual([100, 0.5]);
   });
 
   it("puts recargo de equivalencia in its own boxes and in the accrued total (reconciles with 477)", () => {
@@ -133,6 +154,9 @@ describe("fiscal document scope", () => {
   it("excludes void and draft supplier invoices from 303/390/347", () => {
     const query = dialect.sqlToQuery(supplierInvoiceFiscalFilter("company-1", start, end)!);
     expect(query.sql).toContain("not in");
+    // Por fecha de registro (libro registro), igual que el 303; no por fecha de la factura.
+    expect(query.sql).toContain('"accountingDate"');
+    expect(query.sql).not.toContain('"issueDate"');
     expect(query.params).toEqual(expect.arrayContaining(["VOID", "DRAFT"]));
   });
 
@@ -140,5 +164,23 @@ describe("fiscal document scope", () => {
     const query = dialect.sqlToQuery(issuedInvoiceFiscalFilter("company-1", start, end)!);
     expect(query.sql).toContain("<>");
     expect(query.params).toContain("VOID");
+  });
+});
+
+describe("Modelo 347: terceros declarados", () => {
+  it("suma las fichas con el mismo NIF y compara el umbral en valor absoluto y de forma estricta", () => {
+    const rows = groupThirdPartyOperations("customer", [
+      { taxId: "B12345674", name: "Pérez S.L.", amount: "2000.00" },
+      { taxId: "es b-12345674", name: "Perez SL (tienda)", amount: "1500.00" },
+      { taxId: "A58818501", name: "Justo en el umbral", amount: "3005.06" },
+      { taxId: "12345678Z", name: "Abonos", amount: "-4000.00" },
+      { taxId: null, name: "Sin identificar A", amount: "3100.00" },
+      { taxId: null, name: "Sin identificar B", amount: "900.00" },
+    ]);
+    expect(rows).toEqual([
+      { type: "customer", taxId: "12345678Z", name: "Abonos", amount: -4000 },
+      { type: "customer", taxId: "B12345674", name: "Pérez S.L.", amount: 3500 },
+      { type: "customer", taxId: "Sin NIF", name: "Sin identificar A", amount: 3100 },
+    ]);
   });
 });

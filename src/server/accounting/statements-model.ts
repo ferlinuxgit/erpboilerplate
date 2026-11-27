@@ -126,8 +126,13 @@ function isRevenue(account: { code: string; type: string }, countryCode: string)
   return account.type === "REVENUE";
 }
 
-/** Masa patrimonial de una cuenta de balance. Las MIXED se clasifican por el signo de su saldo. */
-function balanceSheetGroup(type: string, balanceCents: number): "asset" | "liability" | "equity" {
+/**
+ * Masa patrimonial de una cuenta de balance. Las MIXED se clasifican por el signo de su saldo.
+ * Grupos 8 y 9 del PGC (ingresos y gastos imputados al patrimonio neto): hasta su traspaso al
+ * subgrupo 13 en el cierre forman parte del patrimonio neto, no del activo ni del pasivo.
+ */
+function balanceSheetGroup(type: string, balanceCents: number, equityAdjustment = false): "asset" | "liability" | "equity" {
+  if (equityAdjustment) return "equity";
   if (type === "ASSET") return "asset";
   if (type === "LIABILITY") return "liability";
   if (type === "EQUITY") return "equity";
@@ -187,7 +192,8 @@ export function buildFinancialStatements(rows: StatementAccountRow[], countryCod
     }
 
     if (closingCents === 0) continue;
-    const group = balanceSheetGroup(row.type, closingCents);
+    const equityAdjustment = usesPgcChart(countryCode) && (row.code.startsWith("8") || row.code.startsWith("9"));
+    const group = balanceSheetGroup(row.type, closingCents, equityAdjustment);
     if (group === "asset") {
       assets.push({ accountId: row.accountId, code: row.code, name: row.name, amount: cents(closingCents) });
       assetsCents += closingCents;

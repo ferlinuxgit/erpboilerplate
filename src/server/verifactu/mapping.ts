@@ -25,7 +25,7 @@ export type VerifactuInvoiceTypeCode = "F1" | "F2" | "F3" | "R1" | "R2" | "R3" |
 
 export type VerifactuBreakdownLine = {
   Impuesto: string;
-  /** Solo con IVA (01) o IGIC (03); no se informa con IPSI (02). */
+  /** Obligatoria con IVA (01), IGIC (03) e IPSI (02; en este, solo 01, 08, 11, 18, 19 o 20). */
   ClaveRegimen?: string;
   CalificacionOperacion?: string;
   OperacionExenta?: string;
@@ -72,11 +72,19 @@ export function verifactuTaxCodeFor(territory: string | null | undefined): Verif
   return "01";
 }
 
-/** Aplica la clave del impuesto a una línea de desglose (sin ClaveRegimen en el IPSI). */
+/** Claves de régimen que la AEAT admite con IPSI (validaciones VERI*FACTU, apartado del desglose). */
+const IPSI_REGIME_KEYS = new Set(["01", "08", "11", "18", "19", "20"]);
+
+/**
+ * Aplica la clave del impuesto a una línea de desglose. Con IPSI la ClaveRegimen también es
+ * obligatoria (sin ella la AEAT acepta con errores hasta el 31-12-2026 y rechaza desde el
+ * 01-01-2027): se conserva si es una de las admitidas y, si no, va la de régimen general.
+ */
 function withTaxCode(line: VerifactuBreakdownLine, taxCode: VerifactuTaxCode): VerifactuBreakdownLine {
   if (taxCode === "01") return line;
   const { ClaveRegimen, ...rest } = line;
-  return taxCode === "02" ? { ...rest, Impuesto: taxCode } : { ...rest, Impuesto: taxCode, ClaveRegimen };
+  if (taxCode === "02") return { ...rest, Impuesto: taxCode, ClaveRegimen: ClaveRegimen && IPSI_REGIME_KEYS.has(ClaveRegimen) ? ClaveRegimen : "01" };
+  return { ...rest, Impuesto: taxCode, ClaveRegimen };
 }
 
 export type MapInvoiceInput = {

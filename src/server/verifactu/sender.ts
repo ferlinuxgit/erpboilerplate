@@ -20,7 +20,8 @@ import { buildRegFactuSoapEnvelope, MAX_RECORDS_PER_SUBMISSION, parseAeatRespons
  */
 
 const LEASE_MS = 5 * 60_000;
-const MAX_BACKOFF_MS = 6 * 60 * 60_000;
+/** Art. 16.4 de la Orden HAC/1177/2024: ante una incidencia hay que reintentar al menos una vez cada hora. */
+const MAX_BACKOFF_MS = 60 * 60_000;
 /** Código AEAT de registro duplicado: el registro ya consta en la AEAT (respuesta anterior perdida). */
 const DUPLICATE_CODES = new Set(["3000"]);
 

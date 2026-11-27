@@ -397,7 +397,7 @@
   },
   {
     "code": "50",
-    "name": "EMPRÉSTITOS, DEUDAS CON CARÁCTERÍSTICAS ESPECIALES Y OTRAS EMISIONES ANÁLOGAS A CORTO PLAZO",
+    "name": "EMPRÉSTITOS, DEUDAS CON CARACTERÍSTICAS ESPECIALES Y OTRAS EMISIONES ANÁLOGAS A CORTO PLAZO",
     "type": "LIABILITY",
     "level": 2,
     "parentCode": "5",
@@ -568,7 +568,7 @@
   },
   {
     "code": "69",
-    "name": "PÉRDIDAS POR DETERIOROY OTRAS DOTACIONES",
+    "name": "PÉRDIDAS POR DETERIORO Y OTRAS DOTACIONES",
     "type": "EXPENSE",
     "level": 2,
     "parentCode": "6",
@@ -604,7 +604,7 @@
   },
   {
     "code": "74",
-    "name": "SUBVENCIONES, DONACIONESY LEGADOS",
+    "name": "SUBVENCIONES, DONACIONES Y LEGADOS",
     "type": "REVENUE",
     "level": 2,
     "parentCode": "7",
@@ -685,7 +685,7 @@
   },
   {
     "code": "84",
-    "name": "TRANSFERENCIAS DE SUBVENCIONES, DONACIONESY LEGADOS",
+    "name": "TRANSFERENCIAS DE SUBVENCIONES, DONACIONES Y LEGADOS",
     "type": "EXPENSE",
     "level": 2,
     "parentCode": "8",
@@ -721,7 +721,7 @@
   },
   {
     "code": "90",
-    "name": "INGRESOS FINANCIEROS POR VALORACIÓN DE ACTIVOSY PASIVOS",
+    "name": "INGRESOS FINANCIEROS POR VALORACIÓN DE ACTIVOS Y PASIVOS",
     "type": "REVENUE",
     "level": 2,
     "parentCode": "9",
@@ -2422,7 +2422,7 @@
   },
   {
     "code": "500",
-    "name": "Obligaciones y bonos a corto plazo Obligaciones y bonos convertibles a corto plazo",
+    "name": "Obligaciones y bonos a corto plazo",
     "type": "LIABILITY",
     "level": 3,
     "parentCode": "50",
@@ -2431,12 +2431,21 @@
   },
   {
     "code": "501",
-    "name": "Acciones o participaciones a corto plazo consideradas como pasivos financieros",
+    "name": "Obligaciones y bonos convertibles a corto plazo",
     "type": "LIABILITY",
     "level": 3,
     "parentCode": "50",
     "isPostable": true,
     "role": "Cuenta del Plan General Contable español 2024 (501)."
+  },
+  {
+    "code": "502",
+    "name": "Acciones o participaciones a corto plazo consideradas como pasivos financieros",
+    "type": "LIABILITY",
+    "level": 3,
+    "parentCode": "50",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (502)."
   },
   {
     "code": "505",
@@ -4626,6 +4635,15 @@
     "role": "Cuenta del Plan General Contable español 2024 (1140)."
   },
   {
+    "code": "1141",
+    "name": "Reservas estatutarias",
+    "type": "EQUITY",
+    "level": 4,
+    "parentCode": "114",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (1141)."
+  },
+  {
     "code": "1142",
     "name": "Reserva por capital amortizado",
     "type": "EQUITY",
@@ -4816,7 +4834,7 @@
   },
   {
     "code": "1623",
-    "name": "Acreedores por arrendamiento financiero a largo plazo, empresas de grupo",
+    "name": "Acreedores por arrendamiento financiero a largo plazo, empresas del grupo",
     "type": "LIABILITY",
     "level": 4,
     "parentCode": "162",
@@ -5335,6 +5353,24 @@
     "parentCode": "293",
     "isPostable": true,
     "role": "Cuenta del Plan General Contable español 2024 (2934)."
+  },
+  {
+    "code": "2935",
+    "name": "Deterioro de valor de participaciones a largo plazo en otras partes vinculadas",
+    "type": "ASSET",
+    "level": 4,
+    "parentCode": "293",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (2935)."
+  },
+  {
+    "code": "2936",
+    "name": "Deterioro de valor de participaciones a largo plazo en otras empresas",
+    "type": "ASSET",
+    "level": 4,
+    "parentCode": "293",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (2936)."
   },
   {
     "code": "2943",
@@ -6435,6 +6471,24 @@
     "role": "Cuenta del Plan General Contable español 2024 (5934)."
   },
   {
+    "code": "5935",
+    "name": "Deterioro de valor de participaciones a corto plazo en otras partes vinculadas",
+    "type": "ASSET",
+    "level": 4,
+    "parentCode": "593",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (5935)."
+  },
+  {
+    "code": "5936",
+    "name": "Deterioro de valor de participaciones a corto plazo en otras empresas",
+    "type": "ASSET",
+    "level": 4,
+    "parentCode": "593",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (5936)."
+  },
+  {
     "code": "5943",
     "name": "Deterioro de valor de valores representativos de deuda a corto plazo de empresas del grupo",
     "type": "ASSET",
@@ -6688,7 +6742,7 @@
   },
   {
     "code": "6450",
-    "name": "Retribuciones al personal liquidados con instrumentos de patrimonio",
+    "name": "Retribuciones al personal liquidadas con instrumentos de patrimonio",
     "type": "EXPENSE",
     "level": 4,
     "parentCode": "645",
@@ -6697,7 +6751,7 @@
   },
   {
     "code": "6457",
-    "name": "Retribuciones al personal liquidados en efectivo basado en instrumentos de patrimonio",
+    "name": "Retribuciones al personal liquidadas en efectivo basado en instrumentos de patrimonio",
     "type": "EXPENSE",
     "level": 4,
     "parentCode": "645",
@@ -6874,6 +6928,15 @@
     "parentCode": "663",
     "isPostable": true,
     "role": "Cuenta del Plan General Contable español 2024 (6633)."
+  },
+  {
+    "code": "6634",
+    "name": "Pérdidas de otros instrumentos financieros",
+    "type": "EXPENSE",
+    "level": 4,
+    "parentCode": "663",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (6634)."
   },
   {
     "code": "6640",
@@ -7657,6 +7720,15 @@
     "parentCode": "763",
     "isPostable": true,
     "role": "Cuenta del Plan General Contable español 2024 (7633)."
+  },
+  {
+    "code": "7634",
+    "name": "Beneficios de otros instrumentos financieros",
+    "type": "REVENUE",
+    "level": 4,
+    "parentCode": "763",
+    "isPostable": true,
+    "role": "Cuenta del Plan General Contable español 2024 (7634)."
   },
   {
     "code": "7660",

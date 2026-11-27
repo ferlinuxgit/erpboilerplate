@@ -42,6 +42,16 @@ export function isProfitAndLossAccount(account: { code: string; type: string }, 
   return account.type === "REVENUE" || account.type === "EXPENSE";
 }
 
+/**
+ * Ingresos y gastos imputados directamente al patrimonio neto (grupos 8 y 9 del PGC). No van a la
+ * 129: al cierre se traspasan a su cuenta del subgrupo 13 (o a la 115), que depende de la operación
+ * (800/900 → 133, 81/91 → 134, 82/92 → 135, 84/94 → 130-132, 85/95 → 115, 86/96 → 136…) y, en el
+ * efecto impositivo (83), de la partida que lo originó. El PGC de PYMES no los usa.
+ */
+export function isEquityAdjustmentAccount(account: { code: string }, countryCode: string) {
+  return usesPgcChart(countryCode) && (account.code.startsWith("8") || account.code.startsWith("9"));
+}
+
 /** Asiento de regularización: salda 6/7 contra 129. Devuelve [] si no hay saldos. */
 export function buildRegularizationLines(profitAndLoss: AccountBalance[], resultAccountId: string): PostingLine[] {
   const lines = profitAndLoss
@@ -304,6 +314,16 @@ export async function closeFiscalYear(input: Actor & { fiscalYearId: string }) {
       const cumulative = await accountBalances(tx, input.companyId, { toExclusive: endExclusive });
       const pendingProfitAndLoss = cumulative.filter((row) => isProfitAndLossAccount(row, settings.countryCode) && row.balanceCents !== 0);
       const balanceSheet = cumulative.filter((row) => !isProfitAndLossAccount(row, settings.countryCode));
+      // Grupos 8 y 9: no son cuentas de balance; si se cerraran tal cual, el asiento de apertura
+      // los arrastraría al ejercicio siguiente. Su traspaso al subgrupo 13 no es automático.
+      const pendingEquityAdjustments = balanceSheet.filter((row) => isEquityAdjustmentAccount(row, settings.countryCode) && row.balanceCents !== 0);
+      if (pendingEquityAdjustments.length > 0) {
+        throw new AccountingRuleError(
+          422,
+          "EQUITY_ADJUSTMENTS_NOT_TRANSFERRED",
+          `Hay saldos en cuentas de los grupos 8 y 9 (${pendingEquityAdjustments.slice(0, 5).map((row) => row.code).join(", ")}). Antes de cerrar, traspásalos con un asiento manual a su cuenta de patrimonio neto (subgrupo 13 o cuenta 115).`,
+        );
+      }
       if (pendingProfitAndLoss.length > 0) {
         throw new AccountingRuleError(
           422,

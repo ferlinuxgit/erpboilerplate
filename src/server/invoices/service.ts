@@ -382,6 +382,8 @@ export async function resolveCustomerBillingDefaults(client: DbClient, companyId
 
 type IssueResult = { id: string; number: string; status: string; invoiceType: string; totalAmount: string };
 
+const FUTURE_ISSUE_DATE_TOLERANCE_MS = 24 * 60 * 60_000;
+
 /**
  * Emite un borrador dentro de la transacción: número definitivo de la serie del ejercicio de la
  * fecha de emisión, snapshot fiscal de emisor y cliente, asiento contable y auditoría.
@@ -394,6 +396,12 @@ export async function issueInvoiceInTransaction(tx: AppDbTransaction, actor: Inv
   if (lifecycle === "ISSUED") throw new HttpError(409, `La factura ${row.number} ya está emitida.`);
 
   const isCreditNote = row.invoiceType === "CREDIT_NOTE";
+  // Una factura no puede llevar fecha de expedición posterior al día en que se emite: la AEAT
+  // rechaza su registro VERI*FACTU y el error no es subsanable (la fecha identifica la factura).
+  // Un día de margen cubre el desfase entre la hora del servidor y la de la empresa.
+  if (row.issueDate.getTime() > Date.now() + FUTURE_ISSUE_DATE_TOLERANCE_MS) {
+    throw new HttpError(400, "La fecha de la factura es posterior a hoy. Cámbiala antes de emitirla: una factura no puede expedirse con fecha futura.");
+  }
   await assertFiscalPeriodOpen(actor.companyId, row.issueDate, tx);
 
   const lines = await loadStoredLines(tx, row.id);

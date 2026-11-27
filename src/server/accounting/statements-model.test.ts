@@ -76,6 +76,23 @@ describe("estados financieros por periodo", () => {
     expect(statements.totals).toEqual({ debit: 10, credit: 10 });
   });
 
+  it("lleva los grupos 8 y 9 del PGC al patrimonio neto, no al activo ni al pasivo", () => {
+    const statements = buildFinancialStatements([
+      // Subvención de capital cobrada (940) y pérdida de valor de una cartera (800).
+      row("572", "ASSET", { debitCents: 100_000 }),
+      row("940", "REVENUE", { creditCents: 100_000 }),
+      row("250", "ASSET", { creditCents: 20_000 }),
+      row("800", "EXPENSE", { debitCents: 20_000 }),
+    ], "ES");
+
+    expect(statements.balanceSheet.equity.map((line) => [line.code, line.amount])).toEqual([["800", -200], ["940", 1000]]);
+    expect(statements.balanceSheet.liabilities).toEqual([]);
+    expect(statements.balanceSheet.assetsTotal).toBe(800);
+    expect(statements.balanceSheet.equityTotal).toBe(800);
+    expect(statements.incomeStatement.result).toBe(0);
+    expect(statements.balanceSheet.difference).toBe(0);
+  });
+
   it("resuelve periodos del ejercicio (completo, trimestre, mes) y cae al año con claves no válidas", () => {
     expect(resolveStatementPeriod(year2026, "year")).toMatchObject({ key: "year", from: new Date("2026-01-01T00:00:00Z"), toExclusive: new Date("2027-01-01T00:00:00Z") });
     expect(resolveStatementPeriod(year2026, "q2")).toMatchObject({ key: "q2", from: new Date("2026-04-01T00:00:00Z"), toExclusive: new Date("2026-07-01T00:00:00Z") });

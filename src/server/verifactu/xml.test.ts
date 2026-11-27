@@ -182,10 +182,10 @@ describe("AEAT response", () => {
     expect(outcomeForLine(undefined).status).toBe("SENT");
   });
 
-  it("backs off exponentially up to 6 hours", () => {
+  it("backs off exponentially up to 1 hour (retry at least hourly)", () => {
     expect(retryDelayMs(1)).toBe(60_000);
     expect(retryDelayMs(3)).toBe(240_000);
-    expect(retryDelayMs(50)).toBe(6 * 60 * 60_000);
+    expect(retryDelayMs(50)).toBe(60 * 60_000);
   });
 });
 

@@ -35,10 +35,29 @@ describe("Spanish fiscal periods", () => {
   });
 
   it("computes Spanish filing due dates", () => {
-    expect(getSpanishFiscalDueDate("2026-Q4", "303")?.toISOString()).toBe("2027-01-30T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2025-Q4", "303")?.toISOString()).toBe("2026-01-30T00:00:00.000Z");
     expect(getSpanishFiscalDueDate("2026-Q4", "111")?.toISOString()).toBe("2027-01-20T00:00:00.000Z");
-    expect(getSpanishFiscalDueDate("2026", "390")?.toISOString()).toBe("2027-01-30T00:00:00.000Z");
-    expect(getSpanishFiscalDueDate("2026", "347")?.toISOString()).toBe("2027-02-28T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2025", "390")?.toISOString()).toBe("2026-01-30T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2027", "347")?.toISOString()).toBe("2028-02-29T00:00:00.000Z");
+  });
+
+  it("moves a deadline that falls on a weekend to the next Monday", () => {
+    // El 30-01-2027 es sábado y el 28-02-2027, domingo.
+    expect(getSpanishFiscalDueDate("2026-Q4", "303")?.toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2026", "390")?.toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2026", "347")?.toISOString()).toBe("2027-03-01T00:00:00.000Z");
+    // El 20-06-2026 es sábado.
+    expect(getSpanishFiscalDueDate("2026-05", "111")?.toISOString()).toBe("2026-06-22T00:00:00.000Z");
+  });
+
+  it("gives the monthly 303 until the 30th of the next month (January: end of February)", () => {
+    expect(getSpanishFiscalDueDate("2026-03", "303")?.toISOString()).toBe("2026-04-30T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2026-08", "303")?.toISOString()).toBe("2026-09-30T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2027-01", "303")?.toISOString()).toBe("2027-03-01T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2028-01", "303")?.toISOString()).toBe("2028-02-29T00:00:00.000Z");
+    expect(getSpanishFiscalDueDate("2025-12", "303")?.toISOString()).toBe("2026-01-30T00:00:00.000Z");
+    // 111 mensual: sigue siendo el día 20.
+    expect(getSpanishFiscalDueDate("2026-03", "111")?.toISOString()).toBe("2026-04-20T00:00:00.000Z");
   });
 
   it("labels due status from a reference day", () => {
@@ -97,9 +116,9 @@ describe("modelos de la Agencia Tributaria Canaria", () => {
 
   it("plazos: 1-20 del mes siguiente; el cuarto trimestre y el 425, en enero", () => {
     expect(getSpanishFiscalDueDate("2026-Q2", "420")?.toISOString().slice(0, 10)).toBe("2026-07-20");
-    expect(getSpanishFiscalDueDate("2026-Q4", "420")?.toISOString().slice(0, 10)).toBe("2027-01-30");
-    expect(getSpanishFiscalDueDate("2026-Q4", "450")?.toISOString().slice(0, 10)).toBe("2027-01-30");
-    expect(getSpanishFiscalDueDate("2026", "425")?.toISOString().slice(0, 10)).toBe("2027-01-30");
+    expect(getSpanishFiscalDueDate("2026-Q4", "420")?.toISOString().slice(0, 10)).toBe("2027-02-01");
+    expect(getSpanishFiscalDueDate("2026-Q4", "450")?.toISOString().slice(0, 10)).toBe("2027-02-01");
+    expect(getSpanishFiscalDueDate("2026", "425")?.toISOString().slice(0, 10)).toBe("2027-02-01");
   });
 });
 

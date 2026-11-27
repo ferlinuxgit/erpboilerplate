@@ -25,7 +25,7 @@ acepta un código de país acepta también uno de territorio.
 | Modelos 303, 390, 349 | No | No (resumen de IPSI por periodo) |
 | Modelos propios | 420 (trimestral), 425 (anual) y 450 (AIEM, si se activa) con sus casillas oficiales | La autoliquidación del IPSI se presenta ante cada ciudad (sin casillas aquí) |
 | Regímenes | General, comerciante minorista, pequeño empresario (REPEP) y criterio de caja | — |
-| VERI*FACTU | Sí, `Impuesto` = 03 | Sí, `Impuesto` = 02 (sin `ClaveRegimen`) |
+| VERI*FACTU | Sí, `Impuesto` = 03 | Sí, `Impuesto` = 02 (`ClaveRegimen` 01, 08, 11, 18, 19 o 20; por defecto 01) |
 | Menciones legales | Ley 20/1991 | Ley 8/1991 |
 
 - Ventas desde la península a estos territorios (o al revés, o desde ellos a la UE): bienes →

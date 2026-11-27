@@ -11,9 +11,8 @@
  */
 import {
   isSelfAssessedTreatment,
-  outputVatBoxesByRate,
+  modelo303RateBoxes,
   reverseChargeTaxAmount,
-  surchargeBoxesByRate,
   type SalesVatTreatment,
   type SupplierVatTreatment,
   type VatBucket,
@@ -85,6 +84,8 @@ export type SupplierLineInput = {
   accountingDate?: Date;
   /** Prorrata aplicada al contabilizar la factura; si falta, la indicada al cálculo. */
   prorrataPct?: string | number | null;
+  /** Fecha del asiento de anulación (solo en la fila de anulación). */
+  voidedAt?: Date | null;
   /** −1 en la fila de anulación de una factura recibida (resta en el periodo de la anulación). */
   sign?: 1 | -1;
 };
@@ -404,11 +405,12 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   const boxes: Modelo303Box[] = [];
   const money = (cents: number) => centsToNumber(cents);
   const zeroDomestic = issued.zeroRated.DOMESTIC;
+  const rateBoxes = modelo303RateBoxes(options.periodYear);
 
   const outputRates = new Set<number>([4, 10, 21, ...issued.vat.keys()]);
   if (zeroDomestic !== 0 && options.periodYear <= 2024) outputRates.add(0);
   for (const rate of [...outputRates].sort((left, right) => left - right)) {
-    const mapping = outputVatBoxesByRate[String(rate)];
+    const mapping = rateBoxes.output[String(rate)];
     const bucket = issued.vat.get(rate) ?? { rate, base: rate === 0 ? zeroDomestic : 0, tax: 0 };
     if (!mapping) {
       boxes.push({ box: "REV", label: `Revisar: IVA devengado al ${rate}% no tiene casilla en el 303 vigente`, amount: money(bucket.tax), kind: "tax" });
@@ -424,7 +426,7 @@ export function buildModelo303Boxes(issued: IssuedVatResult, supplier: SupplierV
   boxes.push({ box: "13", label: "Cuota otras operaciones con inversión del sujeto pasivo", amount: money(supplier.selfAssessed.reverseCharge.tax), kind: "tax" });
 
   for (const bucket of [...issued.surcharge.values()].sort((left, right) => left.rate - right.rate)) {
-    const mapping = surchargeBoxesByRate[String(bucket.rate)];
+    const mapping = rateBoxes.surcharge[String(bucket.rate)];
     if (!mapping) {
       boxes.push({ box: "REV", label: `Revisar: recargo de equivalencia al ${bucket.rate}% sin casilla`, amount: money(bucket.tax), kind: "tax" });
       continue;
@@ -622,7 +624,9 @@ export const MODELO_130_RATE = 20;
  * - 04: 20 % del rendimiento neto si es positivo.
  * - 05: pagos fraccionados de trimestres anteriores (importes positivos de la casilla 07).
  * - 06: retenciones e ingresos a cuenta acumulados.
- * - 15: resultados negativos de trimestres anteriores pendientes de deducir.
+ * - 12: 07 (+ 11, actividades agrícolas, que aquí no hay); nunca negativa.
+ * - 15: casillas 19 negativas de trimestres anteriores. Solo nacen de la minoración de la 13, que
+ *   aquí es 0, así que hoy queda a 0; el arrastre está preparado para cuando se informe la 13.
  * - 13 y 16 (deducción art. 110.3.c RIRPF y préstamo vivienda) quedan a 0: dependen de datos personales.
  */
 export function computeModelo130(quarters: Modelo130QuarterInput[], quarter: number): Modelo130Result {
@@ -646,7 +650,9 @@ export function computeModelo130(quarters: Modelo130QuarterInput[], quarter: num
     const c04 = net > 0 ? Math.round((net * MODELO_130_RATE) / 100) : 0;
     const c05 = previousPayments;
     const c07 = c04 - c05 - withholding;
-    const c12 = c07;
+    // Instrucciones del 130: la casilla 12 (07 + 11) se consigna a cero si resulta negativa. Un 07
+    // negativo no se arrastra con la 15: como 01–06 son acumulados, ya minora el trimestre siguiente.
+    const c12 = Math.max(0, c07);
     const c13 = 0;
     const c14 = c12 - c13;
     const c15 = Math.min(pendingNegative, Math.max(0, c14));
@@ -670,7 +676,7 @@ export function computeModelo130(quarters: Modelo130QuarterInput[], quarter: num
         { box: "15", label: "Resultados negativos de trimestres anteriores", amount: money(c15), kind: "tax" },
         { box: "16", label: "Deducción por préstamo de vivienda habitual (si aplica)", amount: money(c16), kind: "info" },
         { box: "17", label: "Total (14 − 15 − 16)", amount: money(c17), kind: "tax" },
-        { box: "19", label: c19 > 0 ? "Resultado: a ingresar" : c19 < 0 ? "Resultado: negativo (se descuenta en el siguiente trimestre)" : "Resultado: cero", amount: money(c19), kind: "settlement" },
+        { box: "19", label: c19 > 0 ? "Resultado: a ingresar" : c19 < 0 ? "Resultado: negativo (a deducir en los trimestres siguientes del año)" : "Resultado: cero", amount: money(c19), kind: "settlement" },
       ];
       resultCents = c19;
     }

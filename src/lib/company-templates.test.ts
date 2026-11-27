@@ -14,7 +14,20 @@ describe("company templates", () => {
 
   it("loads the complete Spanish PGC catalog with official posting defaults", () => {
     const template = getCompanyTemplate("ES");
-    expect(template?.accounts.length).toBe(895);
+    expect(template?.accounts.length).toBe(903);
+    // Cuentas del cuadro oficial (BOE-A-2007-19884 y RD 1/2021) con su nombre exacto.
+    expect(template?.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "500", name: "Obligaciones y bonos a corto plazo" }),
+      expect.objectContaining({ code: "501", name: "Obligaciones y bonos convertibles a corto plazo" }),
+      expect.objectContaining({ code: "502", type: "LIABILITY", parentCode: "50" }),
+      expect.objectContaining({ code: "1141", name: "Reservas estatutarias", type: "EQUITY" }),
+      expect.objectContaining({ code: "2935", type: "ASSET" }),
+      expect.objectContaining({ code: "2936", type: "ASSET" }),
+      expect.objectContaining({ code: "5935", type: "ASSET" }),
+      expect.objectContaining({ code: "5936", type: "ASSET" }),
+      expect.objectContaining({ code: "6634", type: "EXPENSE" }),
+      expect.objectContaining({ code: "7634", type: "REVENUE" }),
+    ]));
     expect(template?.settings.defaultCustomerAccountCode).toBe("4300");
     expect(template?.settings.defaultSupplierAccountCode).toBe("4100");
     expect(template?.accounts).toEqual(expect.arrayContaining([

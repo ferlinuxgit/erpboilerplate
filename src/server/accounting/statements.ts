@@ -69,6 +69,8 @@ export async function getFinancialStatements(
   const statements = buildFinancialStatements(rows, countryCode);
   return {
     ...statements,
+    /** Saldos por cuenta de los que salen los estados (para el modelo oficial abreviado). */
+    rows,
     // Sumas y saldos con subtotales por cuenta de 3 dígitos (clientes 430 con todas sus subcuentas…).
     trialBalanceGroups: groupTrialBalance(statements.trialBalance, new Map(groupNames.map((row) => [row.code, row.name]))),
   };

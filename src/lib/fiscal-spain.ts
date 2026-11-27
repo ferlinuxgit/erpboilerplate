@@ -307,7 +307,24 @@ function lastDayOfMonthUtc(year: number, monthOneBased: number) {
 /** Modelos cuyo último periodo del año vence el 30 de enero (el resto, el 20). */
 const JANUARY_30_MODELS = new Set<SpanishFiscalModelCode>(["303", "130", "349", "420", "450"]);
 
+/**
+ * Si el último día del plazo es sábado o domingo, pasa al lunes (los plazos tributarios que
+ * terminan en día inhábil se trasladan al primer día hábil siguiente). Los festivos nacionales,
+ * autonómicos y locales no se tienen en cuenta: dependen del domicilio fiscal.
+ */
+export function nextBusinessDay(date: Date) {
+  const day = date.getUTCDay();
+  const shift = day === 6 ? 2 : day === 0 ? 1 : 0;
+  return shift === 0 ? date : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + shift));
+}
+
+/** Último día del plazo de presentación, ya trasladado si cae en fin de semana. */
 export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {
+  const nominal = nominalSpanishFiscalDueDate(period, modelCode);
+  return nominal ? nextBusinessDay(nominal) : null;
+}
+
+function nominalSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {
   const value = period.trim().toUpperCase();
   const annualMatch = /^(20\d{2})$/.exec(value);
   const quarterMatch = /^(20\d{2})-Q([1-4])$/.exec(value);
@@ -332,6 +349,8 @@ export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscal
     const month = Number(monthMatch[2]);
     const dueMonth = month === 12 ? 0 : month;
     const dueYear = month === 12 ? year + 1 : year;
+    // 303 mensual: del 1 al 30 del mes siguiente; el de enero, hasta el último día de febrero.
+    if (modelCode === "303") return month === 1 ? lastDayOfMonthUtc(year, 2) : new Date(Date.UTC(dueYear, dueMonth, 30));
     return new Date(Date.UTC(dueYear, dueMonth, JANUARY_30_MODELS.has(modelCode) && month === 12 ? 30 : 20));
   }
 
@@ -502,8 +521,21 @@ export function reverseChargeTaxAmount(subtotal: number, lineTaxAmount: number, 
   return roundMoney((subtotal * defaultRate) / 100);
 }
 
-/** Recargo de equivalencia → casillas del modelo 303 (diseño vigente AEAT). */
-export const surchargeBoxesByRate: Record<string, { base: string; rate: string; tax: string }> = {
+type Modelo303RateBoxes = Record<string, { base: string; rate: string; tax: string }>;
+
+/**
+ * Recargo de equivalencia → casillas del modelo 303 (instrucciones AEAT del ejercicio 2025 en
+ * adelante): 1,75 % en 156-158, 0,5 % en 168-170, 1,4 % en 19-21 y 5,2 % en 22-24.
+ */
+export const surchargeBoxesByRate: Modelo303RateBoxes = {
+  "0.5": { base: "168", rate: "169", tax: "170" },
+  "1.4": { base: "19", rate: "20", tax: "21" },
+  "5.2": { base: "22", rate: "23", tax: "24" },
+  "1.75": { base: "156", rate: "157", tax: "158" },
+};
+
+/** Diseño de 2023-2024 (tipos transitorios del 0 % y 5 % con sus recargos del 0 % y 0,62 %). */
+const surchargeBoxesByRateUntil2024: Modelo303RateBoxes = {
   "0.5": { base: "16", rate: "17", tax: "18" },
   "1.4": { base: "19", rate: "20", tax: "21" },
   "5.2": { base: "22", rate: "23", tax: "24" },
@@ -511,14 +543,25 @@ export const surchargeBoxesByRate: Record<string, { base: string; rate: string; 
   "0.62": { base: "168", rate: "169", tax: "170" },
 };
 
-/** IVA devengado régimen general → casillas del modelo 303. */
-export const outputVatBoxesByRate: Record<string, { base: string; rate: string; tax: string }> = {
+/** IVA devengado régimen general → casillas del modelo 303 (2025 en adelante: 0, 4, 10 y 21 %). */
+export const outputVatBoxesByRate: Modelo303RateBoxes = {
   "0": { base: "150", rate: "151", tax: "152" },
   "4": { base: "01", rate: "02", tax: "03" },
-  "5": { base: "153", rate: "154", tax: "155" },
   "10": { base: "04", rate: "05", tax: "06" },
   "21": { base: "07", rate: "08", tax: "09" },
 };
+
+const outputVatBoxesByRateUntil2024: Modelo303RateBoxes = {
+  ...outputVatBoxesByRate,
+  "5": { base: "153", rate: "154", tax: "155" },
+};
+
+/** Casillas por tipo del 303 según el ejercicio del periodo declarado. */
+export function modelo303RateBoxes(periodYear: number) {
+  return periodYear <= 2024
+    ? { output: outputVatBoxesByRateUntil2024, surcharge: surchargeBoxesByRateUntil2024 }
+    : { output: outputVatBoxesByRate, surcharge: surchargeBoxesByRate };
+}
 
 /** Agrupa recargos de equivalencia (impuestos de tipo SURCHARGE) por tipo. */
 export function aggregateSurcharges(lines: VatLine[]): VatBucket[] {
