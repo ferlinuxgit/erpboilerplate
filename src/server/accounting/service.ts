@@ -1,9 +1,9 @@
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { accountChart, company, fiscalYear, journalEntry, journalLine, partner } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
-import { resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
+import { accountingRange, loadCompanyTimeZone, postedBeforeSql, postedBetweenSql, resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { toCents } from "@/server/accounting/money";
 import { ensureJournal } from "@/server/accounting/journals";
@@ -68,8 +68,10 @@ export function aggregateAccountTotals<T extends { code: string; debitCents: num
 export async function listAccounts(companyId: string, range?: { from: Date; toExclusive: Date }) {
   const lifecycle = sql`coalesce(${journalEntry.sourceType}, '') in ('fiscalYearRegularization', 'fiscalYearClosing', 'fiscalYearOpening')`;
   const closingOpening = sql`coalesce(${journalEntry.sourceType}, '') in ('fiscalYearClosing', 'fiscalYearOpening')`;
-  const inPeriod = range ? sql`${journalEntry.postedAt} >= ${range.from} and ${journalEntry.postedAt} < ${range.toExclusive} and not ${lifecycle}` : sql`true`;
-  const beforePeriod = range ? sql`${journalEntry.postedAt} < ${range.from} and not ${closingOpening}` : sql`false`;
+  // Límites en la hora local de la empresa, como el ejercicio (ver `fiscal-year-date.ts`).
+  const period = range ? accountingRange(range, await loadCompanyTimeZone(db, companyId)) : null;
+  const inPeriod = period ? sql`not ${postedBeforeSql(period, "from")} and ${postedBeforeSql(period, "toExclusive")} and not ${lifecycle}` : sql`true`;
+  const beforePeriod = period ? sql`${postedBeforeSql(period, "from")} and not ${closingOpening}` : sql`false`;
   const rows = await db
     .select({
       id: accountChart.id,
@@ -541,7 +543,12 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
   });
 }
 
+/**
+ * Mayor de una cuenta. El rango son días civiles (`toExclusive` = día siguiente al último) y se
+ * aplica con los límites del ejercicio en hora local (ver `fiscal-year-date.ts`).
+ */
 export async function getLedgerByAccount(companyId: string, accountId: string, range?: { from?: Date; toExclusive?: Date }) {
+  const inRange = range?.from || range?.toExclusive ? postedBetweenSql(range, await loadCompanyTimeZone(db, companyId)) : undefined;
   return db
     .select({
       lineId: journalLine.id,
@@ -562,22 +569,18 @@ export async function getLedgerByAccount(companyId: string, accountId: string, r
     .from(journalLine)
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
     .leftJoin(partner, eq(partner.id, journalLine.partnerId))
-    .where(and(
-      eq(journalEntry.companyId, companyId),
-      eq(journalLine.accountId, accountId),
-      range?.from ? gte(journalEntry.postedAt, range.from) : undefined,
-      range?.toExclusive ? lt(journalEntry.postedAt, range.toExclusive) : undefined,
-    ))
+    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), inRange))
     .orderBy(desc(journalEntry.postedAt), desc(journalEntry.number), desc(journalLine.lineNumber));
 }
 
-/** Saldo (debe − haber) de una cuenta antes de `before`: saldo anterior del libro mayor filtrado. */
+/** Saldo (debe − haber) de una cuenta antes del día civil `before`: saldo anterior del libro mayor filtrado. */
 export async function getLedgerBalanceBefore(companyId: string, accountId: string, before: Date) {
+  const range = accountingRange({ from: before, toExclusive: before }, await loadCompanyTimeZone(db, companyId));
   const [row] = await db
     .select({ balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)` })
     .from(journalLine)
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
-    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), lt(journalEntry.postedAt, before)));
+    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), postedBeforeSql(range, "from")));
   return Number(row?.balance ?? 0);
 }
 

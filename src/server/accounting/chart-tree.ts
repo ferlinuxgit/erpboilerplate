@@ -23,6 +23,7 @@ import {
   type ChartFilterContext,
   type PrefixTotals,
 } from "@/server/accounting/chart-tree-model";
+import { accountingRange, loadCompanyTimeZone, postedBeforeSql } from "@/server/accounting/fiscal-year-date";
 import { listFiscalYears } from "@/server/accounting/fiscal-years";
 import { toCents } from "@/server/accounting/money";
 import { statementPeriodOptions } from "@/server/accounting/statements-model";
@@ -92,12 +93,15 @@ export async function loadPrefixTotals(companyId: string, lengths: readonly numb
   const safeLengths = [...new Set(lengths.map((length) => Math.trunc(length)).filter((length) => length >= 1 && length <= 64))];
   if (safeLengths.length === 0) return totals;
   const net = sql`(${journalLine.debit} - ${journalLine.credit})`;
-  const inPeriod = sql`${journalEntry.postedAt} >= ${range.from} and ${sourceNotIn(LIFECYCLE_SOURCES)}`;
+  // Límites en la hora local de la empresa, como el ejercicio (ver `fiscal-year-date.ts`).
+  const period = accountingRange(range, await loadCompanyTimeZone(db, companyId));
+  const beforeFrom = postedBeforeSql(period, "from");
+  const inPeriod = sql`not ${beforeFrom} and ${sourceNotIn(LIFECYCLE_SOURCES)}`;
   const scopeFilter = scope && /^\d+$/.test(scope) ? sql`and ${accountChart.code} like ${`${scope}%`}` : sql``;
   const result = await db.execute(sql`
     with per_account as (
       select ${accountChart.code} as code,
-        coalesce(sum(case when ${journalEntry.postedAt} < ${range.from} and ${sourceNotIn(CLOSING_OPENING_SOURCES)} then ${net} else 0 end), 0) as opening,
+        coalesce(sum(case when ${beforeFrom} and ${sourceNotIn(CLOSING_OPENING_SOURCES)} then ${net} else 0 end), 0) as opening,
         coalesce(sum(case when ${inPeriod} then ${journalLine.debit} else 0 end), 0) as debit,
         coalesce(sum(case when ${inPeriod} then ${journalLine.credit} else 0 end), 0) as credit,
         count(case when ${inPeriod} then 1 end) as entries
@@ -106,7 +110,7 @@ export async function loadPrefixTotals(companyId: string, lengths: readonly numb
       inner join ${accountChart} on ${accountChart.id} = ${journalLine.accountId}
       where ${journalEntry.companyId} = ${companyId}
         and ${accountChart.companyId} = ${companyId}
-        and ${journalEntry.postedAt} < ${range.toExclusive}
+        and ${postedBeforeSql(period, "toExclusive")}
         ${scopeFilter}
       group by ${accountChart.code}
     )

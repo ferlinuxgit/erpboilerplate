@@ -3,6 +3,7 @@ import { count, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { journalEntry, journalLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import type { ListParams, ListParamsConfig } from "@/lib/list-params";
+import { loadCompanyTimeZone, postedBetweenKeysSql } from "@/server/accounting/fiscal-year-date";
 import {
   countRows,
   listOrderBy,
@@ -32,7 +33,7 @@ export const journalEntryListConfig: ListParamsConfig<JournalEntrySortKey> = {
 /** Máximo de asientos en una exportación completa (protege memoria y tiempo de respuesta). */
 export const JOURNAL_ENTRIES_EXPORT_LIMIT = 50_000;
 
-function journalEntryQueryParts(companyId: string, params: ListParams<JournalEntrySortKey>) {
+function journalEntryQueryParts(companyId: string, params: ListParams<JournalEntrySortKey>, timeZone: string) {
   // Debit/credit per entry, aggregated once and restricted to the company's entries.
   const lineTotals = db
     .select({
@@ -54,7 +55,9 @@ function journalEntryQueryParts(companyId: string, params: ListParams<JournalEnt
       q: params.q,
       columns: [journalEntry.number, journalEntry.reference, sql`${debit}::text`, sql`${credit}::text`],
     },
-    dateRange: { column: journalEntry.postedAt, from: params.from, to: params.to },
+    // Mismos límites que el ejercicio (hora local de la empresa, ver `fiscal-year-date.ts`): un ticket
+    // del 1 de enero a las 00:30 de Madrid sale en enero, que es donde está numerado.
+    filters: [postedBetweenKeysSql(params.from, params.to, timeZone)],
   });
   const sortColumns: Record<JournalEntrySortKey, AnyColumn | SQL> = {
     postedAt: journalEntry.postedAt,
@@ -65,12 +68,17 @@ function journalEntryQueryParts(companyId: string, params: ListParams<JournalEnt
   return { lineTotals, debit, credit, where, sortColumns };
 }
 
+/** La zona horaria solo hace falta (y solo se consulta) cuando hay filtro de fechas. */
+async function filterTimeZone(companyId: string, params: ListParams<JournalEntrySortKey>) {
+  return params.from || params.to ? loadCompanyTimeZone(db, companyId) : "UTC";
+}
+
 /**
  * Todos los asientos que cumplen la búsqueda, filtros y orden de la lista (sin paginar), para la
  * exportación CSV completa de `ResourceList` (`exportAll`).
  */
 export async function listJournalEntriesForExport(companyId: string, params: ListParams<JournalEntrySortKey>) {
-  const { lineTotals, debit, credit, where, sortColumns } = journalEntryQueryParts(companyId, params);
+  const { lineTotals, debit, credit, where, sortColumns } = journalEntryQueryParts(companyId, params, await filterTimeZone(companyId, params));
   const rows = await db
     .select({
       id: journalEntry.id,
@@ -93,7 +101,7 @@ export async function listJournalEntriesForExport(companyId: string, params: Lis
 }
 
 export async function listJournalEntriesPage(companyId: string, params: ListParams<JournalEntrySortKey>) {
-  const { lineTotals, debit, credit, where, sortColumns } = journalEntryQueryParts(companyId, params);
+  const { lineTotals, debit, credit, where, sortColumns } = journalEntryQueryParts(companyId, params, await filterTimeZone(companyId, params));
 
   const result = await paginate({
     page: params.page,
