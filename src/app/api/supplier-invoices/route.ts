@@ -22,6 +22,9 @@ const payloadSchema = z.object({
   issueDate: z.string().datetime().optional(),
   accountingDate: z.string().datetime().optional().or(z.literal("")),
   dueDate: z.string().datetime().optional(),
+  operationDate: z.string().datetime().optional().or(z.literal("")),
+  importDuaNumber: z.string().trim().max(40).optional().or(z.literal("")),
+  importDuaDate: z.string().datetime().optional().or(z.literal("")),
   notes: z.string().trim().optional().or(z.literal("")),
   lines: z
     .array(
@@ -36,6 +39,8 @@ const payloadSchema = z.object({
         taxRate: z.number().min(0).max(100).default(21),
         taxDeductiblePct: z.number().min(0).max(100).default(100),
         retentionRate: z.number().min(0).max(100).default(0),
+        surchargeRate: z.number().min(0).max(100).default(0),
+        isInvestmentGood: z.boolean().optional(),
       }),
     )
     .min(1),
@@ -83,6 +88,11 @@ export async function POST(request: Request) {
         issueDate: parsed.data.issueDate ? new Date(parsed.data.issueDate) : undefined,
         accountingDate: parsed.data.accountingDate ? new Date(parsed.data.accountingDate) : undefined,
         dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
+        operationDate: parsed.data.operationDate ? new Date(parsed.data.operationDate) : undefined,
+        importDuaNumber: parsed.data.importDuaNumber || undefined,
+        importDuaDate: parsed.data.importDuaDate ? new Date(parsed.data.importDuaDate) : undefined,
+        // Art. 64 RIVA: una factura completa de compra exige el NIF del proveedor.
+        requireSupplierTaxId: true,
         notes: parsed.data.notes || undefined,
         lines: parsed.data.lines.map((line) => ({
           itemId: line.itemId || undefined,
@@ -95,6 +105,8 @@ export async function POST(request: Request) {
           taxRate: line.taxRate,
           taxDeductiblePct: line.taxDeductiblePct,
           retentionRate: line.retentionRate,
+          surchargeRate: line.surchargeRate,
+          isInvestmentGood: line.isInvestmentGood,
         })),
       });
       return NextResponse.json(created, { status: 201 });

@@ -12,7 +12,9 @@ import { isSelfAssessedTreatment, type SupplierVatTreatment } from "@/lib/fiscal
  *   pasivo el proveedor no cobra IVA: "Cuota IVA" va a 0 (base + cuota − retención = total) y la cuota
  *   que declara la empresa sale en "IVA autorrepercutido" (devengado en el 303; el deducible, aparte).
  * - Hoja "Desglose IVA": una fila por factura, tipo de IVA y cuenta de gasto (lo necesario para el
- *   303 y el libro registro cuando una factura tiene varios tipos).
+ *   303 y el libro registro cuando una factura tiene varios tipos), con clase de documento, fecha de
+ *   operación, recargo de equivalencia y marca de bien de inversión (art. 64 RIVA).
+ * - Las rectificativas (abonos) salen con su signo y la factura que rectifican.
  * - Con documentos: un ZIP con el Excel y `facturas/<registro>_<proveedor>_<nº proveedor>.<ext>`,
  *   enlazados desde la columna "Documento" con rutas relativas (funcionan al descomprimir).
  */
@@ -26,6 +28,10 @@ export type ExpenseExportLine = {
   taxDeductiblePct: number;
   retentionRate: number;
   retentionAmount: number;
+  /** Recargo de equivalencia soportado. */
+  surchargeRate?: number;
+  surchargeAmount?: number;
+  isInvestmentGood?: boolean;
 };
 
 export type ExpenseExportDocument = {
@@ -58,6 +64,17 @@ export type ExpenseExportInvoice = {
   notes: string | null;
   /** Porcentaje de prorrata aplicado al contabilizar (100 si no hay prorrata). */
   prorrataPct: number;
+  /** INVOICE (por defecto) o RECTIFICATION. */
+  documentKind?: string;
+  rectifiedDocumentNumber?: string | null;
+  rectifiedIssueDate?: Date | null;
+  rectificationReason?: string | null;
+  /** Fecha de la operación si difiere de la de expedición. */
+  operationDate?: Date | null;
+  isSimplified?: boolean;
+  surchargeAmount?: number;
+  importDuaNumber?: string | null;
+  importDuaDate?: Date | null;
   lines: ExpenseExportLine[];
   documents: ExpenseExportDocument[];
 };
@@ -122,13 +139,32 @@ export function expenseDocumentFileName(invoice: Pick<ExpenseExportInvoice, "num
   return `facturas/${parts.join("_")}${index > 0 ? `-${index + 1}` : ""}.${extensionFor(document)}`;
 }
 
-/** IVA deducible de la factura: cuota × % deducible de cada línea × prorrata. */
+/** Redondeo simétrico a céntimos: un abono (negativo) redondea igual que su factura. */
+const roundCents = (value: number) => Math.sign(value) * Math.round(Math.abs(value));
+
+/** IVA deducible de la factura: cuota × % deducible de cada línea × prorrata (con su signo). */
 export function deductibleTaxAmount(invoice: Pick<ExpenseExportInvoice, "lines" | "prorrataPct">) {
   const cents = invoice.lines.reduce(
-    (total, line) => total + Math.round(line.taxAmount * 100 * (line.taxDeductiblePct / 100) * (invoice.prorrataPct / 100)),
+    (total, line) => total + roundCents(line.taxAmount * 100 * (line.taxDeductiblePct / 100) * (invoice.prorrataPct / 100)),
     0,
   );
-  return cents / 100;
+  return cents / 100 || 0;
+}
+
+/** Clase de documento para el libro: Factura, Factura simplificada o Rectificativa. */
+export function expenseDocumentClass(invoice: Pick<ExpenseExportInvoice, "documentKind" | "isSimplified">) {
+  if (invoice.documentKind === "RECTIFICATION") return "Rectificativa";
+  return invoice.isSimplified ? "Factura simplificada" : "Factura";
+}
+
+function exportDay(date: Date) {
+  return `${String(date.getUTCDate()).padStart(2, "0")}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
+}
+
+/** "F-123 (10/02/2026)": la factura que rectifica una rectificativa. */
+export function rectifiedInvoiceLabel(invoice: Pick<ExpenseExportInvoice, "documentKind" | "rectifiedDocumentNumber" | "rectifiedIssueDate">) {
+  if (invoice.documentKind !== "RECTIFICATION") return "";
+  return [invoice.rectifiedDocumentNumber, invoice.rectifiedIssueDate ? `(${exportDay(invoice.rectifiedIssueDate)})` : null].filter(Boolean).join(" ");
 }
 
 /** El IVA de la factura lo declara la empresa (autorepercusión), no lo cobra el proveedor. */
@@ -165,6 +201,9 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "Fecha factura", key: "issueDate", width: 13, style: { numFmt: DATE_FORMAT } },
     { header: "Fecha de registro", key: "accountingDate", width: 13, style: { numFmt: DATE_FORMAT } },
     { header: "Nº factura proveedor", key: "supplierNumber", width: 20 },
+    { header: "Clase", key: "documentClass", width: 18 },
+    { header: "Factura rectificada", key: "rectified", width: 22 },
+    { header: "Fecha de operación", key: "operationDate", width: 13, style: { numFmt: DATE_FORMAT } },
     { header: "Proveedor", key: "supplier", width: 34 },
     { header: "NIF", key: "taxId", width: 14 },
     { header: "País", key: "country", width: 6 },
@@ -175,8 +214,10 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "Cuota IVA", key: "tax", width: 13, style: { numFmt: MONEY_FORMAT } },
     { header: "IVA autorrepercutido", key: "selfAssessedTax", width: 15, style: { numFmt: MONEY_FORMAT } },
     { header: "IVA deducible", key: "deductible", width: 13, style: { numFmt: MONEY_FORMAT } },
+    { header: "Recargo equivalencia", key: "surcharge", width: 14, style: { numFmt: MONEY_FORMAT } },
     { header: "Retención IRPF", key: "retention", width: 14, style: { numFmt: MONEY_FORMAT } },
     { header: "Total factura", key: "total", width: 14, style: { numFmt: MONEY_FORMAT } },
+    { header: "DUA (importación)", key: "dua", width: 24 },
     { header: "Moneda", key: "currency", width: 8 },
     { header: "Vencimiento", key: "dueDate", width: 13, style: { numFmt: DATE_FORMAT } },
     { header: "Estado de pago", key: "paymentStatus", width: 14 },
@@ -186,7 +227,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "Notas", key: "notes", width: 30 },
     { header: "Documento", key: "document", width: 44 },
   ]);
-  const totals = { base: 0, tax: 0, selfAssessedTax: 0, deductible: 0, retention: 0, total: 0, paid: 0, pending: 0 };
+  const totals = { base: 0, tax: 0, selfAssessedTax: 0, deductible: 0, surcharge: 0, retention: 0, total: 0, paid: 0, pending: 0 };
 
   for (const invoice of data.invoices) {
     const deductible = deductibleTaxAmount(invoice);
@@ -198,6 +239,11 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
       issueDate: invoice.issueDate,
       accountingDate: invoice.accountingDate,
       supplierNumber: invoice.supplierDocumentNumber ?? "",
+      documentClass: expenseDocumentClass(invoice),
+      rectified: rectifiedInvoiceLabel(invoice),
+      operationDate: invoice.operationDate ?? null,
+      surcharge: invoice.surchargeAmount || null,
+      dua: [invoice.importDuaNumber, invoice.importDuaDate ? `(${exportDay(invoice.importDuaDate)})` : null].filter(Boolean).join(" "),
       supplier: invoice.supplierName,
       taxId: invoice.supplierTaxId ?? "",
       country: invoice.supplierCountryCode ?? "",
@@ -228,6 +274,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     totals.tax += tax;
     totals.selfAssessedTax += selfAssessedTax;
     totals.deductible += deductible;
+    totals.surcharge += invoice.surchargeAmount ?? 0;
     totals.retention += invoice.retentionAmount;
     totals.total += invoice.totalAmount;
     totals.paid += invoice.paidAmount;
@@ -239,6 +286,7 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     tax: round2(totals.tax),
     selfAssessedTax: round2(totals.selfAssessedTax),
     deductible: round2(totals.deductible),
+    surcharge: round2(totals.surcharge) || null,
     retention: round2(totals.retention),
     total: round2(totals.total),
     paid: round2(totals.paid),
@@ -249,7 +297,10 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
   const breakdownSheet = sheetWithHeader(workbook, "Desglose IVA", [
     { header: "Nº registro", key: "number", width: 16 },
     { header: "Fecha factura", key: "issueDate", width: 13, style: { numFmt: DATE_FORMAT } },
+    { header: "Fecha de operación", key: "operationDate", width: 13, style: { numFmt: DATE_FORMAT } },
     { header: "Nº factura proveedor", key: "supplierNumber", width: 20 },
+    { header: "Clase", key: "documentClass", width: 18 },
+    { header: "Factura rectificada", key: "rectified", width: 22 },
     { header: "Proveedor", key: "supplier", width: 34 },
     { header: "NIF", key: "taxId", width: 14 },
     { header: "Tipo de operación", key: "treatment", width: 26 },
@@ -261,17 +312,20 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
     { header: "IVA autorrepercutido", key: "selfAssessedTax", width: 15, style: { numFmt: MONEY_FORMAT } },
     { header: "% deducible", key: "deductiblePct", width: 11, style: { numFmt: PERCENT_FORMAT } },
     { header: "IVA deducible", key: "deductible", width: 13, style: { numFmt: MONEY_FORMAT } },
+    { header: "Recargo (%)", key: "surchargeRate", width: 11, style: { numFmt: PERCENT_FORMAT } },
+    { header: "Recargo equivalencia", key: "surcharge", width: 14, style: { numFmt: MONEY_FORMAT } },
+    { header: "Bien de inversión", key: "investment", width: 12 },
     { header: "Retención (%)", key: "retentionRate", width: 12, style: { numFmt: PERCENT_FORMAT } },
     { header: "Retención IRPF", key: "retention", width: 14, style: { numFmt: MONEY_FORMAT } },
   ]);
   for (const invoice of data.invoices) {
-    // Agrupa por cuenta + tipo de IVA + % deducible + retención.
+    // Agrupa por cuenta + tipo de IVA + % deducible + retención + recargo + bien de inversión.
     const groups = new Map<string, ExpenseExportLine>();
     for (const line of invoice.lines) {
-      const key = [line.accountCode, line.taxRate, line.taxDeductiblePct, line.retentionRate].join("|");
+      const key = [line.accountCode, line.taxRate, line.taxDeductiblePct, line.retentionRate, line.surchargeRate ?? 0, Boolean(line.isInvestmentGood)].join("|");
       const current = groups.get(key);
       groups.set(key, current
-        ? { ...current, base: current.base + line.base, taxAmount: current.taxAmount + line.taxAmount, retentionAmount: current.retentionAmount + line.retentionAmount }
+        ? { ...current, base: current.base + line.base, taxAmount: current.taxAmount + line.taxAmount, retentionAmount: current.retentionAmount + line.retentionAmount, surchargeAmount: (current.surchargeAmount ?? 0) + (line.surchargeAmount ?? 0) }
         : { ...line });
     }
     for (const line of groups.values()) {
@@ -279,7 +333,13 @@ export async function buildExpenseExportWorkbook(data: ExpenseExportData, option
       breakdownSheet.addRow({
         number: invoice.number,
         issueDate: invoice.issueDate,
+        operationDate: invoice.operationDate ?? null,
         supplierNumber: invoice.supplierDocumentNumber ?? "",
+        documentClass: expenseDocumentClass(invoice),
+        rectified: rectifiedInvoiceLabel(invoice),
+        surchargeRate: line.surchargeRate || null,
+        surcharge: round2(line.surchargeAmount ?? 0) || null,
+        investment: line.isInvestmentGood ? "Sí" : "",
         supplier: invoice.supplierName,
         taxId: invoice.supplierTaxId ?? "",
         treatment: purchaseVatTreatmentLabels[invoice.vatTreatment ?? "DOMESTIC"] ?? invoice.vatTreatment ?? "",

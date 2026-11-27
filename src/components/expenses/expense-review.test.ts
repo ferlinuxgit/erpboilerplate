@@ -91,3 +91,34 @@ describe("selectSafeToPost", () => {
     expect(selection.total).toBe(181.5);
   });
 });
+
+describe("rectificativas (abonos) y NIF en la bandeja", () => {
+  const credit = (patch: Partial<ReviewItem> = {}) => item({
+    documentKind: "RECTIFICATION",
+    rectifiedDocumentNumber: "F-1",
+    extractedTotal: -121,
+    lines: [line({ quantity: "-1" })],
+    ...patch,
+  });
+
+  it("una factura normal con importes negativos no se puede registrar", () => {
+    const readiness = assessReadiness(item({ extractedTotal: -121, lines: [line({ quantity: "-1" })] }), "EUR");
+    expect(readiness.ready).toBe(false);
+    expect(readiness.reasons).toContain("lines");
+  });
+
+  it("una rectificativa admite líneas negativas y su total sale con signo", () => {
+    expect(assessReadiness(credit(), "EUR")).toEqual({ ready: true, reasons: [], total: -121 });
+    expect(assessReadiness(credit({ extractedTotal: -90.75, lines: [line({ quantity: "-1" }), line({ quantity: "1", unitPrice: "25" })] }), "EUR").total).toBe(-90.75);
+  });
+
+  it("una rectificativa pide la factura rectificada o el motivo", () => {
+    expect(assessReadiness(credit({ rectifiedDocumentNumber: " " }), "EUR").reasons).toEqual(["rectified"]);
+    expect(assessReadiness(credit({ rectifiedDocumentNumber: "", rectificationReason: "Rappel anual" }), "EUR").ready).toBe(true);
+  });
+
+  it("sin NIF del proveedor no entra en el registro en bloque salvo ticket / simplificada", () => {
+    expect(assessReadiness(item({ taxIdMissing: true }), "EUR").reasons).toEqual(["taxId"]);
+    expect(assessReadiness(item({ taxIdMissing: false }), "EUR").ready).toBe(true);
+  });
+});

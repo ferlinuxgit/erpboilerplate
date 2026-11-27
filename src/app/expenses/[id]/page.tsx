@@ -9,6 +9,7 @@ import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
 import {
   EmptyState,
+  InlineAlert,
   MetricCard,
   PageHeader,
   PageSection,
@@ -39,6 +40,7 @@ import {
   statusLabel,
 } from "@/lib/status-labels";
 import { missingDocumentJobIds } from "@/server/ocr/document-recovery";
+import { supplierVatTreatmentLabels, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { getExpenseInvoice } from "@/server/supplier-invoices/service";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -84,6 +86,17 @@ export default async function ExpenseDetailPage({
   // Documentos cuyo archivo ya no está en el servidor (se perdieron en un despliegue sin volumen).
   const missingDocuments = await missingDocumentJobIds(ctx.company.id, expense.id);
   const isMissing = (fileUrl: string) => missingDocuments.has(/^\/api\/expenses\/ocr\/([^/]+)\/file$/.exec(fileUrl)?.[1] ?? "");
+  const isRectification = expense.documentKind === "RECTIFICATION";
+  // Abono vivo: nada que pagar; el importe es un saldo a favor frente al proveedor.
+  const isCreditBalance = expense.status !== "VOID" && Number(expense.totalAmount) < 0;
+  const hasSurcharge = Number(expense.surchargeAmount) !== 0;
+  const negativeClass = (value: string | number) => (Number(value) < 0 ? "text-danger-text" : undefined);
+  const registerDetails = [
+    expense.operationDate ? `Fecha de operación: ${formatDate(expense.operationDate)}` : null,
+    expense.vatTreatment ? `IVA: ${supplierVatTreatmentLabels[expense.vatTreatment as SupplierVatTreatment] ?? expense.vatTreatment}` : null,
+    expense.isSimplified ? "Factura simplificada / ticket sin NIF" : expense.supplierTaxId ? `NIF del proveedor: ${expense.supplierTaxId}` : "Proveedor sin NIF",
+    expense.importDuaNumber ? `DUA ${expense.importDuaNumber}${expense.importDuaDate ? ` del ${formatDate(expense.importDuaDate)}` : ""}` : null,
+  ].filter(Boolean);
 
   return (
     <PageShell>
@@ -101,9 +114,12 @@ export default async function ExpenseDetailPage({
           expense.voidedAt ? `anulada el ${formatDate(expense.voidedAt)}` : null,
         ].filter(Boolean).join(" · ")}
         meta={
-          <StatusBadge tone={invoicePaymentStatusTone(expense.paymentStatus)}>
-            {statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}
-          </StatusBadge>
+          <>
+            {isRectification ? <StatusBadge tone="warning">Rectificativa</StatusBadge> : null}
+            <StatusBadge tone={isCreditBalance ? "info" : invoicePaymentStatusTone(expense.paymentStatus)}>
+              {isCreditBalance ? "Saldo a favor" : statusLabel(invoicePaymentStatusLabels, expense.paymentStatus)}
+            </StatusBadge>
+          </>
         }
         actions={
           <>
@@ -129,6 +145,15 @@ export default async function ExpenseDetailPage({
                 Ver recepción
               </Link>
             ) : null}
+            {canManage && expense.status !== "VOID" && !isRectification ? (
+              <Link
+                className={buttonVariants({ variant: "outline" })}
+                data-testid="register-rectification"
+                href={`/expenses/new?rectifies=${expense.id}`}
+              >
+                Registrar abono / rectificativa
+              </Link>
+            ) : null}
             {canManage &&
             Number(expense.outstandingAmount) > 0 &&
             expense.paymentStatus !== "VOID" ? (
@@ -152,19 +177,42 @@ export default async function ExpenseDetailPage({
         }
       />
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {isRectification ? (
+        <InlineAlert title="Factura rectificativa (abono del proveedor)" tone="info">
+          {expense.rectifiedInvoiceId ? (
+            <>Rectifica la factura <Link className="font-bold text-link underline" href={`/expenses/${expense.rectifiedInvoiceId}`}>{expense.rectifiedDocumentNumber || "original"}</Link></>
+          ) : expense.rectifiedDocumentNumber ? (
+            <>Rectifica la factura {expense.rectifiedDocumentNumber}</>
+          ) : (
+            <>Sin factura rectificada identificada</>
+          )}
+          {expense.rectifiedIssueDate ? ` del ${formatDate(expense.rectifiedIssueDate)}` : ""}.
+          {expense.rectificationReason ? ` Motivo: ${expense.rectificationReason}.` : ""}
+          {isCreditBalance ? " Los importes en negativo son un saldo a tu favor frente al proveedor: no hay nada que pagar." : ""}
+        </InlineAlert>
+      ) : null}
+
+      <section className={`grid grid-cols-2 gap-3 ${hasSurcharge ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
         <MetricCard label="Base" value={formatMoney(expense.subtotalAmount, currency)} />
         <MetricCard label="IVA" value={formatMoney(expense.taxAmount, currency)} />
+        {hasSurcharge ? <MetricCard label="Recargo de equivalencia" value={formatMoney(expense.surchargeAmount, currency)} /> : null}
         <MetricCard
           label="Retención"
           value={formatMoney(expense.retentionAmount, currency)}
         />
-        <MetricCard
-          label="Pendiente"
-          value={formatMoney(expense.outstandingAmount, currency)}
-          tone={Number(expense.outstandingAmount) > 0 ? "warning" : "success"}
-        />
+        {isCreditBalance ? (
+          <MetricCard label="Saldo a favor" value={formatMoney(Math.abs(Number(expense.totalAmount)), currency)} helper="Total del abono; no genera pago" tone="success" />
+        ) : (
+          <MetricCard
+            label="Pendiente"
+            value={formatMoney(expense.outstandingAmount, currency)}
+            helper={Number(expense.rectifiedAmount) !== 0 ? `Rectificativas registradas: ${formatMoney(expense.rectifiedAmount, currency)}` : undefined}
+            tone={Number(expense.outstandingAmount) > 0 ? "warning" : "success"}
+          />
+        )}
       </section>
+
+      <p className="text-xs text-muted-foreground" data-testid="expense-register-details">{registerDetails.join(" · ")}</p>
 
       <PageSection
         title="Líneas"
@@ -180,6 +228,7 @@ export default async function ExpenseDetailPage({
                 <TableHead className="text-right">IVA</TableHead>
                 <TableHead className="text-right" title="Parte del IVA que se recupera">IVA deducible</TableHead>
                 <TableHead className="text-right" title="Retención de IRPF">Retención</TableHead>
+                {hasSurcharge ? <TableHead className="text-right" title="Recargo de equivalencia soportado">Recargo eq.</TableHead> : null}
                 <TableHead className="text-right">Total</TableHead>
               </TableRow>
             </TableHeader>
@@ -187,8 +236,11 @@ export default async function ExpenseDetailPage({
               {expense.lines.map((line) => (
                 <TableRow key={line.id}>
                   <TableCell>{line.description}</TableCell>
-                  <TableCell>{accountLabel(line)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-right">
+                  <TableCell>
+                    {accountLabel(line)}
+                    {line.isInvestmentGood ? <span className="ml-2 text-xs font-bold text-info-text">Bien de inversión</span> : null}
+                  </TableCell>
+                  <TableCell className={`whitespace-nowrap text-right ${negativeClass(line.subtotalAmount) ?? ""}`}>
                     {formatMoney(line.subtotalAmount, currency)}
                   </TableCell>
                   <TableCell className="text-right">
@@ -200,7 +252,8 @@ export default async function ExpenseDetailPage({
                   <TableCell className="text-right">
                     {formatPercent(line.retentionRate)}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-right">
+                  {hasSurcharge ? <TableCell className="text-right">{formatPercent(line.surchargeRate)}</TableCell> : null}
+                  <TableCell className={`whitespace-nowrap text-right ${negativeClass(line.lineTotal) ?? ""}`}>
                     {formatMoney(line.lineTotal, currency)}
                   </TableCell>
                 </TableRow>
@@ -217,11 +270,40 @@ export default async function ExpenseDetailPage({
                 <MobileRecordField label="IVA" numeric>{formatPercent(line.taxRate)}</MobileRecordField>
                 <MobileRecordField label="IVA deducible" numeric>{formatPercent(line.taxDeductiblePct)}</MobileRecordField>
                 <MobileRecordField label="Retención" numeric>{formatPercent(line.retentionRate)}</MobileRecordField>
+                {hasSurcharge ? <MobileRecordField label="Recargo eq." numeric>{formatPercent(line.surchargeRate)}</MobileRecordField> : null}
+                {line.isInvestmentGood ? <MobileRecordField label="Clase">Bien de inversión</MobileRecordField> : null}
               </MobileRecordFields>
             </MobileRecord>
           ))}
         </MobileRecordList>
       </PageSection>
+
+      {expense.rectifications.length > 0 ? (
+        <PageSection
+          title="Rectificativas y abonos"
+          description="Documentos del proveedor que rectifican esta factura. Su importe queda como saldo a favor en la cuenta del proveedor; no se descuenta solo de lo pendiente de esta factura."
+        >
+          <div className="space-y-2" data-testid="expense-rectifications">
+            {expense.rectifications.map((rectification) => (
+              <div className="flex items-center justify-between border-b border-border/70 py-3 text-sm last:border-b-0" key={rectification.id}>
+                <div>
+                  <Link className="font-mono font-semibold text-link hover:underline" href={`/expenses/${rectification.id}`}>
+                    {rectification.supplierDocumentNumber || rectification.number}
+                  </Link>
+                  <p className="text-muted-foreground">
+                    {formatDate(rectification.issueDate)}
+                    {rectification.rectificationReason ? ` · ${rectification.rectificationReason}` : ""}
+                    {rectification.status === "VOID" ? " · anulada" : ""}
+                  </p>
+                </div>
+                <p className={`font-mono font-semibold ${negativeClass(rectification.totalAmount) ?? ""}`}>
+                  {formatMoney(rectification.totalAmount, currency)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </PageSection>
+      ) : null}
 
       <PageSection
         title="Pagos"
@@ -231,9 +313,11 @@ export default async function ExpenseDetailPage({
           <EmptyState
             title="Sin pagos"
             description={
-              canManage && Number(expense.outstandingAmount) > 0 && expense.paymentStatus !== "VOID"
-                ? "La factura conserva todo su saldo pendiente. Registra el pago desde la cabecera cuando se abone."
-                : "La factura conserva todo su saldo pendiente."
+              isCreditBalance
+                ? "Un abono no se paga: su importe queda a tu favor en la cuenta del proveedor."
+                : canManage && Number(expense.outstandingAmount) > 0 && expense.paymentStatus !== "VOID"
+                  ? "La factura conserva todo su saldo pendiente. Registra el pago desde la cabecera cuando se abone."
+                  : "La factura conserva todo su saldo pendiente."
             }
           />
         ) : (

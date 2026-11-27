@@ -6,7 +6,9 @@ import {
   buildExpenseExport,
   buildExpenseExportWorkbook,
   deductibleTaxAmount,
+  expenseDocumentClass,
   expenseDocumentFileName,
+  rectifiedInvoiceLabel,
   type ExpenseExportData,
   type ExpenseExportInvoice,
 } from "@/server/supplier-invoices/export-model";
@@ -130,5 +132,58 @@ describe("expense export", () => {
     const cell = sheet.getRow(2).getCell(header.indexOf("Documento") + 1).value as { hyperlink: string };
     expect(cell.hyperlink).toBe("facturas/FP-2026-0001_Suministros-Levante-S-L_A-118.pdf");
     expect(sheet.getRow(3).getCell(header.indexOf("Documento") + 1).value).toBe("Sin documento");
+  });
+});
+
+describe("expense export: rectificativas y campos del libro registro", () => {
+  const credit = invoice({
+    id: "inv-2",
+    number: "FP-2026/0002",
+    supplierDocumentNumber: "R-7",
+    documentKind: "RECTIFICATION",
+    rectifiedDocumentNumber: "A-118",
+    rectifiedIssueDate: new Date("2026-02-10T12:00:00.000Z"),
+    operationDate: new Date("2026-02-05T12:00:00.000Z"),
+    subtotalAmount: -50,
+    taxAmount: -10.5,
+    totalAmount: -60.5,
+    paidAmount: 0,
+    paymentStatus: "PAID",
+    surchargeAmount: -2.6,
+    lines: [{ accountCode: "60000000", accountName: "Compras", base: -50, taxRate: 21, taxAmount: -10.5, taxDeductiblePct: 50, retentionRate: 0, retentionAmount: 0, surchargeRate: 5.2, surchargeAmount: -2.6, isInvestmentGood: true }],
+    documents: [],
+  });
+
+  it("clase de documento y factura rectificada", () => {
+    expect(expenseDocumentClass(invoice())).toBe("Factura");
+    expect(expenseDocumentClass(invoice({ isSimplified: true }))).toBe("Factura simplificada");
+    expect(expenseDocumentClass(credit)).toBe("Rectificativa");
+    expect(rectifiedInvoiceLabel(credit)).toBe("A-118 (10/02/2026)");
+    expect(rectifiedInvoiceLabel(invoice({ rectifiedDocumentNumber: "A-1" }))).toBe("");
+  });
+
+  it("el IVA deducible de un abono es negativo y simétrico al de su factura", () => {
+    expect(deductibleTaxAmount(credit)).toBe(-5.25);
+    expect(deductibleTaxAmount({ prorrataPct: 100, lines: [{ ...credit.lines[0], taxAmount: 10.5 }] })).toBe(5.25);
+  });
+
+  it("un abono sale en negativo, sin pendiente, con su clase, factura rectificada, fecha de operación y recargo", async () => {
+    const workbook = await readWorkbook(await buildExpenseExportWorkbook(data([invoice(), credit])));
+    const sheet = workbook.getWorksheet("Facturas")!;
+    const header = (sheet.getRow(1).values as unknown[]).slice(1) as string[];
+    const cell = (row: number, name: string) => sheet.getRow(row).getCell(header.indexOf(name) + 1).value;
+    expect([cell(2, "Clase"), cell(2, "Factura rectificada")]).toEqual(["Factura", ""]);
+    expect([cell(3, "Clase"), cell(3, "Factura rectificada"), cell(3, "Base imponible"), cell(3, "Cuota IVA"), cell(3, "IVA deducible"), cell(3, "Recargo equivalencia"), cell(3, "Total factura"), cell(3, "Pendiente")])
+      .toEqual(["Rectificativa", "A-118 (10/02/2026)", -50, -10.5, -5.25, -2.6, -60.5, null]);
+    expect(cell(3, "Fecha de operación")).toEqual(new Date("2026-02-05T12:00:00.000Z"));
+    // Totales: la rectificativa resta.
+    expect([cell(4, "Base imponible"), cell(4, "Total factura")]).toEqual([100, 115.5]);
+
+    const breakdown = workbook.getWorksheet("Desglose IVA")!;
+    const breakdownHeader = (breakdown.getRow(1).values as unknown[]).slice(1) as string[];
+    const creditRow = breakdown.getRow(4);
+    const value = (name: string) => creditRow.getCell(breakdownHeader.indexOf(name) + 1).value;
+    expect([value("Clase"), value("Factura rectificada"), value("Tipo IVA (%)"), value("Base imponible"), value("Recargo (%)"), value("Recargo equivalencia"), value("Bien de inversión")])
+      .toEqual(["Rectificativa", "A-118 (10/02/2026)", 21, -50, 5.2, -2.6, "Sí"]);
   });
 });

@@ -7,6 +7,7 @@ import { can } from "@/lib/rbac";
 import { ensureUserTenant } from "@/lib/tenant";
 import { createExpenseInvoice, listExpenseInvoices } from "@/server/supplier-invoices/service";
 import { parseListParams } from "@/lib/list-params";
+import { supplierLinesProblem } from "@/server/supplier-invoices/document-rules";
 import { expenseInvoiceListConfig, listExpenseInvoicesForExport } from "@/server/supplier-invoices/list";
 
 const payloadSchema = z.object({
@@ -34,6 +35,16 @@ const payloadSchema = z.object({
   currencyCode: z.string().trim().length(3).optional(),
   idempotencyKey: z.string().trim().max(160).optional().or(z.literal("")),
   vatTreatment: z.enum(["DOMESTIC", "INTRA_EU", "REVERSE_CHARGE", "IMPORT", "NOT_SUBJECT"]).optional(),
+  // Clase de documento: una rectificativa (abono) admite importes negativos.
+  documentKind: z.enum(["INVOICE", "RECTIFICATION"]).optional(),
+  rectifiedInvoiceId: z.string().trim().max(64).optional().or(z.literal("")),
+  rectifiedDocumentNumber: z.string().trim().max(80).optional().or(z.literal("")),
+  rectifiedIssueDate: z.string().datetime().optional().or(z.literal("")),
+  rectificationReason: z.string().trim().max(500).optional().or(z.literal("")),
+  operationDate: z.string().datetime().optional().or(z.literal("")),
+  isSimplified: z.boolean().optional(),
+  importDuaNumber: z.string().trim().max(40).optional().or(z.literal("")),
+  importDuaDate: z.string().datetime().optional().or(z.literal("")),
   attachments: z
     .array(
       z.object({
@@ -50,11 +61,14 @@ const payloadSchema = z.object({
       z.object({
         expenseAccountId: z.string().trim().optional().or(z.literal("")),
         description: z.string().trim().min(1),
-        quantity: z.number().positive(),
-        unitPrice: z.number().nonnegative(),
+        // El signo se valida según la clase de documento (solo la rectificativa admite negativos).
+        quantity: z.number().finite(),
+        unitPrice: z.number().finite(),
         taxRate: z.number().min(0).max(100).default(21),
         taxDeductiblePct: z.number().min(0).max(100).default(100),
         retentionRate: z.number().min(0).max(100).default(0),
+        surchargeRate: z.number().min(0).max(100).default(0),
+        isInvestmentGood: z.boolean().optional(),
       }),
     )
     .min(1),
@@ -104,6 +118,8 @@ export async function POST(request: Request) {
 
     const parsed = payloadSchema.safeParse(payload);
     if (!parsed.success) return NextResponse.json({ message: "Datos inválidos." }, { status: 400 });
+    const linesProblem = supplierLinesProblem(parsed.data.lines, parsed.data.documentKind ?? "INVOICE");
+    if (linesProblem) return NextResponse.json({ message: linesProblem }, { status: 400 });
     if (!parsed.data.supplierPartnerId && !parsed.data.supplierName && !parsed.data.supplierTaxId) {
       return NextResponse.json({ message: "Indica proveedor existente, nombre de proveedor o CIF/NIF." }, { status: 400 });
     }
@@ -138,6 +154,17 @@ export async function POST(request: Request) {
         currencyCode: parsed.data.currencyCode,
         idempotencyKey: parsed.data.idempotencyKey || undefined,
         vatTreatment: parsed.data.vatTreatment,
+        documentKind: parsed.data.documentKind,
+        rectifiedInvoiceId: parsed.data.rectifiedInvoiceId || undefined,
+        rectifiedDocumentNumber: parsed.data.rectifiedDocumentNumber || undefined,
+        rectifiedIssueDate: parsed.data.rectifiedIssueDate ? new Date(parsed.data.rectifiedIssueDate) : undefined,
+        rectificationReason: parsed.data.rectificationReason || undefined,
+        operationDate: parsed.data.operationDate ? new Date(parsed.data.operationDate) : undefined,
+        isSimplified: parsed.data.isSimplified,
+        importDuaNumber: parsed.data.importDuaNumber || undefined,
+        importDuaDate: parsed.data.importDuaDate ? new Date(parsed.data.importDuaDate) : undefined,
+        // Art. 64 RIVA: NIF del proveedor obligatorio salvo ticket / factura simplificada.
+        requireSupplierTaxId: true,
         attachments: parsed.data.attachments?.map((attachment) => ({
           fileName: attachment.fileName,
           fileUrl: attachment.fileUrl,
@@ -153,6 +180,8 @@ export async function POST(request: Request) {
           taxRate: line.taxRate,
           taxDeductiblePct: line.taxDeductiblePct,
           retentionRate: line.retentionRate,
+          surchargeRate: line.surchargeRate,
+          isInvestmentGood: line.isInvestmentGood,
         })),
       });
       return NextResponse.json(created, { status: 201 });

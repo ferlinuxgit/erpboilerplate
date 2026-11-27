@@ -65,7 +65,9 @@ export function ExpenseBatchItemReview({
   const idBase = item.localId;
   const selectedSupplier = suppliers.find((supplier) => supplier.id === item.supplierPartnerId);
   const supplierDefaultAccount = selectedSupplier?.defaults?.defaultExpenseAccountId ?? null;
-  const total = readiness?.total ?? reviewDocumentTotal(item.lines, item.vatTreatment);
+  const total = readiness?.total ?? reviewDocumentTotal(item.lines, item.vatTreatment, item.documentKind);
+  const isRectification = item.documentKind === "RECTIFICATION";
+  const taxIdMissing = readiness?.reasons.includes("taxId") ?? false;
   // Autorepercusión: el tipo de la línea es el IVA que declara la empresa, no el que cobra el proveedor.
   const selfAssessedVat = Boolean(item.vatTreatment) && isSelfAssessedTreatment(item.vatTreatment as Exclude<typeof item.vatTreatment, "">);
   const totalsMismatch = readiness?.reasons.includes("totals") ?? false;
@@ -189,6 +191,38 @@ export function ExpenseBatchItemReview({
               </AccessibleField>
             </>
           ) : null}
+          <div className="sm:col-span-2">
+            <label className="flex items-center gap-2 text-xs" htmlFor={`simplified-${idBase}`}>
+              <input checked={item.isSimplified} disabled={disabled} id={`simplified-${idBase}`} onChange={(event) => onPatch({ isSimplified: event.target.checked })} type="checkbox" />
+              Ticket o factura simplificada sin NIF
+            </label>
+            {taxIdMissing ? <p className="mt-1 text-xs text-warning-text" role="status">Falta el NIF del proveedor: indícalo (o complétalo en su ficha) o marca la casilla si es un ticket.</p> : null}
+          </div>
+          <AccessibleField
+            helperText={isRectification ? "Abono o corrección de una factura anterior: los importes que te devuelven van en negativo." : "Para un abono o una devolución elige «Rectificativa»."}
+            id={`kind-${idBase}`}
+            label="Clase de documento"
+          >
+            <Select
+              data-testid={`batch-item-${idBase}-kind`}
+              disabled={disabled}
+              onChange={(event) => onPatch({ documentKind: event.target.value === "RECTIFICATION" ? "RECTIFICATION" : "INVOICE", duplicate: emptyDuplicate })}
+              value={item.documentKind}
+            >
+              <option value="INVOICE">Factura</option>
+              <option value="RECTIFICATION">Rectificativa (abono)</option>
+            </Select>
+          </AccessibleField>
+          {isRectification ? (
+            <>
+              <AccessibleField helperText="El número que cita la rectificativa." id={`rectified-number-${idBase}`} label="N.º de la factura rectificada">
+                <Input disabled={disabled} onChange={(event) => onPatch({ rectifiedDocumentNumber: event.target.value })} value={item.rectifiedDocumentNumber} />
+              </AccessibleField>
+              <AccessibleField className="sm:col-span-2" helperText="Devolución, descuento posterior, error en el precio… Obligatorio si no hay número." id={`rectification-reason-${idBase}`} label="Motivo de la rectificación">
+                <Input disabled={disabled} maxLength={500} onChange={(event) => onPatch({ rectificationReason: event.target.value })} value={item.rectificationReason} />
+              </AccessibleField>
+            </>
+          ) : null}
           <AccessibleField id={`number-${idBase}`} label="N.º de factura" required>
             <Input disabled={disabled} onChange={(event) => onPatch({ supplierDocumentNumber: event.target.value, duplicate: emptyDuplicate })} value={item.supplierDocumentNumber} />
           </AccessibleField>
@@ -220,7 +254,7 @@ export function ExpenseBatchItemReview({
           </AccessibleField>
         </div>
 
-        <details className="border border-window-shadow bg-window-panel" open={Boolean(item.purchaseOrderId || item.goodsReceiptId)}>
+        <details className="border border-window-shadow bg-window-panel" hidden={isRectification} open={Boolean(item.purchaseOrderId || item.goodsReceiptId)}>
           <summary className="cursor-pointer px-3 py-2 font-mono text-xs font-bold">Relacionar con un pedido o recepción (opcional)</summary>
           <div className="grid gap-3 border-t border-window-shadow p-2.5 sm:grid-cols-2">
             <AccessibleField id={`purchase-order-${idBase}`} label="Pedido de compra">
@@ -294,7 +328,7 @@ export function ExpenseBatchItemReview({
                   <PercentInput disabled={disabled} onChange={(event) => patchLine(line.id, { retentionRate: event.target.value })} value={line.retentionRate} />
                 </AccessibleField>
                 <div className="flex items-end justify-between gap-2">
-                  <p className="pb-2 font-mono text-xs font-bold tabular-nums">{formatMoney(reviewLineTotal(line, item.vatTreatment), item.currencyCode)}</p>
+                  <p className={cn("pb-2 font-mono text-xs font-bold tabular-nums", reviewLineTotal(line, item.vatTreatment) < 0 ? "text-danger-text" : undefined)}>{formatMoney(reviewLineTotal(line, item.vatTreatment), item.currencyCode)}</p>
                   <Button aria-label={`Eliminar línea ${lineIndex + 1}`} disabled={disabled || item.lines.length === 1} onClick={() => onPatch((current) => ({ ...current, lines: current.lines.filter((candidate) => candidate.id !== line.id) }))} size="icon-sm" title="Eliminar línea" type="button" variant="ghost">
                     <Trash aria-hidden="true" />
                   </Button>
@@ -363,7 +397,7 @@ export function ExpenseBatchItemReview({
             Revisada: los datos coinciden con el documento
           </label>
           <SubmitButton className="w-full sm:w-auto" disabled={item.duplicate.level === "exact" || totalsMismatch} pending={item.status === "POSTING"} pendingLabel="Registrando…">
-            Registrar factura
+            {isRectification ? "Registrar rectificativa" : "Registrar factura"}
           </SubmitButton>
         </div>
       </form>

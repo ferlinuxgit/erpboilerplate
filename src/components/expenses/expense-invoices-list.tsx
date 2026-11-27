@@ -35,6 +35,9 @@ type ExpenseInvoice = {
   purchaseOrderNumber: string | null;
   goodsReceiptId: string | null;
   goodsReceiptNumber: string | null;
+  /** INVOICE o RECTIFICATION (rectificativa / abono del proveedor). */
+  documentKind?: string;
+  rectifiedDocumentNumber?: string | null;
   issueDate: Date | string;
   dueDate: Date | string | null;
   status: string;
@@ -56,8 +59,27 @@ async function fetchAllExpenseInvoices(query: URLSearchParams): Promise<ExpenseI
   return (await response.json()) as ExpenseInvoice[];
 }
 
+const isRectification = (invoice: ExpenseInvoice) => invoice.documentKind === "RECTIFICATION";
+/** Abono vivo: el proveedor nos debe ese importe (saldo a favor), no hay nada que pagar. */
+const isCreditBalance = (invoice: ExpenseInvoice) => invoice.status !== "VOID" && Number(invoice.totalAmount) < 0;
+const paymentLabel = (invoice: ExpenseInvoice) =>
+  isCreditBalance(invoice) ? "Saldo a favor" : statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus);
+const paymentTone = (invoice: ExpenseInvoice) => (isCreditBalance(invoice) ? "info" as const : invoicePaymentStatusTone(invoice.paymentStatus));
+const amountClass = (value: string) => (Number(value) < 0 ? "text-danger-text" : undefined);
+
+function RectificationTag({ invoice }: { invoice: ExpenseInvoice }) {
+  if (!isRectification(invoice)) return null;
+  return (
+    <span className="mt-0.5 block text-xs font-bold text-warning-text" title={invoice.rectifiedDocumentNumber ? `Rectifica la factura ${invoice.rectifiedDocumentNumber}` : "Factura rectificativa / abono del proveedor"}>
+      Rectificativa{invoice.rectifiedDocumentNumber ? ` de ${invoice.rectifiedDocumentNumber}` : ""}
+    </span>
+  );
+}
+
 const exportColumns: ResourceListExportColumn<ExpenseInvoice>[] = [
   { header: "Nº registro", exportValue: (invoice) => invoice.number },
+  { header: "Clase", exportValue: (invoice) => (isRectification(invoice) ? "Rectificativa" : "Factura") },
+  { header: "Factura rectificada", exportValue: (invoice) => invoice.rectifiedDocumentNumber ?? "" },
   { header: "Nº factura proveedor", exportValue: (invoice) => invoice.supplierDocumentNumber ?? "" },
   ...invoiceAmountExportColumns<ExpenseInvoice>({
     base: (invoice) => invoice.subtotalAmount,
@@ -151,6 +173,7 @@ export function ExpenseInvoicesList({
           <p className="text-xs text-muted-foreground">
             {invoice.supplierDocumentNumber || invoice.number}
           </p>
+          <RectificationTag invoice={invoice} />
         </div>
       ),
       exportValue: (invoice) => invoice.supplierName,
@@ -177,19 +200,18 @@ export function ExpenseInvoicesList({
     {
       header: "Estado",
       cell: (invoice) => (
-        <StatusBadge tone={invoicePaymentStatusTone(invoice.paymentStatus)}>
-          {statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}
+        <StatusBadge tone={paymentTone(invoice)}>
+          {paymentLabel(invoice)}
         </StatusBadge>
       ),
-      exportValue: (invoice) =>
-        statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus),
+      exportValue: (invoice) => paymentLabel(invoice),
       sortValue: (invoice) => invoice.paymentStatus,
       sortKey: "status",
     },
     {
       header: "Total",
       className: "text-right font-mono tabular-nums",
-      cell: (invoice) => formatMoney(invoice.totalAmount),
+      cell: (invoice) => <span className={amountClass(invoice.totalAmount)}>{formatMoney(invoice.totalAmount)}</span>,
       // Se exporta con Base, IVA e IRPF (columnas opcionales al final), no aquí.
       sortValue: (invoice) => Number(invoice.totalAmount),
       sortKey: "total",
@@ -258,7 +280,7 @@ export function ExpenseInvoicesList({
         getRowTestId={(invoice) => `expense-invoice-${invoice.number}`}
         getRowLabel={(invoice) => `${invoice.supplierDocumentNumber || invoice.number} · ${invoice.supplierName}`}
         getSearchText={(invoice) =>
-          `${invoice.number} ${invoice.supplierDocumentNumber ?? ""} ${invoice.supplierName} ${invoice.purchaseOrderNumber ?? ""} ${invoice.goodsReceiptNumber ?? ""} ${invoice.paymentStatus} ${statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}`
+          `${invoice.number} ${invoice.supplierDocumentNumber ?? ""} ${invoice.supplierName} ${invoice.purchaseOrderNumber ?? ""} ${invoice.goodsReceiptNumber ?? ""} ${invoice.paymentStatus} ${paymentLabel(invoice)} ${isRectification(invoice) ? "rectificativa abono" : ""}`
         }
         dateRange={{ label: "Fecha de emisión", getValue: (invoice) => invoice.issueDate }}
         summaryLabel="Total filtrado"
@@ -272,17 +294,18 @@ export function ExpenseInvoicesList({
                 <p className="text-xs text-muted-foreground">
                   {invoice.supplierDocumentNumber || invoice.number}
                 </p>
+                <RectificationTag invoice={invoice} />
               </div>
               <StatusBadge
                 className="shrink-0"
-                tone={invoicePaymentStatusTone(invoice.paymentStatus)}
+                tone={paymentTone(invoice)}
               >
-                {statusLabel(invoicePaymentStatusLabels, invoice.paymentStatus)}
+                {paymentLabel(invoice)}
               </StatusBadge>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <p>Fecha {formatDate(invoice.issueDate)}</p>
-              <p>Total {formatMoney(invoice.totalAmount)}</p>
+              <p className={amountClass(invoice.totalAmount)}>Total {formatMoney(invoice.totalAmount)}</p>
               <p>Pendiente {formatMoney(invoice.outstandingAmount)}</p>
               <p>{invoice.purchaseOrderNumber ? `Pedido ${invoice.purchaseOrderNumber}` : "Sin pedido"}</p>
               <p>

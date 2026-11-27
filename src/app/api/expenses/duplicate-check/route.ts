@@ -15,7 +15,8 @@ const payloadSchema = z.object({
   supplierCountryCode: z.string().trim().length(2).optional(),
   supplierDocumentNumber: z.string().trim().optional(),
   issueDate: z.string().datetime().optional(),
-  totalAmount: z.number().nonnegative().optional(),
+  // Un abono (rectificativa) tiene total negativo.
+  totalAmount: z.number().finite().optional(),
   ocrJobId: z.string().trim().optional(),
 });
 

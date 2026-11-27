@@ -919,11 +919,31 @@ export const supplierInvoice = pgTable("supplier_invoice", {
   prorrataPct: numeric("prorrataPct", { precision: 6, scale: 3 }).notNull().default("100"),
   // Fecha del asiento de anulación: la factura sigue en su periodo y la anulación resta en este.
   voidedAt: timestamp("voidedAt", { withTimezone: true, mode: "date" }),
+  // Clase de documento: INVOICE (factura) o RECTIFICATION (rectificativa / abono del proveedor).
+  // Solo una rectificativa admite importes negativos.
+  documentKind: text("documentKind").notNull().default("INVOICE"),
+  // Factura que se rectifica: la registrada en el sistema y/o el número y la fecha que figuran en
+  // la rectificativa del proveedor (art. 15 RD 1619/2012).
+  rectifiedInvoiceId: text("rectifiedInvoiceId").references((): AnyPgColumn => supplierInvoice.id, { onDelete: "set null" }),
+  rectifiedDocumentNumber: text("rectifiedDocumentNumber"),
+  rectifiedIssueDate: timestamp("rectifiedIssueDate", { withTimezone: true, mode: "date" }),
+  rectificationReason: text("rectificationReason"),
+  // Fecha de realización de la operación cuando es distinta de la de expedición (art. 64 RIVA).
+  operationDate: timestamp("operationDate", { withTimezone: true, mode: "date" }),
+  // Recargo de equivalencia soportado (empresa en recargo): no deducible, mayor coste.
+  surchargeAmount: numeric("surchargeAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Factura simplificada o ticket sin NIF del destinatario/proveedor identificado.
+  isSimplified: boolean("isSimplified").notNull().default(false),
+  // Importaciones: número y fecha del DUA (documento aduanero) que se anota en el libro registro.
+  importDuaNumber: text("importDuaNumber"),
+  importDuaDate: timestamp("importDuaDate", { withTimezone: true, mode: "date" }),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("supplier_invoice_company_number_unique").on(table.companyId, table.number),
+  check("supplier_invoice_document_kind_valid", sql`${table.documentKind} IN ('INVOICE', 'RECTIFICATION')`),
+  index("supplier_invoice_rectified_invoice_idx").on(table.rectifiedInvoiceId),
   check("supplier_invoice_vat_treatment_valid", sql`${table.vatTreatment} IS NULL OR ${table.vatTreatment} IN ('DOMESTIC', 'INTRA_EU', 'REVERSE_CHARGE', 'IMPORT', 'NOT_SUBJECT')`),
   uniqueIndex("supplier_invoice_supplier_document_canonical_unique")
     .on(table.companyId, table.supplierIdentityKey, table.supplierDocumentNumberNormalized)
@@ -957,6 +977,11 @@ export const supplierInvoiceLine = pgTable("supplier_invoice_line", {
   subtotalAmount: numeric("subtotalAmount", { precision: 12, scale: 2 }).notNull().default("0"),
   taxAmount: numeric("taxAmount", { precision: 12, scale: 2 }).notNull().default("0"),
   retentionAmount: numeric("retentionAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Recargo de equivalencia soportado de la línea (tipo y cuota).
+  surchargeRate: numeric("surchargeRate", { precision: 6, scale: 3 }).notNull().default("0"),
+  surchargeAmount: numeric("surchargeAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Bien de inversión (arts. 108 LIVA y 65 RIVA): marca explícita, no deducida de la cuenta.
+  isInvestmentGood: boolean("isInvestmentGood").notNull().default(false),
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
 }, (table) => [
   index("supplier_invoice_line_invoice_idx").on(table.supplierInvoiceId),

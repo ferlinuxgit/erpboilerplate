@@ -7,6 +7,7 @@
 import { isSelfAssessedTreatment, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { parseDecimalInput } from "@/lib/format";
 import type { AccountSource } from "@/lib/supplier-defaults";
+import { supplierLinesProblem, type SupplierDocumentKind } from "@/server/supplier-invoices/document-rules";
 import { centsToNumber, computeEngineDocument, legacyLineTaxes } from "@/server/taxation/engine";
 
 export type ReviewLine = {
@@ -40,12 +41,20 @@ export type ReviewItem = {
   /** Convertida de moneda con el cambio de otra fecha (se corrigió la fecha después). */
   exchangeStale?: boolean;
   vatTreatment?: SupplierVatTreatment | "";
+  /** Rectificativa (abono): admite líneas en negativo y pide la factura rectificada o el motivo. */
+  documentKind?: SupplierDocumentKind;
+  rectifiedDocumentNumber?: string;
+  rectificationReason?: string;
+  /** Falta el NIF del proveedor y no está marcada como ticket / simplificada. */
+  taxIdMissing?: boolean;
   lines: readonly ReviewLine[];
 };
 
 export type ReviewReason =
   | "account"
   | "supplier"
+  | "taxId"
+  | "rectified"
   | "number"
   | "date"
   | "currency"
@@ -59,6 +68,8 @@ export type ReviewReason =
 export const reviewReasonLabels: Record<ReviewReason, string> = {
   account: "Revisar cuenta",
   supplier: "Falta el proveedor",
+  taxId: "Falta el NIF del proveedor (o marca ticket / simplificada)",
+  rectified: "Indica la factura rectificada o el motivo",
   number: "Falta el número de factura",
   date: "Falta la fecha",
   currency: "Factura en otra moneda: conviértela a euros",
@@ -103,14 +114,15 @@ export function reviewLineTotal(line: Pick<ReviewLine, "quantity" | "unitPrice" 
  * por tipo sobre la suma de bases (con muchas líneas, sumar cuotas redondeadas línea a línea
  * se desvía unos céntimos del total de la factura).
  */
-export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[], vatTreatment?: SupplierVatTreatment | "") {
+export function reviewDocumentTotal(lines: readonly Pick<ReviewLine, "quantity" | "unitPrice" | "taxRate" | "retentionRate">[], vatTreatment?: SupplierVatTreatment | "", documentKind: SupplierDocumentKind = "INVOICE") {
   const parsed = lines.map((line) => ({
     quantity: parseQuantity(line.quantity),
     unitPrice: parseMoney(line.unitPrice),
     taxRate: parsePercent(line.taxRate),
     retentionRate: parsePercent(line.retentionRate),
   })).filter((line) => [line.quantity, line.unitPrice, line.taxRate, line.retentionRate].every(Number.isFinite));
-  const document = computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })));
+  // Una rectificativa conserva el signo de sus líneas (abono); una factura nunca es negativa.
+  const document = computeEngineDocument(parsed.map((line) => ({ quantity: line.quantity, unitPrice: line.unitPrice, taxes: legacyLineTaxes(line) })), { allowNegative: documentKind === "RECTIFICATION" });
   if (supplierChargesNoVat(vatTreatment)) return centsToNumber(document.subtotalCents - document.retentionCents);
   return centsToNumber(document.totalCents);
 }
@@ -124,22 +136,24 @@ export function lineAccountIsTrusted(line: Pick<ReviewLine, "expenseAccountId" |
   return Boolean(line.expenseAccountId) && line.accountSource !== "none";
 }
 
-function lineAmountsValid(line: ReviewLine) {
+function lineAmountsValid(line: ReviewLine, documentKind: SupplierDocumentKind) {
   const quantity = parseQuantity(line.quantity);
   const unitPrice = parseMoney(line.unitPrice);
   const percentages = [parsePercent(line.taxRate), parsePercent(line.taxDeductiblePct), parsePercent(line.retentionRate)];
-  return Boolean(line.description.trim())
-    && Number.isFinite(quantity) && quantity > 0
-    && Number.isFinite(unitPrice) && unitPrice >= 0
+  // Mismas reglas de signo que el servidor: solo la rectificativa admite negativos.
+  return supplierLinesProblem([{ description: line.description, quantity, unitPrice }], documentKind) === null
     && percentages.every((value) => Number.isFinite(value) && value >= 0 && value <= 100);
 }
 
 export function assessReadiness(item: ReviewItem, baseCurrencyCode: string): ItemReadiness {
   const reasons: ReviewReason[] = [];
-  const total = reviewDocumentTotal(item.lines, item.vatTreatment);
-  if (item.lines.length === 0 || item.lines.some((line) => !lineAmountsValid(line))) reasons.push("lines");
+  const documentKind = item.documentKind ?? "INVOICE";
+  const total = reviewDocumentTotal(item.lines, item.vatTreatment, documentKind);
+  if (item.lines.length === 0 || item.lines.some((line) => !lineAmountsValid(line, documentKind))) reasons.push("lines");
   if (item.lines.length === 0 || item.lines.some((line) => !lineAccountIsTrusted(line))) reasons.push("account");
   if (!item.supplierPartnerId && !item.supplierName.trim() && !item.supplierTaxId.trim()) reasons.push("supplier");
+  else if (item.taxIdMissing) reasons.push("taxId");
+  if (documentKind === "RECTIFICATION" && !item.rectifiedDocumentNumber?.trim() && !item.rectificationReason?.trim()) reasons.push("rectified");
   if (!item.supplierDocumentNumber.trim()) reasons.push("number");
   if (!item.issueDate) reasons.push("date");
   if (item.currencyCode !== baseCurrencyCode) reasons.push("currency");

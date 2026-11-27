@@ -22,6 +22,7 @@ import { normalizeTaxIdentity } from "@/lib/expense-dedup";
 import { isSelfAssessedTreatment, resolveSupplierVatTreatment, supplierVatTreatmentLabels, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { formatMoney, parseDecimalInput } from "@/lib/format";
 import { applySupplierDefaultsToLine, dueDateInputFor, parseSupplierVatTreatment, SUPPLIER_VAT_TREATMENTS, type AccountSource, type SupplierDefaults } from "@/lib/supplier-defaults";
+import { defaultInvestmentGood, supplierTaxIdProblem, type SupplierDocumentKind } from "@/server/supplier-invoices/document-rules";
 
 import type { DuplicateAssessment } from "./expense-batch-model";
 
@@ -41,7 +42,34 @@ type ExpenseLineDraft = {
   taxRate: string;
   taxDeductiblePct: string;
   retentionRate: string;
+  /** Recargo de equivalencia soportado (%). */
+  surchargeRate: string;
+  /** Bien de inversión (por defecto, las cuentas de inmovilizado). */
+  isInvestmentGood: boolean;
+  investmentEdited: boolean;
   deductibleEdited: boolean;
+};
+
+/** Factura que se rectifica, con sus líneas ya en negativo para proponer el abono total. */
+export type RectifiedInvoicePrefill = {
+  id: string;
+  number: string;
+  supplierDocumentNumber: string | null;
+  /** AAAA-MM-DD */
+  issueDate: string;
+  supplierPartnerId: string;
+  vatTreatment: SupplierVatTreatment | null;
+  lines: Array<{
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    taxRate: number;
+    taxDeductiblePct: number;
+    retentionRate: number;
+    surchargeRate: number;
+    expenseAccountId: string;
+    isInvestmentGood: boolean;
+  }>;
 };
 
 type UploadedAttachment = { jobId: string; fileName: string; fileUrl: string | null };
@@ -76,6 +104,10 @@ type CreateExpenseInvoiceFormProps = {
   readingEnabled?: boolean;
   /** Series activas del registro de facturas recibidas (la de por defecto primero). Con más de una se puede elegir. */
   expenseSeries?: ExpenseSeriesOption[];
+  /** Alta directa de una rectificativa (abono) sin partir de una factura registrada. */
+  initialKind?: SupplierDocumentKind;
+  /** «Registrar abono / rectificativa» desde una factura: precarga proveedor, IVA, cuentas y líneas en negativo. */
+  rectifiedInvoice?: RectifiedInvoicePrefill;
 };
 
 export type ExpenseSeriesOption = { id: string; code: string; name: string; isDefault: boolean; preview: string };
@@ -106,26 +138,63 @@ function newLine(defaults?: SupplierDefaults, id: string = crypto.randomUUID()):
     taxRate: "21",
     taxDeductiblePct: "100",
     retentionRate: "0",
+    surchargeRate: "0",
+    isInvestmentGood: false,
+    investmentEdited: false,
     deductibleEdited: false,
   };
   return defaults ? applySupplierDefaultsToLine(line, defaults) : line;
 }
 
-function lineTotals(line: ExpenseLineDraft) {
+const draftNumber = (value: number) => String(value).replace(".", ",");
+
+/** Líneas del abono propuestas a partir de la factura rectificada (ya vienen en negativo). */
+function rectificationDraftLines(prefill: RectifiedInvoicePrefill): ExpenseLineDraft[] {
+  return prefill.lines.map((line, index) => ({
+    id: `rectified-${index + 1}`,
+    description: line.description,
+    expenseAccountId: line.expenseAccountId,
+    accountSource: line.expenseAccountId ? "user" : "none",
+    quantity: draftNumber(line.quantity),
+    unitPrice: draftNumber(line.unitPrice),
+    taxRate: draftNumber(line.taxRate),
+    taxDeductiblePct: draftNumber(line.taxDeductiblePct),
+    retentionRate: draftNumber(line.retentionRate),
+    surchargeRate: draftNumber(line.surchargeRate),
+    isInvestmentGood: line.isInvestmentGood,
+    investmentEdited: true,
+    deductibleEdited: true,
+  }));
+}
+
+function lineTotals(line: ExpenseLineDraft, withSurcharge = false) {
   const quantity = decimal(line.quantity);
   const unitPrice = money(line.unitPrice);
   const taxRate = decimal(line.taxRate);
   const retentionRate = decimal(line.retentionRate);
+  const surchargeRate = withSurcharge ? decimal(line.surchargeRate) : 0;
   const subtotal = Number.isFinite(quantity * unitPrice) ? quantity * unitPrice : 0;
   const tax = subtotal * (Number.isFinite(taxRate) ? taxRate : 0) / 100;
   const retention = subtotal * (Number.isFinite(retentionRate) ? retentionRate : 0) / 100;
-  return { subtotal, tax, retention, total: subtotal + tax - retention };
+  const surcharge = subtotal * (Number.isFinite(surchargeRate) ? surchargeRate : 0) / 100;
+  return { subtotal, tax, retention, surcharge, total: subtotal + tax + surcharge - retention };
 }
 
-export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [], homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, suppliers }: CreateExpenseInvoiceFormProps) {
+export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [], homeCountryCode = "ES", expenseAccounts, goodsReceipts, initialKind = "INVOICE", initialSupplierId, pendingInboxCount = 0, purchaseOrders, readingEnabled = true, rectifiedInvoice, suppliers }: CreateExpenseInvoiceFormProps) {
   const router = useRouter();
-  const initialSupplier = suppliers.find((supplier) => supplier.id === initialSupplierId);
-  const [creationMode, setCreationMode] = useState<"manual" | null>(initialSupplier || !readingEnabled ? "manual" : null);
+  const initialSupplier = suppliers.find((supplier) => supplier.id === (rectifiedInvoice?.supplierPartnerId ?? initialSupplierId));
+  const startsAsRectification = Boolean(rectifiedInvoice) || initialKind === "RECTIFICATION";
+  const [creationMode, setCreationMode] = useState<"manual" | null>(initialSupplier || !readingEnabled || startsAsRectification ? "manual" : null);
+  const [documentKind, setDocumentKind] = useState<SupplierDocumentKind>(startsAsRectification ? "RECTIFICATION" : "INVOICE");
+  const isRectification = documentKind === "RECTIFICATION";
+  const [rectifiedDocumentNumber, setRectifiedDocumentNumber] = useState(rectifiedInvoice?.supplierDocumentNumber ?? rectifiedInvoice?.number ?? "");
+  const [rectifiedIssueDate, setRectifiedIssueDate] = useState(rectifiedInvoice?.issueDate ?? "");
+  const [rectificationReason, setRectificationReason] = useState("");
+  const [operationDate, setOperationDate] = useState("");
+  const [isSimplified, setIsSimplified] = useState(false);
+  const [importDuaNumber, setImportDuaNumber] = useState("");
+  const [importDuaDate, setImportDuaDate] = useState("");
+  const [hasSurcharge, setHasSurcharge] = useState(() => Boolean(rectifiedInvoice?.lines.some((line) => line.surchargeRate > 0)));
   const [supplierPartnerId, setSupplierPartnerId] = useState(initialSupplier?.id ?? "");
   const [newSupplier, setNewSupplier] = useState<NewSupplierDraft | null>(null);
   const [newSupplierDialogOpen, setNewSupplierDialogOpen] = useState(false);
@@ -138,16 +207,16 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
   const [issueDate, setIssueDate] = useState(todayInputValue);
   // Vacía = la fecha de la factura. Solo se indica si la factura llega tarde (periodo ya presentado).
   const [accountingDate, setAccountingDate] = useState("");
-  const [dueDate, setDueDate] = useState(() => dueDateInputFor(todayInputValue(), initialSupplier?.defaults?.paymentTermsDays));
+  const [dueDate, setDueDate] = useState(() => (startsAsRectification ? "" : dueDateInputFor(todayInputValue(), initialSupplier?.defaults?.paymentTermsDays)));
   const [dueDateEdited, setDueDateEdited] = useState(false);
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<ExpenseLineDraft[]>(() => [newLine(initialSupplier?.defaults, "line-1")]);
+  const [lines, setLines] = useState<ExpenseLineDraft[]>(() => (rectifiedInvoice?.lines.length ? rectificationDraftLines(rectifiedInvoice) : [newLine(initialSupplier?.defaults, "line-1")]));
   const [attachment, setAttachment] = useState<UploadedAttachment | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [vatTreatmentOverride, setVatTreatmentOverride] = useState<SupplierVatTreatment | null>(initialSupplier?.defaults?.defaultVatTreatment ?? null);
+  const [vatTreatmentOverride, setVatTreatmentOverride] = useState<SupplierVatTreatment | null>(rectifiedInvoice?.vatTreatment ?? initialSupplier?.defaults?.defaultVatTreatment ?? null);
   const [duplicate, setDuplicate] = useState<DuplicateAssessment | null>(null);
   const [duplicateAcknowledged, setDuplicateAcknowledged] = useState(false);
 
@@ -158,6 +227,14 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
   // Fuera de la UE: servicios por inversión del sujeto pasivo, bienes como importación.
   const vatTreatment = vatTreatmentOverride ?? resolveSupplierVatTreatment(null, supplierCountryForVat, selectedSupplier?.supplierKind, homeCountryCode);
   const selfAssessedVat = isSelfAssessedTreatment(vatTreatment);
+  // El recargo de equivalencia solo existe cuando el proveedor repercute IVA.
+  const surchargeAllowed = vatTreatment === "DOMESTIC" || vatTreatment === "IMPORT";
+  const surchargeActive = hasSurcharge && surchargeAllowed;
+  const missingTaxIdMessage = selectedSupplier
+    ? supplierTaxIdProblem({ taxId: selectedSupplier.taxId, supplierCountryCode: selectedSupplier.countryCode, homeCountryCode, vatTreatment, isSimplified })
+    : newSupplier
+      ? supplierTaxIdProblem({ taxId: newSupplier.taxId, supplierCountryCode: newSupplier.countryCode, homeCountryCode, vatTreatment, isSimplified })
+      : null;
   const availablePurchaseOrders = purchaseOrders.filter((order) => !supplierPartnerId || order.supplierPartnerId === supplierPartnerId);
   const availableGoodsReceipts = goodsReceipts.filter((receipt) => (purchaseOrderId ? receipt.purchaseOrderId === purchaseOrderId : !supplierPartnerId || receipt.supplierPartnerId === supplierPartnerId));
   const supplierSuggestionIds = supplierDefaults?.defaultExpenseAccountId ? [supplierDefaults.defaultExpenseAccountId] : [];
@@ -165,12 +242,12 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
   const preview = useMemo(
     () => lines.reduce(
       (totals, line) => {
-        const current = lineTotals(line);
-        return { subtotal: totals.subtotal + current.subtotal, tax: totals.tax + current.tax, retention: totals.retention + current.retention, total: totals.total + current.total };
+        const current = lineTotals(line, surchargeActive);
+        return { subtotal: totals.subtotal + current.subtotal, tax: totals.tax + current.tax, retention: totals.retention + current.retention, surcharge: totals.surcharge + current.surcharge, total: totals.total + current.total };
       },
-      { subtotal: 0, tax: 0, retention: 0, total: 0 },
+      { subtotal: 0, tax: 0, retention: 0, surcharge: 0, total: 0 },
     ),
-    [lines],
+    [lines, surchargeActive],
   );
   // En autorepercusión el proveedor no cobra el IVA: lo pagadero es base − retención.
   const payable = (totals: { subtotal: number; retention: number; total: number }) => (selfAssessedVat ? totals.subtotal - totals.retention : totals.total);
@@ -211,13 +288,43 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
     // Valores habituales del proveedor: sin pisar lo que el usuario ya ha elegido.
     setLines((current) => current.map((line) => applySupplierDefaultsToLine(line, defaults, { userEditedDeductible: line.deductibleEdited })));
     if (defaults.defaultVatTreatment) setVatTreatmentOverride(defaults.defaultVatTreatment);
-    if (!dueDateEdited) setDueDate(dueDateInputFor(issueDate, defaults.paymentTermsDays));
+    if (!dueDateEdited && !isRectification) setDueDate(dueDateInputFor(issueDate, defaults.paymentTermsDays));
   }
 
   function changeIssueDate(value: string) {
     setIssueDate(value);
     resetDuplicate();
-    if (!dueDateEdited) setDueDate(dueDateInputFor(value, supplierDefaults?.paymentTermsDays));
+    if (!dueDateEdited && !isRectification) setDueDate(dueDateInputFor(value, supplierDefaults?.paymentTermsDays));
+  }
+
+  function changeDocumentKind(kind: SupplierDocumentKind) {
+    setDocumentKind(kind);
+    resetDuplicate();
+    setFieldErrors({});
+    // Un abono no vence ni consume pedido: se quita lo propuesto (no lo que el usuario escribió).
+    if (kind === "RECTIFICATION") {
+      if (!dueDateEdited) setDueDate("");
+      setPurchaseOrderId("");
+      setGoodsReceiptId("");
+    } else if (!dueDateEdited) {
+      setDueDate(dueDateInputFor(issueDate, supplierDefaults?.paymentTermsDays));
+    }
+  }
+
+  /** Marca de bien de inversión: la elegida a mano o, si no se ha tocado, la que corresponde a la cuenta (inmovilizado). */
+  function lineIsInvestmentGood(line: ExpenseLineDraft) {
+    if (line.investmentEdited) return line.isInvestmentGood;
+    return defaultInvestmentGood(expenseAccounts.find((account) => account.id === line.expenseAccountId)?.code);
+  }
+
+  /** Al elegir cuenta se propone la marca de bien de inversión (inmovilizado), salvo que ya se haya tocado. */
+  function chooseLineAccount(line: ExpenseLineDraft, accountId: string) {
+    const code = expenseAccounts.find((account) => account.id === accountId)?.code;
+    updateLine(line.id, {
+      expenseAccountId: accountId,
+      accountSource: accountId ? "user" : "none",
+      ...(line.investmentEdited ? {} : { isInvestmentGood: defaultInvestmentGood(code) }),
+    });
   }
 
   function openNewSupplierDialog(query: string) {
@@ -300,7 +407,8 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
         supplierCountryCode: supplierPartnerId ? undefined : newSupplier?.countryCode || undefined,
         supplierDocumentNumber: supplierDocumentNumber || undefined,
         issueDate: toIsoDate(issueDate),
-        totalAmount: Math.max(Math.round(total * 100) / 100, 0),
+        // Con su signo: un abono tiene total negativo.
+        totalAmount: Math.round(total * 100) / 100,
         ocrJobId: attachment?.jobId,
       }),
     });
@@ -313,6 +421,10 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
     setError(null);
     const nextErrors: Record<string, string> = {};
     if (!supplierPartnerId && !newSupplier) nextErrors.supplier = "Elige el proveedor o créalo.";
+    else if (missingTaxIdMessage) nextErrors.supplier = missingTaxIdMessage;
+    if (isRectification && !rectifiedInvoice && !rectifiedDocumentNumber.trim() && !rectificationReason.trim()) {
+      nextErrors.rectifiedNumber = "Indica el número de la factura que se rectifica o, si afecta a varias, el motivo.";
+    }
     if (!issueDate) nextErrors.issueDate = "Indica la fecha de la factura.";
     if (dueDate && issueDate && dueDate < issueDate) nextErrors.dueDate = "El vencimiento no puede ser anterior a la fecha de la factura.";
     if (accountingDate && issueDate && accountingDate < issueDate) nextErrors.accountingDate = "La fecha de registro no puede ser anterior a la fecha de la factura.";
@@ -322,21 +434,28 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
       const taxRate = decimal(line.taxRate);
       const taxDeductiblePct = decimal(line.taxDeductiblePct);
       const retentionRate = decimal(line.retentionRate);
+      const surchargeRate = surchargeActive ? decimal(line.surchargeRate) : 0;
       if (!line.description.trim()) nextErrors[`${line.id}-description`] = "Escribe el concepto (p. ej. «Luz de marzo»).";
       if (!line.expenseAccountId) nextErrors[`${line.id}-account`] = "Elige en qué se ha gastado: busca por palabra (luz, alquiler, gestoría…).";
-      if (!Number.isFinite(quantity) || quantity <= 0) nextErrors[`${line.id}-quantity`] = "Debe ser mayor que cero.";
-      if (!Number.isFinite(unitPrice) || unitPrice < 0) nextErrors[`${line.id}-price`] = "Indica el importe sin IVA (p. ej. 100,00).";
-      for (const [key, value] of [["tax", taxRate], ["deductible", taxDeductiblePct], ["retention", retentionRate]] as const) {
+      if (isRectification) {
+        // Rectificativa: cantidad o importe en negativo para abonar; ninguno a cero.
+        if (!Number.isFinite(quantity) || quantity === 0) nextErrors[`${line.id}-quantity`] = "Indica la cantidad (en negativo si es un abono).";
+        if (!Number.isFinite(unitPrice) || unitPrice === 0) nextErrors[`${line.id}-price`] = "Indica el importe sin IVA que se rectifica.";
+      } else {
+        if (!Number.isFinite(quantity) || quantity <= 0) nextErrors[`${line.id}-quantity`] = "Debe ser mayor que cero. Para un abono, elige «Rectificativa».";
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) nextErrors[`${line.id}-price`] = "Indica el importe sin IVA (p. ej. 100,00).";
+      }
+      for (const [key, value] of [["tax", taxRate], ["deductible", taxDeductiblePct], ["retention", retentionRate], ["surcharge", surchargeRate]] as const) {
         if (!Number.isFinite(value) || value < 0 || value > 100) nextErrors[`${line.id}-${key}`] = "Entre 0 y 100 %.";
       }
-      return { expenseAccountId: line.expenseAccountId, description: line.description.trim(), quantity, unitPrice, taxRate, taxDeductiblePct, retentionRate };
+      return { expenseAccountId: line.expenseAccountId, description: line.description.trim(), quantity, unitPrice, taxRate, taxDeductiblePct, retentionRate, surchargeRate, isInvestmentGood: lineIsInvestmentGood(line) };
     });
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       const firstKey = Object.keys(nextErrors)[0];
-      const fieldMap: Record<string, string> = { account: "account", description: "description", quantity: "quantity", price: "price", tax: "tax", deductible: "deductible", retention: "retention" };
+      const fieldMap: Record<string, string> = { account: "account", description: "description", quantity: "quantity", price: "price", tax: "tax", deductible: "deductible", retention: "retention", surcharge: "surcharge" };
       const separator = firstKey.lastIndexOf("-");
-      const targetId = firstKey === "supplier" ? "expense-supplier" : firstKey === "issueDate" ? "expense-issue-date" : firstKey === "dueDate" ? "expense-due-date" : firstKey === "accountingDate" ? "expense-accounting-date" : `expense-line-${fieldMap[firstKey.slice(separator + 1)]}-${firstKey.slice(0, separator)}`;
+      const targetId = firstKey === "supplier" ? "expense-supplier" : firstKey === "rectifiedNumber" ? "expense-rectified-number" : firstKey === "issueDate" ? "expense-issue-date" : firstKey === "dueDate" ? "expense-due-date" : firstKey === "accountingDate" ? "expense-accounting-date" : `expense-line-${fieldMap[firstKey.slice(separator + 1)]}-${firstKey.slice(0, separator)}`;
       requestAnimationFrame(() => document.getElementById(targetId)?.focus());
       const message = "Revisa los campos marcados antes de registrar la factura.";
       setError(message);
@@ -380,11 +499,20 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
           supplierCountryCode: supplierPartnerId ? undefined : newSupplier?.countryCode,
           supplierDocumentNumber,
           seriesId: expenseSeries.length > 1 && seriesId ? seriesId : undefined,
-          purchaseOrderId: purchaseOrderId || undefined,
-          goodsReceiptId: goodsReceiptId || undefined,
+          purchaseOrderId: isRectification ? undefined : purchaseOrderId || undefined,
+          goodsReceiptId: isRectification ? undefined : goodsReceiptId || undefined,
           issueDate: toIsoDate(issueDate),
           accountingDate: accountingDate ? toIsoDate(accountingDate) : undefined,
           dueDate: dueDate ? toIsoDate(dueDate) : undefined,
+          documentKind,
+          rectifiedInvoiceId: isRectification ? rectifiedInvoice?.id : undefined,
+          rectifiedDocumentNumber: isRectification ? rectifiedDocumentNumber.trim() || undefined : undefined,
+          rectifiedIssueDate: isRectification && rectifiedIssueDate ? toIsoDate(rectifiedIssueDate) : undefined,
+          rectificationReason: isRectification ? rectificationReason.trim() || undefined : undefined,
+          operationDate: operationDate ? toIsoDate(operationDate) : undefined,
+          isSimplified,
+          importDuaNumber: vatTreatment === "IMPORT" ? importDuaNumber.trim() || undefined : undefined,
+          importDuaDate: vatTreatment === "IMPORT" && importDuaDate ? toIsoDate(importDuaDate) : undefined,
           notes,
           ocrJobId: attachment?.jobId,
           vatTreatment,
@@ -393,7 +521,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo registrar la factura de proveedor."));
       const created = (await response.json()) as { id?: string };
-      toast.success("Factura de proveedor registrada y contabilizada.");
+      toast.success(isRectification ? "Rectificativa registrada y contabilizada." : "Factura de proveedor registrada y contabilizada.");
       if (created.id) router.push(`/expenses/${created.id}`);
       router.refresh();
     } catch (submissionError) {
@@ -444,8 +572,49 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
             <p className="font-mono text-xs font-bold">Registro a mano</p>
             <RequiredFieldsNote />
           </div>
-          <Button onClick={() => setCreationMode(null)} size="sm" type="button" variant="outline">Cambiar modo</Button>
+          {readingEnabled && !rectifiedInvoice ? <Button onClick={() => setCreationMode(null)} size="sm" type="button" variant="outline">Cambiar modo</Button> : null}
         </div>
+
+        <section className={sectionClass} aria-labelledby="expense-kind-title">
+          <h2 className="font-mono text-sm font-bold" id="expense-kind-title">Clase de documento</h2>
+          <div className="grid gap-3 md:grid-cols-4">
+            <AccessibleField
+              helperText={isRectification ? "Abono, devolución o corrección de una factura ya recibida. Los importes van en negativo si el proveedor te devuelve dinero." : "Factura o ticket normal. Para un abono o una devolución elige «Rectificativa»."}
+              id="expense-document-kind"
+              label="Tipo"
+            >
+              <Select data-testid="expense-document-kind" disabled={Boolean(rectifiedInvoice)} onChange={(event) => changeDocumentKind(event.target.value === "RECTIFICATION" ? "RECTIFICATION" : "INVOICE")} value={documentKind}>
+                <option value="INVOICE">Factura</option>
+                <option value="RECTIFICATION">Rectificativa (abono)</option>
+              </Select>
+            </AccessibleField>
+            {isRectification ? (
+              <>
+                <AccessibleField
+                  error={fieldErrors.rectifiedNumber}
+                  helperText={rectifiedInvoice ? "Factura registrada que se rectifica." : "El número que figura en la rectificativa del proveedor."}
+                  id="expense-rectified-number"
+                  label="N.º de la factura rectificada"
+                >
+                  <Input onChange={(event) => setRectifiedDocumentNumber(event.target.value)} placeholder="Ej. F-2026-0123" value={rectifiedDocumentNumber} />
+                </AccessibleField>
+                <AccessibleField id="expense-rectified-date" label="Fecha de la factura rectificada">
+                  <Input max={issueDate || undefined} onChange={(event) => setRectifiedIssueDate(event.target.value)} type="date" value={rectifiedIssueDate} />
+                </AccessibleField>
+                <AccessibleField helperText="Devolución, descuento posterior, error en el precio…" id="expense-rectification-reason" label="Motivo">
+                  <Input maxLength={500} onChange={(event) => setRectificationReason(event.target.value)} placeholder="Ej. Devolución de mercancía" value={rectificationReason} />
+                </AccessibleField>
+              </>
+            ) : null}
+          </div>
+          {rectifiedInvoice ? (
+            <p className="text-xs text-muted-foreground">
+              Se han copiado las líneas de{" "}
+              <Link className="font-bold text-link underline" href={`/expenses/${rectifiedInvoice.id}`}>{rectifiedInvoice.supplierDocumentNumber || rectifiedInvoice.number}</Link>{" "}
+              en negativo (abono total). Para un abono parcial, cambia cantidades o importes o elimina las líneas que no se abonan.
+            </p>
+          ) : null}
+        </section>
         {expenseAccounts.length === 0 ? (
           <FormErrorMessage>No hay cuentas de gasto activas. Crea al menos una en Contabilidad › Plan contable (grupo 6) antes de registrar gastos.</FormErrorMessage>
         ) : null}
@@ -461,6 +630,13 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
               required
             >
               <SupplierPicker id="expense-supplier" onChange={chooseSupplier} onCreateRequested={openNewSupplierDialog} suppliers={suppliers} value={supplierPartnerId} />
+              <label className="mt-1 flex items-center gap-2 text-xs" htmlFor="expense-simplified">
+                <input checked={isSimplified} data-testid="expense-simplified" id="expense-simplified" onChange={(event) => { setIsSimplified(event.target.checked); setFieldErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== "supplier"))); }} type="checkbox" />
+                Ticket o factura simplificada sin NIF
+              </label>
+              {missingTaxIdMessage && !fieldErrors.supplier ? (
+                <p className="mt-1 text-xs text-warning-text" role="status">Este proveedor no tiene NIF: complétalo en su ficha o marca la casilla si es un ticket o una factura simplificada.</p>
+              ) : null}
             </AccessibleField>
             <AccessibleField
               helperText={selfAssessedVat ? "El IVA lo declaras tú (autorrepercusión): no se paga al proveedor." : "Se propone según el país o el valor habitual del proveedor; cámbialo solo si la factura lo indica."}
@@ -497,6 +673,23 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
             <Input onChange={(event) => changeIssueDate(event.target.value)} required type="date" value={issueDate} />
           </AccessibleField>
           <AccessibleField
+            helperText="Opcional. Solo si la entrega o el servicio se hizo en una fecha distinta de la de la factura."
+            id="expense-operation-date"
+            label="Fecha de operación"
+          >
+            <Input onChange={(event) => setOperationDate(event.target.value)} type="date" value={operationDate} />
+          </AccessibleField>
+          {vatTreatment === "IMPORT" ? (
+            <>
+              <AccessibleField helperText="Número del documento aduanero (DUA) de la importación." id="expense-dua-number" label="N.º de DUA">
+                <Input maxLength={40} onChange={(event) => setImportDuaNumber(event.target.value)} placeholder="Ej. 26ES00280112345678" value={importDuaNumber} />
+              </AccessibleField>
+              <AccessibleField helperText="Fecha de admisión del DUA por la aduana." id="expense-dua-date" label="Fecha del DUA">
+                <Input onChange={(event) => setImportDuaDate(event.target.value)} type="date" value={importDuaDate} />
+              </AccessibleField>
+            </>
+          ) : null}
+          <AccessibleField
             error={fieldErrors.accountingDate}
             helperText="Opcional. Si la factura te llega tarde y su trimestre ya está presentado, indica hoy: el IVA se deduce en el periodo de registro."
             id="expense-accounting-date"
@@ -506,7 +699,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
           </AccessibleField>
           <AccessibleField
             error={fieldErrors.dueDate}
-            helperText={!dueDateEdited && supplierDefaults?.paymentTermsDays !== null && supplierDefaults?.paymentTermsDays !== undefined ? `Calculado con los ${supplierDefaults.paymentTermsDays} días de pago del proveedor.` : "Opcional: fecha límite para pagarla."}
+            helperText={isRectification ? "Un abono no vence: déjalo vacío salvo que la rectificativa sea a pagar." : !dueDateEdited && supplierDefaults?.paymentTermsDays !== null && supplierDefaults?.paymentTermsDays !== undefined ? `Calculado con los ${supplierDefaults.paymentTermsDays} días de pago del proveedor.` : "Opcional: fecha límite para pagarla."}
             id="expense-due-date"
             label="Vencimiento"
           >
@@ -544,7 +737,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
           </div>
         </div>
 
-        <details className={sectionClass} open={Boolean(purchaseOrderId || goodsReceiptId)}>
+        <details className={sectionClass} hidden={isRectification} open={Boolean(purchaseOrderId || goodsReceiptId)}>
           <summary className="cursor-pointer font-mono text-sm font-bold">Relacionar con un pedido de compra <span className="font-normal text-muted-foreground">(opcional)</span></summary>
           <p className="text-xs text-muted-foreground">Al elegir una recepción se completan su pedido y proveedor.</p>
           <div className="grid gap-3 md:grid-cols-2">
@@ -566,11 +759,18 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
         <section aria-labelledby="expense-lines-title" className="space-y-2">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <h2 className="font-mono text-sm font-bold" id="expense-lines-title">Qué has comprado</h2>
+              <h2 className="font-mono text-sm font-bold" id="expense-lines-title">{isRectification ? "Qué se rectifica" : "Qué has comprado"}</h2>
               <p className="text-xs text-muted-foreground">
                 <strong>Base</strong>: importe sin IVA. <strong>Deducible</strong>: parte del IVA que recuperas (100 % si es solo del negocio).{" "}
                 <strong>Retención</strong>: IRPF que te descuenta un profesional (15 %) o un alquiler (19 %); si la factura no la muestra, 0.
+                {isRectification ? <> <strong>Abono</strong>: pon la cantidad (o la base) en negativo.</> : null}
               </p>
+              {surchargeAllowed ? (
+                <label className="mt-1 flex items-center gap-2 text-xs" htmlFor="expense-has-surcharge">
+                  <input checked={hasSurcharge} id="expense-has-surcharge" onChange={(event) => setHasSurcharge(event.target.checked)} type="checkbox" />
+                  La factura lleva recargo de equivalencia
+                </label>
+              ) : null}
             </div>
             <Button onClick={() => setLines((current) => [...current, newLine(supplierDefaults)])} size="sm" type="button" variant="outline">
               <Plus aria-hidden="true" />
@@ -595,7 +795,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
                   <AccountPicker
                     accounts={expenseAccounts}
                     id={`expense-line-account-${line.id}`}
-                    onChange={(accountId) => updateLine(line.id, { expenseAccountId: accountId, accountSource: accountId ? "user" : "none" })}
+                    onChange={(accountId) => chooseLineAccount(line, accountId)}
                     recentKey="expense"
                     suggestedIds={supplierSuggestionIds}
                     value={line.expenseAccountId}
@@ -617,11 +817,22 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
                   <PercentInput onChange={(event) => updateLine(line.id, { retentionRate: event.target.value })} required value={line.retentionRate} />
                 </AccessibleField>
                 <div className="flex items-end justify-between gap-2">
-                  <p className="pb-2 font-mono text-xs font-bold tabular-nums">{formatMoney(payable(lineTotals(line)), baseCurrencyCode)}</p>
+                  <p className={`pb-2 font-mono text-xs font-bold tabular-nums${payable(lineTotals(line, surchargeActive)) < 0 ? " text-danger-text" : ""}`}>{formatMoney(payable(lineTotals(line, surchargeActive)), baseCurrencyCode)}</p>
                   <Button aria-label={`Eliminar línea ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => (current.length > 1 ? current.filter((candidate) => candidate.id !== line.id) : current))} size="icon" title="Eliminar línea" type="button" variant="ghost">
                     <Trash2 aria-hidden="true" />
                   </Button>
                 </div>
+              </div>
+              <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-1">
+                <label className="flex items-center gap-2 text-xs" htmlFor={`expense-line-investment-${line.id}`} title="Inmovilizado: maquinaria, equipos, vehículos… Va a su casilla del modelo 303 y al libro de bienes de inversión.">
+                  <input checked={lineIsInvestmentGood(line)} id={`expense-line-investment-${line.id}`} onChange={(event) => updateLine(line.id, { isInvestmentGood: event.target.checked, investmentEdited: true })} type="checkbox" />
+                  Bien de inversión
+                </label>
+                {surchargeActive ? (
+                  <AccessibleField className="w-32" error={lineError(line, "surcharge")} id={`expense-line-surcharge-${line.id}`} label="Recargo eq.">
+                    <PercentInput onChange={(event) => updateLine(line.id, { surchargeRate: event.target.value })} value={line.surchargeRate} />
+                  </AccessibleField>
+                ) : null}
               </div>
             </fieldset>
           ))}
@@ -632,13 +843,14 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
             <Textarea onChange={(event) => setNotes(event.target.value)} value={notes} />
           </AccessibleField>
           <aside aria-label="Total previsto" className="border-l-4 border-l-primary bg-window-panel p-3 font-mono text-xs tabular-nums">
-            <p className="font-bold uppercase tracking-[0.05em]">Total a pagar</p>
+            <p className="font-bold uppercase tracking-[0.05em]">{payable(preview) < 0 ? "Total del abono (a tu favor)" : "Total a pagar"}</p>
             <dl className="mt-1 space-y-0.5">
               <div className="flex justify-between gap-3"><dt>Base</dt><dd>{formatMoney(preview.subtotal, baseCurrencyCode)}</dd></div>
               <div className="flex justify-between gap-3 text-muted-foreground"><dt>{selfAssessedVat ? "IVA autorrepercutido" : "+ IVA"}</dt><dd>{formatMoney(preview.tax, baseCurrencyCode)}</dd></div>
+              {surchargeActive && preview.surcharge !== 0 ? <div className="flex justify-between gap-3 text-muted-foreground"><dt>+ Recargo eq.</dt><dd>{formatMoney(preview.surcharge, baseCurrencyCode)}</dd></div> : null}
               <div className="flex justify-between gap-3 text-muted-foreground"><dt>− Retención</dt><dd>{formatMoney(preview.retention, baseCurrencyCode)}</dd></div>
             </dl>
-            <p className="mt-1 border-t border-window-shadow pt-1 text-lg font-bold">{formatMoney(payable(preview), baseCurrencyCode)}</p>
+            <p className={`mt-1 border-t border-window-shadow pt-1 text-lg font-bold${payable(preview) < 0 ? " text-danger-text" : ""}`}>{formatMoney(payable(preview), baseCurrencyCode)}</p>
           </aside>
         </div>
 
@@ -658,7 +870,7 @@ export function CreateExpenseInvoiceForm({ baseCurrencyCode, expenseSeries = [],
         <FormErrorMessage id="expense-invoice-error">{error}</FormErrorMessage>
         <FormActions sticky summary={<FormTotalSummary label={selfAssessedVat ? "A pagar" : "Total"} lines={lines.length} total={payable(preview)} currencyCode={baseCurrencyCode} />}>
           <SubmitButton disabled={expenseAccounts.length === 0 || isUploading || duplicate?.level === "exact" || (duplicate?.level === "possible" && !duplicateAcknowledged)} pending={isLoading} pendingLabel="Registrando…">
-            Registrar factura
+            {isRectification ? "Registrar rectificativa" : "Registrar factura"}
           </SubmitButton>
         </FormActions>
       </form>

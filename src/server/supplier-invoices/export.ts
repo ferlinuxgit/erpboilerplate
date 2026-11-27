@@ -80,6 +80,15 @@ export async function generateExpenseExport(input: {
         totalAmount: supplierInvoice.totalAmount,
         notes: supplierInvoice.notes,
         purchaseOrderNumber: purchaseOrder.number,
+        documentKind: supplierInvoice.documentKind,
+        rectifiedDocumentNumber: supplierInvoice.rectifiedDocumentNumber,
+        rectifiedIssueDate: supplierInvoice.rectifiedIssueDate,
+        rectificationReason: supplierInvoice.rectificationReason,
+        operationDate: supplierInvoice.operationDate,
+        isSimplified: supplierInvoice.isSimplified,
+        surchargeAmount: supplierInvoice.surchargeAmount,
+        importDuaNumber: supplierInvoice.importDuaNumber,
+        importDuaDate: supplierInvoice.importDuaDate,
         paidAmount: paidAmount.mapWith(Number),
         paymentStatus,
       })
@@ -110,6 +119,9 @@ export async function generateExpenseExport(input: {
           taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
           retentionRate: supplierInvoiceLine.retentionRate,
           retentionAmount: supplierInvoiceLine.retentionAmount,
+          surchargeRate: supplierInvoiceLine.surchargeRate,
+          surchargeAmount: supplierInvoiceLine.surchargeAmount,
+          isInvestmentGood: supplierInvoiceLine.isInvestmentGood,
         })
         .from(supplierInvoiceLine)
         .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
@@ -158,6 +170,15 @@ export async function generateExpenseExport(input: {
     notes: row.notes,
     // Prorrata guardada al contabilizar la factura.
     prorrataPct: Number(row.prorrataPct),
+    documentKind: row.documentKind,
+    rectifiedDocumentNumber: row.rectifiedDocumentNumber,
+    rectifiedIssueDate: row.rectifiedIssueDate,
+    rectificationReason: row.rectificationReason,
+    operationDate: row.operationDate,
+    isSimplified: row.isSimplified,
+    surchargeAmount: Number(row.surchargeAmount),
+    importDuaNumber: row.importDuaNumber,
+    importDuaDate: row.importDuaDate,
     lines: lines
       .filter((line) => line.supplierInvoiceId === row.id)
       .map((line) => ({
@@ -169,6 +190,9 @@ export async function generateExpenseExport(input: {
         taxDeductiblePct: Number(line.taxDeductiblePct),
         retentionRate: Number(line.retentionRate),
         retentionAmount: Number(line.retentionAmount),
+        surchargeRate: Number(line.surchargeRate),
+        surchargeAmount: Number(line.surchargeAmount),
+        isInvestmentGood: line.isInvestmentGood,
       })),
     documents: documents
       .filter((document) => document.supplierInvoiceId === row.id)
