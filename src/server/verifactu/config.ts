@@ -1,12 +1,17 @@
 /**
  * Configuración VeriFactu (entorno AEAT, sistema informático y transporte).
  *
- * Variables de entorno (todas opcionales; sin ellas los registros se generan y quedan pendientes de envío):
- * - VERIFACTU_ENVIRONMENT: "test" (preproducción AEAT, por defecto) o "production".
+ * Variables de entorno:
+ * - VERIFACTU_ENVIRONMENT: "production" o "test" (preproducción AEAT). OBLIGATORIA y sin valor por
+ *   defecto con VERIFACTU_TRANSPORT=aeat o NODE_ENV=production; solo en desarrollo se asume "test".
+ *   Cada registro guarda el entorno en el que nació: cambiarla NO mueve los registros existentes
+ *   (los del otro entorno dejan de enviarse y se avisa en pantalla).
  * - VERIFACTU_TRANSPORT: "disabled" (por defecto) o "aeat" (envío real con certificado).
  * - VERIFACTU_CERT_PATH / VERIFACTU_CERT_PASSWORD: certificado del sistema (.p12/.pfx) para mTLS.
  *   Es opcional: cada empresa puede subir el suyo. El del sistema solo vale para remitir en nombre
  *   de terceros si su titular es colaborador social o apoderado de cada obligado ante la AEAT.
+ * - VERIFACTU_CERT_SEAL: "S" si el certificado del sistema es de sello electrónico (usa el punto de
+ *   acceso de sello de la AEAT: www10 / prewww10).
  * - VERIFACTU_ENDPOINT_URL: sobrescribe la URL del servicio web (útil para un simulador).
  * - VERIFACTU_QR_BASE_URL: sobrescribe la URL base del cotejo del QR.
  * - VERIFACTU_SYSTEM_NAME, VERIFACTU_SYSTEM_ID (2 caracteres), VERIFACTU_SYSTEM_VERSION,
@@ -16,6 +21,8 @@
  *   resto de datos de la declaración responsable (art. 15 Orden HAC/1177/2024).
  * - VERIFACTU_MULTI_OT: "S" (por defecto: la instalación da servicio a varios obligados) o "N".
  */
+
+import { HttpError } from "@/lib/http";
 
 export type VerifactuEnvironment = "test" | "production";
 
@@ -33,14 +40,64 @@ export type VerifactuSystemInfo = {
 
 type Env = Record<string, string | undefined>;
 
-export function getVerifactuEnvironment(env: Env = process.env): VerifactuEnvironment {
-  return env.VERIFACTU_ENVIRONMENT === "production" ? "production" : "test";
+export const VERIFACTU_ENVIRONMENTS = ["production", "test"] as const;
+
+export const verifactuEnvironmentLabels: Record<VerifactuEnvironment, string> = { production: "producción", test: "pruebas" };
+
+/** Rótulo que acompaña a todo lo que procede del entorno de pruebas de la AEAT (pantallas, PDF y tickets). */
+export const TEST_ENVIRONMENT_LABEL = "ENTORNO DE PRUEBAS";
+export const TEST_ENVIRONMENT_LEGEND = "ENTORNO DE PRUEBAS · SIN VALIDEZ FISCAL";
+
+export function isVerifactuEnvironment(value: unknown): value is VerifactuEnvironment {
+  return value === "production" || value === "test";
 }
 
-/** Servicio web de remisión (SOAP, RegFactuSistemaFacturacion) con certificado cualificado. */
-export const AEAT_VERIFACTU_ENDPOINTS: Record<VerifactuEnvironment, string> = {
-  production: "https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
-  test: "https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
+export type VerifactuEnvironmentConfig =
+  | { environment: VerifactuEnvironment; problem: null }
+  | { environment: null; problem: string };
+
+/**
+ * Entorno de la AEAT de este despliegue. Hay que declararlo: si faltara, las facturas reales
+ * acabarían en el entorno de pruebas (aceptadas y con QR, pero sin que Hacienda reciba nada).
+ * Solo en desarrollo, sin envío activado, se asume «pruebas».
+ */
+export function readVerifactuEnvironment(env: Env = process.env): VerifactuEnvironmentConfig {
+  const raw = env.VERIFACTU_ENVIRONMENT?.trim().toLowerCase() ?? "";
+  if (isVerifactuEnvironment(raw)) return { environment: raw, problem: null };
+  if (raw) {
+    return { environment: null, problem: `VERIFACTU_ENVIRONMENT tiene un valor no válido («${raw}»): debe ser «production» o «test».` };
+  }
+  if (env.VERIFACTU_TRANSPORT === "aeat" || env.NODE_ENV === "production") {
+    return { environment: null, problem: "Falta VERIFACTU_ENVIRONMENT: hay que indicar de forma expresa «production» o «test» (no hay valor por defecto)." };
+  }
+  return { environment: "test", problem: null };
+}
+
+/** Entorno del despliegue, o null si no está declarado (ver `readVerifactuEnvironment`). */
+export function getVerifactuEnvironment(env: Env = process.env): VerifactuEnvironment | null {
+  return readVerifactuEnvironment(env).environment;
+}
+
+/** Entorno del despliegue; falla con un mensaje claro si no está declarado. */
+export function requireVerifactuEnvironment(env: Env = process.env): VerifactuEnvironment {
+  const config = readVerifactuEnvironment(env);
+  if (config.environment) return config.environment;
+  throw new HttpError(503, `VERI*FACTU no está bien configurado en este servidor. ${config.problem} Avisa al administrador del sistema.`);
+}
+
+/**
+ * Servicio web de remisión (SOAP, RegFactuSistemaFacturacion), según el WSDL de la AEAT: un punto
+ * de acceso para certificados de persona o representante y otro para certificados de sello.
+ */
+export const AEAT_VERIFACTU_ENDPOINTS: Record<VerifactuEnvironment, { standard: string; seal: string }> = {
+  production: {
+    standard: "https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
+    seal: "https://www10.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
+  },
+  test: {
+    standard: "https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
+    seal: "https://prewww10.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
+  },
 };
 
 /** Servicio de cotejo de facturas por QR (art. 21 Orden HAC/1177/2024 y documento "Características del QR"). */
@@ -55,21 +112,30 @@ export const AEAT_QR_BASE_URLS: Record<VerifactuEnvironment, { verifactu: string
   },
 };
 
-export function getVerifactuEndpoint(env: Env = process.env) {
-  return env.VERIFACTU_ENDPOINT_URL?.trim() || AEAT_VERIFACTU_ENDPOINTS[getVerifactuEnvironment(env)];
+/** Punto de acceso de un envío: lo deciden el entorno DEL REGISTRO y el tipo de certificado que firma la conexión. */
+export function getVerifactuEndpoint(target: { environment: VerifactuEnvironment; seal?: boolean }, env: Env = process.env) {
+  const override = env.VERIFACTU_ENDPOINT_URL?.trim();
+  if (override) return override;
+  const urls = AEAT_VERIFACTU_ENDPOINTS[target.environment];
+  return target.seal ? urls.seal : urls.standard;
 }
 
-export function getQrBaseUrl(mode: "VERIFACTU" | "NO_VERIFACTU", env: Env = process.env) {
+/** URL base del cotejo del QR: la del entorno DEL REGISTRO, no la del despliegue que lo pinta. */
+export function getQrBaseUrl(mode: "VERIFACTU" | "NO_VERIFACTU", environment: VerifactuEnvironment, env: Env = process.env) {
   const override = env.VERIFACTU_QR_BASE_URL?.trim();
   if (override) return override;
-  const urls = AEAT_QR_BASE_URLS[getVerifactuEnvironment(env)];
+  const urls = AEAT_QR_BASE_URLS[environment];
   return mode === "VERIFACTU" ? urls.verifactu : urls.noVerifactu;
 }
 
 export type VerifactuTransportConfig =
   | { kind: "disabled"; reason: string }
-  /** `certPath` es el certificado del sistema; null si cada empresa remite con el suyo. */
-  | { kind: "aeat"; endpoint: string; certPath: string | null; certPassword: string };
+  /**
+   * `environment` es el del despliegue: solo se remiten los registros nacidos en él.
+   * `certPath` es el certificado del sistema (null si cada empresa remite con el suyo) y
+   * `certSeal` indica si ese certificado es de sello electrónico.
+   */
+  | { kind: "aeat"; environment: VerifactuEnvironment; certPath: string | null; certPassword: string; certSeal: boolean };
 
 const NIF_FORMAT = /^[0-9A-Z][0-9]{7}[0-9A-Z]$/;
 
@@ -77,11 +143,19 @@ export function getVerifactuTransportConfig(env: Env = process.env): VerifactuTr
   if (env.VERIFACTU_TRANSPORT !== "aeat") {
     return { kind: "disabled", reason: "El envío a la AEAT no está activado (VERIFACTU_TRANSPORT)." };
   }
+  const environment = readVerifactuEnvironment(env);
+  if (!environment.environment) return { kind: "disabled", reason: environment.problem };
   // Sin NIF del productor el bloque SistemaInformatico no es válido y la AEAT rechaza el envío entero.
   if (!NIF_FORMAT.test((env.VERIFACTU_PRODUCER_NIF ?? "").trim().toUpperCase())) {
     return { kind: "disabled", reason: "Falta el NIF del productor del sistema informático (VERIFACTU_PRODUCER_NIF)." };
   }
-  return { kind: "aeat", endpoint: getVerifactuEndpoint(env), certPath: env.VERIFACTU_CERT_PATH?.trim() || null, certPassword: env.VERIFACTU_CERT_PASSWORD ?? "" };
+  return {
+    kind: "aeat",
+    environment: environment.environment,
+    certPath: env.VERIFACTU_CERT_PATH?.trim() || null,
+    certPassword: env.VERIFACTU_CERT_PASSWORD ?? "",
+    certSeal: ["s", "si", "sí", "true", "1"].includes(env.VERIFACTU_CERT_SEAL?.trim().toLowerCase() ?? ""),
+  };
 }
 
 /** Datos de la declaración responsable del productor (art. 15 Orden HAC/1177/2024). */

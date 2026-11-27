@@ -35,6 +35,18 @@ export default async function TicketPrintPage({ params, searchParams }: { params
       <style>{"@page { size: 80mm auto; margin: 3mm; } @media print { .no-print { display: none !important; } body { background: white; } }"}</style>
       <AutoPrint enabled={query.print === "1"} />
       <div className="no-print mb-2 flex justify-center"><PrintButton label="Imprimir ticket" /></div>
+      {/*
+        QR tributario: al principio del ticket, centrado y antes de cualquier otro contenido (documento
+        técnico de la AEAT). El SVG ya trae 4 módulos en blanco por lado: en 38 mm son más de 2 mm de
+        margen y un código de más de 30 mm. Rótulo y leyenda, con la misma letra que el resto.
+      */}
+      {ticket.verifactu ? (
+        <div className="mb-2 flex flex-col items-center text-center" data-testid="pos-ticket-qr">
+          <p>{ticket.verifactu.caption}</p>
+          <div className="size-[38mm] bg-white [&_svg]:size-full" dangerouslySetInnerHTML={{ __html: ticket.verifactu.svg }} />
+          {ticket.verifactu.legends.map((legend) => <p className="font-bold" key={legend}>{legend}</p>)}
+        </div>
+      ) : null}
       <header className="text-center">
         <p className="text-sm font-bold">{issuer?.name ?? ctx.company.name}</p>
         {issuer?.legalName && issuer.legalName !== issuer.name ? <p>{issuer.legalName}</p> : null}
@@ -80,13 +92,6 @@ export default async function TicketPrintPage({ params, searchParams }: { params
           {ticket.payment.cashReceived !== null && !isRefund ? <p className="flex justify-between"><span>Entregado</span><span>{money(ticket.payment.cashReceived)}</span></p> : null}
           {ticket.payment.change !== null && ticket.payment.change > 0 ? <p className="flex justify-between"><span>Cambio</span><span>{money(ticket.payment.change)}</span></p> : null}
           {ticket.payment.tip > 0 ? <p className="flex justify-between"><span>Propina (tarjeta)</span><span>{money(ticket.payment.tip)}</span></p> : null}
-        </div>
-      ) : null}
-      {ticket.verifactu ? (
-        <div className="mt-2 flex flex-col items-center text-center">
-          <p>{ticket.verifactu.caption}</p>
-          <div className="size-[32mm] [&_svg]:size-full" dangerouslySetInnerHTML={{ __html: ticket.verifactu.svg }} />
-          {ticket.verifactu.legends.map((legend) => <p key={legend}>{legend}</p>)}
         </div>
       ) : null}
       <p className="mt-2 text-center">¡Gracias por su visita!</p>

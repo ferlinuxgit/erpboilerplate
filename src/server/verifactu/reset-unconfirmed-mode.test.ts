@@ -56,6 +56,7 @@ async function appendRecord(id: string, index: number) {
     companyId: id,
     invoiceId: `${id}-invoice-${index}`,
     mode: "NO_VERIFACTU",
+    environment: "test",
     issuerTaxId: "B12345678",
     issuerName: `${id} SL`,
     invoiceNumber: `FA00000${index}`,

@@ -12,8 +12,9 @@ import { isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/f
 /**
  * "non_verifactu" es un modo heredado: ya no se puede elegir (el sistema solo funciona como
  * VERI*FACTU; la modalidad sin remisión exige firma electrónica de cada registro y un registro de
- * eventos con formato AEAT que no implementamos). Las empresas que lo tuvieran siguen generando
- * registros encadenados y solo pueden pasar a VERI*FACTU.
+ * eventos con formato AEAT que no implementamos). Las empresas que lo tuvieran ya NO generan
+ * registros (serían no conformes): la emisión se bloquea hasta que activen VERI*FACTU
+ * (ver `registerIssuedInvoiceRecord`).
  */
 export type VerifactuModeSetting = "pending" | "verifactu" | "non_verifactu";
 
@@ -61,6 +62,26 @@ export async function getVerifactuSettings(client: DbClient, companyId: string):
   };
 }
 
+/** Margen máximo para programar el inicio: más allá es casi seguro un error al teclear el año. */
+export const MAX_SINCE_AHEAD_DAYS = 366;
+/** Entrada en vigor de la Orden HAC/1177/2024: la AEAT no admite facturas con fecha anterior. */
+const EARLIEST_SINCE = new Date("2024-10-28T00:00:00Z");
+
+/**
+ * Valida la fecha de inicio. Es el instante a partir del cual las facturas que SE EMITAN llevan
+ * registro (cuenta el momento real de la emisión, no la fecha que figure en la factura).
+ */
+export function assertValidVerifactuSince(since: Date | null, now = new Date()) {
+  if (!since) return;
+  if (Number.isNaN(since.getTime())) throw new HttpError(400, "La fecha de inicio no es válida.");
+  if (since.getTime() < EARLIEST_SINCE.getTime()) {
+    throw new HttpError(422, "La fecha de inicio no puede ser anterior al 28-10-2024 (entrada en vigor de VERI*FACTU). Déjala vacía para empezar ya.");
+  }
+  if (since.getTime() > now.getTime() + MAX_SINCE_AHEAD_DAYS * 86_400_000) {
+    throw new HttpError(422, "La fecha de inicio no puede estar a más de un año vista: revisa el año. Mientras llegue esa fecha tus facturas se emiten sin registro.");
+  }
+}
+
 export type VerifactuSettingsInput = {
   mode: VerifactuModeSetting;
   since: Date | null;
@@ -103,9 +124,11 @@ export async function updateVerifactuSettings(
       }
     }
     const sinceChanged = (current.since?.getTime() ?? null) !== (input.since?.getTime() ?? null);
-    if (current.mode !== "pending" && sinceChanged) {
+    if (sinceChanged) {
+      // Con registros generados el inicio ya ocurrió: moverlo dejaría facturas sin registro o huecos sin explicar.
       const [existing] = await tx.select({ id: verifactuRecord.id }).from(verifactuRecord).where(eq(verifactuRecord.companyId, actor.companyId)).limit(1);
       if (existing) throw new HttpError(409, "La fecha de inicio no se puede cambiar: ya hay registros de facturación generados.");
+      assertValidVerifactuSince(input.since);
     }
     const values = { verifactuMode: input.mode, verifactuSince: input.since, updatedAt: new Date() };
     const [existing] = await tx

@@ -6,10 +6,11 @@ import { HttpError } from "@/lib/http";
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import type { InvoiceTotals } from "@/lib/invoice-totals";
 import { appendAltaRecord, appendAnulacionRecord, type VerifactuRecordRow } from "@/server/verifactu/chain";
-import { getVerifactuSystemInfo } from "@/server/verifactu/config";
+import { getVerifactuSystemInfo, isVerifactuEnvironment, requireVerifactuEnvironment, verifactuEnvironmentLabels } from "@/server/verifactu/config";
 import { formatAeatDate, isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/format";
 import { mapInvoiceToAlta, SIMPLIFIED_INVOICE_HARD_LIMIT, verifactuTaxCodeFor, type SalesTreatment } from "@/server/verifactu/mapping";
 import { getVerifactuSettings, recordModeFor } from "@/server/verifactu/settings";
+import { assertAltaContentSendable, assertVerifactuSeriesNumber, subsanacionBlockFor } from "@/server/verifactu/validation";
 
 /**
  * Puntos de enganche con el ciclo de vida de facturas. Se llaman DENTRO de la transacción de
@@ -35,7 +36,14 @@ export type IssuedInvoiceHookInput = {
   operationDate?: Date | null;
   /** Causa de exención o de no sujeción elegida en la factura (E1–E6, N1, N2). */
   exemptionCode?: string | null;
+  /** Instante real de la emisión (por defecto, ahora). Decide si la factura debe llevar registro. */
+  issuedAt?: Date;
 };
+
+/** La modalidad heredada sin remisión no genera registros conformes: ya no se emite con ella. */
+export const LEGACY_MODE_BLOCKED_MESSAGE =
+  "Esta empresa sigue en la modalidad NO VERI*FACTU, que ya no está disponible: sus registros no cumplirían la norma (irían sin firma electrónica). "
+  + "Activa VERI*FACTU en Configuración › Fiscalidad para poder emitir o anular facturas.";
 
 async function latestRecordForInvoice(tx: DbClient, companyId: string, invoiceId: string) {
   const [row] = await tx
@@ -47,10 +55,15 @@ async function latestRecordForInvoice(tx: DbClient, companyId: string, invoiceId
       invoiceIssueDate: verifactuRecord.invoiceIssueDate,
       invoiceTypeCode: verifactuRecord.invoiceTypeCode,
       status: verifactuRecord.status,
+      mode: verifactuRecord.mode,
+      environment: verifactuRecord.environment,
+      aeatErrorCode: verifactuRecord.aeatErrorCode,
+      aeatErrorMessage: verifactuRecord.aeatErrorMessage,
     })
     .from(verifactuRecord)
     .where(and(eq(verifactuRecord.companyId, companyId), eq(verifactuRecord.invoiceId, invoiceId)))
-    .orderBy(desc(verifactuRecord.sequence))
+    // La secuencia es por entorno: entre registros de entornos distintos manda la fecha de generación.
+    .orderBy(desc(verifactuRecord.generatedAt), desc(verifactuRecord.sequence))
     .limit(1);
   return row ?? null;
 }
@@ -63,12 +76,23 @@ function operationDescription(input: IssuedInvoiceHookInput) {
   return descriptions.join("; ") || `Factura ${input.number}`;
 }
 
+/**
+ * ¿Debe llevar registro una factura que se emite en `issuedAt`? Lo decide el instante REAL de la
+ * emisión, nunca la fecha de expedición que figure en la factura: un borrador fechado antes de la
+ * fecha de inicio pero emitido después se registra igual (si no, saldría sin registro ni QR y
+ * fuera de la cadena).
+ */
+export function mustRegisterAt(since: Date | null, issuedAt: Date) {
+  return !since || issuedAt.getTime() >= since.getTime();
+}
+
 /** Registro de alta de una factura o rectificativa recién emitida (null si VeriFactu no está activo). */
 export async function registerIssuedInvoiceRecord(tx: DbClient, input: IssuedInvoiceHookInput): Promise<VerifactuRecordRow | null> {
   const settings = await getVerifactuSettings(tx, input.companyId);
   const mode = recordModeFor(settings.mode);
   if (!mode) return null;
-  if (settings.since && input.issueDate.getTime() < settings.since.getTime()) return null;
+  if (mode !== "VERIFACTU") throw new HttpError(409, LEGACY_MODE_BLOCKED_MESSAGE);
+  if (!mustRegisterAt(settings.since, input.issuedAt ?? new Date())) return null;
   return appendAltaFor(tx, input, settings, mode, {});
 }
 
@@ -86,6 +110,13 @@ export async function registerSubsanacionRecord(tx: DbClient, input: IssuedInvoi
   if (latest.status !== "REJECTED" && latest.status !== "ACCEPTED_WITH_ERRORS") {
     throw new HttpError(409, "Solo se subsanan los registros rechazados o aceptados con errores por la AEAT.");
   }
+  const environment = requireVerifactuEnvironment();
+  if (latest.environment !== environment) {
+    const recordEnvironment = isVerifactuEnvironment(latest.environment) ? verifactuEnvironmentLabels[latest.environment] : latest.environment;
+    throw new HttpError(409, `Este registro es del entorno de ${recordEnvironment} de la AEAT y este servidor trabaja en ${verifactuEnvironmentLabels[environment]}: no se puede subsanar desde aquí.`);
+  }
+  const block = subsanacionBlockFor({ code: latest.aeatErrorCode, message: latest.aeatErrorMessage });
+  if (block) throw new HttpError(409, block.message);
   let rechazoPrevio: "S" | "X" | null = null;
   if (latest.status === "REJECTED") {
     const [known] = await tx
@@ -116,6 +147,10 @@ async function appendAltaFor(
     throw new HttpError(422, "VeriFactu está activo y la empresa no tiene un NIF válido: complétalo en Configuración › Empresa antes de emitir.");
   }
   const issuerName = (input.issuer.legalName?.trim() || input.issuer.name || settings.issuerName).slice(0, 120);
+  // El registro nace en el entorno de este despliegue; sin entorno declarado no se emite.
+  const environment = requireVerifactuEnvironment();
+  // Todo lo que la AEAT rechazaría sin remedio se comprueba aquí, antes de que la factura quede emitida.
+  assertVerifactuSeriesNumber(input.number);
 
   let original: { issuerTaxId: string; invoiceNumber: string; invoiceIssueDate: string; invoiceTypeCode: string | null } | null = null;
   if (input.original) {
@@ -138,6 +173,7 @@ async function appendAltaFor(
     operationDate: input.operationDate && formatAeatDate(input.operationDate) !== formatAeatDate(input.issueDate) ? formatAeatDate(input.operationDate) : null,
     original,
   });
+  assertAltaContentSendable(content, formatAeatDate(input.issueDate));
   // La AEAT rechaza una simplificada por encima del límite legal: mejor avisar antes de emitir.
   if (content.invoiceTypeCode === "F2" && Math.abs(Number(content.totalAmount)) > SIMPLIFIED_INVOICE_HARD_LIMIT) {
     throw new HttpError(422, `Una factura de más de ${SIMPLIFIED_INVOICE_HARD_LIMIT.toLocaleString("es-ES")} € necesita el NIF del cliente: sin él sería una factura simplificada y supera el límite legal. Completa el NIF en la ficha del cliente.`);
@@ -147,6 +183,7 @@ async function appendAltaFor(
     companyId: input.companyId,
     invoiceId: input.invoiceId,
     mode,
+    environment,
     issuerTaxId,
     issuerName,
     invoiceNumber: input.number,
@@ -165,11 +202,15 @@ export async function registerInvoiceAnnulmentRecord(tx: DbClient, input: { comp
   const latest = await latestRecordForInvoice(tx, input.companyId, input.invoiceId);
   if (!latest || latest.recordType !== "ALTA") return null;
   const settings = await getVerifactuSettings(tx, input.companyId);
-  const mode = recordModeFor(settings.mode) ?? "VERIFACTU";
+  if (recordModeFor(settings.mode) === "NO_VERIFACTU") throw new HttpError(409, LEGACY_MODE_BLOCKED_MESSAGE);
+  // La anulación va a la cadena del entorno en el que nació el alta que anula (un alta de pruebas
+  // no se anula en producción). Si ese entorno no es el de este despliegue, no se enviará desde aquí.
+  const environment = isVerifactuEnvironment(latest.environment) ? latest.environment : requireVerifactuEnvironment();
   return appendAnulacionRecord(tx, {
     companyId: input.companyId,
     invoiceId: input.invoiceId,
-    mode,
+    mode: "VERIFACTU",
+    environment,
     issuerTaxId: latest.issuerTaxId,
     issuerName: latest.issuerName,
     invoiceNumber: latest.invoiceNumber,

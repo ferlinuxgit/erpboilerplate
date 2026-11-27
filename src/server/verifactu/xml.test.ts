@@ -174,7 +174,24 @@ describe("AEAT response", () => {
     expect(parseAeatResponse("<soap:Envelope><soap:Body><soap:Fault><faultcode>env:Client</faultcode><faultstring>Certificado no válido</faultstring></soap:Fault></soap:Body></soap:Envelope>").fault).toBe("Certificado no válido");
   });
 
-  it("maps AEAT line states to record statuses (duplicates count as accepted)", () => {
+  it("maps a duplicate (3000) to the state the AEAT already holds instead of assuming it was accepted", () => {
+    const duplicate = (state: string | null) => ({ invoiceNumber: "x", operation: "Alta", status: "Incorrecto", errorCode: "3000", errorMessage: "Registro de facturación duplicado.", duplicateStatus: state });
+    expect(outcomeForLine(duplicate("Correcta")).status).toBe("ACCEPTED");
+    expect(outcomeForLine(duplicate("AceptadaConErrores"))).toMatchObject({ status: "ACCEPTED_WITH_ERRORS", errorCode: "3000" });
+    // Alta sobre una factura que la AEAT tiene anulada: no ha entrado. Anulación duplicada: ya está hecha.
+    expect(outcomeForLine(duplicate("Anulada"), "ALTA").status).toBe("REJECTED");
+    expect(outcomeForLine(duplicate("Anulada"), "ANULACION").status).toBe("ACCEPTED");
+    expect(outcomeForLine(duplicate(null)).status).toBe("ACCEPTED");
+
+    const parsed = parseAeatResponse(`<R><RespuestaLinea><IDFactura><NumSerieFactura>F-1</NumSerieFactura></IDFactura><Operacion><TipoOperacion>Alta</TipoOperacion></Operacion>
+      <EstadoRegistro>Incorrecto</EstadoRegistro><CodigoErrorRegistro>3000</CodigoErrorRegistro><DescripcionErrorRegistro>Registro de facturación duplicado.</DescripcionErrorRegistro>
+      <RegistroDuplicado><IdPeticionRegistroDuplicado>20240101</IdPeticionRegistroDuplicado><EstadoRegistroDuplicado>AceptadaConErrores</EstadoRegistroDuplicado>
+      <CodigoErrorRegistro>2001</CodigoErrorRegistro><DescripcionErrorRegistro>El NIF del bloque Destinatarios no está identificado</DescripcionErrorRegistro></RegistroDuplicado></RespuestaLinea></R>`);
+    expect(parsed.lines[0]).toMatchObject({ errorCode: "3000", duplicateStatus: "AceptadaConErrores" });
+    expect(outcomeForLine(parsed.lines[0]).status).toBe("ACCEPTED_WITH_ERRORS");
+  });
+
+  it("maps AEAT line states to record statuses", () => {
     expect(outcomeForLine({ invoiceNumber: "x", operation: "Alta", status: "Correcto", errorCode: null, errorMessage: null }).status).toBe("ACCEPTED");
     expect(outcomeForLine({ invoiceNumber: "x", operation: "Alta", status: "AceptadoConErrores", errorCode: "2000", errorMessage: "aviso" }).status).toBe("ACCEPTED_WITH_ERRORS");
     expect(outcomeForLine({ invoiceNumber: "x", operation: "Alta", status: "Incorrecto", errorCode: "1100", errorMessage: "mal" }).status).toBe("REJECTED");
@@ -210,8 +227,8 @@ describe("VeriFactu XML · subsanación, fecha de operación e incidencia", () =
   it("declares the system as VERI*FACTU only and requires the producer NIF to enable sending", async () => {
     const { getVerifactuTransportConfig, getVerifactuDeclaration } = await import("@/server/verifactu/config");
     expect(systemInfo).toMatchObject({ TipoUsoPosibleSoloVerifactu: "S", TipoUsoPosibleMultiOT: "S", IndicadorMultiplesOT: "S" });
-    expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat" })).toMatchObject({ kind: "disabled" });
-    expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat", VERIFACTU_PRODUCER_NIF: "B00000000" })).toMatchObject({ kind: "aeat", certPath: null });
+    expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat", VERIFACTU_ENVIRONMENT: "test" })).toMatchObject({ kind: "disabled" });
+    expect(getVerifactuTransportConfig({ VERIFACTU_TRANSPORT: "aeat", VERIFACTU_ENVIRONMENT: "test", VERIFACTU_PRODUCER_NIF: "B00000000" })).toMatchObject({ kind: "aeat", environment: "test", certPath: null });
     expect(getVerifactuDeclaration({ VERIFACTU_PRODUCER_NIF: "B00000000" }).complete).toBe(false);
     expect(getVerifactuDeclaration({ VERIFACTU_PRODUCER_NIF: "B00000000", VERIFACTU_PRODUCER_NAME: "Software SL", VERIFACTU_PRODUCER_ADDRESS: "Calle 1, Madrid", VERIFACTU_DECLARATION_DATE: "2026-11-23", VERIFACTU_DECLARATION_PLACE: "Madrid" })).toMatchObject({ complete: true, onlyVerifactu: true });
   });

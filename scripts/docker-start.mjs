@@ -33,6 +33,23 @@ function validateRuntimeEnv() {
     process.exit(1);
   }
 
+  // VERI*FACTU: con el envío a la AEAT activado hay que declarar el entorno de forma expresa. Sin
+  // él las facturas reales podrían acabar en el entorno de pruebas (aceptadas, pero sin llegar a Hacienda).
+  const verifactuEnvironment = process.env.VERIFACTU_ENVIRONMENT?.trim().toLowerCase() ?? "";
+  if (verifactuEnvironment && verifactuEnvironment !== "production" && verifactuEnvironment !== "test") {
+    console.error(`VERIFACTU_ENVIRONMENT must be "production" or "test" (got "${verifactuEnvironment}").`);
+    process.exit(1);
+  }
+  if (process.env.VERIFACTU_TRANSPORT === "aeat" && !verifactuEnvironment) {
+    console.error('VERIFACTU_TRANSPORT=aeat requires an explicit VERIFACTU_ENVIRONMENT ("production" or "test"); there is no default.');
+    process.exit(1);
+  }
+  if (!verifactuEnvironment) {
+    console.warn('WARNING: VERIFACTU_ENVIRONMENT is not set. Companies with VERI*FACTU enabled will not be able to issue invoices until it is set to "production" or "test".');
+  } else if (verifactuEnvironment === "test" && process.env.NODE_ENV === "production") {
+    console.warn("WARNING: VERIFACTU_ENVIRONMENT=test. Invoice records are generated for the AEAT TEST environment and never reach the tax agency.");
+  }
+
   if (process.env.NODE_ENV === "production") {
     const appUrl = process.env.APP_URL ?? "";
     if (appUrl.startsWith("http://") && !appUrl.includes("localhost") && !appUrl.includes("127.0.0.1")) {

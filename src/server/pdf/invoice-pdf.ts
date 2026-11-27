@@ -183,9 +183,14 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   const reasonLabel = row.rectificationReason && row.rectificationReason in rectificationReasonLabels
     ? rectificationReasonLabels[row.rectificationReason as RectificationReason]
     : null;
-  const typeLabel = row.rectificationType && row.rectificationType in rectificationTypeLabels
-    ? rectificationTypeLabels[row.rectificationType as RectificationType]
-    : null;
+  // La factura debe decir lo mismo que su registro VERI*FACTU (TipoRectificativa = "I"). Nuestras
+  // rectificativas expresan siempre los importes por diferencias: también las que el formulario
+  // llama «por sustitución», que llevan las líneas originales en negativo y las correctas en positivo.
+  const typeLabel = row.rectificationType === "SUBSTITUTION"
+    ? `${rectificationTypeLabels.DIFFERENCES} (anula las líneas de la factura original e incluye las correctas)`
+    : row.rectificationType && row.rectificationType in rectificationTypeLabels
+      ? rectificationTypeLabels[row.rectificationType as RectificationType]
+      : null;
 
   return {
     filename: safeInvoiceFilename(row.number, isCreditNote),

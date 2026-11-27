@@ -128,13 +128,20 @@ describe("renderInvoicePdf", () => {
 
   it("prints the VeriFactu QR and legend at the top of issued invoices", async () => {
     const { buildVerifactuQrUrl, renderQrPngDataUrl, verifactuLegends } = await import("@/server/verifactu/qr");
-    const url = buildVerifactuQrUrl({ mode: "VERIFACTU", issuerTaxId: "B12345674", invoiceNumber: "FAC-TEST-1", invoiceIssueDate: "02-06-2026", totalAmount: "121.00" }, {});
+    const url = buildVerifactuQrUrl({ mode: "VERIFACTU", environment: "production", issuerTaxId: "B12345674", invoiceNumber: "FAC-TEST-1", invoiceIssueDate: "02-06-2026", totalAmount: "121.00" }, {});
     const text = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), caption: "QR tributario:", legends: verifactuLegends("VERIFACTU"), url } })));
 
     // «QR tributario:» encima del código y la leyenda debajo, antes del contenido de la factura.
     expect(text).toContain("QR tributario:");
     expect(text.indexOf("QR tributario:")).toBeLessThan(text.indexOf("VERI*FACTU"));
     expect(text.indexOf("VERI*FACTU")).toBeLessThan(text.indexOf("Servicio test"));
+    // Al principio del documento: el QR va antes que la cabecera (número y título de la factura).
+    expect(text.indexOf("QR tributario:")).toBeLessThan(text.indexOf("FAC-TEST-1"));
+    // Un registro del entorno de pruebas lo dice junto al QR y no se anuncia como verificable.
+    const testLegends = verifactuLegends("VERIFACTU", true, "test");
+    const testText = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), caption: "QR tributario:", legends: testLegends, url } })));
+    expect(testText).toContain("ENTORNO DE PRUEBAS");
+    expect(testText).not.toContain("VERI*FACTU");
     // Sin envío operativo no hay leyenda, pero el QR (y su rótulo) se mantiene.
     const pending = await pdfText(await renderInvoicePdf(createInput({ verifactu: { qrDataUrl: await renderQrPngDataUrl(url), caption: "QR tributario:", legends: verifactuLegends("VERIFACTU", false), url } })));
     expect(pending).toContain("QR tributario:");

@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -32,6 +32,7 @@ import { getVerifactuSystemInfo } from "@/server/verifactu/config";
 import { registerInvoiceAnnulmentRecord, registerIssuedInvoiceRecord, registerSubsanacionRecord } from "@/server/verifactu/hooks";
 import { mapInvoiceToAlta } from "@/server/verifactu/mapping";
 import { processPendingVerifactuRecords } from "@/server/verifactu/sender";
+import { getInvoiceVerifactuInfo, getVerifactuHealth, getVerifactuOverview } from "@/server/verifactu/service";
 import { updateVerifactuSettings } from "@/server/verifactu/settings";
 import { verifactuTriggerStatements } from "@/server/verifactu/sql";
 import type { VerifactuTransport } from "@/server/verifactu/transport";
@@ -84,6 +85,7 @@ function draft(index: number) {
     companyId: COMPANY,
     invoiceId: `invoice-${index}`,
     mode: "VERIFACTU" as const,
+    environment: "test" as const,
     issuerTaxId: "B12345678",
     issuerName: "Empresa SL",
     invoiceNumber: `FA00000${index}`,
@@ -240,12 +242,19 @@ describe("VeriFactu hooks", () => {
     expect(await state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(5)))).toBeNull();
   });
 
-  it("creates the alta record in the issue transaction when activated and respects the start date", async () => {
-    await state.db.insert(companySettings).values({ companyId: COMPANY, verifactuMode: "verifactu", verifactuSince: new Date(Date.UTC(2026, 8, 5)) });
+  it("creates the alta record in the issue transaction when activated, deciding by the real issue time", async () => {
+    const since = new Date(Date.UTC(2026, 8, 5));
+    await state.db.insert(companySettings).values({ companyId: COMPANY, verifactuMode: "verifactu", verifactuSince: since });
     const record = await state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(5)));
-    expect(record).toMatchObject({ recordType: "ALTA", invoiceTypeCode: "F1", sequence: 5, totalAmount: "121.00", issuerTaxId: "B12345678" });
-    // Factura anterior a la fecha de inicio: sin registro.
-    expect(await state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, { ...hookInput(6), issueDate: new Date(Date.UTC(2026, 8, 1)) }))).toBeNull();
+    expect(record).toMatchObject({ recordType: "ALTA", environment: "test", invoiceTypeCode: "F1", sequence: 5, totalAmount: "121.00", issuerTaxId: "B12345678" });
+    // Borrador FECHADO antes del inicio pero emitido después: lleva registro (antes salía sin él).
+    await state.db.transaction(async (tx: never) => {
+      const backdated = await registerIssuedInvoiceRecord(tx, { ...hookInput(6), issueDate: new Date(Date.UTC(2026, 8, 1)) });
+      expect(backdated).toMatchObject({ recordType: "ALTA", invoiceIssueDate: "01-09-2026" });
+      throw new Error("rollback");
+    }).catch((error: Error) => expect(error.message).toBe("rollback"));
+    // Emitida de verdad antes de la fecha de inicio: sin registro, diga lo que diga su fecha de expedición.
+    expect(await state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, { ...hookInput(6), issuedAt: new Date(since.getTime() - 1000) }))).toBeNull();
   });
 
   it("rolls back the record when the surrounding issue transaction fails", async () => {
@@ -330,8 +339,20 @@ describe("VeriFactu · subsanación, aislamiento de lotes y reglas de activació
         return { httpStatus: 200, body: `<Respuesta><CSV>CSV-L</CSV>${numbers.map(okLine).join("")}</Respuesta>` };
       },
     };
-    const [summary] = await processPendingVerifactuRecords({ transport, now: new Date(Date.now() + 2 * 86_400_000) });
+    const isolationNow = new Date(Date.now() + 2 * 86_400_000);
+    // «Enviar ahora» no puede esperar entre envíos: sin `pause` no aísla y el lote queda pendiente.
+    const [untouched] = await processPendingVerifactuRecords({ transport, now: isolationNow });
+    expect(sends).toHaveLength(1);
+    expect(untouched).toMatchObject({ accepted: 0, rejected: 0, failed: 3 });
+    sends.length = 0;
+
+    // El worker sí aísla, esperando el tiempo de la AEAT (60 s por defecto) antes de cada envío extra.
+    const pauses: number[] = [];
+    const [summary] = await processPendingVerifactuRecords({ transport, now: new Date(isolationNow.getTime() + 3_600_000), pause: async (milliseconds) => { pauses.push(milliseconds); } });
     expect(sends[0]).toEqual(["LOTE-1", "LOTE-2", "LOTE-3"]);
+    expect(sends.length).toBeGreaterThan(1);
+    expect(pauses).toHaveLength(sends.length - 1);
+    expect(pauses.every((milliseconds) => milliseconds === 60_000)).toBe(true);
     expect(summary).toMatchObject({ accepted: 2, rejected: 1, failed: 0 });
     const lote = (await allRecords()).filter((record: { invoiceNumber: string }) => record.invoiceNumber.startsWith("LOTE-"));
     expect(lote.map((record: { status: string }) => record.status)).toEqual(["ACCEPTED", "REJECTED", "ACCEPTED"]);
@@ -405,7 +426,7 @@ describe("VeriFactu · subsanación, aislamiento de lotes y reglas de activació
   it("no deja activar VERI*FACTU mientras el envío a la AEAT no esté operativo", async () => {
     await state.db.insert(company).values({ id: "company-2", tenantId: "tenant-1", name: "Otra", legalName: "Otra SL", vatNumber: "B22222222" });
     const actor = { tenantId: "tenant-1", companyId: "company-2", actorUserId: "user-1" };
-    const saved = { transport: process.env.VERIFACTU_TRANSPORT, nif: process.env.VERIFACTU_PRODUCER_NIF, cert: process.env.VERIFACTU_CERT_PATH };
+    const saved = { transport: process.env.VERIFACTU_TRANSPORT, nif: process.env.VERIFACTU_PRODUCER_NIF, cert: process.env.VERIFACTU_CERT_PATH, environment: process.env.VERIFACTU_ENVIRONMENT };
     try {
       delete process.env.VERIFACTU_TRANSPORT;
       await expect(updateVerifactuSettings(actor, { mode: "verifactu", since: null })).rejects.toMatchObject({ status: 409 });
@@ -415,12 +436,201 @@ describe("VeriFactu · subsanación, aislamiento de lotes y reglas de activació
       // Transporte activo pero la empresa no tiene certificado (ni hay uno del sistema).
       await expect(updateVerifactuSettings(actor, { mode: "verifactu", since: null })).rejects.toMatchObject({ status: 409 });
       process.env.VERIFACTU_CERT_PATH = "/run/secrets/sistema.p12";
+      // Con el envío activado el entorno hay que declararlo: sin él no hay valor por defecto.
+      delete process.env.VERIFACTU_ENVIRONMENT;
+      await expect(updateVerifactuSettings(actor, { mode: "verifactu", since: null })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("VERIFACTU_ENVIRONMENT") });
+      process.env.VERIFACTU_ENVIRONMENT = "test";
+      // Fecha de inicio absurda (año mal tecleado): rechazada.
+      await expect(updateVerifactuSettings(actor, { mode: "verifactu", since: new Date(Date.now() + 3 * 365 * 86_400_000) })).rejects.toMatchObject({ status: 422 });
       await expect(updateVerifactuSettings(actor, { mode: "verifactu", since: null })).resolves.toMatchObject({ mode: "verifactu" });
     } finally {
-      for (const [key, value] of [["VERIFACTU_TRANSPORT", saved.transport], ["VERIFACTU_PRODUCER_NIF", saved.nif], ["VERIFACTU_CERT_PATH", saved.cert]] as const) {
+      for (const [key, value] of [["VERIFACTU_TRANSPORT", saved.transport], ["VERIFACTU_PRODUCER_NIF", saved.nif], ["VERIFACTU_CERT_PATH", saved.cert], ["VERIFACTU_ENVIRONMENT", saved.environment]] as const) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
     }
+  });
+});
+
+describe("VeriFactu · entornos, control de flujo y avisos", () => {
+  const OTHER = "company-3";
+  const issuer = { name: "Tercera", legalName: "Tercera SL", taxId: "B33333333", address: null, addressLine2: null, postalCode: null, city: null, province: null, countryCode: "ES" };
+  const draftFor = (index: number, environment: "test" | "production") => ({
+    companyId: OTHER,
+    invoiceId: `c3-invoice-${index}`,
+    mode: "VERIFACTU" as const,
+    environment,
+    issuerTaxId: "B33333333",
+    issuerName: "Tercera SL",
+    invoiceNumber: `T${index}`,
+    invoiceIssueDate: `0${index}-10-2026`,
+    systemInfo: getVerifactuSystemInfo(OTHER, {}),
+    content,
+  });
+  const hookInput = (index: number, overrides: Record<string, unknown> = {}) => ({
+    companyId: OTHER,
+    invoiceId: `c3-invoice-${index}`,
+    number: `T${index}`,
+    issueDate: new Date(Date.UTC(2026, 9, index)),
+    invoiceType: "INVOICE",
+    rectificationReason: null,
+    rectificationDescription: null,
+    vatTreatment: "DOMESTIC" as const,
+    issuer,
+    customer: { ...issuer, name: "Cliente", legalName: null, taxId: "B87654321" },
+    totals: { subtotal: 100, taxBuckets: [{ name: "IVA", kind: "VAT", rate: 21, operation: "ADD" as const, baseAmount: 100, amount: 21 }] },
+    lineDescriptions: ["Servicios"],
+    original: null,
+    ...overrides,
+  });
+  const recordsOf = async () => state.db.select().from(verifactuRecord).where(eq(verifactuRecord.companyId, OTHER)).orderBy(asc(verifactuRecord.generatedAt));
+  const okTransport = (waitSeconds: number, sent: Array<{ numbers: string[]; target: unknown }>, environment?: "test" | "production"): VerifactuTransport => ({
+    kind: "fake",
+    environment,
+    async send(xml, _credentials, target) {
+      const numbers = [...xml.matchAll(/<sum1:IDFactura>\s*<sum1:IDEmisorFactura>[^<]*<\/sum1:IDEmisorFactura>\s*<sum1:NumSerieFactura>([^<]+)</g)].map((match) => match[1]);
+      sent.push({ numbers, target });
+      return {
+        httpStatus: 200,
+        body: `<Respuesta><CSV>CSV-T</CSV><TiempoEsperaEnvio>${waitSeconds}</TiempoEsperaEnvio>${numbers.map((number) => `<RespuestaLinea><IDFactura><NumSerieFactura>${number}</NumSerieFactura></IDFactura><EstadoRegistro>Correcto</EstadoRegistro></RespuestaLinea>`).join("")}</Respuesta>`,
+      };
+    },
+  });
+
+  beforeAll(async () => {
+    await state.db.insert(company).values({ id: OTHER, tenantId: "tenant-1", name: "Tercera", legalName: "Tercera SL", vatNumber: "B33333333" });
+    await state.db.insert(customer).values({ id: "c3-customer", companyId: OTHER, name: "Cliente" });
+    for (let index = 1; index <= 6; index += 1) {
+      await state.db.insert(invoice).values({ id: `c3-invoice-${index}`, companyId: OTHER, customerId: "c3-customer", number: `T${index}`, issueDate: new Date(Date.UTC(2026, 9, index)), totalAmount: "121.00", status: "SENT" });
+    }
+  });
+
+  it("keeps one chain per company AND environment: test and production records never link", async () => {
+    const base = new Date("2026-10-10T08:00:00Z");
+    const test1 = await state.db.transaction((tx: never) => appendAltaRecord(tx, draftFor(1, "test"), base));
+    const production1 = await state.db.transaction((tx: never) => appendAltaRecord(tx, draftFor(2, "production"), new Date(base.getTime() + 60_000)));
+    const test2 = await state.db.transaction((tx: never) => appendAltaRecord(tx, draftFor(3, "test"), new Date(base.getTime() + 120_000)));
+    // Cada entorno empieza su propia cadena en el n.º 1 y solo enlaza con los suyos.
+    expect(test1).toMatchObject({ environment: "test", sequence: 1, previousHash: null });
+    expect(production1).toMatchObject({ environment: "production", sequence: 1, previousHash: null, previousRecordId: null });
+    expect(test2).toMatchObject({ environment: "test", sequence: 2, previousHash: test1.hash, previousRecordId: test1.id });
+    const heads = await state.db.select().from(verifactuChainHead).where(eq(verifactuChainHead.companyId, OTHER));
+    expect(heads.map((head: { environment: string; lastSequence: number }) => `${head.environment}:${head.lastSequence}`).sort()).toEqual(["production:1", "test:2"]);
+    expect((await verifyCompanyChain(OTHER, "user-1")).ok).toBe(true);
+    // El entorno es inmutable: no se puede «pasar» un registro de pruebas a producción.
+    await expectDbError(state.db.update(verifactuRecord).set({ environment: "production" }).where(eq(verifactuRecord.id, test1.id)), /inmutables/);
+  });
+
+  it("sends only the records of the deployment environment, to the endpoint of that environment", async () => {
+    const sent: Array<{ numbers: string[]; target: unknown }> = [];
+    const now = new Date("2026-10-10T09:00:00Z");
+    const [summary] = await processPendingVerifactuRecords({ transport: okTransport(120, sent, "test"), now, companyId: OTHER });
+    expect(summary).toMatchObject({ sent: 2, accepted: 2, waitSeconds: 120 });
+    expect(sent).toEqual([{ numbers: ["T1", "T3"], target: { environment: "test" } }]);
+    const records = await recordsOf();
+    expect(records.map((record: { invoiceNumber: string; status: string }) => `${record.invoiceNumber}:${record.status}`)).toEqual(["T1:ACCEPTED", "T2:PENDING_SEND", "T3:ACCEPTED"]);
+
+    // El aviso general lo cuenta: un registro de producción que este despliegue (pruebas) no enviará.
+    const health = await getVerifactuHealth(OTHER, now);
+    expect(health.otherEnvironmentPending).toBe(1);
+    expect(health.issues.map((issue) => issue.code)).toContain("OTHER_ENVIRONMENT");
+  });
+
+  it("stores the AEAT wait time per company and environment and respects it on the next send", async () => {
+    const [head] = await state.db.select().from(verifactuChainHead).where(and(eq(verifactuChainHead.companyId, OTHER), eq(verifactuChainHead.environment, "test")));
+    expect(head.waitSeconds).toBe(120);
+    expect(head.lastSubmissionAt.toISOString()).toBe("2026-10-10T09:00:00.000Z");
+
+    await state.db.transaction((tx: never) => appendAltaRecord(tx, draftFor(4, "test"), new Date("2026-10-10T09:00:30Z")));
+    const sent: Array<{ numbers: string[]; target: unknown }> = [];
+    // 60 s después: la AEAT pidió 120 → no se envía y se dice cuánto falta.
+    const early = await processPendingVerifactuRecords({ transport: okTransport(60, sent, "test"), now: new Date("2026-10-10T09:01:00Z"), companyId: OTHER });
+    expect(early).toEqual([expect.objectContaining({ companyId: OTHER, sent: 0, throttledSeconds: 60 })]);
+    expect(sent).toHaveLength(0);
+    // Pasados los 120 s, sí; y la nueva espera (60) sustituye a la anterior.
+    const [late] = await processPendingVerifactuRecords({ transport: okTransport(60, sent, "test"), now: new Date("2026-10-10T09:02:00Z"), companyId: OTHER });
+    expect(late).toMatchObject({ sent: 1, accepted: 1, waitSeconds: 60 });
+    const [after] = await state.db.select().from(verifactuChainHead).where(and(eq(verifactuChainHead.companyId, OTHER), eq(verifactuChainHead.environment, "test")));
+    expect(after.waitSeconds).toBe(60);
+  });
+
+  it("derives the QR URL and the test label from the environment of the record", async () => {
+    const testInfo = await getInvoiceVerifactuInfo(OTHER, "c3-invoice-1");
+    expect(testInfo).toMatchObject({ environment: "test", isTest: true, legends: ["ENTORNO DE PRUEBAS · SIN VALIDEZ FISCAL"] });
+    expect(testInfo?.url).toMatch(/^https:\/\/prewww2\.aeat\.es\//);
+    const productionInfo = await getInvoiceVerifactuInfo(OTHER, "c3-invoice-2");
+    expect(productionInfo).toMatchObject({ environment: "production", isTest: false });
+    expect(productionInfo?.url).toMatch(/^https:\/\/www2\.agenciatributaria\.gob\.es\//);
+    expect(productionInfo?.legends).not.toContain("ENTORNO DE PRUEBAS · SIN VALIDEZ FISCAL");
+  });
+
+  it("warns about records unsent for more than an hour and about rejections, and hides «Subsanar» when it would not help", async () => {
+    await state.db.insert(companySettings).values({ companyId: OTHER, verifactuMode: "verifactu" });
+    const created = await state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(5)));
+    expect(created).toMatchObject({ environment: "test", status: "PENDING_SEND" });
+    const soon = await getVerifactuHealth(OTHER, new Date(created.generatedAt.getTime() + 30 * 60_000));
+    expect(soon.overduePending).toBe(0);
+    const late = await getVerifactuHealth(OTHER, new Date(created.generatedAt.getTime() + 2 * 3_600_000));
+    expect(late).toMatchObject({ overduePending: 1, ok: false });
+    expect(late.oldestPendingAt?.getTime()).toBe(created.generatedAt.getTime());
+    expect(late.issues.find((issue) => issue.code === "PENDING_OVERDUE")?.title).toMatch(/^1 registro sin remitir desde el /);
+
+    // Rechazo por la identificación del destinatario: cuenta como rechazo y no se ofrece «Subsanar».
+    await state.db.update(verifactuRecord).set({ status: "REJECTED", aeatErrorCode: "1193", aeatErrorMessage: "En el bloque Destinatarios si se identifica mediante NIF, el NIF debe estar identificado" }).where(eq(verifactuRecord.id, created.id));
+    expect((await getVerifactuHealth(OTHER)).rejected).toBe(1);
+    const overview = await getVerifactuOverview(OTHER);
+    const row = overview.records.find((record) => record.id === created.id);
+    expect(row).toMatchObject({ canSubsanar: false, isTest: true });
+    expect(row?.subsanarHint).toContain("factura rectificativa");
+    await expect(state.db.transaction((tx: never) => registerSubsanacionRecord(tx, hookInput(5)))).rejects.toMatchObject({ status: 409, message: expect.stringContaining("rectificativa") });
+    // 2004 y 2009 tampoco se subsanan; un error corregible sí.
+    await state.db.update(verifactuRecord).set({ aeatErrorCode: "2004", aeatErrorMessage: "El valor del campo FechaHoraHusoGenRegistro debe ser la fecha actual" }).where(eq(verifactuRecord.id, created.id));
+    await expect(state.db.transaction((tx: never) => registerSubsanacionRecord(tx, hookInput(5)))).rejects.toMatchObject({ status: 409 });
+    await state.db.update(verifactuRecord).set({ aeatErrorCode: "1100", aeatErrorMessage: "Valor o tipo incorrecto del campo." }).where(eq(verifactuRecord.id, created.id));
+    expect((await getVerifactuOverview(OTHER)).records.find((record) => record.id === created.id)).toMatchObject({ canSubsanar: true, subsanarHint: null });
+    const fixed = await state.db.transaction((tx: never) => registerSubsanacionRecord(tx, hookInput(5)));
+    expect(fixed).toMatchObject({ subsanacion: "S", rechazoPrevio: "X", environment: "test" });
+    // Subsanado: el rechazo ya no es el último registro de la factura y deja de contar.
+    expect((await getVerifactuHealth(OTHER)).rejected).toBe(0);
+  });
+
+  it("fails before issuing when the AEAT would reject the record for good", async () => {
+    const issue = (overrides: Record<string, unknown>) => state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(6, overrides)));
+    // Caracteres no admitidos en NumSerieFactura.
+    await expect(issue({ number: "FÁC-6" })).rejects.toMatchObject({ status: 422, message: expect.stringContaining("«Á»") });
+    await expect(issue({ number: 'F"6' })).rejects.toMatchObject({ status: 422 });
+    // Fecha de operación posterior a la de expedición.
+    await expect(issue({ operationDate: new Date(Date.UTC(2026, 9, 20)) })).rejects.toMatchObject({ status: 422, message: expect.stringContaining("fecha de la operación") });
+    // Exención E2 (exportación) en una operación de régimen general.
+    const exempt = { subtotal: 100, taxBuckets: [] };
+    await expect(issue({ vatTreatment: "EXEMPT", exemptionCode: "E2", totals: exempt })).rejects.toMatchObject({ status: 422, message: expect.stringContaining("E2") });
+    // E5 con un cliente identificado con NIF español.
+    await expect(issue({ vatTreatment: "INTRA_EU", totals: exempt })).rejects.toMatchObject({ status: 422, message: expect.stringContaining("E5") });
+    expect((await recordsOf()).some((record: { invoiceId: string }) => record.invoiceId === "c3-invoice-6")).toBe(false);
+  });
+
+  it("refuses to issue when the deployment does not declare its environment", async () => {
+    const saved = { environment: process.env.VERIFACTU_ENVIRONMENT, transport: process.env.VERIFACTU_TRANSPORT };
+    try {
+      delete process.env.VERIFACTU_ENVIRONMENT;
+      process.env.VERIFACTU_TRANSPORT = "aeat";
+      await expect(state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(6)))).rejects.toMatchObject({ status: 503, message: expect.stringContaining("VERIFACTU_ENVIRONMENT") });
+      process.env.VERIFACTU_ENVIRONMENT = "producion";
+      await expect(state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(6)))).rejects.toMatchObject({ status: 503 });
+    } finally {
+      for (const [key, value] of [["VERIFACTU_ENVIRONMENT", saved.environment], ["VERIFACTU_TRANSPORT", saved.transport]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("blocks issuing and voiding in the legacy NO VERI*FACTU mode instead of generating non-compliant records", async () => {
+    await state.db.update(companySettings).set({ verifactuMode: "non_verifactu" }).where(eq(companySettings.companyId, OTHER));
+    const before = (await recordsOf()).length;
+    await expect(state.db.transaction((tx: never) => registerIssuedInvoiceRecord(tx, hookInput(6)))).rejects.toMatchObject({ status: 409, message: expect.stringContaining("Activa VERI*FACTU") });
+    await expect(state.db.transaction((tx: never) => registerInvoiceAnnulmentRecord(tx, { companyId: OTHER, invoiceId: "c3-invoice-1" }))).rejects.toMatchObject({ status: 409 });
+    expect((await recordsOf()).length).toBe(before);
+    expect((await getVerifactuHealth(OTHER)).issues.map((issue) => issue.code)).toContain("LEGACY_MODE");
   });
 });

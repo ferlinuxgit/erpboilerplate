@@ -16,8 +16,15 @@ export async function POST() {
         { status: 409 },
       );
     }
+    // Sin `pause`: si la AEAT pidió esperar, no se envía (lo dice el mensaje); y un lote que falla
+    // entero queda pendiente para que el worker aísle el registro culpable respetando la espera.
     const summaries = await processPendingVerifactuRecords({ transport, companyId: ctx.company.id });
-    return NextResponse.json({ summaries });
+    const throttled = summaries.find((summary) => summary.throttledSeconds);
+    const blocked = summaries.find((summary) => summary.sent === 0 && summary.error);
+    const message = throttled
+      ? `La AEAT pide esperar entre envíos: faltan ${throttled.throttledSeconds} s para el siguiente. Los registros se enviarán solos en cuanto pase ese tiempo.`
+      : blocked?.error ?? (summaries.length === 0 ? "No hay registros que se puedan enviar ahora mismo: los pendientes están en espera de reintento o son de otro entorno." : null);
+    return NextResponse.json({ summaries, message });
   } catch (error) {
     return handleRouteError(error, "verifactu.send", "No se pudo enviar a la AEAT. Se reintentará automáticamente.");
   }
