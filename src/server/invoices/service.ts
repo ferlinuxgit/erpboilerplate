@@ -1282,7 +1282,9 @@ export async function substituteSimplifiedInvoices(actor: InvoiceActor, invoiceI
 
     const lines: CalculatedLine[] = [];
     for (const original of [...originals].sort((left, right) => left.issueDate.getTime() - right.issueDate.getTime())) {
-      for (const { lineId: _lineId, ...line } of await loadStoredLines(tx, original.id)) {
+      for (const stored of await loadStoredLines(tx, original.id)) {
+        const line: CalculatedLine & { lineId?: string } = { ...stored };
+        delete line.lineId;
         // Con varias simplificadas, cada concepto dice de cuál viene.
         lines.push(originals.length > 1 ? { ...line, description: `${line.description} (${original.number})`.slice(0, 500) } : line);
       }
