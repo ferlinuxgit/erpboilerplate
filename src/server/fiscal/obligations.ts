@@ -20,6 +20,7 @@ import {
   type SpanishFiscalModelCode,
 } from "@/lib/fiscal-spain";
 import { issuedInvoiceFiscalFilter, supplierInvoiceFiscalFilter } from "@/server/fiscal/spain";
+import { getWithholdingActivity } from "@/server/payroll/withholding-data";
 
 /**
  * "Qué tengo que presentar": modelos del próximo plazo de presentación según el perfil fiscal y la
@@ -128,6 +129,11 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
   const vatRange = parseSpanishFiscalPeriod(vatPeriod, "303");
   const activity = vatRange ? await periodActivity(companyId, vatRange.start, vatRange.endExclusive) : null;
 
+  const isoDay = (date: Date) => date.toISOString().slice(0, 10);
+  // Nóminas y rendimientos del capital del periodo (cero consultas útiles si no se usan: todo a false).
+  const withholding = vatRange ? await getWithholdingActivity(companyId, isoDay(vatRange.start), isoDay(vatRange.endExclusive)) : null;
+  const has111 = (activity?.professionalWithholding ?? 0) > 0 || Boolean(withholding?.payroll);
+
   const entries: Array<{ code: SpanishFiscalModelCode; period: string; requirement: FiscalObligation["requirement"]; reason: string }> = [];
   const vatExempt = regime === "recargo_equivalencia" || regime === "exempt";
   if (vatReturns) entries.push({
@@ -139,8 +145,10 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
   entries.push({
     code: "111",
     period: vatPeriod,
-    requirement: (activity?.professionalWithholding ?? 0) > 0 ? "required" : "not-needed",
-    reason: (activity?.professionalWithholding ?? 0) > 0 ? "Has recibido facturas de profesionales con retención." : "No hay facturas de profesionales con retención en el periodo.",
+    requirement: has111 ? "required" : "not-needed",
+    reason: withholding?.payroll
+      ? "Tienes nóminas con retención de IRPF en el periodo."
+      : has111 ? "Has recibido facturas de profesionales con retención." : "No hay nóminas ni facturas de profesionales con retención en el periodo.",
   });
   entries.push({
     code: "115",
@@ -148,6 +156,14 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
     requirement: (activity?.rentWithholding ?? 0) > 0 ? "required" : "not-needed",
     reason: (activity?.rentWithholding ?? 0) > 0 ? "Pagas un alquiler con retención." : "No hay alquileres con retención en el periodo.",
   });
+  if (withholding && (withholding.capitalIncome || withholding.enabledModels.includes("123"))) {
+    entries.push({
+      code: "123",
+      period: vatPeriod,
+      requirement: withholding.capitalIncome ? "required" : "not-needed",
+      reason: withholding.capitalIncome ? "Has pagado dividendos o intereses con retención." : "No has pagado dividendos ni intereses con retención en el periodo.",
+    });
+  }
   if (vatReturns) entries.push({
     code: "349",
     period: vatPeriod,
@@ -180,6 +196,19 @@ export async function getCurrentFiscalObligations(companyId: string, reports: Ex
     const previousYear = String(now.getUTCFullYear() - 1);
     if (month === 1 && !vatExempt && vatReturns) entries.push({ code: "390", period: previousYear, requirement: "required", reason: "Resumen anual del IVA del año pasado." });
     entries.push({ code: "347", period: previousYear, requirement: "required", reason: "Obligatorio si algún cliente o proveedor superó 3.005,06 € en el año." });
+    if (month === 1) {
+      // Resúmenes anuales de retenciones (del 1 al 31 de enero): solo con datos del año pasado o si están activados.
+      const lastYear = await getWithholdingActivity(companyId, `${previousYear}-01-01`, `${now.getUTCFullYear()}-01-01`);
+      const annual: Array<{ code: SpanishFiscalModelCode; active: boolean; reason: string; idle: string }> = [
+        { code: "190", active: lastYear.payroll || lastYear.professional, reason: "Resumen anual de las retenciones de nóminas y profesionales del año pasado (debe cuadrar con los 111).", idle: "No hubo nóminas ni facturas de profesionales con retención el año pasado." },
+        { code: "180", active: lastYear.rent, reason: "Resumen anual de las retenciones de alquileres del año pasado (debe cuadrar con los 115).", idle: "No hubo alquileres con retención el año pasado." },
+        { code: "193", active: lastYear.capitalIncome, reason: "Resumen anual de las retenciones de dividendos e intereses del año pasado (debe cuadrar con los 123).", idle: "No pagaste dividendos ni intereses con retención el año pasado." },
+      ];
+      for (const model of annual) {
+        if (!model.active && !lastYear.enabledModels.includes(model.code)) continue;
+        entries.push({ code: model.code, period: previousYear, requirement: model.active ? "required" : "not-needed", reason: model.active ? model.reason : model.idle });
+      }
+    }
     if (month === 1 && canary) {
       entries.push({
         code: "425",

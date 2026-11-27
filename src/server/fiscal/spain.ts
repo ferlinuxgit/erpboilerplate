@@ -63,6 +63,8 @@ import { ACCRUAL_LOCKING_MODEL_CODES, resolveAccrualDate, type AccrualBasis, typ
 import { isValidSpanishTaxId } from "@/lib/spanish-tax-id";
 import { lineBaseCents } from "@/server/taxation/engine";
 import { DRAFT_NUMBER_PREFIX } from "@/server/invoices/lifecycle";
+import { isWithholdingModelCode } from "@/server/fiscal/withholdings";
+import { loadWithholdingModel, sumPayrollLedgerWithholdings, type WithholdingModelSummary } from "@/server/payroll/withholding-data";
 
 export type { FiscalSourceDocument, Modelo130Result, Modelo303Box, Modelo349Result } from "@/server/fiscal/spain-calc";
 
@@ -129,6 +131,8 @@ export type SpanishFiscalSummary = {
   modelo349?: Modelo349Result;
   /** Modelo 130 (solo en ese modelo). */
   modelo130?: Modelo130Result;
+  /** Modelos de retenciones (111, 115, 123, 190, 180 y 193): casillas, perceptores y cuadre anual. */
+  withholdingModel?: WithholdingModelSummary;
   thirdPartyOperations?: ThirdPartyOperation[];
   warnings: string[];
   fiscalProfile: FiscalAutomationProfile;
@@ -204,10 +208,22 @@ function unsupportedWarnings(code: SpanishFiscalModelCode) {
   }
 
   if (code === "111") {
-    warnings.push("El Modelo 111 se calcula con las retenciones que practicas en facturas recibidas (salvo gastos de alquiler, cuenta 621, que van al 115).");
+    warnings.push("El Modelo 111 suma las retenciones de las nóminas contabilizadas (rendimientos del trabajo) y las de las facturas recibidas de profesionales (actividades económicas; los alquileres, cuenta 621, van al 115). No calcula premios, ganancias forestales ni cesión de derechos de imagen: esas casillas salen a cero.");
   }
   if (code === "115") {
     warnings.push("El Modelo 115 toma las retenciones de facturas recibidas cuyo gasto está en la cuenta 621 (arrendamientos). Revisa que los alquileres usen esa cuenta.");
+  }
+  if (code === "190") {
+    warnings.push("El 190 lista a empleados (clave A) y administradores (clave E) de las nóminas, y a los profesionales de las facturas recibidas con retención (clave G: subclave 03 si el tipo es el 7 %, 01 en otro caso). No distingue otras claves (F, H, I, L…) ni guarda hijos, ascendientes, reducciones o gastos deducibles de la clave A.");
+  }
+  if (code === "180") {
+    warnings.push("El 180 toma los arrendadores de las facturas recibidas con retención y gasto en la cuenta 621, y el inmueble de Nóminas y retenciones › Inmuebles alquilados. Genera un registro por arrendador, no por inmueble.");
+  }
+  if (code === "123") {
+    warnings.push("El 123 sale de los dividendos e intereses registrados en Nóminas y retenciones › Dividendos e intereses. No calcula la periodificación (casillas 10 y 11).");
+  }
+  if (code === "193") {
+    warnings.push("El 193 declara los dividendos con clave A y naturaleza 02, y los intereses de préstamos con clave B y naturaleza 03. No contempla la clave D (préstamos de socios vinculados por el exceso sobre el triple de los fondos propios) ni otras naturalezas.");
   }
   if (code === "303") {
     warnings.push("Las cuotas a compensar (casillas 110, 78 y 87) salen de encadenar los resultados de los periodos anteriores del ejercicio (el presentado, si el modelo guarda su foto; si no, el calculado hoy) más el saldo de ejercicios anteriores de Configuración › Fiscalidad. Se supone que los resultados negativos se dejaron a compensar, sin pedir devolución.");
@@ -1185,6 +1201,10 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
 
   const practicedWithholdings = code === "111" ? supplier.professional : code === "115" ? supplier.rent : mergeBuckets(supplier.professional, supplier.rent);
   const allPracticed = mergeBuckets(supplier.professional, supplier.rent);
+  // Modelos de retenciones: casillas, perceptores y cuadre los calcula `@/server/fiscal/withholdings`.
+  const withholdingModel = isWithholdingModelCode(code) ? (await loadWithholdingModel(companyId, code, period, timeZone))?.summary : undefined;
+  // Retenciones de nóminas y de rendimientos del capital apuntadas en la 4751 (cero si no se usan).
+  const payrollLedgerWithholdingCents = await sumPayrollLedgerWithholdings(companyId, instants.start, instants.endExclusive);
   const sum = (map: Map<number, { base: number; tax: number }>) => [...map.values()].reduce((acc, bucket) => ({ base: acc.base + bucket.base, tax: acc.tax + bucket.tax }), { base: 0, tax: 0 });
   const practicedTotals = sum(practicedWithholdings);
   const allPracticedTotals = sum(allPracticed);
@@ -1195,7 +1215,7 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
   const ledgerTotals = issuedByIssueDate === issued ? totals : computeModelo303Totals(issuedByIssueDate, supplier);
   const outputVatReconciliation = reconcile(centsToNumber(ledgerTotals.accruedCents), accountingBalances.outputVat);
   const inputVatReconciliation = reconcile(centsToNumber(totals.deductibleCents), accountingBalances.inputVat);
-  const withholdingReconciliation = reconcile(centsToNumber(allPracticedTotals.tax), accountingBalances.withholdings);
+  const withholdingReconciliation = reconcile(centsToNumber(allPracticedTotals.tax + payrollLedgerWithholdingCents), accountingBalances.withholdings);
   const salesWithholdingReconciliation = reconcile(centsToNumber(sum(issuedByIssueDate.withholdings).tax), accountingBalances.salesWithholdings);
   const accountingBalanced = [outputVatReconciliation, inputVatReconciliation, withholdingReconciliation, salesWithholdingReconciliation]
     .every((line) => Math.abs(line.difference) < 0.005);
@@ -1216,6 +1236,7 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
     modelo130,
     modelo349,
   });
+  if (withholdingModel) automationChecks.push(...withholdingModel.checks.filter((check) => check.status !== "ok"));
   const invoiceCount = (lines: IssuedFiscalLine[]) => new Set(lines.map((line) => line.invoiceId)).size;
   const usesAccrual = code === "303" || code === "390" || code === "349" || code === "130" || code === "420" || code === "425";
   if (usesAccrual && (movedIn.length > 0 || movedOut.length > 0)) {
@@ -1296,6 +1317,8 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
       ? centsToNumber(canary.resultCents)
       : code === "303" && compensation
         ? centsToNumber(compensation.resultCents)
+        : withholdingModel
+          ? withholdingModel.resultCents === null ? null : centsToNumber(withholdingModel.resultCents)
         : code === "111" || code === "115"
           ? centsToNumber(practicedTotals.tax)
           : code === "130" && modelo130
@@ -1303,8 +1326,9 @@ export async function calculateSpanishFiscalSummary(companyId: string, code: Spa
             : null,
     modelo349,
     modelo130,
-    withholdingBase: centsToNumber(practicedTotals.base),
-    withholdingAmount: centsToNumber(practicedTotals.tax),
+    withholdingModel,
+    withholdingBase: centsToNumber(withholdingModel?.baseCents ?? practicedTotals.base),
+    withholdingAmount: centsToNumber(withholdingModel?.withheldCents ?? practicedTotals.tax),
     salesWithholdingAmount: centsToNumber(salesWithholdingTotals.tax),
     buckets,
     surchargeBuckets: bucketsToNumbers(issued.surcharge),

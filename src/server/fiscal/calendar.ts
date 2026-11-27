@@ -49,6 +49,15 @@ export type FiscalCalendarInput = {
   /** La empresa factura el AIEM (Canarias). */
   aiem?: boolean;
   reports: Array<{ id: string; code: string; period: string; status: FiscalReportStatus; summary?: { amountDue: number | null } | null }>;
+  /**
+   * Retenciones: qué hay en el año anterior (para los resúmenes anuales 190, 180 y 193) y en este
+   * (para el 123), y qué modelos ha activado el usuario. Sin este dato no se añade ninguno.
+   */
+  withholding?: {
+    previousYear: { payroll: boolean; professional: boolean; rent: boolean; capitalIncome: boolean };
+    currentYear: { capitalIncome: boolean };
+    enabledModels: string[];
+  };
   now?: Date;
 };
 
@@ -104,6 +113,30 @@ export function buildFiscalCalendar(input: FiscalCalendarInput): FiscalCalendarE
   const previousYear = String(input.year - 1);
   if (!vatExempt) planned.push({ code: "390", period: previousYear, requirement: "required", reason: "Resumen anual del IVA del año anterior." });
   planned.push({ code: "347", period: previousYear, requirement: "if-applicable", reason: CONDITIONAL_REASONS["347"] });
+
+  // Retenciones: resúmenes anuales en enero y 123 periódico, solo con datos o si el usuario los activa.
+  if (input.withholding) {
+    const { previousYear: before, currentYear: current, enabledModels } = input.withholding;
+    const hasReport = (code: string, year: string) => input.reports.some((report) => report.code === code && report.period.startsWith(year));
+    const enabled = (code: string) => enabledModels.includes(code);
+    const has190 = before.payroll || before.professional || hasReport("111", previousYear);
+    if (has190 || enabled("190")) {
+      planned.push({ code: "190", period: previousYear, requirement: has190 ? "required" : "if-applicable", reason: has190 ? "Resumen anual de las retenciones de nóminas y profesionales del año anterior (los 111)." : "Solo si retuviste IRPF en nóminas o a profesionales el año anterior." });
+    }
+    const has180 = before.rent || hasReport("115", previousYear);
+    if (has180 || enabled("180")) {
+      planned.push({ code: "180", period: previousYear, requirement: has180 ? "required" : "if-applicable", reason: has180 ? "Resumen anual de las retenciones de alquileres del año anterior (los 115)." : "Solo si pagaste alquileres con retención el año anterior." });
+    }
+    const has193 = before.capitalIncome || hasReport("123", previousYear);
+    if (has193 || enabled("193")) {
+      planned.push({ code: "193", period: previousYear, requirement: has193 ? "required" : "if-applicable", reason: has193 ? "Resumen anual de las retenciones de dividendos e intereses del año anterior (los 123)." : "Solo si pagaste dividendos o intereses con retención el año anterior." });
+    }
+    if (before.capitalIncome || current.capitalIncome || enabled("123") || hasReport("123", previousYear) || hasReport("123", String(input.year))) {
+      for (const period of vatPeriods) {
+        planned.push({ code: "123", period, requirement: "if-applicable", reason: "Solo si en el periodo has pagado dividendos o intereses con retención." });
+      }
+    }
+  }
 
   const entries = planned.flatMap((entry): FiscalCalendarEntry[] => {
     const model = getSpanishFiscalModel(entry.code);

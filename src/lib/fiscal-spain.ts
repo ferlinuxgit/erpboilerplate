@@ -2,7 +2,7 @@ import { normalizeCountryCode } from "@/lib/countries";
 import { isIntraCommunity, normalizeHomeCountry, suggestSupplierVatTreatment, type SalesVatTreatment, type SupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
 import { centsToNumber, lineBaseCents, roundHalfAwayFromZero, taxOnBaseCents } from "@/server/taxation/engine";
 
-export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130", "420", "425", "450"] as const;
+export const spanishFiscalModelCodes = ["303", "390", "347", "111", "115", "349", "130", "420", "425", "450", "190", "180", "123", "193"] as const;
 
 export type SpanishFiscalModelCode = (typeof spanishFiscalModelCodes)[number];
 
@@ -128,11 +128,21 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
     code: "111",
     aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GH01.shtml",
     name: "Modelo 111",
-    shortName: "Retenciones profesionales",
-    description: "Retenciones IRPF que practicas en facturas recibidas de profesionales (cuenta 4751).",
+    shortName: "Retenciones de nóminas y profesionales",
+    description: "Retenciones de IRPF que practicas en las nóminas y en las facturas recibidas de profesionales (cuenta 4751).",
     cadence: "monthly-or-quarterly",
     periodHint: "2026-Q1 o 2026-04",
-    plainHelp: "Si un profesional (abogado, gestor, diseñador…) te factura con retención de IRPF, esa retención la ingresas tú a Hacienda con este modelo.",
+    plainHelp: "El IRPF que descuentas en las nóminas y el que te retienen en factura los profesionales (abogado, gestor, diseñador…) lo ingresas tú a Hacienda con este modelo.",
+  },
+  {
+    code: "190",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GI10.shtml",
+    name: "Modelo 190",
+    shortName: "Resumen anual de retenciones",
+    description: "Resumen anual de los 111: perceptores con su NIF, clave, percepciones y retenciones.",
+    cadence: "annual",
+    periodHint: "2026",
+    plainHelp: "Lista de las personas a las que has retenido IRPF en el año (empleados, administradores y profesionales), con lo pagado y lo retenido. Se presenta en enero y debe cuadrar con los 111.",
   },
   {
     code: "115",
@@ -143,6 +153,36 @@ export const spanishFiscalModels: SpanishFiscalModel[] = [
     cadence: "monthly-or-quarterly",
     periodHint: "2026-Q1 o 2026-04",
     plainHelp: "Si alquilas un local u oficina, la retención de las facturas del casero la ingresas tú con este modelo.",
+  },
+  {
+    code: "180",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GI00.shtml",
+    name: "Modelo 180",
+    shortName: "Resumen anual de alquileres",
+    description: "Resumen anual de los 115: arrendadores con su NIF, base, retención e inmueble alquilado.",
+    cadence: "annual",
+    periodHint: "2026",
+    plainHelp: "Lista de tus caseros con lo que les has pagado y retenido en el año y la referencia catastral del local. Se presenta en enero y debe cuadrar con los 115.",
+  },
+  {
+    code: "123",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GH04.shtml",
+    name: "Modelo 123",
+    shortName: "Retenciones de dividendos e intereses",
+    description: "Retenciones sobre rendimientos del capital mobiliario pagados por la empresa (dividendos a socios, intereses de préstamos).",
+    cadence: "monthly-or-quarterly",
+    periodHint: "2026-Q1 o 2026-04",
+    plainHelp: "Si la empresa reparte dividendos o paga intereses de un préstamo, retiene el 19 % y lo ingresa con este modelo.",
+  },
+  {
+    code: "193",
+    aeatUrl: "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GI12.shtml",
+    name: "Modelo 193",
+    shortName: "Resumen anual del capital mobiliario",
+    description: "Resumen anual de los 123: perceptores de dividendos e intereses con lo pagado y lo retenido.",
+    cadence: "annual",
+    periodHint: "2026",
+    plainHelp: "Lista de los socios y prestamistas a los que has pagado dividendos o intereses en el año. Se presenta en enero y debe cuadrar con los 123.",
   },
   {
     code: "349",
@@ -420,7 +460,7 @@ export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscal
 }
 
 /** Modelos con ingreso que admiten domiciliación bancaria en la AEAT (los informativos y los de la ATC, no). */
-const DIRECT_DEBIT_MODELS = new Set<SpanishFiscalModelCode>(["303", "111", "115", "130"]);
+const DIRECT_DEBIT_MODELS = new Set<SpanishFiscalModelCode>(["303", "111", "115", "130", "123"]);
 
 /**
  * Último día para presentar con domiciliación bancaria: tres días hábiles antes del fin del plazo
@@ -460,6 +500,8 @@ function nominalSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalMod
     const year = Number(annualMatch[1]);
     if (modelCode === "390" || modelCode === "425") return new Date(Date.UTC(year + 1, 0, 30));
     if (modelCode === "347") return lastDayOfMonthUtc(year + 1, 2);
+    // Resúmenes anuales de retenciones: del 1 al 31 de enero (Órdenes EHA/3127/2009 y EHA/3377/2011; el 180, según la sede).
+    if (modelCode === "190" || modelCode === "180" || modelCode === "193") return new Date(Date.UTC(year + 1, 0, 31));
     return null;
   }
 
