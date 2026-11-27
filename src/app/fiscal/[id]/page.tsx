@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { FiscalBoxesTable } from "@/components/fiscal/fiscal-boxes-table";
 import { FiscalFileDownloads } from "@/components/fiscal/fiscal-file-downloads";
+import { WithholdingModelView } from "@/components/payroll/withholding-model-view";
 import { FiscalReportRowActions } from "@/components/fiscal/fiscal-report-row-actions";
 import { MarkFiscalReportFiledButton } from "@/components/fiscal/mark-fiscal-report-filed-button";
 import { HelpTerm } from "@/components/help/help-term";
@@ -49,7 +50,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
   const dueHelperWithDebit = report.status !== "FILED" && summary?.directDebitDate ? `${dueHelper} · domiciliación hasta el ${formatDate(summary.directDebitDate)}` : dueHelper;
   const settlement = summary?.vatSettlement;
   const thirdParties = summary?.thirdPartyOperations;
-  const isWithholdingModel = summary?.code === "111" || summary?.code === "115";
+  const isWithholdingModel = summary?.code === "111" || summary?.code === "115" || Boolean(summary?.withholdingModel);
   const differences = report.snapshotDifferences ?? [];
   const prorrata = summary?.prorrata;
   const cashAccounting = summary?.cashAccounting;
@@ -155,7 +156,11 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
         <section className="grid gap-3 md:grid-cols-4">
           <MetricCard label="Base de las retenciones" value={formatMoney(summary?.withholdingBase ?? 0, currency)} helper={`${summary?.supplierInvoiceCount ?? 0} facturas recibidas en el periodo`} />
           <MetricCard label="Retenciones practicadas" value={formatMoney(summary?.withholdingAmount ?? 0, currency)} helper="Lo que retuviste al pagar" />
-          <MetricCard label="A ingresar" value={formatMoney(summary?.amountDue ?? 0, currency)} helper={(summary?.amountDue ?? 0) > 0 ? "Se ingresa en Hacienda" : "Sin retenciones en el periodo"} tone={(summary?.amountDue ?? 0) > 0 ? "warning" : "success"} />
+          {summary?.withholdingModel && summary.amountDue === null ? (
+            <MetricCard label="Declaración informativa" value="No se paga" helper="Resumen anual: las retenciones ya se ingresaron con cada autoliquidación" />
+          ) : (
+            <MetricCard label="A ingresar" value={formatMoney(summary?.amountDue ?? 0, currency)} helper={(summary?.amountDue ?? 0) > 0 ? "Se ingresa en Hacienda" : "Sin retenciones en el periodo"} tone={(summary?.amountDue ?? 0) > 0 ? "warning" : "success"} />
+          )}
           <MetricCard label="Vencimiento" value={summary?.dueDate ? formatDate(summary.dueDate) : "Sin fecha"} helper={dueHelperWithDebit} tone={dueTone} />
         </section>
       ) : (
@@ -340,6 +345,8 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
           )}
         </PageSection>
       ) : null}
+
+      {summary?.withholdingModel ? <WithholdingModelView currencyCode={currency} model={summary.withholdingModel} /> : null}
 
       {summary?.annualSummaryBoxes ? (
         <PageSection

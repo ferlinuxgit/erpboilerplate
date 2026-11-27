@@ -16,6 +16,7 @@ import { getCorporateTaxCalendarData } from "@/server/corporate-tax/service";
 import { buildFiscalCalendar, type FiscalCalendarEntry } from "@/server/fiscal/calendar";
 import { listFiscalReportsWithSummary } from "@/server/fiscal/service";
 import { getFiscalSettings } from "@/server/fiscal/settings";
+import { getWithholdingActivity } from "@/server/payroll/withholding-data";
 
 export const metadata: Metadata = { title: "Calendario fiscal" };
 
@@ -39,6 +40,11 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
   const [reports, settings] = await Promise.all([listFiscalReportsWithSummary(ctx.company.id), getFiscalSettings(ctx.company.id)]);
   const canWrite = can(ctx.membership.role, "fiscal.write");
   const territory = await getCompanyTaxTerritory(ctx.company.id);
+  // Retenciones: los resúmenes anuales (190, 180, 193) y el 123 solo aparecen con datos o activados.
+  const [withholdingBefore, withholdingNow] = await Promise.all([
+    getWithholdingActivity(ctx.company.id, `${year - 1}-01-01`, `${year}-01-01`),
+    getWithholdingActivity(ctx.company.id, `${year}-01-01`, `${year + 1}-01-01`),
+  ]);
   const entries = buildFiscalCalendar({
     year,
     periodicity: settings.taxPeriodicity,
@@ -49,6 +55,7 @@ export default async function FiscalCalendarPage({ searchParams }: { searchParam
     aiem: territory === "ES-CN" && (await companyHasAiem(ctx.company.id)),
     reports,
     corporateTax: await getCorporateTaxCalendarData(ctx.company.id, ctx.company.countryCode),
+    withholding: { previousYear: withholdingBefore, currentYear: withholdingNow, enabledModels: withholdingNow.enabledModels },
   });
   const overdue = entries.filter((entry) => entry.state === "overdue");
   const dueSoon = entries.filter((entry) => entry.state === "due-soon");

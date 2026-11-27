@@ -70,4 +70,24 @@ describe("calendario fiscal", () => {
     expect(repep.some((entry) => entry.code === "420")).toBe(false);
     expect(repep.some((entry) => entry.code === "425")).toBe(true);
   });
+
+  it("retenciones: 190, 180, 193 y 123 solo con datos o activados, con los anuales hasta el 31 de enero", () => {
+    const base = { year: 2026, periodicity: "quarterly" as const, taxpayerType: "company" as const, fiscalRegime: "general", reports: [], now: new Date(Date.UTC(2026, 0, 10)) };
+    const none = { payroll: false, professional: false, rent: false, capitalIncome: false };
+    const codes = (entries: ReturnType<typeof buildFiscalCalendar>) => new Set(entries.map((entry) => entry.code));
+
+    // Sin el dato de retenciones (o sin actividad) no aparece ninguno: nada cambia para quien no los usa.
+    expect([...codes(buildFiscalCalendar(base))].filter((code) => ["190", "180", "193", "123"].includes(code))).toEqual([]);
+    expect([...codes(buildFiscalCalendar({ ...base, withholding: { previousYear: none, currentYear: { capitalIncome: false }, enabledModels: [] } }))].filter((code) => ["190", "180", "193", "123"].includes(code))).toEqual([]);
+
+    const withPayroll = buildFiscalCalendar({ ...base, withholding: { previousYear: { ...none, payroll: true, rent: true }, currentYear: { capitalIncome: true }, enabledModels: ["193"] } });
+    const annual190 = withPayroll.find((entry) => entry.code === "190");
+    expect(annual190).toMatchObject({ period: "2025", requirement: "required" });
+    // El 31 de enero de 2026 es sábado: pasa al lunes 2 de febrero.
+    expect(annual190?.dueDate.slice(0, 10)).toBe("2026-02-02");
+    expect(withPayroll.find((entry) => entry.code === "180")?.requirement).toBe("required");
+    expect(withPayroll.find((entry) => entry.code === "193")?.requirement).toBe("if-applicable");
+    expect(withPayroll.filter((entry) => entry.code === "123").map((entry) => entry.period)).toEqual(["2025-Q4", "2026-Q1", "2026-Q2", "2026-Q3"]);
+    expect(withPayroll.find((entry) => entry.code === "123" && entry.period === "2026-Q1")?.dueDate.slice(0, 10)).toBe("2026-04-20");
+  });
 });

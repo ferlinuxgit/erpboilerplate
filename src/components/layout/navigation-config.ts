@@ -12,6 +12,7 @@ import {
   FileArrowDown,
   FileText,
   GearSix,
+  IdentificationCard,
   Package,
   Receipt,
   ShoppingCart,
@@ -101,6 +102,7 @@ export const navGroups: NavigationGroup[] = [
       { href: "/treasury", label: "Tesorería", code: "32", icon: Bank, keywords: "banco bancos caja cuentas conciliar movimientos", module: "banking", permission: "treasury.read" },
       { href: "/fiscal", label: "Fiscalidad", code: "33", icon: Calculator, keywords: "iva impuestos hacienda aeat modelos 303 111 130 390 347 trimestre", permission: "fiscal.read" },
       { href: "/reporting", label: "Informes", code: "34", icon: ChartLineUp, keywords: "indicadores kpi estadísticas exportar excel", permission: "reporting.read" },
+      { href: "/payroll", label: "Nóminas y retenciones", shortLabel: "Nóminas", code: "35", icon: IdentificationCard, keywords: "nómina nóminas sueldos salarios trabajadores empleados seguridad social seguros sociales irpf retenciones 111 190 180 123 193 dividendos administradores", permission: "accounting.read", countryFeature: "taxReports" },
     ],
   },
   {
@@ -246,6 +248,19 @@ export const contextGroups: ContextGroup[] = [
       { href: "/fiscal/sii", label: "SII", commandLabel: "SII (Suministro Inmediato de Información)", keywords: "sii suministro inmediato información libros registro aeat iva facturas expedidas recibidas", countryFeature: "taxReports", requiresSii: true },
       { href: "/settings/fiscal", label: "Configuración fiscal", keywords: "régimen iva prorrata autónomo sociedad recargo periodicidad" },
       { href: "/fiscal/glossary", label: "Glosario", commandLabel: "Glosario fiscal", keywords: "glosario ayuda qué es términos 303 555 recargo irpf devolución", countryFeature: "taxReports" },
+    ],
+  },
+  {
+    roots: ["/payroll"],
+    code: "35",
+    label: "Nóminas y retenciones",
+    links: [
+      { href: "/payroll", label: "Nóminas", exact: true, keywords: "nómina sueldos salarios recibo de salarios contabilizar pagar seguros sociales 640 642 465 476", countryFeature: "taxReports" },
+      { href: "/payroll/employees", label: "Trabajadores", keywords: "empleados administradores perceptores naf nif ficha clave 190", countryFeature: "taxReports" },
+      { href: "/payroll/import", label: "Importar nóminas", keywords: "importar nóminas gestoría hoja de cálculo excel csv pegar", countryFeature: "taxReports" },
+      { href: "/payroll/capital", label: "Dividendos e intereses", keywords: "dividendos intereses capital mobiliario socios préstamo retención 19 123 193 526", countryFeature: "taxReports" },
+      { href: "/payroll/rentals", label: "Inmuebles alquilados", keywords: "alquiler local arrendador referencia catastral 115 180", countryFeature: "taxReports" },
+      { href: "/payroll/models", label: "Modelos de retenciones", keywords: "111 115 123 190 180 193 retenciones irpf resumen anual perceptores casillas", countryFeature: "taxReports", permission: "fiscal.read" },
     ],
   },
   {
