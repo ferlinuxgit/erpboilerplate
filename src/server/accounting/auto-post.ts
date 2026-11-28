@@ -563,23 +563,45 @@ function splitSales(subtotalCents: number, defaultSalesId: string, salesByAccoun
   return split;
 }
 
-/** Líneas del asiento de una factura emitida (función pura). `salesByAccount` reparte la base por cuenta de ventas. */
+/**
+ * Líneas del asiento de una factura emitida (función pura). `salesByAccount` reparte la base por
+ * cuenta de ventas (o la 438 de anticipos; una entrada negativa pasa al debe: el anticipo descontado).
+ *
+ * `disbursementAmount`: suplidos (art. 78.Tres.3.º de la Ley 37/1992). El cliente los debe (van en
+ * el total a cobrar), pero no son ingreso: se abonan en `accounts.disbursement`, la cuenta puente
+ * (555) «Partidas pendientes de aplicación», que se salda con el pago hecho por cuenta del cliente.
+ */
 export function buildSalesInvoiceLines(
-  accounts: { customer: string; sales: string; vatOutput: string; withholdingReceivable: string },
-  amounts: { subtotal: number; taxAmount: number; totalAmount: number; retentionAmount?: number },
+  accounts: { customer: string; sales: string; vatOutput: string; withholdingReceivable: string; disbursement?: string | null },
+  amounts: { subtotal: number; taxAmount: number; totalAmount: number; retentionAmount?: number; disbursementAmount?: number },
   salesByAccount?: Array<{ accountId: string; subtotal: number }>,
 ): PostingLine[] {
   const retention = Math.max(toCents(amounts.retentionAmount ?? 0), 0);
+  const disbursement = accounts.disbursement ? toCents(amounts.disbursementAmount ?? 0) : 0;
   const lines = [
     { accountId: accounts.customer, debitCents: toCents(amounts.totalAmount), creditCents: 0 },
     { accountId: accounts.withholdingReceivable, debitCents: retention, creditCents: 0 },
-    ...splitSales(toCents(amounts.subtotal), accounts.sales, salesByAccount).map((entry) => ({ accountId: entry.accountId, debitCents: 0, creditCents: entry.cents })),
+    // Una cuenta con base negativa (el anticipo descontado en la 438) pasa al debe.
+    ...splitSales(toCents(amounts.subtotal), accounts.sales, salesByAccount).map((entry) => ({
+      accountId: entry.accountId,
+      debitCents: entry.cents < 0 ? -entry.cents : 0,
+      creditCents: entry.cents > 0 ? entry.cents : 0,
+    })),
     { accountId: accounts.vatOutput, debitCents: 0, creditCents: toCents(amounts.taxAmount) },
+    ...(disbursement !== 0 && accounts.disbursement ? [{ accountId: accounts.disbursement, debitCents: 0, creditCents: disbursement }] : []),
   ];
   return toPostingLines(absorbRoundingDifference(lines, "credit", 4));
 }
 
-export type SalesLineInput = { itemId?: string | null; subtotal: number };
+/**
+ * Base de una línea para el asiento. `role: "advance"` la lleva a la (438) «Anticipos de clientes»
+ * en lugar de a ventas: es la base de una factura de anticipo (art. 75.Dos de la Ley 37/1992) o,
+ * en negativo, el anticipo que descuenta la factura final.
+ */
+export type SalesLineInput = { itemId?: string | null; subtotal: number; role?: "sales" | "advance" };
+
+/** (438) Anticipos de clientes (PGC, cuarta parte, subgrupo 43). */
+export const CUSTOMER_ADVANCES_ACCOUNT = { code: "438", name: "Anticipos de clientes" } as const;
 
 /**
  * Cuenta de ventas de cada línea: la del artículo si la tiene; si no, 705 para servicios y 700 para
@@ -600,7 +622,10 @@ async function resolveSalesSplit(client: DbClient, companyId: string, settings: 
   for (const line of lines) {
     const itemRow = line.itemId ? byItem.get(line.itemId) : undefined;
     let accountId: string;
-    if (itemRow?.salesAccountId) {
+    if (line.role === "advance" && usesPgcChart(settings.countryCode)) {
+      // La 438 es del plan español; en otros planes el anticipo se queda en la cuenta de ventas.
+      accountId = (await ensureSubaccount(companyId, CUSTOMER_ADVANCES_ACCOUNT.code, client, CUSTOMER_ADVANCES_ACCOUNT.name)).id;
+    } else if (itemRow?.salesAccountId) {
       accountId = itemRow.salesAccountId;
     } else if (itemRow && standardSalesCode) {
       accountId = (await ensureSubaccount(companyId, itemRow.isService ? "705" : "700", client)).id;
@@ -681,19 +706,28 @@ export async function postSalesInvoice(
     taxAmount: number;
     totalAmount: number;
     retentionAmount?: number;
+    /** Suplidos incluidos en `totalAmount`: se abonan en la cuenta puente (555), no en ventas. */
+    disbursementAmount?: number;
     lines?: SalesLineInput[];
   },
 ) {
   const client = input.dbClient ?? db;
   const hasRetention = (input.retentionAmount ?? 0) > 0;
-  const roles: AccountRole[] = hasRetention ? ["customer", "sales", "vatOutput", "withholdingReceivable"] : ["customer", "sales", "vatOutput"];
+  const hasDisbursement = toCents(input.disbursementAmount ?? 0) !== 0;
+  const roles: AccountRole[] = [
+    "customer",
+    "sales",
+    "vatOutput",
+    ...(hasRetention ? ["withholdingReceivable" as const] : []),
+    ...(hasDisbursement ? ["suspense" as const] : []),
+  ];
   const { ids, settings } = await resolveAccounts(input.companyId, roles, client);
   const context = await loadInvoicePostingContext(client, input.companyId, input.invoiceId);
   const customerId = await partyAccountId(client, input.companyId, context?.partnerId ?? null, "customer", ids.customer);
   const salesSplit = await resolveSalesSplit(client, input.companyId, settings, input.lines);
   // Sin retención la línea 473 queda a cero y se descarta; se usa la cuenta de cliente como marcador.
   const lines = await withAiemAccount(client, input.companyId, settings, input.invoiceId, ids.vatOutput, buildSalesInvoiceLines(
-    { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId },
+    { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId, disbursement: hasDisbursement ? ids.suspense : null },
     input,
     salesSplit,
   ));
@@ -917,7 +951,8 @@ export async function postBankTransaction(
  * Mismas cuentas que la factura emitida (430 + 473 a 700 + 477) pero con importes con signo:
  * una rectificativa en negativo (abono) invierte el asiento original — 700 y 477 al debe, 430 y
  * 473 al haber — y una en positivo (rectificación al alza) se contabiliza como una venta.
- * Exige total + retención = base + cuota (lo garantiza el motor fiscal), así que siempre cuadra.
+ * Exige total + retención = base + cuota + suplidos (lo garantiza el motor fiscal), así que siempre
+ * cuadra. Los suplidos que se abonan deshacen la cuenta puente (`accounts.disbursement`, 555).
  *
  * `accounts.salesAdjustment`: cuenta que recibe TODA la base en lugar de las cuentas de ventas.
  * Es la (708) «Devoluciones de ventas y operaciones similares» en un abono por devolución de
@@ -926,15 +961,16 @@ export async function postBankTransaction(
  * ventas (700, 705…), como siempre.
  */
 export function buildCreditNoteLines(
-  accounts: { customer: string; sales: string; vatOutput: string; withholdingReceivable: string; salesAdjustment?: string | null },
-  amounts: { subtotal: number; taxAmount: number; totalAmount: number; retentionAmount?: number },
+  accounts: { customer: string; sales: string; vatOutput: string; withholdingReceivable: string; salesAdjustment?: string | null; disbursement?: string | null },
+  amounts: { subtotal: number; taxAmount: number; totalAmount: number; retentionAmount?: number; disbursementAmount?: number },
   salesByAccount?: Array<{ accountId: string; subtotal: number }>,
 ): PostingLine[] {
   const total = toCents(amounts.totalAmount);
   const retention = toCents(amounts.retentionAmount ?? 0);
   const subtotal = toCents(amounts.subtotal);
   const tax = toCents(amounts.taxAmount);
-  if (total + retention !== subtotal + tax) {
+  const disbursement = accounts.disbursement ? toCents(amounts.disbursementAmount ?? 0) : 0;
+  if (total + retention !== subtotal + tax + disbursement) {
     throw new AccountingRuleError(
       422,
       "ENTRY_UNBALANCED",
@@ -948,6 +984,7 @@ export function buildCreditNoteLines(
       ? [{ accountId: accounts.salesAdjustment, net: -subtotal }]
       : splitSales(subtotal, accounts.sales, salesByAccount).map((entry) => ({ accountId: entry.accountId, net: -entry.cents }))),
     { accountId: accounts.vatOutput, net: -tax },
+    ...(disbursement !== 0 && accounts.disbursement ? [{ accountId: accounts.disbursement, net: -disbursement }] : []),
   ];
   // Importes negativos → lado contrario (un abono queda como el asiento inverso de la venta).
   return signed.map((line) => ({
@@ -974,6 +1011,8 @@ export async function postCreditNote(
     taxAmount: number;
     totalAmount: number;
     retentionAmount?: number;
+    /** Suplidos que se abonan (incluidos en `totalAmount`): deshacen la cuenta puente (555). */
+    disbursementAmount?: number;
     lines?: SalesLineInput[];
     /** Motivo comercial: RETURN → 708, DISCOUNT → 709; ERROR o nada → cuentas de ventas. */
     commercialReason?: string | null;
@@ -981,7 +1020,14 @@ export async function postCreditNote(
 ) {
   const client = input.dbClient ?? db;
   const hasRetention = (input.retentionAmount ?? 0) !== 0;
-  const roles: AccountRole[] = hasRetention ? ["customer", "sales", "vatOutput", "withholdingReceivable"] : ["customer", "sales", "vatOutput"];
+  const hasDisbursement = toCents(input.disbursementAmount ?? 0) !== 0;
+  const roles: AccountRole[] = [
+    "customer",
+    "sales",
+    "vatOutput",
+    ...(hasRetention ? ["withholdingReceivable" as const] : []),
+    ...(hasDisbursement ? ["suspense" as const] : []),
+  ];
   const { ids, settings } = await resolveAccounts(input.companyId, roles, client);
   const context = await loadInvoicePostingContext(client, input.companyId, input.invoiceId);
   const customerId = await partyAccountId(client, input.companyId, context?.partnerId ?? null, "customer", ids.customer);
@@ -995,7 +1041,7 @@ export async function postCreditNote(
     entityName: "invoice",
     entityId: input.invoiceId,
     lines: withLineDocument(await withAiemAccount(client, input.companyId, settings, input.invoiceId, ids.vatOutput, buildCreditNoteLines(
-      { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId, salesAdjustment },
+      { customer: customerId, sales: ids.sales, vatOutput: ids.vatOutput, withholdingReceivable: ids.withholdingReceivable ?? customerId, salesAdjustment, disbursement: hasDisbursement ? ids.suspense : null },
       input,
       salesSplit,
     )), context ? invoiceLineDocument(context) : null, [customerId]),

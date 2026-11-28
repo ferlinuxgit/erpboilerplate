@@ -19,7 +19,14 @@ import {
 import { getCompanyTemplate } from "@/lib/company-templates";
 import { db, type AppDbTransaction, type DbClient } from "@/lib/db";
 import { HttpError } from "@/lib/http";
-import { calculateInvoiceTotals, type InvoiceCalculationTax, type InvoiceTotals } from "@/lib/invoice-totals";
+import {
+  applyGlobalDiscount,
+  calculateInvoiceTotals,
+  withoutGlobalDiscountLines,
+  type GlobalDiscount,
+  type InvoiceCalculationTax,
+  type InvoiceTotals,
+} from "@/lib/invoice-totals";
 import { postCreditNote, postSalesInvoice } from "@/server/accounting/auto-post";
 import { recordAudit } from "@/server/audit";
 import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
@@ -50,7 +57,18 @@ import {
   type InvoicePaymentMethodSnapshot,
 } from "@/server/invoices/payment-methods";
 import {
+  advanceDeductionProblem,
+  advanceDeductionsOf,
+  advanceTaxKey,
+  basesByAdvanceTaxKey,
+  buildPostingSalesLines,
+  negativeBaseProblem,
+  onlyDisbursementsProblem,
+  type AdvanceInvoiceState,
+} from "@/server/invoices/advances";
+import {
   ISSUED_LOCKED_FIELDS,
+  type CorrectSubstitutiveInput,
   type CreateCreditNoteInput,
   type CreateInvoiceInput,
   type SubstituteSimplifiedInput,
@@ -117,7 +135,7 @@ export class CompanyDefaultsMissingError extends HttpError {
 }
 
 type InvoiceRow = typeof invoice.$inferSelect;
-type CalculatedLine = InvoiceLineInput & { taxes?: InvoiceCalculationTax[] };
+type CalculatedLine = InvoiceLineInput & { taxes?: InvoiceCalculationTax[] | null };
 
 const SUBSTITUTIVE_RECTIFY_MESSAGE =
   "Esta factura sustituye a una factura simplificada y no se rectifica directamente: rectifica la simplificada original (la devolución o el error están en ella).";
@@ -173,8 +191,12 @@ export async function resolveLineTaxes(
     throw new HttpError(400, "Algún impuesto seleccionado no existe o ya no está activo.");
   }
   const byId = new Map(usable.map((configuredTax) => [configuredTax.id, configuredTax]));
-  return lines.map((line) => ({
+  return lines.map((line) => line.isDisbursement
+    // Suplido: no es base imponible, así que nunca lleva impuestos, retención ni descuento.
+    ? { ...line, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: [], taxes: [], advanceInvoiceId: null }
+    : {
     ...line,
+    advanceInvoiceId: line.advanceInvoiceId || null,
     ...(line.taxIds !== undefined
       ? {
           taxes: [...new Set(line.taxIds)].map((taxId) => {
@@ -189,7 +211,7 @@ export async function resolveLineTaxes(
           }),
         }
       : {}),
-  }));
+  });
 }
 
 /** Líneas guardadas de una factura con sus impuestos congelados (`invoice_line_tax`). */
@@ -204,6 +226,9 @@ export async function loadStoredLines(client: DbClient, invoiceId: string): Prom
       discountPct: invoiceLine.discountPct,
       taxRate: invoiceLine.taxRate,
       retentionRate: invoiceLine.retentionRate,
+      isDisbursement: invoiceLine.isDisbursement,
+      isGlobalDiscount: invoiceLine.isGlobalDiscount,
+      advanceInvoiceId: invoiceLine.advanceInvoiceId,
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, invoiceId))
@@ -234,11 +259,15 @@ export async function loadStoredLines(client: DbClient, invoiceId: string): Prom
     description: line.description,
     quantity: Number(line.quantity),
     unitPrice: Number(line.unitPrice),
-    discountPct: Number(line.discountPct),
+    // Un suplido se guarda con descuento 100 solo como defensa (ver `invoice_line.isDisbursement`).
+    discountPct: line.isDisbursement ? 0 : Number(line.discountPct),
     taxRate: Number(line.taxRate),
     retentionRate: Number(line.retentionRate),
     // Facturas antiguas sin impuestos detallados: se usan taxRate/retentionRate de la línea.
     ...(taxesByLine.has(line.id) ? { taxes: taxesByLine.get(line.id)! } : {}),
+    ...(line.isDisbursement ? { isDisbursement: true, taxes: [] } : {}),
+    ...(line.isGlobalDiscount ? { isGlobalDiscount: true } : {}),
+    ...(line.advanceInvoiceId ? { advanceInvoiceId: line.advanceInvoiceId } : {}),
   }));
 }
 
@@ -286,6 +315,109 @@ async function assertActiveCustomer(client: DbClient, companyId: string, custome
     .limit(1);
   if (!owned) throw new HttpError(404, "Cliente no encontrado en la empresa activa.");
   return owned;
+}
+
+function globalDiscountOf(input: { globalDiscountPct?: number | string | null; globalDiscountAmount?: number | string | null }): GlobalDiscount {
+  return { pct: Number(input.globalDiscountPct ?? 0) || 0, amount: Number(input.globalDiscountAmount ?? 0) || 0 };
+}
+
+/** Columnas del descuento global: con porcentaje no se guarda importe (manda el porcentaje). */
+function globalDiscountColumns(discount: GlobalDiscount) {
+  const pct = Number(discount.pct ?? 0);
+  return {
+    globalDiscountPct: pct.toFixed(3),
+    globalDiscountAmount: pct > 0 ? "0.00" : Number(discount.amount ?? 0).toFixed(2),
+  };
+}
+
+/**
+ * Estado de las facturas de anticipo que una factura quiere descontar: su base por tipo (ya
+ * minorada por sus rectificativas) y lo que otras facturas emitidas han descontado ya de ellas.
+ */
+async function loadAdvanceStates(client: DbClient, companyId: string, advanceIds: string[], excludeInvoiceId: string | null): Promise<Map<string, AdvanceInvoiceState>> {
+  const states = new Map<string, AdvanceInvoiceState>();
+  if (advanceIds.length === 0) return states;
+  const advances = await client
+    .select({ id: invoice.id, number: invoice.number, customerId: invoice.customerId, isAdvance: invoice.isAdvance, invoiceType: invoice.invoiceType, status: invoice.status, issuedAt: invoice.issuedAt })
+    .from(invoice)
+    .where(and(eq(invoice.companyId, companyId), inArray(invoice.id, advanceIds)));
+  const addBases = (target: Map<string, number>, source: Map<string, number>, sign: 1 | -1) => {
+    for (const [key, cents] of source) target.set(key, (target.get(key) ?? 0) + sign * cents);
+  };
+  for (const advance of advances) {
+    const lines = await loadStoredLines(client, advance.id);
+    const baseByTaxKey = basesByAdvanceTaxKey(lines, calculateInvoiceTotals(lines));
+    // Rectificativas emitidas del anticipo: lo que abonan deja de poder descontarse.
+    const creditNotes = await client
+      .select({ id: invoice.id })
+      .from(invoice)
+      .where(and(eq(invoice.companyId, companyId), eq(invoice.rectifiedInvoiceId, advance.id), eq(invoice.invoiceType, "CREDIT_NOTE"), isNotNull(invoice.issuedAt), ne(invoice.status, "VOID")));
+    for (const creditNote of creditNotes) {
+      const creditLines = await loadStoredLines(client, creditNote.id);
+      addBases(baseByTaxKey, basesByAdvanceTaxKey(creditLines, calculateInvoiceTotals(creditLines, { allowNegative: true })), 1);
+    }
+    states.set(advance.id, {
+      id: advance.id,
+      number: advance.number,
+      customerId: advance.customerId,
+      isAdvance: advance.isAdvance,
+      invoiceType: advance.invoiceType,
+      issued: Boolean(advance.issuedAt) && advance.status !== "VOID",
+      baseByTaxKey,
+      deductedByTaxKey: new Map(),
+    });
+  }
+  // Facturas emitidas (y sus rectificativas) que ya descuentan estos anticipos. Las sustitutivas
+  // repiten líneas de las simplificadas y no cuentan dos veces.
+  const consumers = await client
+    .selectDistinct({ id: invoice.id, invoiceType: invoice.invoiceType })
+    .from(invoiceLine)
+    .innerJoin(invoice, eq(invoice.id, invoiceLine.invoiceId))
+    .where(and(
+      eq(invoice.companyId, companyId),
+      inArray(invoiceLine.advanceInvoiceId, advanceIds),
+      isNotNull(invoice.issuedAt),
+      ne(invoice.status, "VOID"),
+      eq(invoice.isSubstitutive, false),
+      ...(excludeInvoiceId ? [ne(invoice.id, excludeInvoiceId)] : []),
+    ));
+  for (const consumer of consumers) {
+    const lines = await loadStoredLines(client, consumer.id);
+    const totals = calculateInvoiceTotals(lines, { allowNegative: consumer.invoiceType === "CREDIT_NOTE" });
+    for (const advanceId of advanceIds) {
+      const state = states.get(advanceId);
+      if (!state) continue;
+      // Las líneas de descuento son negativas (y positivas en la rectificativa que las deshace).
+      addBases(state.deductedByTaxKey, basesByAdvanceTaxKey(lines, totals, (line) => line.advanceInvoiceId === advanceId), -1);
+    }
+  }
+  return states;
+}
+
+/**
+ * Reglas de suplidos y anticipos de una factura ordinaria (al guardar el borrador y al emitir):
+ * no hay factura solo de suplidos, ninguna base queda negativa y los anticipos descontados son
+ * del mismo cliente, al mismo tipo y sin superar lo que queda de cada uno.
+ */
+async function assertSpecialLines(
+  client: DbClient,
+  companyId: string,
+  input: { invoiceId: string | null; customerId: string; isAdvance: boolean; lines: CalculatedLine[]; totals: InvoiceTotals },
+) {
+  const disbursementProblem = onlyDisbursementsProblem(input.lines, input.totals);
+  if (disbursementProblem) throw new HttpError(422, disbursementProblem);
+  const deductions = advanceDeductionsOf(input.lines, input.totals);
+  if (deductions.length === 0) return;
+  const advances = await loadAdvanceStates(client, companyId, [...new Set(deductions.map((deduction) => deduction.advanceInvoiceId))], input.invoiceId);
+  const problem = advanceDeductionProblem({ customerId: input.customerId, invoiceIsAdvance: input.isAdvance, deductions, advances })
+    ?? negativeBaseProblem(input.totals);
+  if (problem) throw new HttpError(422, problem);
+}
+
+/** Una factura ordinaria debe tener importe: solo puede quedar a cero si descuenta anticipos que la cubren entera. */
+function assertPositiveInvoiceTotal(lines: CalculatedLine[], totals: InvoiceTotals, message = "El importe de la factura debe ser mayor que 0.") {
+  const coveredByAdvances = totals.totalAmount === 0 && lines.some((line) => line.advanceInvoiceId);
+  if (totals.totalAmount <= 0 && !coveredByAdvances) throw new HttpError(400, message);
 }
 
 /** Saldo de una factura en céntimos: total, rectificado (rectificativas emitidas), cobrado y pendiente. */
@@ -478,17 +610,19 @@ async function assertInvoiceLegalContent(
         .limit(1)
     : [];
   const limit = input.options.simplifiedLimit ?? Number(settings?.simplifiedInvoiceLimit ?? SIMPLIFIED_INVOICE_GENERAL_LIMIT);
+  // Los suplidos no son importe de la factura (solo del total a pagar): no cuentan para el límite.
+  const invoiceAmount = (toCents(input.totals.totalAmount) - toCents(input.totals.disbursementAmount)) / 100;
   const resolved = resolveDocumentClass({
     requested: input.substitutive ? "FULL" : input.requestedClass,
     customerTaxId: input.customer.taxId,
     vatTreatment: input.vatTreatment,
     ticket: input.options.ticket,
-    totalAmount: input.totals.totalAmount,
+    totalAmount: invoiceAmount,
     limit,
   });
   if (resolved.problem !== null) throw new HttpError(422, resolved.problem);
   const documentClass = resolved.documentClass;
-  const limitProblem = simplifiedLimitProblem({ documentClass, customerTaxId: input.customer.taxId, totalAmount: input.totals.totalAmount, limit });
+  const limitProblem = simplifiedLimitProblem({ documentClass, customerTaxId: input.customer.taxId, totalAmount: invoiceAmount, limit });
   if (limitProblem) throw new HttpError(422, limitProblem);
   // La sustitutiva repite las líneas de las simplificadas tal y como se expidieron.
   if (input.substitutive) return { documentClass, viesConfirmedByUser };
@@ -542,8 +676,12 @@ export async function issueInvoiceInTransaction(
   const lines = await loadStoredLines(tx, row.id);
   if (lines.length === 0) throw new HttpError(400, "La factura necesita al menos una línea para emitirse.");
   const totals = calculateInvoiceTotals(lines, { allowNegative: isCreditNote });
-  if (!isCreditNote && totals.totalAmount <= 0) throw new HttpError(400, "El importe de la factura debe ser mayor que 0.");
+  if (!isCreditNote) assertPositiveInvoiceTotal(lines, totals);
   if (isCreditNote && totals.totalAmount === 0) throw new HttpError(400, "La rectificativa no puede tener importe cero.");
+  // Suplidos y anticipos descontados (la sustitutiva repite las líneas de las simplificadas tal cual).
+  if (!isCreditNote && !row.isSubstitutive) {
+    await assertSpecialLines(tx, actor.companyId, { invoiceId: row.id, customerId: row.customerId, isAdvance: row.isAdvance, lines, totals });
+  }
 
   const [issuer, customerSnapshot] = await Promise.all([
     loadIssuerSnapshot(tx, actor.companyId),
@@ -565,7 +703,8 @@ export async function issueInvoiceInTransaction(
     if (!original || invoiceLifecycle(original) !== "ISSUED") {
       throw new HttpError(409, "La factura original debe estar emitida para poder rectificarla.");
     }
-    if (original.isSubstitutive) throw new HttpError(409, SUBSTITUTIVE_RECTIFY_MESSAGE);
+    // Una factura de canje solo la «rectifica» su corrección (otra F3 de signo contrario).
+    if (original.isSubstitutive !== row.isSubstitutive) throw new HttpError(409, SUBSTITUTIVE_RECTIFY_MESSAGE);
     if (totals.totalAmount < 0) {
       const balance = await getInvoiceBalance(tx, actor.companyId, original.id, original.totalAmount);
       const creditableCents = balance.totalCents + balance.creditedCents;
@@ -609,10 +748,11 @@ export async function issueInvoiceInTransaction(
   // Serie elegida en el borrador (validada: empresa, tipo y ejercicio de la fecha) o la de por defecto.
   const { number, seriesId } = await reserveSeriesNumberDetailed(tx, {
     companyId: actor.companyId,
-    type: isCreditNote ? "CREDIT_NOTE" : "SALES_INVOICE",
+    // La F3 que anula un canje no es una rectificativa (R1–R5): se numera con las facturas.
+    type: isCreditNote && !row.isSubstitutive ? "CREDIT_NOTE" : "SALES_INVOICE",
     referenceDate: row.issueDate,
     seriesId: row.seriesId,
-    ...(isCreditNote ? { createIfMissing: { prefix: "R-" } } : {}),
+    ...(isCreditNote && !row.isSubstitutive ? { createIfMissing: { prefix: "R-" } } : {}),
   });
   // Orden cronológico dentro de la serie (la reserva del número ya tiene bloqueada la serie).
   const [lastIssued] = await tx
@@ -633,7 +773,8 @@ export async function issueInvoiceInTransaction(
       status: "SENT",
       // Una rectificativa no se cobra: queda aplicada contra la factura original. Una sustitutiva
       // tampoco: el cobro es el de las simplificadas a las que sustituye.
-      paymentStatus: isCreditNote || row.isSubstitutive ? "PAID" : "PENDING",
+      // Tampoco la factura final que los anticipos ya cubren por completo (total a pagar cero).
+      paymentStatus: isCreditNote || row.isSubstitutive || totals.totalAmount === 0 ? "PAID" : "PENDING",
       issuedAt,
       documentClass,
       vatTreatment,
@@ -656,16 +797,21 @@ export async function issueInvoiceInTransaction(
     taxAmount: totals.taxAmount,
     retentionAmount: totals.retentionAmount,
     totalAmount: totals.totalAmount,
-    // Base de cada línea con su artículo: la venta va a la cuenta de ventas del artículo (700/705…).
-    lines: lines.map((line, index) => ({ itemId: line.itemId ?? null, subtotal: totals.lines[index]?.subtotal ?? 0 })),
+    // Suplidos: se cobran al cliente pero no son venta; van a la cuenta puente (555).
+    disbursementAmount: totals.disbursementAmount,
+    // Base de cada línea con su artículo: la venta va a la cuenta de ventas del artículo (700/705…);
+    // la de una factura de anticipo y la del anticipo descontado, a la (438) «Anticipos de clientes».
+    lines: buildPostingSalesLines(lines, totals, { advanceInvoice: isCreditNote ? Boolean(original?.isAdvance) : row.isAdvance }),
     dbClient: tx,
   };
-  if (isCreditNote && original) {
-    await postCreditNote({ ...posting, commercialReason: row.commercialReason, reference: `Rectificativa ${number} de factura ${original.number}` });
-    await refreshInvoicePaymentStatus(tx, actor.companyId, original.id);
-  } else if (row.isSubstitutive) {
+  if (row.isSubstitutive) {
     // Sin asiento: la venta y el IVA ya se contabilizaron con las simplificadas (la AEAT tampoco
-    // vuelve a computar el importe de una F3), y su cobro sigue aplicado a ellas.
+    // vuelve a computar el importe de una F3), y su cobro sigue aplicado a ellas. Tampoco lo lleva
+    // la F3 de signo contrario que corrige un canje erróneo.
+  } else if (isCreditNote && original) {
+    // El abono de un anticipo deshace la 438, no una venta: no usa la 708 / 709.
+    await postCreditNote({ ...posting, commercialReason: original.isAdvance ? null : row.commercialReason, reference: `Rectificativa ${number} de factura ${original.number}` });
+    await refreshInvoicePaymentStatus(tx, actor.companyId, original.id);
   } else {
     await postSalesInvoice({ ...posting, reference: `Factura ${number}` });
   }
@@ -683,7 +829,9 @@ export async function issueInvoiceInTransaction(
     issuer,
     customer: customerSnapshot,
     totals,
-    lineDescriptions: lines.map((line) => line.description ?? ""),
+    // Los suplidos no forman parte del registro de facturación (FAQ de VERI*FACTU de la AEAT) y el
+    // descuento global ya está en las bases: ninguno de los dos describe la operación.
+    lineDescriptions: lines.filter((line) => !line.isDisbursement && !line.isGlobalDiscount).map((line) => line.description ?? ""),
     original: original ? { id: original.id, number: original.number, issueDate: original.issueDate } : null,
     operationDate: row.operationDate,
     exemptionCode: row.vatExemptionCode,
@@ -695,7 +843,7 @@ export async function issueInvoiceInTransaction(
     tenantId: actor.tenantId,
     companyId: actor.companyId,
     actorUserId: actor.actorUserId,
-    action: isCreditNote ? "invoice.creditNote" : row.isSubstitutive ? "invoice.substitute" : "invoice.issue",
+    action: isCreditNote && row.isSubstitutive ? "invoice.substitute.cancel" : isCreditNote ? "invoice.creditNote" : row.isSubstitutive ? "invoice.substitute" : "invoice.issue",
     entityName: "invoice",
     entityId: row.id,
     payload: {
@@ -706,6 +854,9 @@ export async function issueInvoiceInTransaction(
       totalAmount: totals.totalAmount,
       vatTreatment,
       documentClass,
+      ...(totals.disbursementAmount !== 0 ? { disbursementAmount: totals.disbursementAmount } : {}),
+      ...(row.isAdvance ? { isAdvance: true } : {}),
+      ...(lines.some((line) => line.advanceInvoiceId) ? { advanceInvoiceIds: [...new Set(lines.map((line) => line.advanceInvoiceId).filter(Boolean))] } : {}),
       ...(viesConfirmedByUser ? { viesConfirmedByUser: true } : {}),
       ...(substituted.length > 0 ? { substitutesInvoiceIds: substituted.map((entry) => entry.id), substitutedNumbers: substituted.map((entry) => entry.number) } : {}),
       ...(verifactuRecord ? { verifactuRecordId: verifactuRecord.id, verifactuHash: verifactuRecord.hash } : {}),
@@ -738,6 +889,11 @@ export type DraftInvoiceInput = {
   notes?: string | null;
   /** Serie de numeración (ya validada); null = la serie por defecto. */
   seriesId?: string | null;
+  /** Descuento global de la factura (porcentaje o importe): genera sus líneas negativas. */
+  globalDiscountPct?: number | null;
+  globalDiscountAmount?: number | null;
+  /** Factura de anticipo (art. 75.Dos LIVA). */
+  isAdvance?: boolean;
   source?: { salesQuoteId?: string | null; salesOrderId?: string | null; deliveryNoteId?: string | null };
   auditPayload?: Record<string, unknown>;
 };
@@ -748,8 +904,11 @@ export type DraftInvoiceInput = {
  * o albarán. Para emitir, llamar después a `issueInvoiceInTransaction`.
  */
 export async function createDraftInvoiceInTransaction(tx: DbClient, actor: InvoiceActor, input: DraftInvoiceInput) {
-  const totals = calculateInvoiceTotals(input.lines);
-  if (totals.totalAmount <= 0) throw new HttpError(400, "El importe de la factura debe ser mayor que 0.");
+  const discount = globalDiscountOf(input);
+  const lines: CalculatedLine[] = applyGlobalDiscount(input.lines, discount);
+  const totals = calculateInvoiceTotals(lines);
+  assertPositiveInvoiceTotal(lines, totals);
+  await assertSpecialLines(tx, actor.companyId, { invoiceId: null, customerId: input.customerId, isAdvance: Boolean(input.isAdvance), lines, totals });
   if (input.dueDate && input.dueDate < input.issueDate) throw new HttpError(400, "El vencimiento no puede ser anterior a la fecha de emisión.");
   const id = randomUUID();
   const [created] = await tx
@@ -771,13 +930,15 @@ export async function createDraftInvoiceInTransaction(tx: DbClient, actor: Invoi
       legalMentions: input.legalMentions?.trim() || null,
       notes: input.notes?.trim() || null,
       seriesId: input.seriesId || null,
+      ...globalDiscountColumns(discount),
+      isAdvance: Boolean(input.isAdvance),
       salesQuoteId: input.source?.salesQuoteId ?? null,
       salesOrderId: input.source?.salesOrderId ?? null,
       deliveryNoteId: input.source?.deliveryNoteId ?? null,
     })
     .returning({ id: invoice.id, number: invoice.number, status: invoice.status });
   await replaceInvoicePaymentMethods(tx, created.id, input.paymentMethods);
-  await writeLines(tx, created.id, input.lines, false);
+  await writeLines(tx, created.id, lines, false);
   await recordAudit({
     tenantId: actor.tenantId,
     companyId: actor.companyId,
@@ -793,6 +954,8 @@ export async function createDraftInvoiceInTransaction(tx: DbClient, actor: Invoi
       totalAmount: totals.totalAmount,
       lineCount: input.lines.length,
       vatTreatment: input.vatTreatment,
+      ...(lines.length !== input.lines.length ? { globalDiscountPct: discount.pct, globalDiscountAmount: discount.amount } : {}),
+      ...(input.isAdvance ? { isAdvance: true } : {}),
       ...(input.seriesId ? { seriesId: input.seriesId } : {}),
       ...(input.source ? { source: input.source } : {}),
     },
@@ -825,8 +988,8 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
   await assertItemsBelongToCompany(db, actor.companyId, input.lines.map((line) => line.itemId));
   const paymentMethods = (await resolvePaymentMethods(actor.companyId, input)) ?? [];
   const lines = await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: true });
-  const totals = calculateInvoiceTotals(lines);
-  if (totals.totalAmount <= 0) throw new HttpError(400, "El total de la factura debe ser mayor que 0: indica el precio de las líneas.");
+  const discountedLines: CalculatedLine[] = applyGlobalDiscount(lines, globalDiscountOf(input));
+  assertPositiveInvoiceTotal(discountedLines, calculateInvoiceTotals(discountedLines), "El total de la factura debe ser mayor que 0: indica el precio de las líneas.");
   if (customerId) await assertActiveCustomer(db, actor.companyId, customerId);
   const seriesId = input.seriesId?.trim() || null;
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
@@ -864,6 +1027,9 @@ export async function createInvoice(actor: InvoiceActor, input: CreateInvoiceInp
       legalMentions: input.legalMentions ?? null,
       notes: input.notes,
       seriesId,
+      globalDiscountPct: input.globalDiscountPct ?? null,
+      globalDiscountAmount: input.globalDiscountAmount ?? null,
+      isAdvance: Boolean(input.isAdvance),
       auditPayload: { mode },
     });
 
@@ -940,9 +1106,8 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
   const dueDate = parseDate(input.dueDate, "La fecha de vencimiento no es válida.");
   const operationDate = parseDate(input.operationDate, "La fecha de operación no es válida.");
   if (input.lines) await assertItemsBelongToCompany(db, actor.companyId, input.lines.map((line) => line.itemId));
-  const lines = input.lines ? await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: false }) : null;
-  const totals = lines ? calculateInvoiceTotals(lines) : null;
-  if (totals && totals.totalAmount <= 0) throw new HttpError(400, "El importe de la factura debe ser mayor que 0.");
+  const inputLines = input.lines ? await resolveLineTaxes(db, actor.companyId, input.lines, { requireActive: false }) : null;
+  const discountChanged = input.globalDiscountPct !== undefined || input.globalDiscountAmount !== undefined;
   const customerId = input.customerId !== undefined ? input.customerId.trim() : undefined;
   if (customerId !== undefined) {
     if (!customerId) throw new HttpError(400, "Debes seleccionar un cliente activo de la empresa.");
@@ -962,6 +1127,33 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
     const nextDueDate = input.dueDate !== undefined ? dueDate : row.dueDate;
     if (nextDueDate && nextDueDate < nextIssueDate) throw new HttpError(400, "El vencimiento no puede ser anterior a la fecha de emisión.");
 
+    // Líneas definitivas. En una factura ordinaria el descuento global se vuelve a repartir cada vez
+    // que cambian las líneas o el propio descuento; una rectificativa conserva sus líneas tal cual.
+    const isCreditNoteDraft = row.invoiceType === "CREDIT_NOTE";
+    const discount = isCreditNoteDraft
+      ? null
+      : globalDiscountOf({
+          globalDiscountPct: input.globalDiscountPct !== undefined ? input.globalDiscountPct : row.globalDiscountPct,
+          globalDiscountAmount: input.globalDiscountAmount !== undefined ? input.globalDiscountAmount : row.globalDiscountAmount,
+        });
+    const isAdvance = input.isAdvance !== undefined && !isCreditNoteDraft ? input.isAdvance : row.isAdvance;
+    let lines: CalculatedLine[] | null = inputLines;
+    if (discount && (inputLines || discountChanged)) {
+      lines = applyGlobalDiscount(inputLines ?? withoutGlobalDiscountLines(await loadStoredLines(tx, invoiceId)), discount);
+    }
+    const totals = lines ? calculateInvoiceTotals(lines, { allowNegative: isCreditNoteDraft }) : null;
+    if (lines && totals && !isCreditNoteDraft) assertPositiveInvoiceTotal(lines, totals);
+    if (!isCreditNoteDraft && !row.isSubstitutive && (lines || customerId || input.isAdvance !== undefined)) {
+      const checkedLines = lines ?? await loadStoredLines(tx, invoiceId);
+      await assertSpecialLines(tx, actor.companyId, {
+        invoiceId,
+        customerId: customerId || row.customerId,
+        isAdvance,
+        lines: checkedLines,
+        totals: totals ?? calculateInvoiceTotals(checkedLines),
+      });
+    }
+
     const [updated] = await tx
       .update(invoice)
       .set({
@@ -976,6 +1168,8 @@ export async function updateInvoice(actor: InvoiceActor, invoiceId: string, inpu
         ...(input.documentClass !== undefined && row.invoiceType === "INVOICE" ? { documentClass: input.documentClass || null } : {}),
         ...(input.legalMentions !== undefined ? { legalMentions: input.legalMentions?.trim() || null } : {}),
         ...(seriesId !== undefined ? { seriesId } : {}),
+        ...(discount && discountChanged ? globalDiscountColumns(discount) : {}),
+        ...(input.isAdvance !== undefined && !isCreditNoteDraft ? { isAdvance } : {}),
         ...(totals ? { totalAmount: money(totals.totalAmount) } : {}),
         updatedAt: new Date(),
       })
@@ -1211,15 +1405,37 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
   return creditNote;
 }
 
-/** Factura (no anulada) que ya sustituye a alguna de estas simplificadas, si la hay. */
+/**
+ * Factura de canje vigente (no anulada ni corregida) que ya sustituye a alguna de estas
+ * simplificadas, si la hay. Una F3 corregida (con su F3 de signo contrario emitida) ya no cuenta:
+ * se puede expedir la nueva.
+ */
 export async function findSubstitutiveOf(client: DbClient, companyId: string, invoiceIds: string[]) {
   if (invoiceIds.length === 0) return null;
   const rows = await client
-    .select({ id: invoice.id, number: invoice.number, substitutesInvoiceIds: invoice.substitutesInvoiceIds })
+    .select({ id: invoice.id, number: invoice.number, invoiceType: invoice.invoiceType, substitutesInvoiceIds: invoice.substitutesInvoiceIds, rectifiedInvoiceId: invoice.rectifiedInvoiceId, issuedAt: invoice.issuedAt })
     .from(invoice)
     .where(and(eq(invoice.companyId, companyId), eq(invoice.isSubstitutive, true), ne(invoice.status, "VOID")));
   const wanted = new Set(invoiceIds);
-  return rows.find((row) => (row.substitutesInvoiceIds ?? []).some((id) => wanted.has(id))) ?? null;
+  const cancelled = new Set(rows.filter((row) => row.invoiceType === "CREDIT_NOTE" && row.issuedAt && row.rectifiedInvoiceId).map((row) => row.rectifiedInvoiceId!));
+  return rows.find((row) => row.invoiceType === "INVOICE" && !cancelled.has(row.id) && (row.substitutesInvoiceIds ?? []).some((id) => wanted.has(id))) ?? null;
+}
+
+/** F3 de signo contrario emitida que anula esta factura de canje, si la hay. */
+export async function findSubstitutiveCancellationOf(client: DbClient, companyId: string, substitutiveId: string) {
+  const [row] = await client
+    .select({ id: invoice.id, number: invoice.number })
+    .from(invoice)
+    .where(and(
+      eq(invoice.companyId, companyId),
+      eq(invoice.rectifiedInvoiceId, substitutiveId),
+      eq(invoice.invoiceType, "CREDIT_NOTE"),
+      eq(invoice.isSubstitutive, true),
+      isNotNull(invoice.issuedAt),
+      ne(invoice.status, "VOID"),
+    ))
+    .limit(1);
+  return row ?? null;
 }
 
 /**
@@ -1240,91 +1456,228 @@ export async function substituteSimplifiedInvoices(actor: InvoiceActor, invoiceI
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
   await ensureCompanyDefaults(actor);
 
-  const created = await db.transaction(async (tx) => {
-    const originals: InvoiceRow[] = [];
-    for (const id of ids) {
-      const row = await lockInvoice(tx, actor.companyId, id);
-      if (!row) {
-        if (id === invoiceId) return null;
-        throw new HttpError(404, "Alguna de las facturas simplificadas no existe en esta empresa.");
-      }
-      originals.push(row);
-    }
-    for (const original of originals) {
-      if (original.invoiceType !== "INVOICE" || invoiceLifecycle(original) !== "ISSUED" || original.isSubstitutive) {
-        throw new HttpError(409, `${original.number} no es una factura simplificada emitida: solo esas se pueden convertir en factura completa.`);
-      }
-      const originalClass = effectiveDocumentClass({ documentClass: original.documentClass, customerTaxId: original.customerSnapshot?.taxId });
-      if (originalClass !== "SIMPLIFIED") {
-        throw new HttpError(409, `${original.number} ya identifica al cliente con su NIF: no necesita convertirse en factura completa.`);
-      }
-      const balance = await getInvoiceBalance(tx, actor.companyId, original.id, original.totalAmount);
-      if (balance.creditedCents !== 0) {
-        throw new HttpError(409, `${original.number} tiene rectificativas: no se puede convertir automáticamente. Emite una factura nueva por el importe que quedó.`);
-      }
-    }
-    if (new Set(originals.map((original) => original.customerId)).size > 1) {
-      throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben ser del mismo cliente.");
-    }
-    if (new Set(originals.map((original) => original.vatTreatment ?? "DOMESTIC")).size > 1) {
-      throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben tener el mismo tratamiento de IVA.");
-    }
-    const already = await findSubstitutiveOf(tx, actor.companyId, ids);
-    if (already) throw new HttpError(409, `Ya existe la factura ${already.number} en sustitución de esa factura simplificada.`);
-    const latest = originals.reduce((max, original) => (original.issueDate > max ? original.issueDate : max), originals[0].issueDate);
-    if (issueDate < latest) throw new HttpError(400, "La factura completa no puede tener fecha anterior a la de la simplificada que sustituye.");
+  const created = await db.transaction((tx) => substituteInTransaction(tx, actor, { ids, customerId: input.customerId, issueDate, seriesId }));
+  if (created) await storeInvoicePdfQuietly(actor.companyId, created.id);
+  return created;
+}
 
-    await assertActiveCustomer(tx, actor.companyId, input.customerId);
-    const recipient = await loadCustomerSnapshot(tx, actor.companyId, input.customerId);
-    if (!recipient?.taxId?.trim()) {
-      throw new HttpError(422, "Para convertirla en factura completa el cliente debe tener NIF. Complétalo en su ficha o elige otro cliente.");
+/** Canje dentro de una transacción (lo usan el canje y su corrección). `ids[0]` es la simplificada pedida. */
+async function substituteInTransaction(
+  tx: AppDbTransaction,
+  actor: InvoiceActor,
+  { ids, customerId, issueDate, seriesId }: { ids: string[]; customerId: string; issueDate: Date; seriesId: string | null },
+) {
+  const invoiceId = ids[0]!;
+  const input = { customerId };
+  const originals: InvoiceRow[] = [];
+  for (const id of ids) {
+    const row = await lockInvoice(tx, actor.companyId, id);
+    if (!row) {
+      if (id === invoiceId) return null;
+      throw new HttpError(404, "Alguna de las facturas simplificadas no existe en esta empresa.");
     }
+    originals.push(row);
+  }
+  for (const original of originals) {
+    if (original.invoiceType !== "INVOICE" || invoiceLifecycle(original) !== "ISSUED" || original.isSubstitutive) {
+      throw new HttpError(409, `${original.number} no es una factura simplificada emitida: solo esas se pueden convertir en factura completa.`);
+    }
+    const originalClass = effectiveDocumentClass({ documentClass: original.documentClass, customerTaxId: original.customerSnapshot?.taxId });
+    if (originalClass !== "SIMPLIFIED") {
+      throw new HttpError(409, `${original.number} ya identifica al cliente con su NIF: no necesita convertirse en factura completa.`);
+    }
+    const balance = await getInvoiceBalance(tx, actor.companyId, original.id, original.totalAmount);
+    if (balance.creditedCents !== 0) {
+      throw new HttpError(409, `${original.number} tiene rectificativas: no se puede convertir automáticamente. Emite una factura nueva por el importe que quedó.`);
+    }
+  }
+  if (new Set(originals.map((original) => original.customerId)).size > 1) {
+    throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben ser del mismo cliente.");
+  }
+  if (new Set(originals.map((original) => original.vatTreatment ?? "DOMESTIC")).size > 1) {
+    throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben tener el mismo tratamiento de IVA.");
+  }
+  const already = await findSubstitutiveOf(tx, actor.companyId, ids);
+  if (already) throw new HttpError(409, `Ya existe la factura ${already.number} en sustitución de esa factura simplificada.`);
+  const latest = originals.reduce((max, original) => (original.issueDate > max ? original.issueDate : max), originals[0].issueDate);
+  if (issueDate < latest) throw new HttpError(400, "La factura completa no puede tener fecha anterior a la de la simplificada que sustituye.");
 
-    const lines: CalculatedLine[] = [];
-    for (const original of [...originals].sort((left, right) => left.issueDate.getTime() - right.issueDate.getTime())) {
-      for (const stored of await loadStoredLines(tx, original.id)) {
-        const line: CalculatedLine & { lineId?: string } = { ...stored };
-        delete line.lineId;
-        // Con varias simplificadas, cada concepto dice de cuál viene.
-        lines.push(originals.length > 1 ? { ...line, description: `${line.description} (${original.number})`.slice(0, 500) } : line);
-      }
-    }
-    const totals = calculateInvoiceTotals(lines);
-    const originalsTotalCents = originals.reduce((sum, original) => sum + toCents(original.totalAmount), 0);
-    if (toCents(totals.totalAmount) !== originalsTotalCents) {
-      throw new HttpError(409, "El importe recalculado no coincide con el de las facturas simplificadas: no se puede convertir automáticamente.");
-    }
+  await assertActiveCustomer(tx, actor.companyId, input.customerId);
+  const recipient = await loadCustomerSnapshot(tx, actor.companyId, input.customerId);
+  if (!recipient?.taxId?.trim()) {
+    throw new HttpError(422, "Para convertirla en factura completa el cliente debe tener NIF. Complétalo en su ficha o elige otro cliente.");
+  }
 
-    const numbers = originals.map((original) => original.number);
-    const id = randomUUID();
-    const first = originals[0];
+  const lines: CalculatedLine[] = [];
+  for (const original of [...originals].sort((left, right) => left.issueDate.getTime() - right.issueDate.getTime())) {
+    for (const stored of await loadStoredLines(tx, original.id)) {
+      const line: CalculatedLine & { lineId?: string } = { ...stored };
+      delete line.lineId;
+      // Con varias simplificadas, cada concepto dice de cuál viene.
+      lines.push(originals.length > 1 ? { ...line, description: `${line.description} (${original.number})`.slice(0, 500) } : line);
+    }
+  }
+  const totals = calculateInvoiceTotals(lines);
+  const originalsTotalCents = originals.reduce((sum, original) => sum + toCents(original.totalAmount), 0);
+  if (toCents(totals.totalAmount) !== originalsTotalCents) {
+    throw new HttpError(409, "El importe recalculado no coincide con el de las facturas simplificadas: no se puede convertir automáticamente.");
+  }
+
+  const numbers = originals.map((original) => original.number);
+  const id = randomUUID();
+  const first = originals[0];
+  await tx.insert(invoice).values({
+    id,
+    companyId: actor.companyId,
+    customerId: input.customerId,
+    number: provisionalDraftNumber(id),
+    issueDate,
+    // No se cobra: el cobro es el de las simplificadas.
+    dueDate: null,
+    totalAmount: money(totals.totalAmount),
+    status: "DRAFT",
+    vatTreatment: first.vatTreatment,
+    vatExemptionCode: first.vatExemptionCode,
+    legalMentions: first.legalMentions,
+    // Art. 6.1.i: la operación se hizo en la fecha de la simplificada (la más reciente si hay varias).
+    operationDate: originals.length === 1 ? first.operationDate ?? first.issueDate : latest,
+    documentClass: "FULL",
+    isSubstitutive: true,
+    substitutesInvoiceIds: ids,
+    notes: `Sustituye a ${numbers.length === 1 ? "la factura simplificada" : "las facturas simplificadas"} ${numbers.join(", ")}.`,
+    seriesId,
+  });
+  await writeLines(tx, id, lines, false);
+  const issued = await issueInvoiceInTransaction(tx, actor, id);
+  return { id: issued.id, number: issued.number, status: issued.status, totalAmount: totals.totalAmount, substitutedNumbers: numbers };
+}
+
+/**
+ * Corrige una factura de canje (F3) errónea —cliente o datos de la operación equivocados— como
+ * indican las preguntas frecuentes de VERI*FACTU de la AEAT: «mediante el alta de otras dos
+ * facturas tipo F3: una F3 de importe negativo […] para contrarrestar dicha F3 original errónea y
+ * una nueva F3 con los datos correctos».
+ *
+ * La F3 negativa se guarda como abono (`CREDIT_NOTE`) de la F3 errónea que sustituye a las mismas
+ * simplificadas; se numera con las facturas, no con las rectificativas, y como cualquier canje no
+ * genera asiento, ni cobro, ni cuenta en los modelos. Si el error está en la simplificada, hay que
+ * rectificar la simplificada (no esto).
+ */
+export async function correctSubstitutiveInvoice(actor: InvoiceActor, substitutiveId: string, input: CorrectSubstitutiveInput) {
+  const issueDate = parseDate(input.issueDate, "La fecha de la factura no es válida.") ?? new Date();
+  const seriesId = input.seriesId?.trim() || null;
+  if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
+  await ensureCompanyDefaults(actor);
+
+  const result = await db.transaction(async (tx) => {
+    const wrong = await lockInvoice(tx, actor.companyId, substitutiveId);
+    if (!wrong) return null;
+    if (wrong.invoiceType !== "INVOICE" || !wrong.isSubstitutive || invoiceLifecycle(wrong) !== "ISSUED") {
+      throw new HttpError(409, "Solo se puede corregir una factura de canje emitida (la que sustituye a simplificadas).");
+    }
+    const already = await findSubstitutiveCancellationOf(tx, actor.companyId, wrong.id);
+    if (already) throw new HttpError(409, `La factura ${wrong.number} ya se corrigió con la ${already.number}.`);
+    const substitutedIds = wrong.substitutesInvoiceIds ?? [];
+    if (substitutedIds.length === 0) throw new HttpError(422, "La factura de canje no indica las simplificadas que sustituye.");
+    if (issueDate < wrong.issueDate) throw new HttpError(400, "La corrección no puede tener fecha anterior a la factura de canje que corrige.");
+    const description = input.description.trim();
+
+    // 1) F3 de signo contrario: las mismas líneas en negativo, al mismo cliente (el que tenía la errónea).
+    const lines = (await loadStoredLines(tx, wrong.id)).map((line) => ({ ...line, quantity: -line.quantity }));
+    const totals = calculateInvoiceTotals(lines, { allowNegative: true });
+    const cancellationId = randomUUID();
     await tx.insert(invoice).values({
-      id,
+      id: cancellationId,
       companyId: actor.companyId,
-      customerId: input.customerId,
-      number: provisionalDraftNumber(id),
+      customerId: wrong.customerId,
+      number: provisionalDraftNumber(cancellationId),
       issueDate,
-      // No se cobra: el cobro es el de las simplificadas.
       dueDate: null,
       totalAmount: money(totals.totalAmount),
       status: "DRAFT",
-      vatTreatment: first.vatTreatment,
-      vatExemptionCode: first.vatExemptionCode,
-      legalMentions: first.legalMentions,
-      // Art. 6.1.i: la operación se hizo en la fecha de la simplificada (la más reciente si hay varias).
-      operationDate: originals.length === 1 ? first.operationDate ?? first.issueDate : latest,
+      invoiceType: "CREDIT_NOTE",
+      rectifiedInvoiceId: wrong.id,
+      // Sin causa de rectificación propia: VERI*FACTU la registra como F3, no como R1–R5.
+      rectificationReason: "R4",
+      rectificationType: "DIFFERENCES",
+      rectificationDescription: description,
+      vatTreatment: wrong.vatTreatment,
+      vatExemptionCode: wrong.vatExemptionCode,
+      legalMentions: wrong.legalMentions,
+      operationDate: wrong.operationDate,
       documentClass: "FULL",
       isSubstitutive: true,
-      substitutesInvoiceIds: ids,
-      notes: `Sustituye a ${numbers.length === 1 ? "la factura simplificada" : "las facturas simplificadas"} ${numbers.join(", ")}.`,
+      substitutesInvoiceIds: substitutedIds,
+      notes: `Anula la factura de canje ${wrong.number}. ${description}`.slice(0, 1000),
       seriesId,
     });
-    await writeLines(tx, id, lines, false);
-    const issued = await issueInvoiceInTransaction(tx, actor, id);
-    return { id: issued.id, number: issued.number, status: issued.status, totalAmount: totals.totalAmount, substitutedNumbers: numbers };
+    await writeLines(tx, cancellationId, lines, true);
+    const cancellation = await issueInvoiceInTransaction(tx, actor, cancellationId);
+
+    // 2) F3 nueva con los datos correctos (mismas simplificadas, mismo orden).
+    const ordered = [...substitutedIds];
+    const corrected = await substituteInTransaction(tx, actor, { ids: ordered, customerId: input.customerId, issueDate, seriesId });
+    if (!corrected) throw new HttpError(404, "Alguna de las facturas simplificadas ya no existe.");
+    await recordAudit({
+      tenantId: actor.tenantId,
+      companyId: actor.companyId,
+      actorUserId: actor.actorUserId,
+      action: "invoice.substitute.correct",
+      entityName: "invoice",
+      entityId: wrong.id,
+      payload: { number: wrong.number, cancellationId, cancellationNumber: cancellation.number, correctedId: corrected.id, correctedNumber: corrected.number, description },
+    }, tx);
+    return {
+      cancellation: { id: cancellationId, number: cancellation.number },
+      corrected: { id: corrected.id, number: corrected.number, totalAmount: corrected.totalAmount },
+    };
   });
-  if (created) await storeInvoicePdfQuietly(actor.companyId, created.id);
-  return created;
+  if (result) {
+    await storeInvoicePdfQuietly(actor.companyId, result.cancellation.id);
+    await storeInvoicePdfQuietly(actor.companyId, result.corrected.id);
+  }
+  return result;
+}
+
+/**
+ * Anticipos emitidos de un cliente con base pendiente de descontar, por tipo de impuestos, con los
+ * impuestos (ids) de su línea: lo que necesita la factura final para añadir «Anticipo según factura X».
+ */
+export async function listAvailableAdvances(companyId: string, customerId: string, options: { excludeInvoiceId?: string | null } = {}) {
+  const rows = await db
+    .select({ id: invoice.id })
+    .from(invoice)
+    .where(and(
+      eq(invoice.companyId, companyId),
+      eq(invoice.customerId, customerId),
+      eq(invoice.isAdvance, true),
+      eq(invoice.invoiceType, "INVOICE"),
+      isNotNull(invoice.issuedAt),
+      ne(invoice.status, "VOID"),
+    ))
+    .orderBy(asc(invoice.issueDate));
+  if (rows.length === 0) return [];
+  const states = await loadAdvanceStates(db, companyId, rows.map((row) => row.id), options.excludeInvoiceId ?? null);
+  const result: Array<{ id: string; number: string; pending: Array<{ taxKey: string; amount: number; taxIds: string[]; taxRate: number; retentionRate: number }> }> = [];
+  for (const row of rows) {
+    const state = states.get(row.id);
+    if (!state) continue;
+    const lines = await loadStoredLines(db, row.id);
+    const pending = [...state.baseByTaxKey.entries()].flatMap(([taxKey, cents]) => {
+      const remaining = cents - (state.deductedByTaxKey.get(taxKey) ?? 0);
+      if (remaining <= 0) return [];
+      const sample = lines.find((line) => !line.isDisbursement && advanceTaxKey(line) === taxKey);
+      return [{
+        taxKey,
+        amount: remaining / 100,
+        taxIds: (sample?.taxes ?? []).map((selectedTax) => selectedTax.id).filter((id): id is string => Boolean(id)),
+        taxRate: Number(sample?.taxRate ?? 0),
+        retentionRate: Number(sample?.retentionRate ?? 0),
+      }];
+    });
+    if (pending.length > 0) result.push({ id: row.id, number: state.number, pending });
+  }
+  return result;
 }
 
 /** Duplica una factura (emitida o borrador) como nuevo borrador con fecha de hoy. Útil para facturas recurrentes. */
@@ -1339,7 +1692,10 @@ export async function duplicateInvoice(actor: InvoiceActor, invoiceId: string, o
     if (source.invoiceType !== "INVOICE") throw new HttpError(409, "Las facturas rectificativas no se pueden duplicar.");
     if (source.isSubstitutive) throw new HttpError(409, "Una factura que sustituye a simplificadas no se puede duplicar: no es una venta nueva.");
 
-    const lines = await loadStoredLines(tx, source.id);
+    // El descuento global se copia (se vuelve a repartir); los anticipos descontados no: ya se
+    // descontaron en la factura original.
+    const discount = globalDiscountOf(source);
+    const lines: CalculatedLine[] = applyGlobalDiscount((await loadStoredLines(tx, source.id)).filter((line) => !line.advanceInvoiceId), discount);
     const methods = await tx
       .select({
         id: invoicePaymentMethod.paymentMethodId,
@@ -1373,6 +1729,8 @@ export async function duplicateInvoice(actor: InvoiceActor, invoiceId: string, o
         vatExemptionCode: source.vatExemptionCode,
         legalMentions: source.legalMentions,
         notes: source.notes,
+        ...globalDiscountColumns(discount),
+        isAdvance: source.isAdvance,
         // Misma serie que la original (al emitir se usa la del ejercicio de la nueva fecha).
         seriesId: source.seriesId,
       })

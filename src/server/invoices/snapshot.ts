@@ -19,6 +19,7 @@ export async function loadIssuerSnapshot(client: DbClient, companyId: string): P
       email: company.email,
       phone: company.phone,
       website: company.website,
+      registryData: company.registryData,
     })
     .from(company)
     .where(eq(company.id, companyId))
@@ -37,6 +38,8 @@ export async function loadIssuerSnapshot(client: DbClient, companyId: string): P
     email: row.email,
     phone: row.phone,
     website: row.website,
+    // Datos registrales (art. 24 del Código de Comercio): se congelan con la factura.
+    ...(row.registryData?.trim() ? { registryData: row.registryData.trim() } : {}),
   };
 }
 

@@ -142,6 +142,9 @@ export const company = pgTable("company", {
   website: text("website"),
   logoDataUrl: text("logoDataUrl"),
   invoiceFooter: text("invoiceFooter"),
+  // Datos de inscripción en el Registro Mercantil (art. 24 del Código de Comercio): «Inscrita en el
+  // Registro Mercantil de …, tomo …, folio …, hoja …». Se imprimen en el pie de las facturas.
+  registryData: text("registryData"),
   // Identificador de acreedor SEPA (AT-02) para remesas de adeudos directos: ES + control + sufijo + NIF.
   sepaCreditorId: text("sepaCreditorId"),
   countryCode: text("countryCode").notNull().default("ES"),
@@ -706,10 +709,20 @@ export const invoice = pgTable(
     // Menciones legales propias de la factura (art. 6.1.j-p RD 1619/2012): se imprimen en el PDF y
     // quedan congeladas al emitir.
     legalMentions: text("legalMentions"),
+    // Descuento global de la factura (también el de pronto pago), concedido antes o a la vez que la
+    // operación: minora la base imponible (art. 78.Tres.2.º de la Ley 37/1992). Porcentaje o importe
+    // fijo (manda el porcentaje). Se materializa en líneas `isGlobalDiscount` de `invoice_line`.
+    globalDiscountPct: numeric("globalDiscountPct", { precision: 6, scale: 3 }).notNull().default("0"),
+    globalDiscountAmount: numeric("globalDiscountAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+    // Factura de anticipo: documenta un pago anterior a la operación, que devenga el IVA por el
+    // importe cobrado (art. 75.Dos de la Ley 37/1992). Su base se abona en la (438) «Anticipos de
+    // clientes» y no en ventas; la factura final la descuenta con líneas `advanceInvoiceId`.
+    isAdvance: boolean("isAdvance").notNull().default(false),
     createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
+    check("invoice_global_discount_valid", sql`${table.globalDiscountPct} >= 0 AND ${table.globalDiscountPct} <= 100 AND ${table.globalDiscountAmount} >= 0`),
     check("invoice_document_class_valid", sql`${table.documentClass} IS NULL OR ${table.documentClass} IN ('FULL', 'SIMPLIFIED', 'SIMPLIFIED_QUALIFIED')`),
     check("invoice_commercial_reason_valid", sql`${table.commercialReason} IS NULL OR ${table.commercialReason} IN ('RETURN', 'DISCOUNT', 'ERROR')`),
     unique("invoice_company_number_unique").on(table.companyId, table.number),
@@ -744,6 +757,8 @@ export type InvoicePartySnapshot = {
   email?: string | null;
   phone?: string | null;
   website?: string | null;
+  /** Solo en el emisor: datos de inscripción en el Registro Mercantil (art. 24 del Código de Comercio). */
+  registryData?: string | null;
 };
 
 export const invoicePaymentMethod = pgTable("invoice_payment_method", {
@@ -773,9 +788,22 @@ export const invoiceLine = pgTable("invoice_line", {
   taxRate: numeric("taxRate", { precision: 6, scale: 3 }).notNull().default("0"),
   retentionRate: numeric("retentionRate", { precision: 6, scale: 3 }).notNull().default("0"),
   lineTotal: numeric("lineTotal", { precision: 12, scale: 2 }).notNull(),
+  // Suplido (art. 78.Tres.3.º de la Ley 37/1992): pago hecho en nombre y por cuenta del cliente. No
+  // es base imponible, no lleva impuestos ni retención y no entra en el registro VERI*FACTU; solo se
+  // suma al total a pagar. Su importe es cantidad × precio (está también en `lineTotal`) y se guarda
+  // con `discountPct` = 100 para que cualquier lectura que calcule la base como
+  // cantidad × precio × (1 − dto.) obtenga 0 aunque no conozca esta columna.
+  isDisbursement: boolean("isDisbursement").notNull().default(false),
+  // Línea generada por el descuento global de la factura (`invoice.globalDiscountPct/Amount`):
+  // negativa, una por combinación de impuestos. Se regenera al guardar el borrador.
+  isGlobalDiscount: boolean("isGlobalDiscount").notNull().default(false),
+  // Línea (negativa) que descuenta en la factura final un anticipo ya facturado: la factura de anticipo.
+  advanceInvoiceId: text("advanceInvoiceId").references((): AnyPgColumn => invoice.id, { onDelete: "restrict" }),
 }, (table) => [
   // Postgres no indexa las FK: sin esto, leer las líneas de una factura (o agregar ventas por periodo) recorre toda la tabla.
   index("invoice_line_invoice_idx").on(table.invoiceId),
+  // Cuánto se ha descontado ya de un anticipo.
+  index("invoice_line_advance_invoice_idx").on(table.advanceInvoiceId),
 ]);
 
 export const invoiceLineTax = pgTable("invoice_line_tax", {

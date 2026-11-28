@@ -73,6 +73,10 @@ async function latestRecordForInvoice(tx: DbClient, companyId: string, invoiceId
 }
 
 function operationDescription(input: IssuedInvoiceHookInput) {
+  if (input.invoiceType === "CREDIT_NOTE" && input.substituted?.length) {
+    // F3 de signo contrario que anula una factura de canje errónea.
+    return `Anulación de la factura de canje ${input.original?.number ?? ""}. ${input.rectificationDescription ?? ""}`.trim();
+  }
   if (input.invoiceType === "CREDIT_NOTE") {
     return `Rectificación de la factura ${input.original?.number ?? ""}. ${input.rectificationDescription ?? ""}`.trim();
   }

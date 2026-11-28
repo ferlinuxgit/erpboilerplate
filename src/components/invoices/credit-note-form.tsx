@@ -35,6 +35,13 @@ export type CreditNoteSourceLine = {
   retentionRate: number;
   /** Impuestos congelados de la línea original (para el cálculo y para reenviar sus ids). */
   taxes: Array<InvoiceCalculationTax & { id: string | null }>;
+  /** Suplido (art. 78.Tres.3.º LIVA): se abona sin impuestos y fuera de la base. */
+  isDisbursement?: boolean;
+  /**
+   * Línea de descuento global o de anticipo descontado: entra en la anulación total y en la
+   * sustitución, pero no se edita en una rectificativa parcial (se indican los importes netos).
+   */
+  isDeduction?: boolean;
 };
 
 type EditableLine = CreditNoteSourceLine & { key: string; quantityInput: string; unitPriceInput: string };
@@ -43,7 +50,7 @@ type Scope = "FULL" | "PARTIAL";
 type Direction = "DECREASE" | "INCREASE";
 
 function toEditable(lines: CreditNoteSourceLine[]): EditableLine[] {
-  return lines.map((line, index) => ({
+  return lines.filter((line) => !line.isDeduction).map((line, index) => ({
     ...line,
     key: `line-${index}`,
     quantityInput: String(line.quantity).replace(".", ","),
@@ -52,6 +59,7 @@ function toEditable(lines: CreditNoteSourceLine[]): EditableLine[] {
 }
 
 function lineTaxLabel(line: CreditNoteSourceLine) {
+  if (line.isDisbursement) return "Suplido (sin impuestos)";
   if (line.taxes.length > 0) return line.taxes.map((selectedTax) => `${selectedTax.operation === "SUBTRACT" ? "−" : "+"}${selectedTax.name ?? "Impuesto"}`).join(" ");
   const parts = [line.taxRate > 0 ? `IVA ${line.taxRate}%` : null, line.retentionRate > 0 ? `−Ret. ${line.retentionRate}%` : null].filter(Boolean);
   return parts.length > 0 ? parts.join(" ") : "Sin impuestos";
@@ -202,6 +210,7 @@ export function CreditNoteForm({
                     quantity: line.quantity,
                     unitPrice: line.unitPrice,
                     discountPct: line.discountPct,
+                    ...(line.isDisbursement ? { isDisbursement: true } : {}),
                     ...(line.taxes.length > 0 && line.taxes.every((selectedTax) => selectedTax.id)
                       ? { taxIds: line.taxes.map((selectedTax) => selectedTax.id!) }
                       : { taxRate: line.taxRate, retentionRate: line.retentionRate }),

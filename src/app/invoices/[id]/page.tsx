@@ -40,7 +40,7 @@ import { documentClassLabels, effectiveDocumentClass, isInvoiceDocumentClass } f
 import { getDraftIssueWarnings } from "@/server/invoices/issue-warnings";
 import { legalMentionLines } from "@/server/invoices/legal-mentions";
 import { commercialReasonAccountingHelp, commercialReasonLabels, isCommercialReason } from "@/server/invoices/lifecycle";
-import { findSubstitutiveOf, getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
+import { findSubstitutiveCancellationOf, findSubstitutiveOf, getInvoiceBalance, loadStoredLines } from "@/server/invoices/service";
 import { SendInvoiceEmailDialog } from "@/components/invoice-email/send-invoice-email-dialog";
 import { InvoiceEmailTimeline } from "@/components/invoice-email/invoice-email-timeline";
 import { nextReminderLevel } from "@/server/dunning/schedule";
@@ -160,7 +160,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const documentClass = lifecycle === "ISSUED"
     ? effectiveDocumentClass({ documentClass: data.documentClass, customerTaxId: data.customerSnapshot ? data.customerSnapshot.taxId : row.customerTaxId })
     : isInvoiceDocumentClass(data.documentClass) ? data.documentClass : null;
-  const [substitutedInvoices, substitutedBy, issueWarningList] = await Promise.all([
+  const [substitutedInvoices, substitutedBy, issueWarningList, substitutiveCancellation] = await Promise.all([
     isSubstitutive && (data.substitutesInvoiceIds ?? []).length > 0
       ? db
           .select({ id: invoice.id, number: invoice.number, issueDate: invoice.issueDate, totalAmount: invoice.totalAmount })
@@ -172,6 +172,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ? findSubstitutiveOf(db, tenantContext.company.id, [data.id])
       : Promise.resolve(null),
     lifecycle === "DRAFT" ? getDraftIssueWarnings(tenantContext.company.id, data.id) : Promise.resolve([]),
+    // Canje ya corregido: su F3 de signo contrario.
+    isSubstitutive && !isCreditNote && lifecycle === "ISSUED" ? findSubstitutiveCancellationOf(db, tenantContext.company.id, data.id) : Promise.resolve(null),
   ]);
   const canSubstitute = lifecycle === "ISSUED" && !isCreditNote && !isSubstitutive && documentClass === "SIMPLIFIED" && !substitutedBy && balance.creditedCents === 0;
   const legalMentions = legalMentionLines(data.legalMentions);
@@ -237,7 +239,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             </StatusBadge>
             {isCreditNote ? <StatusBadge tone="warning">Rectificativa</StatusBadge> : null}
             {documentClass ? <StatusBadge data-testid="invoice-document-class" tone="neutral">{documentClassLabels[documentClass]}</StatusBadge> : null}
-            {isSubstitutive ? <StatusBadge tone="info">Sustituye a simplificada</StatusBadge> : null}
+            {isSubstitutive ? <StatusBadge tone="info">{isCreditNote ? "Anula un canje" : "Sustituye a simplificada"}</StatusBadge> : null}
+            {data.isAdvance ? <StatusBadge tone="info">Factura de anticipo</StatusBadge> : null}
             {isIssuedInvoice ? (
               <StatusBadge tone={invoicePaymentStatusTone(data.paymentStatus)}>Cobro: {statusLabel(invoicePaymentStatusLabels, data.paymentStatus)}</StatusBadge>
             ) : null}
@@ -365,7 +368,20 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               </div>
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">Si hay una devolución o un error, rectifica la factura simplificada original.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Si hay una devolución o un error en el ticket, rectifica la factura simplificada original.</p>
+          {!isCreditNote && substitutiveCancellation ? (
+            <InlineAlert className="mt-2" data-testid="invoice-substitutive-cancelled" tone="warning">
+              Esta factura de canje se anuló con la{" "}
+              <Link className="font-mono text-primary underline" href={`/invoices/${substitutiveCancellation.id}`}>{substitutiveCancellation.number}</Link>.
+            </InlineAlert>
+          ) : null}
+          {!isCreditNote && !substitutiveCancellation && canEditInvoice ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              ¿Cliente o datos equivocados en esta factura?{" "}
+              <Link className="text-primary underline" data-testid="invoice-correct-substitutive" href={`/invoices/${data.id}/substitute/correct`}>Corregir canje</Link>
+              {" "}(se anula con otra de signo contrario y se emite la correcta).
+            </p>
+          ) : null}
         </PageSection>
       ) : null}
       {substitutedBy ? (
@@ -531,7 +547,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             <TableBody>
               {lines.map((line, index) => (
                 <TableRow key={`${line.description}-${index}`}>
-                  <TableCell className="font-bold">{line.description}</TableCell>
+                  <TableCell className="font-bold">{line.description}{line.isDisbursement ? <span className="ml-1 text-xs font-normal text-muted-foreground">(suplido, fuera de la base)</span> : null}</TableCell>
                   <TableCell className="text-right">{Number(line.quantity).toLocaleString("es-ES")}</TableCell>
                   <TableCell className="text-right">{formatMoney(line.unitPrice, currencyCode)}</TableCell>
                   {hasDiscount ? <TableCell className="text-right">{discountLabel(line.discountPct)}</TableCell> : null}
@@ -564,8 +580,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               <dd>{bucket.operation === "SUBTRACT" ? "−" : ""}{formatMoney(bucket.amount, currencyCode)}</dd>
             </div>
           ))}
+          {totals.disbursementAmount !== 0 ? (
+            <div className="flex justify-between gap-3" data-testid="invoice-detail-disbursements">
+              <dt>+ Suplidos (fuera de la base)</dt>
+              <dd>{formatMoney(totals.disbursementAmount, currencyCode)}</dd>
+            </div>
+          ) : null}
           <div className="flex justify-between gap-3 font-medium">
-            <dt>Total</dt>
+            <dt>{totals.disbursementAmount !== 0 ? "Total a pagar" : "Total"}</dt>
             <dd>{formatMoney(data.totalAmount.toString(), currencyCode)}</dd>
           </div>
         </dl>

@@ -38,6 +38,8 @@ function normalizePayload(payload: CompanyProfilePayload) {
     website: cleanOptional(payload.website),
     logoDataUrl: cleanOptional(payload.logoDataUrl),
     invoiceFooter: cleanOptional(payload.invoiceFooter),
+    // Sin el campo en la petición (integraciones antiguas) no se borra lo guardado.
+    ...(payload.registryData !== undefined ? { registryData: cleanOptional(payload.registryData) } : {}),
   };
 }
 

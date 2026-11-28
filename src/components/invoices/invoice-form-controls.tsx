@@ -4,11 +4,11 @@ import { PencilSimple } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 import { useController, type Control, type FieldValues, type Path, type UseFormRegisterReturn } from "react-hook-form";
 
-import { LineErrorText, LinesEditor, type LinesEditorRow } from "@/components/invoices/lines-editor";
+import { LineErrorText, LinesEditor, type LinesEditorRow, type LinesExtraColumn } from "@/components/invoices/lines-editor";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { formatMoney, formatPercent } from "@/lib/format";
-import type { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import type { InvoiceAmountsSummary, calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,10 @@ export type InvoiceEditorLine = {
   unitPrice?: number;
   discountPct?: number;
   taxIds?: string[];
+  /** Suplido (art. 78.Tres.3.º LIVA): pago por cuenta del cliente, sin impuestos. */
+  isDisbursement?: boolean;
+  /** La línea descuenta una factura de anticipo (art. 75.Dos LIVA). */
+  advanceInvoiceId?: string | null;
 };
 
 /** Descuento vacío = 0 % (nunca NaN): "10" o "10,5". */
@@ -61,6 +65,8 @@ type LineBindings = {
   discountPct?: UseFormRegisterReturn;
   /** Impuestos de la línea (los dos desplegables «IVA» y «Retención» la cambian entera). */
   setTaxIds: (taxIds: string[]) => void;
+  /** Casilla «Suplido» (opcional: solo si el editor recibe `withDisbursements`). */
+  isDisbursement?: UseFormRegisterReturn;
 };
 
 type LineError = {
@@ -187,9 +193,12 @@ export function InvoiceLinesEditor<T extends FieldValues>({
   onRemove,
   taxes,
   totals,
+  withDisbursements = false,
 }: {
   /** Artículos que se pueden elegir en cada línea (columna «Artículo»). */
   itemOptions?: ReadonlyArray<{ id: string; label: string }>;
+  /** Columna «Suplido» (pagos por cuenta del cliente, art. 78.Tres.3.º LIVA). */
+  withDisbursements?: boolean;
   /** Control del formulario: registra los impuestos de cada línea (`lines.N.taxIds`). */
   control: Control<T>;
   errors: LineError[];
@@ -220,6 +229,31 @@ export function InvoiceLinesEditor<T extends FieldValues>({
       errors: { ...lineError, tax: lineError.taxIds },
     };
   });
+  const extraColumns: LinesExtraColumn[] = withDisbursements
+    ? [{
+        key: "disbursement",
+        label: "Suplido",
+        header: "Supl.",
+        hint: "Pagado en nombre del cliente (tasas, aranceles…): sin IVA ni retención y fuera de la base.",
+        position: "end",
+        track: "3.5rem",
+        render: ({ describedBy, id, index }) => {
+          const binding = getBindings(index).isDisbursement;
+          const deductsAdvance = Boolean(lines[index]?.advanceInvoiceId);
+          return binding ? (
+            <input
+              aria-describedby={describedBy}
+              className="mt-2 size-4 accent-primary"
+              data-testid={`${id}-input`}
+              disabled={deductsAdvance}
+              id={id}
+              type="checkbox"
+              {...binding}
+            />
+          ) : null;
+        },
+      }]
+    : [];
   return (
     <>
       {fields.map((field, index) => <RegisteredTaxIds control={control} key={`${field.id}-${index}`} name={`lines.${index}.taxIds` as Path<T>} />)}
@@ -237,6 +271,7 @@ export function InvoiceLinesEditor<T extends FieldValues>({
         titleId="invoice-lines-title"
         totalLabel="Total"
         withDiscount
+        {...(extraColumns.length > 0 ? { extraColumns } : {})}
       />
     </>
   );
@@ -248,8 +283,11 @@ export function InvoiceTotalsSummary({
   testIdPrefix = "invoice",
   title = "Resumen",
   totals,
+  amounts,
 }: {
   currencyCode?: string;
+  /** Descuento global y suplidos (`summarizeInvoiceAmounts`): filas aparte cuando los hay. */
+  amounts?: InvoiceAmountsSummary | null;
   error?: ReactNode;
   /** Prefix of the data-testids ("invoice" → invoice-totals, invoice-grand-total…). */
   testIdPrefix?: string;
@@ -274,6 +312,12 @@ export function InvoiceTotalsSummary({
         <p className="font-mono text-lg font-bold tabular-nums" data-testid={`${testIdPrefix}-grand-total`}>Total: {money(totals.totalAmount)}</p>
       </div>
       <dl className="space-y-1 font-mono text-xs tabular-nums">
+        {amounts && amounts.globalDiscountAmount !== 0 ? (
+          <>
+            <div className="flex justify-between gap-3 text-muted-foreground"><dt>Importe bruto:</dt>{" "}<dd>{money(totals.subtotal + amounts.globalDiscountAmount)}</dd></div>
+            <div className="flex justify-between gap-3 text-muted-foreground" data-testid={`${testIdPrefix}-global-discount`}><dt>Descuento global:</dt>{" "}<dd>−{money(amounts.globalDiscountAmount)}</dd></div>
+          </>
+        ) : null}
         <div className="flex justify-between gap-3" data-testid={`${testIdPrefix}-subtotal`}><dt>Subtotal:</dt>{" "}<dd>{money(totals.subtotal)}</dd></div>
         {[...breakdown.values()].map((row) => (
           <div className="flex justify-between gap-3 text-muted-foreground" key={`${row.name}-${row.rate}-${row.operation}`}>
@@ -288,6 +332,12 @@ export function InvoiceTotalsSummary({
           <div className="flex justify-between gap-3 text-muted-foreground" data-testid={`${testIdPrefix}-retention-total`}>
             <dt>Retenciones:</dt>
             <dd>−{money(totals.retentionAmount)}</dd>
+          </div>
+        ) : null}
+        {totals.disbursementAmount !== 0 ? (
+          <div className="flex justify-between gap-3 text-muted-foreground" data-testid={`${testIdPrefix}-disbursements`}>
+            <dt>+ Suplidos (fuera de la base):</dt>
+            <dd>{money(totals.disbursementAmount)}</dd>
           </div>
         ) : null}
         <div className="sr-only" data-testid={`${testIdPrefix}-tax-total`}>Impuestos añadidos: {money(totals.taxAmount)}</div>

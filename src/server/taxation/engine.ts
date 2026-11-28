@@ -6,7 +6,7 @@
  * - La base de cada línea se redondea a céntimos (cantidad × precio × (1 − dto.)).
  * - La cuota de cada impuesto se calcula por tipo impositivo sobre la suma de bases de ese tipo
  *   ("bucket"), no sumando cuotas redondeadas línea a línea.
- * - Total = Σ bases + Σ cuotas repercutidas − Σ retenciones.
+ * - Total = Σ bases + Σ cuotas repercutidas − Σ retenciones (+ suplidos, que no son base).
  *
  * Las cuotas por línea también se devuelven (para mostrarlas y guardarlas en `invoice_line_tax`),
  * pero los totales del documento salen siempre de los buckets.
@@ -27,6 +27,17 @@ export type EngineLine = {
   unitPrice: number;
   discountPct?: number | null;
   taxes: EngineTax[];
+  /**
+   * Suplido (art. 78.Tres.3.º de la Ley 37/1992): importe pagado en nombre y por cuenta del cliente.
+   * No forma parte de la base imponible ni lleva impuestos ni retención; solo se suma al total a
+   * pagar. El descuento de línea no se le aplica.
+   */
+  disbursement?: boolean;
+  /**
+   * Línea que puede ser negativa aunque el documento no admita negativos: el descuento global de la
+   * factura (art. 78.Tres.2.º) y el anticipo que se descuenta en la factura final.
+   */
+  allowNegative?: boolean;
 };
 
 export type EngineOptions = {
@@ -42,6 +53,8 @@ export type EngineLineResult = {
   retentionCents: number;
   totalCents: number;
   taxes: EngineLineTax[];
+  /** Solo en las líneas de suplido: su importe (no es base imponible). */
+  disbursementCents?: number;
 };
 
 export type EngineTaxBucket = {
@@ -60,6 +73,9 @@ export type EngineDocumentResult = {
   subtotalCents: number;
   taxCents: number;
   retentionCents: number;
+  /** Suplidos: suman al total a pagar, no a la base ni a las cuotas. Cero si no hay. */
+  disbursementCents: number;
+  /** Total a pagar = bases + cuotas − retenciones + suplidos. */
   totalCents: number;
 };
 
@@ -94,9 +110,10 @@ function normalizeRate(value: number | null | undefined) {
 }
 
 /** Base de una línea en céntimos, con un único redondeo final. */
-export function lineBaseCents(line: Pick<EngineLine, "quantity" | "unitPrice" | "discountPct">, options: EngineOptions = {}): number {
-  const quantity = options.allowNegative ? finite(line.quantity) : Math.max(finite(line.quantity), 0);
-  const unitPrice = options.allowNegative ? finite(line.unitPrice) : Math.max(finite(line.unitPrice), 0);
+export function lineBaseCents(line: Pick<EngineLine, "quantity" | "unitPrice" | "discountPct" | "allowNegative">, options: EngineOptions = {}): number {
+  const allowNegative = Boolean(options.allowNegative || line.allowNegative);
+  const quantity = allowNegative ? finite(line.quantity) : Math.max(finite(line.quantity), 0);
+  const unitPrice = allowNegative ? finite(line.unitPrice) : Math.max(finite(line.unitPrice), 0);
   const discountPct = clampPct(line.discountPct);
   return roundHalfAwayFromZero(quantity * unitPrice * (100 - discountPct));
 }
@@ -111,6 +128,11 @@ export function bucketKey(tax: Pick<EngineTax, "operation" | "kind" | "rate">) {
 }
 
 export function computeEngineLine(line: EngineLine, options: EngineOptions = {}): EngineLineResult {
+  if (line.disbursement) {
+    // Un suplido no es base: ni descuento, ni impuestos, ni retención. Solo importe a cobrar.
+    const disbursementCents = lineBaseCents({ quantity: line.quantity, unitPrice: line.unitPrice, discountPct: 0, allowNegative: line.allowNegative }, options);
+    return { baseCents: 0, taxCents: 0, retentionCents: 0, totalCents: disbursementCents, taxes: [], disbursementCents };
+  }
   const baseCents = lineBaseCents(line, options);
   const taxes = line.taxes.map((selectedTax) => ({
     ...selectedTax,
@@ -147,13 +169,15 @@ export function computeEngineDocument(lines: EngineLine[], options: EngineOption
   const subtotalCents = lineResults.reduce((sum, line) => sum + line.baseCents, 0);
   const taxCents = bucketList.filter((bucket) => bucket.operation === "ADD").reduce((sum, bucket) => sum + bucket.amountCents, 0);
   const retentionCents = bucketList.filter((bucket) => bucket.operation === "SUBTRACT").reduce((sum, bucket) => sum + bucket.amountCents, 0);
+  const disbursementCents = lineResults.reduce((sum, line) => sum + (line.disbursementCents ?? 0), 0);
   return {
     lines: lineResults,
     buckets: bucketList,
     subtotalCents,
     taxCents,
     retentionCents,
-    totalCents: subtotalCents + taxCents - retentionCents,
+    disbursementCents,
+    totalCents: subtotalCents + taxCents - retentionCents + disbursementCents,
   };
 }
 

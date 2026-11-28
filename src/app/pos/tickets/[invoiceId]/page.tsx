@@ -89,7 +89,7 @@ export default async function TicketPrintPage({ params, searchParams }: { params
       <hr className="my-1 border-dashed border-black" />
       <table className="w-full">
         <tbody>
-          {ticket.lines.map((line, index) => (
+          {ticket.lines.filter((line) => !line.isDisbursement).map((line, index) => (
             <tr key={index}>
               <td className="pr-1 align-top">{line.quantity.toLocaleString("es-ES")} × {line.description}</td>
               <td className="whitespace-nowrap text-right align-top">{money(line.total)}</td>
@@ -105,7 +105,17 @@ export default async function TicketPrintPage({ params, searchParams }: { params
           ))}
         </tbody>
       </table>
-      <p className="mt-1 flex justify-between text-sm font-bold"><span>TOTAL{ticket.totals.tax !== 0 ? " (IVA incluido)" : ""}</span><span>{money(ticket.totals.total)}</span></p>
+      {ticket.totals.disbursements !== 0 ? (
+        // Suplidos (art. 78.Tres.3.º LIVA): pagados por cuenta del cliente, fuera de la base y del IVA.
+        <div className="mt-1" data-testid="pos-ticket-disbursements">
+          <p className="flex justify-between"><span>Total factura</span><span>{money(ticket.totals.total - ticket.totals.disbursements)}</span></p>
+          <p className="font-bold">SUPLIDOS</p>
+          {ticket.lines.filter((line) => line.isDisbursement).map((line, index) => (
+            <p className="flex justify-between" key={index}><span>{line.description}</span><span>{money(line.total)}</span></p>
+          ))}
+        </div>
+      ) : null}
+      <p className="mt-1 flex justify-between text-sm font-bold"><span>{ticket.totals.disbursements !== 0 ? "TOTAL A PAGAR" : "TOTAL"}{ticket.totals.tax !== 0 && ticket.totals.disbursements === 0 ? " (IVA incluido)" : ""}</span><span>{money(ticket.totals.total)}</span></p>
       {ticket.payment ? (
         <div className="mt-1">
           {ticket.payment.cash !== 0 ? <p className="flex justify-between"><span>{isRefund ? "Devuelto en efectivo" : "Efectivo"}</span><span>{money(ticket.payment.cash)}</span></p> : null}
