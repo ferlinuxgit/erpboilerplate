@@ -1,4 +1,5 @@
 import { normalizeCountryCode } from "@/lib/countries";
+import { isSpanishNonBusinessDay } from "@/lib/spanish-holidays";
 import { isIntraCommunity, normalizeHomeCountry, suggestSupplierVatTreatment, type SalesVatTreatment, type SupplierVatTreatment } from "@/lib/country-packs/vat-treatment";
 import { centsToNumber, lineBaseCents, roundHalfAwayFromZero, taxOnBaseCents } from "@/server/taxation/engine";
 
@@ -493,17 +494,20 @@ function lastDayOfMonthUtc(year: number, monthOneBased: number) {
 const JANUARY_30_MODELS = new Set<SpanishFiscalModelCode>(["303", "130", "349", "420", "450"]);
 
 /**
- * Si el último día del plazo es sábado o domingo, pasa al lunes (los plazos tributarios que
- * terminan en día inhábil se trasladan al primer día hábil siguiente). Los festivos nacionales,
- * autonómicos y locales no se tienen en cuenta: dependen del domicilio fiscal.
+ * Si el último día del plazo es sábado, domingo o festivo nacional, pasa al primer día hábil
+ * siguiente (art. 30 de la Ley 39/2015: los plazos que terminan en día inhábil se prorrogan). Los
+ * festivos nacionales salen de `@/lib/spanish-holidays` (contrastados con el BOE para 2026 y
+ * 2027). Los festivos autonómicos y locales NO se tienen en cuenta: dependen del domicilio fiscal.
  */
 export function nextBusinessDay(date: Date) {
-  const day = date.getUTCDay();
-  const shift = day === 6 ? 2 : day === 0 ? 1 : 0;
-  return shift === 0 ? date : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + shift));
+  let current = date;
+  while (isSpanishNonBusinessDay(current.getUTCFullYear(), current.getUTCMonth() + 1, current.getUTCDate())) {
+    current = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate() + 1));
+  }
+  return current;
 }
 
-/** Último día del plazo de presentación, ya trasladado si cae en fin de semana. */
+/** Último día del plazo de presentación, ya trasladado si cae en fin de semana o en festivo nacional. */
 export function getSpanishFiscalDueDate(period: string, modelCode: SpanishFiscalModelCode) {
   const nominal = nominalSpanishFiscalDueDate(period, modelCode);
   return nominal ? nextBusinessDay(nominal) : null;

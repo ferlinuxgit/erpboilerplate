@@ -3,10 +3,10 @@ import { and, count, eq, gte, lt, sql } from "drizzle-orm";
 import { accountChart, bankAccount, bankTransaction, companySettings, fiscalReport, fiscalYear, invoice, journalEntry, journalLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { AccountingRuleError } from "@/server/accounting/errors";
+import { fiscalYearAccountingRange, loadCompanyTimeZone, postedBeforeSql } from "@/server/accounting/fiscal-year-date";
 import { evaluateCloseChecklist, type CloseChecklist } from "@/server/accounting/close-checklist-model";
 import { toCents } from "@/server/accounting/money";
 import { getCorporateTaxCloseFacts } from "@/server/corporate-tax/service";
-import { fiscalYearEndExclusive } from "@/server/fiscal/locks";
 import { getDepreciationYearStatus } from "@/server/fixed-assets/service";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -30,7 +30,12 @@ export async function getCloseChecklist(companyId: string, fiscalYearId: string)
     .where(and(eq(fiscalYear.id, fiscalYearId), eq(fiscalYear.companyId, companyId)))
     .limit(1);
   if (!year) throw new AccountingRuleError(404, "FISCAL_YEAR_NOT_FOUND", "Ejercicio no encontrado.");
-  const endExclusive = fiscalYearEndExclusive(year.endsAt);
+  // Límites del ejercicio en la hora local de la empresa (ver `fiscal-year-date.ts`): un ticket del
+  // 1 de enero a las 00:30 de Madrid (31-12 23:30 UTC) no cuenta en el cierre del ejercicio anterior.
+  const range = fiscalYearAccountingRange(year, await loadCompanyTimeZone(db, companyId));
+  const postedBeforeEnd = postedBeforeSql(range, "toExclusive");
+  const startInstant = range.instants.from ?? year.startsAt;
+  const endExclusive = range.instants.toExclusive;
 
   const [settings] = await db
     .select({ fiscalRegime: companySettings.fiscalRegime, taxPeriodicity: companySettings.taxPeriodicity })
@@ -53,13 +58,13 @@ export async function getCloseChecklist(companyId: string, fiscalYearId: string)
     db
       .select({ value: count() })
       .from(invoice)
-      .where(and(eq(invoice.companyId, companyId), eq(invoice.status, "DRAFT"), gte(invoice.issueDate, year.startsAt), lt(invoice.issueDate, endExclusive))),
+      .where(and(eq(invoice.companyId, companyId), eq(invoice.status, "DRAFT"), gte(invoice.issueDate, startInstant), lt(invoice.issueDate, endExclusive))),
     db
       .select({ balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)` })
       .from(journalLine)
       .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
       .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
-      .where(and(eq(journalEntry.companyId, companyId), lt(journalEntry.postedAt, endExclusive), sql`${accountChart.code} like '555%'`, notClosingOrOpening)),
+      .where(and(eq(journalEntry.companyId, companyId), postedBeforeEnd, sql`${accountChart.code} like '555%'`, notClosingOrOpening)),
     db
       .select({ value: count() })
       .from(bankTransaction)
@@ -72,14 +77,14 @@ export async function getCloseChecklist(companyId: string, fiscalYearId: string)
       })
       .from(journalLine)
       .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
-      .where(and(eq(journalEntry.companyId, companyId), lt(journalEntry.postedAt, endExclusive))),
+      .where(and(eq(journalEntry.companyId, companyId), postedBeforeEnd)),
     // Saldo del inmovilizado (grupos 20, 21 y 22) al cierre, sin los asientos de cierre y apertura.
     db
       .select({ balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)` })
       .from(journalLine)
       .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
       .innerJoin(accountChart, eq(accountChart.id, journalLine.accountId))
-      .where(and(eq(journalEntry.companyId, companyId), lt(journalEntry.postedAt, endExclusive), sql`${accountChart.code} ~ '^2[012]'`, notClosingOrOpening)),
+      .where(and(eq(journalEntry.companyId, companyId), postedBeforeEnd, sql`${accountChart.code} ~ '^2[012]'`, notClosingOrOpening)),
     getDepreciationYearStatus(companyId, year.endsAt.toISOString().slice(0, 10)),
     // Solo sociedades (null en autónomos y en países sin modelos de la AEAT).
     getCorporateTaxCloseFacts(companyId, year.id),

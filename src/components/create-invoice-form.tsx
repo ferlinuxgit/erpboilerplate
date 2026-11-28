@@ -27,13 +27,14 @@ import {
   type InvoiceTaxOption,
 } from "@/components/invoices/invoice-form-controls";
 import { IssueConfirmDialog } from "@/components/invoices/invoice-lifecycle-actions";
+import { InvoiceSpecialOptions, optionalAmountRegisterOptions } from "@/components/invoices/invoice-special-options";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { InvoiceFiscalExtrasFields } from "@/components/invoices/invoice-fiscal-extras-fields";
 import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-treatment-field";
 import { countriesForSelect } from "@/lib/countries";
 import { formatSeriesNumber } from "@/lib/document-series-format";
 import { formatDate, formatMoney } from "@/lib/format";
-import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { applyGlobalDiscount, calculateInvoiceTotals, summarizeInvoiceAmounts } from "@/lib/invoice-totals";
 import type { SaleCatalogEntry } from "@/lib/pricing";
 import { defaultLineTaxIds } from "@/server/invoices/default-taxes";
 import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
@@ -175,6 +176,9 @@ export function CreateInvoiceForm({
       notes: "",
       paymentMethodIds: defaultPaymentMethodIds,
       seriesId: defaultSeries?.id ?? null,
+      globalDiscountPct: 0,
+      globalDiscountAmount: 0,
+      isAdvance: false,
       lines: [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(taxes, initialCustomer, vatContext) }],
     },
   });
@@ -207,11 +211,18 @@ export function CreateInvoiceForm({
   const selectedSeries = invoiceSeries.find((series) => series.id === selectedSeriesId) ?? defaultSeries;
   const nextInvoiceNumberPreview = seriesNumberPreview(selectedSeries, watchedIssueDate);
   const { itemBinding, itemOptions, pricingHint } = useInvoiceLinePricing({ catalog, customerId: selectedCustomerId, getValues, initialCustomerId: initialCustomer?.id, register, setValue });
+  const watchedDiscountPct = useWatch({ control, name: "globalDiscountPct" });
+  const watchedDiscountAmount = useWatch({ control, name: "globalDiscountAmount" });
+  const watchedIsAdvance = Boolean(useWatch({ control, name: "isAdvance" }));
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
   }));
-  const totals = calculateInvoiceTotals(calculatedLines);
+  // Descuento global: mismas líneas negativas que generará el servidor, al final (los índices de
+  // las líneas del usuario no cambian).
+  const previewLines = applyGlobalDiscount(calculatedLines, { pct: Number(watchedDiscountPct) || 0, amount: Number(watchedDiscountAmount) || 0 });
+  const totals = calculateInvoiceTotals(previewLines);
+  const amounts = summarizeInvoiceAmounts(previewLines, totals);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
   const defaultTaxIds = useMemo(() => customerLineTaxIds(taxes, selectedCustomer, vatContext), [selectedCustomer, taxes, vatContext]);
   const previousDefaultTaxIds = useRef(defaultTaxIds);
@@ -303,10 +314,10 @@ export function CreateInvoiceForm({
     setIssueError(null);
     setSubmitMode(mode);
     try {
-      const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
+      const invoiceTotals = calculateInvoiceTotals(applyGlobalDiscount(values.lines.map((line) => ({
         ...line,
         taxes: taxes.filter((configuredTax) => line.taxIds?.includes(configuredTax.id)),
-      })));
+      })), { pct: values.globalDiscountPct ?? 0, amount: values.globalDiscountAmount ?? 0 }));
       const response = await fetch("/api/invoices", {
         method: "POST",
         headers: {
@@ -502,6 +513,7 @@ export function CreateInvoiceForm({
             unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
             discountPct: register(`lines.${index}.discountPct`, discountRegisterOptions),
             setTaxIds: (taxIds) => setValue(`lines.${index}.taxIds`, taxIds, { shouldDirty: true, shouldValidate: true }),
+            isDisbursement: register(`lines.${index}.isDisbursement`),
           })}
           lines={watchedLines ?? []}
           onAdd={addLine}
@@ -510,7 +522,10 @@ export function CreateInvoiceForm({
           onRemove={remove}
           taxes={taxes}
           totals={totals}
+          withDisbursements={spanishFiscalExtras}
         />
+        {/* Vínculo de la línea con la factura de anticipo que descuenta (no se edita a mano). */}
+        {fields.map((field, index) => <input key={`advance-${field.id}`} type="hidden" {...register(`lines.${index}.advanceInvoiceId`)} />)}
         {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-danger-text" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
@@ -541,6 +556,18 @@ export function CreateInvoiceForm({
             operationDateName="operationDate"
             treatmentName="vatTreatment"
           />
+          {spanishFiscalExtras ? (
+            <InvoiceSpecialOptions
+              customerId={selectedCustomerId}
+              discountAmount={register("globalDiscountAmount", optionalAmountRegisterOptions)}
+              discountAmountError={errors.globalDiscountAmount?.message}
+              discountPct={register("globalDiscountPct", optionalAmountRegisterOptions)}
+              discountPctError={errors.globalDiscountPct?.message}
+              isAdvance={register("isAdvance")}
+              isAdvanceChecked={watchedIsAdvance}
+              onAddAdvance={(line) => append(line)}
+            />
+          ) : null}
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input
               data-testid="invoice-notes-input"
@@ -552,7 +579,7 @@ export function CreateInvoiceForm({
             />
           </AccessibleField>
         </div>
-        <InvoiceTotalsSummary error={errors.totalAmount?.message} totals={totals} />
+        <InvoiceTotalsSummary amounts={amounts} error={errors.totalAmount?.message} totals={totals} />
       </div>
 
       <FormErrorMessage className="md:col-span-3">{submitError}</FormErrorMessage>

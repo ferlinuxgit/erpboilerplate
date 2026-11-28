@@ -13,8 +13,8 @@ import { loadStatementAccountRows } from "@/server/accounting/statements";
 import { buildFinancialStatements, resolveStatementPeriod } from "@/server/accounting/statements-model";
 import { recordAudit } from "@/server/audit";
 import { getCompanyFiscalContext } from "@/server/company/fiscal-context";
-import { listFiscalReports } from "@/server/fiscal/service";
-import { calculateSpanishFiscalSummary, loadVatRegisters } from "@/server/fiscal/spain";
+import { listFiscalReports, resolveFiscalReportSummary } from "@/server/fiscal/service";
+import { loadVatRegisters } from "@/server/fiscal/spain";
 import { renderFiscalReportPdf } from "@/server/pdf/render";
 
 async function loadJournalLines(companyId: string, from: Date, toExclusive: Date): Promise<GestorJournalLine[]> {
@@ -153,8 +153,10 @@ export async function loadGestorPackageData(input: { companyId: string; countryC
   // En serie: cada PDF carga el cálculo completo del modelo; evita picos de conexiones a la base de datos.
   for (const report of reportsInPeriod) {
     if (!isSpanishFiscalModelCode(report.code)) continue;
-    const summary = await calculateSpanishFiscalSummary(input.companyId, report.code, report.period);
-    const pdf = await renderFiscalReportPdf({ companyName, summary });
+    // Un modelo presentado va tal como se presentó (foto guardada), no recalculado con los datos de hoy.
+    const resolved = await resolveFiscalReportSummary(input.companyId, report);
+    if (!resolved) continue;
+    const pdf = await renderFiscalReportPdf({ companyName, summary: resolved.summary });
     modelPdfs.push({ fileName: `modelo-${report.code}-${report.period}.pdf`, bytes: new Uint8Array(pdf) });
   }
 

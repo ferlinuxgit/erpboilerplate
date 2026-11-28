@@ -7,7 +7,10 @@
  */
 import type {
   SiiCancellation,
+  SiiCashMovement,
+  SiiCashRecord,
   SiiHolder,
+  SiiInvestmentGood,
   SiiIssuedBreakdown,
   SiiIssuedInvoice,
   SiiParty,
@@ -260,6 +263,124 @@ export function buildBajaLRFacturasRecibidas(input: { holder: SiiHolder; cancell
         lr("RefExterna", cancellation.refExterna ? cut(cancellation.refExterna, 60) : null),
       ]);
     }),
+  ]);
+}
+
+// ── Cobros y pagos del régimen especial del criterio de caja ─────────────────────────────────
+
+type CashInput = Pick<SiiCashRecord, "issuer" | "number" | "issueDate" | "movements">;
+
+function cashMovementNode(tag: "Cobro" | "Pago", movement: SiiCashMovement): Node {
+  return sii(tag, [
+    sii("Fecha", movement.date),
+    sii("Importe", movement.amount),
+    sii("Medio", movement.method),
+    // Con el medio 03 (no se cobra / paga) la cuenta no se admite (error 1152).
+    sii("Cuenta_O_Medio", movement.method === "03" || !movement.account ? null : cut(movement.account, 34)),
+  ]);
+}
+
+/**
+ * Los cobros (o pagos) de una misma factura viajan en un único registro: la respuesta de la AEAT
+ * identifica la línea solo por la factura, no por cada cobro.
+ */
+function groupCashByInvoice(records: CashInput[], keyOf: (record: CashInput) => string) {
+  const groups = new Map<string, CashInput>();
+  for (const record of records) {
+    const key = keyOf(record);
+    const group = groups.get(key);
+    if (group) group.movements = [...group.movements, ...record.movements];
+    else groups.set(key, { ...record, movements: [...record.movements] });
+  }
+  return [...groups.values()].filter((group) => group.movements.length > 0);
+}
+
+/**
+ * Cobros de facturas expedidas con clave de régimen 07 (`SuministroLRCobrosEmitidas`). La cabecera
+ * no lleva TipoComunicacion y no existe mensaje de baja ni de modificación: un cobro se anula
+ * suministrando otro de importe negativo.
+ */
+export function buildSuministroLRCobrosEmitidas(input: { holder: SiiHolder; records: CashInput[] }) {
+  const groups = groupCashByInvoice(input.records, (record) => `${record.number}|${record.issueDate}`);
+  assertBatch(groups.length);
+  return message("SuministroLRCobrosEmitidas", [
+    headerNodes(input.holder, null),
+    ...groups.map((record) => lr("RegistroLRCobros", [
+      lr("IDFactura", [
+        sii("IDEmisorFactura", [sii("NIF", record.issuer.nif ?? input.holder.nif)]),
+        sii("NumSerieFacturaEmisor", cut(record.number, 60)),
+        sii("FechaExpedicionFacturaEmisor", record.issueDate),
+      ]),
+      lr("Cobros", record.movements.map((movement) => cashMovementNode("Cobro", movement))),
+    ])),
+  ]);
+}
+
+/** Pagos de facturas recibidas con clave de régimen 07 (`SuministroLRPagosRecibidas`). */
+export function buildSuministroLRPagosRecibidas(input: { holder: SiiHolder; records: CashInput[] }) {
+  const groups = groupCashByInvoice(input.records, (record) => `${record.issuer.nif ?? JSON.stringify(record.issuer.idOtro)}|${record.number}|${record.issueDate}`);
+  assertBatch(groups.length);
+  return message("SuministroLRPagosRecibidas", [
+    headerNodes(input.holder, null),
+    ...groups.map((record) => {
+      if (!record.issuer.name) throw new Error("El pago de una factura recibida necesita el nombre del emisor.");
+      return lr("RegistroLRPagos", [
+        lr("IDFactura", [
+          sii("IDEmisorFactura", partyNodes(record.issuer)),
+          sii("NumSerieFacturaEmisor", cut(record.number, 60)),
+          sii("FechaExpedicionFacturaEmisor", record.issueDate),
+        ]),
+        lr("Pagos", record.movements.map((movement) => cashMovementNode("Pago", movement))),
+      ]);
+    }),
+  ]);
+}
+
+// ── Libro de bienes de inversión ─────────────────────────────────────────────────────────────
+
+/** Periodo del libro de bienes de inversión: siempre anual. */
+export const SII_ANNUAL_PERIOD = "0A";
+
+function investmentGoodIdNode(good: SiiInvestmentGood): Node {
+  return lr("IDFactura", [
+    sii("IDEmisorFactura", partyNodes(good.issuer)),
+    sii("NumSerieFacturaEmisor", cut(good.number, 60)),
+    sii("FechaExpedicionFacturaEmisor", good.issueDate),
+  ]);
+}
+
+/** Alta (A0) o modificación (A1) de apuntes del libro de bienes de inversión. */
+export function buildSuministroLRBienesInversion(input: { holder: SiiHolder; communication: SiiCommunicationType; goods: SiiInvestmentGood[] }) {
+  assertBatch(input.goods.length);
+  return message("SuministroLRBienesInversion", [
+    headerNodes(input.holder, input.communication),
+    ...input.goods.map((good) => lr("RegistroLRBienesInversion", [
+      periodNode({ year: good.year, period: SII_ANNUAL_PERIOD }),
+      investmentGoodIdNode(good),
+      lr("BienesInversion", [
+        sii("IdentificacionBien", cut(good.goodId, 40)),
+        sii("FechaInicioUtilizacion", good.startOfUseDate),
+        sii("ProrrataAnualDefinitiva", good.finalProrrata),
+        sii("RegularizacionAnualDeduccion", good.annualRegularization ?? null),
+        sii("IdentificacionEntrega", good.deliveryId ? cut(good.deliveryId, 40) : null),
+        sii("RegularizacionDeduccionEfectuada", good.deliveryRegularization ?? null),
+        sii("RefExterna", good.refExterna ? cut(good.refExterna, 60) : null),
+      ]),
+    ])),
+  ]);
+}
+
+/** Baja de apuntes del libro de bienes de inversión: la clave es ejercicio, factura e identificación del bien. */
+export function buildBajaLRBienesInversion(input: { holder: SiiHolder; goods: SiiInvestmentGood[] }) {
+  assertBatch(input.goods.length);
+  return message("BajaLRBienesInversion", [
+    headerNodes(input.holder, null),
+    ...input.goods.map((good) => lr("RegistroLRBajaBienesInversion", [
+      periodNode({ year: good.year, period: SII_ANNUAL_PERIOD }),
+      investmentGoodIdNode(good),
+      lr("IdentificacionBien", cut(good.goodId, 40)),
+      lr("RefExterna", good.refExterna ? cut(good.refExterna, 60) : null),
+    ])),
   ]);
 }
 

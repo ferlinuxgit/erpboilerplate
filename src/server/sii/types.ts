@@ -5,7 +5,15 @@
  * puros, con las fechas en dd-mm-aaaa y los importes como texto con punto decimal.
  */
 
-export type SiiBook = "ISSUED" | "RECEIVED";
+/**
+ * Libros que se suministran:
+ * - ISSUED / RECEIVED: facturas expedidas y recibidas.
+ * - ISSUED_COLLECTIONS / RECEIVED_PAYMENTS: cobros y pagos de las facturas con clave 07 (régimen
+ *   especial del criterio de caja). Cada registro es UN cobro o pago (o su anulación).
+ * - INVESTMENT_GOODS: libro de bienes de inversión (anual, periodo «0A»).
+ */
+export type SiiBook = "ISSUED" | "RECEIVED" | "ISSUED_COLLECTIONS" | "RECEIVED_PAYMENTS" | "INVESTMENT_GOODS";
+export const SII_BOOKS: readonly SiiBook[] = ["ISSUED", "RECEIVED", "ISSUED_COLLECTIONS", "RECEIVED_PAYMENTS", "INVESTMENT_GOODS"];
 /** A0 alta, A1 modificación (la factura ya consta en el SII), BAJA anulación del registro. */
 export type SiiOperation = "A0" | "A1" | "BAJA";
 export type SiiStatus = "PENDING" | "SENT" | "ACCEPTED" | "ACCEPTED_WITH_ERRORS" | "REJECTED";
@@ -102,9 +110,68 @@ export type SiiCancellation = {
   issuer: SiiParty | { nif: string; name?: undefined; idOtro?: undefined };
 };
 
+/** Medio de cobro o pago (lista L11): 01 transferencia, 02 cheque, 03 no se cobra/paga (fecha límite), 04 otros, 05 domiciliación. */
+export type SiiPaymentMethodCode = "01" | "02" | "03" | "04" | "05";
+
+/** Un cobro o un pago (DatosPagoCobroType). El importe admite signo: una anulación va en negativo. */
+export type SiiCashMovement = {
+  /** dd-mm-aaaa. */
+  date: string;
+  amount: string;
+  method: SiiPaymentMethodCode;
+  /** Cuenta o medio (máx. 34); no admitido con el medio 03. */
+  account?: string | null;
+};
+
+/**
+ * Cobros de una factura expedida o pagos de una recibida, ambas con clave de régimen 07. La
+ * factura se identifica como en las bajas: NIF del titular (expedidas) o nombre e identificación
+ * del emisor (recibidas), número y fecha de expedición.
+ */
+export type SiiCashRecord = {
+  /** Id de la factura del ERP a la que pertenece (no se envía). */
+  invoiceSourceId: string;
+  issuer: SiiParty | { nif: string; name?: undefined; idOtro?: undefined };
+  number: string;
+  issueDate: string;
+  /** Lo que se envía: el movimiento, su anulación (en negativo) o ambas cosas si se corrige. */
+  movements: SiiCashMovement[];
+  /** Estado que queda declarado tras aceptarse el envío (vacío si se ha anulado). Sirve para anular o corregir después. */
+  declared: SiiCashMovement[];
+};
+
+/** Apunte del libro de bienes de inversión (BienDeInversionType) de un ejercicio. */
+export type SiiInvestmentGood = {
+  refExterna?: string | null;
+  /** Id de la factura recibida del ERP (no se envía: sirve para enlazarla en pantalla). */
+  invoiceSourceId?: string;
+  /** Ejercicio del apunte; el periodo es siempre «0A» (anual). */
+  year: string;
+  /** Emisor de la factura de compra del bien. */
+  issuer: SiiParty;
+  number: string;
+  issueDate: string;
+  /** IdentificacionBien (máx. 40): con el ejercicio y la factura forma la clave del apunte. */
+  goodId: string;
+  /** FechaInicioUtilizacion dd-mm-aaaa. */
+  startOfUseDate: string;
+  /** ProrrataAnualDefinitiva del ejercicio ("83.00"). */
+  finalProrrata: string;
+  /** RegularizacionAnualDeduccion (con signo); null si no se informa. */
+  annualRegularization?: string | null;
+  /** IdentificacionEntrega y RegularizacionDeduccionEfectuada: solo si el bien se ha transmitido (art. 110 LIVA). */
+  deliveryId?: string | null;
+  deliveryRegularization?: string | null;
+};
+
 /** Lo que guarda `sii_record.payload`. */
 export type SiiRecordPayload =
   | { book: "ISSUED"; invoice: SiiIssuedInvoice }
-  | { book: "RECEIVED"; invoice: SiiReceivedInvoice };
+  | { book: "RECEIVED"; invoice: SiiReceivedInvoice }
+  | { book: "ISSUED_COLLECTIONS"; cash: SiiCashRecord }
+  | { book: "RECEIVED_PAYMENTS"; cash: SiiCashRecord }
+  | { book: "INVESTMENT_GOODS"; good: SiiInvestmentGood };
+
+export type SiiInvoicePayload = Extract<SiiRecordPayload, { book: "ISSUED" | "RECEIVED" }>;
 
 export type SiiHolder = { name: string; nif: string };

@@ -112,6 +112,34 @@ export function postedInRangeSql(range: AccountingRange): SQL {
   return range.civil.from ? sql`(not ${postedBeforeSql(range, "from")} and ${before})` : before;
 }
 
+/**
+ * Filtro «del día X al día Y» de un listado (fechas civiles, las dos opcionales, `toExclusive` es el
+ * día siguiente al último) con los mismos límites que el ejercicio: así el diario, el mayor y los
+ * estados enseñan un asiento en el mismo periodo en el que está numerado. Sin fechas no filtra.
+ */
+export function postedBetweenSql(range: { from?: Date | null; toExclusive?: Date | null }, timeZone: string): SQL | undefined {
+  const from = range.from ?? null;
+  const toExclusive = range.toExclusive ?? null;
+  if (toExclusive) return postedInRangeSql(accountingRange({ from, toExclusive }, timeZone));
+  if (from) return sql`(not ${postedBeforeSql(accountingRange({ from, toExclusive: from }, timeZone), "from")})`;
+  return undefined;
+}
+
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Fecha civil (00:00 UTC) de una clave `AAAA-MM-DD`; null si no es una fecha válida. */
+export function civilDateFromKey(key: string | null | undefined): Date | null {
+  if (!key || !DATE_KEY.test(key)) return null;
+  const date = new Date(`${key}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Igual que `postedBetweenSql` con los días tal como llegan de un filtro (`AAAA-MM-DD`, ambos incluidos). */
+export function postedBetweenKeysSql(from: string | null | undefined, to: string | null | undefined, timeZone: string): SQL | undefined {
+  const last = civilDateFromKey(to);
+  return postedBetweenSql({ from: civilDateFromKey(from), toExclusive: last ? new Date(last.getTime() + DAY_MS) : null }, timeZone);
+}
+
 /** Zona horaria de una empresa según su país y territorio (Canarias: Atlantic/Canary). */
 export function companyTimeZoneOf(row: { countryCode?: string | null; postalCode?: string | null; province?: string | null } | null | undefined) {
   return getCountryFiscalProfile(taxTerritoryOf(row) ?? row?.countryCode ?? "ES").timezone;

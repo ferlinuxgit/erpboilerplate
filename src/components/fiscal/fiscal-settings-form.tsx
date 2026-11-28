@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -189,6 +190,7 @@ export function FiscalSettingsForm({ initialValues, spanishRegimes = true, vatRe
         <label className="flex items-center gap-2 self-end rounded-surface border px-3 py-2 text-sm" htmlFor="fiscal-sii">
           <input checked={values.siiEnabled} id="fiscal-sii" onChange={(event) => setValue("siiEnabled", event.target.checked)} type="checkbox" />
           <span>Empresa obligada o adscrita al SII</span>
+          {values.siiEnabled ? <Link className="ml-auto font-semibold text-link underline underline-offset-2" href="/fiscal/sii">Ver el SII</Link> : null}
         </label>
 
         {openingYears.map((year) => (

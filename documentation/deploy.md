@@ -215,3 +215,27 @@ puede anunciarse como verificable si no se remite). Para ponerlo en marcha:
 
 El sistema solo funciona como VERI*FACTU (no hay modalidad de registros firmados sin remisión). Un registro
 rechazado o aceptado con errores se subsana desde Fiscalidad › VERI*FACTU tras corregir el dato en la ficha.
+
+## SII (Suministro Inmediato de Información)
+
+Solo afecta a las empresas que marcan el SII en Configuración › Fiscalidad (pantalla Fiscalidad › SII).
+
+1. **Entorno.** `SII_ENVIRONMENT` (`test` | `production`) es obligatoria con `SII_TRANSPORT=aeat` y no tiene
+   valor por defecto. Cada registro guarda su entorno, como en VERI*FACTU.
+2. **Worker.** `npm run sii:worker` (en Docker, `SII_WORKER_ENABLED=true`; apagado por defecto). Cada
+   `SII_WORKER_INTERVAL_MS` (5 min) revisa las facturas, prepara la bandeja de salida con sus plazos y, solo
+   con `SII_TRANSPORT=aeat`, la envía. `SII_WORKER_ONCE=true` hace una vuelta (para un cron).
+3. **Certificados.** Los de cada empresa (los mismos de VERI*FACTU) o el del sistema (`SII_CERT_PATH`,
+   `SII_CERT_PASSWORD`, `SII_CERT_SEAL=S` si es de sello). `SII_EXTRA_HOLIDAYS` añade festivos nacionales al
+   cómputo del plazo (los del calendario compartido `src/lib/spanish-holidays.ts` ya cuentan).
+4. **Libros que se suministran.** Facturas expedidas y recibidas (alta, modificación y baja); cobros y pagos
+   del criterio de caja (clave 07: empresa con régimen `cash_accounting` desde `sii_settings.cashAccountingSince`,
+   que se puede cambiar en la pantalla, o factura de compra con `supplierCashAccounting`); y libro anual de
+   bienes de inversión de los ejercicios con prorrata definitiva confirmada (`company_settings.vatProrataFinal`).
+   Las rectificativas van siempre por diferencias (tipo I): la rectificación por sustitución no aplica. El libro
+   de determinadas operaciones intracomunitarias no se suministra: la aplicación no registra esas operaciones
+   (envíos de bienes para informes, obras o ventas en consigna).
+5. **Sin verificar contra la AEAT.** Los mensajes se validan en los tests contra los XSD oficiales (1.1 «bis»),
+   pero ningún envío se ha probado contra los servicios de la AEAT. Antes de usarlo en `production`, prueba
+   en `test` con un certificado real: en especial los cobros y pagos (la respuesta identifica la factura,
+   no cada cobro) y el libro de bienes de inversión.

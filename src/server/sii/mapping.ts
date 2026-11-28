@@ -15,6 +15,18 @@
  *   sujeto pasivo → clave 01 y bloque InversionSujetoPasivo. Importación → tipo F5: se identifica
  *   por el DUA y el emisor y la contraparte son el propio titular.
  * - Cuota deducible = cuota × % deducible de la línea × prorrata; 0 en simplificadas y con recargo.
+ * - CRITERIO DE CAJA (clave 07, arts. 163 decies y ss. LIVA). Expedidas: la empresa está acogida
+ *   (`cashAccounting`) y la operación es nacional; la AEAT exige además que no haya bloque no
+ *   sujeto, ni S2/S3, ni exenciones E2 a E5 (validación 17 de expedidas): si la factura no lo
+ *   cumple, va con su clave ordinaria (son las operaciones excluidas del régimen, art. 163
+ *   duodecies.Dos). Recibidas: la empresa está acogida o el proveedor lo está
+ *   (`supplierCashAccounting`) y la operación es nacional (la clave 07 no admite el bloque de
+ *   inversión del sujeto pasivo: validación 9 de recibidas). Los cobros y pagos de las facturas
+ *   con clave 07 se suministran aparte (`cash.ts`).
+ * - RECTIFICATIVAS: siempre por diferencias («I»). El programa registra una rectificativa como un
+ *   documento con las diferencias (importes negativos), nunca como una factura que sustituye a
+ *   otra; por eso la rectificación por sustitución («S», con ImporteRectificacion) NO APLICA. El
+ *   generador de XML la admite, pero ningún flujo del programa la produce.
  *
  * Lo que una factura no permite suministrar (falta el NIF, falta el DUA…) se devuelve en
  * `problems`: el registro se crea igualmente, pero bloqueado y con el motivo a la vista.
@@ -23,7 +35,7 @@ import { calculateInvoiceTotals, type InvoiceCalculationLine } from "@/lib/invoi
 import { EU_COUNTRY_CODES, reverseChargeTaxAmount, type SalesVatTreatment, type SupplierVatTreatment } from "@/lib/fiscal-spain";
 import { fiscalCivilDate } from "@/lib/fiscal-spain";
 import type { CivilDate } from "@/server/sii/deadlines";
-import type { SiiCancellation, SiiIssuedBreakdown, SiiIssuedInvoice, SiiParty, SiiPartyId, SiiReceivedInvoice, SiiRecordPayload, SiiVatDetail } from "@/server/sii/types";
+import type { SiiCancellation, SiiIssuedBreakdown, SiiIssuedInvoice, SiiParty, SiiPartyId, SiiInvoicePayload, SiiReceivedInvoice, SiiVatDetail } from "@/server/sii/types";
 import { formatAeatAmount, formatAeatDate, isValidIssuerNifFormat, normalizeIssuerNif } from "@/server/verifactu/format";
 import { buildBreakdown, mapInvoiceToAlta, type SalesTreatment, type VerifactuBreakdownLine } from "@/server/verifactu/mapping";
 
@@ -119,7 +131,22 @@ export type SiiIssuedSource = {
   timeZone: string;
   /** Las líneas sin artículo se tratan como servicios (empresa de servicios) o como entregas. */
   servicesByDefault?: boolean;
+  /** La empresa aplica el régimen especial del criterio de caja a esta operación (clave 07 si es nacional). */
+  cashAccounting?: boolean;
 };
+
+/** Clave de régimen del criterio de caja (lista L3.1 y L3.2). */
+export const SII_CASH_ACCOUNTING_KEY = "07";
+
+/** ¿Admite la AEAT la clave 07 como única clave con este desglose? (validación 17 de expedidas). */
+export function issuedBreakdownAllowsCashAccounting(breakdown: SiiIssuedInvoice["breakdown"]) {
+  const parts = breakdown.level === "invoice" ? [breakdown.invoice] : [breakdown.services, breakdown.goods];
+  return parts.every((part) => !part || (
+    !part.notSubjectArticles && !part.notSubjectLocation
+    && (!part.notExempt || part.notExempt.type === "S1")
+    && (part.exempt ?? []).every((detail) => !["E2", "E3", "E4", "E5"].includes(detail.cause ?? ""))
+  ));
+}
 
 /** Los servicios intracomunitarios B2B se declaran como no sujetos por reglas de localización. */
 function breakdownTreatment(treatment: SalesVatTreatment): SalesTreatment {
@@ -196,7 +223,10 @@ export function mapIssuedInvoice(source: SiiIssuedSource): SiiMapped<SiiIssuedIn
   }
 
   const causes = alta.breakdown.map((line) => line.OperacionExenta).filter(Boolean);
-  const regimeKey = source.vatTreatment === "EXPORT" || causes.some((cause) => cause === "E2" || cause === "E3") ? "02" : "01";
+  const ordinaryKey = source.vatTreatment === "EXPORT" || causes.some((cause) => cause === "E2" || cause === "E3") ? "02" : "01";
+  const regimeKey = source.cashAccounting && ordinaryKey === "01" && source.vatTreatment === "DOMESTIC" && issuedBreakdownAllowsCashAccounting(breakdown)
+    ? SII_CASH_ACCOUNTING_KEY
+    : ordinaryKey;
   const accrual = source.operationDate ?? source.issueDate;
 
   return {
@@ -253,6 +283,8 @@ export type SiiReceivedSource = {
   timeZone: string;
   /** Tipo con el que se autoliquida una línea sin tipo (inversión del sujeto pasivo, intracomunitaria). */
   selfAssessmentRate?: number;
+  /** La deducción nace con el pago: la empresa está en criterio de caja o lo está el proveedor (clave 07 si es nacional). */
+  cashAccounting?: boolean;
 };
 
 export function mapReceivedInvoice(source: SiiReceivedSource): SiiMapped<SiiReceivedInvoice> {
@@ -350,8 +382,8 @@ export function mapReceivedInvoice(source: SiiReceivedSource): SiiMapped<SiiRece
       invoiceType,
       rectification: isRectification ? { kind: "I", rectified } : null,
       operationDate: operationDate && operationDate !== invoiceDate ? operationDate : null,
-      // 09: adquisiciones intracomunitarias; 01: régimen general.
-      regimeKey: source.vatTreatment === "INTRA_EU" ? "09" : "01",
+      // 09: adquisiciones intracomunitarias; 07: criterio de caja (solo operaciones nacionales); 01: régimen general.
+      regimeKey: source.vatTreatment === "INTRA_EU" ? "09" : source.cashAccounting && source.vatTreatment === "DOMESTIC" ? SII_CASH_ACCOUNTING_KEY : "01",
       // Con autoliquidación el total de la factura no incluye la cuota: no se informa (es opcional).
       totalAmount: selfAssessed ? null : money(totalCents),
       description: (descriptions.join("; ") || `Factura ${number}`).slice(0, 500),
@@ -365,7 +397,7 @@ export function mapReceivedInvoice(source: SiiReceivedSource): SiiMapped<SiiRece
 }
 
 /** Baja del registro de una factura ya suministrada, a partir de lo que se suministró. */
-export function cancellationFor(payload: SiiRecordPayload): SiiCancellation {
+export function cancellationFor(payload: SiiInvoicePayload): SiiCancellation {
   if (payload.book === "ISSUED") {
     const { invoice } = payload;
     return { period: invoice.period, number: invoice.number, issueDate: invoice.issueDate, issuer: { nif: invoice.issuerNif } };

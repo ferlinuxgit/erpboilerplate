@@ -271,7 +271,73 @@ export function taxReconciliationTable(input: TaxReconciliationInput): NoteTable
     ],
     note: hasData
       ? "Las diferencias y la compensación de bases negativas son las indicadas por la empresa; el resto sale de la contabilidad."
-      : "La aplicación no liquida el Impuesto sobre Sociedades: indica las diferencias permanentes y temporarias y la compensación de bases negativas para completar la conciliación.",
+      : "No hay liquidación del Impuesto sobre Sociedades de este ejercicio en la aplicación: indica las diferencias permanentes y temporarias y la compensación de bases negativas para completar la conciliación (o liquida el impuesto en Fiscalidad y se tomará de ahí).",
+  };
+}
+
+/** Lo que la conciliación necesita de la liquidación del Impuesto sobre Sociedades (importes en céntimos). */
+export type CorporateTaxLiquidationSummary = {
+  status: "draft" | "filed";
+  accountingResultBeforeTaxCents: number;
+  adjustments: ReadonlyArray<{ sign: "increase" | "decrease"; amountCents: number; nature: "permanent" | "temporaryOrigin" | "temporaryReversal" }>;
+  capitalizationReserveCents: number;
+  lossCompensationCents: number;
+  taxableBaseCents: number;
+  levelingReductionCents: number;
+  levelingAdditionCents: number;
+  grossQuotaCents: number;
+  creditsCents: number;
+  netQuotaCents: number;
+  withholdingsAndInstallmentsCents: number;
+  differentialCents: number;
+};
+
+/**
+ * Nota 8 a partir de la liquidación del Impuesto sobre Sociedades guardada para el ejercicio: el
+ * cuadro de conciliación del modelo de memoria (aumentos y disminuciones por diferencias permanentes
+ * y temporarias, con origen en el ejercicio o en anteriores; compensación de bases negativas) y la
+ * cuota resultante. El resultado sale de la contabilidad; los ajustes, de la liquidación.
+ */
+export function taxReconciliationFromLiquidation(input: { result: number; incomeTaxExpense: number; liquidation: CorporateTaxLiquidationSummary }): NoteTable {
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const { liquidation } = input;
+  const total = (nature: CorporateTaxLiquidationSummary["adjustments"][number]["nature"], sign: "increase" | "decrease") =>
+    liquidation.adjustments.filter((item) => item.nature === nature && item.sign === sign).reduce((sum, item) => sum + item.amountCents, 0) / 100;
+  const beforeTax = round(input.result + input.incomeTaxExpense);
+  const ledgerMismatch = Math.abs(beforeTax * 100 - liquidation.accountingResultBeforeTaxCents) >= 1;
+  const cents = (value: number) => round(value / 100);
+  const rows: NoteTable["rows"] = [
+    { label: "Resultado contable del ejercicio", values: [round(input.result)] },
+    { label: "Impuesto sobre beneficios contabilizado", values: [round(input.incomeTaxExpense)] },
+    { label: "Resultado contable antes de impuestos", values: [beforeTax], strong: true },
+    { label: "Diferencias permanentes: aumentos", values: [total("permanent", "increase")] },
+    { label: "Diferencias permanentes: disminuciones", values: [-total("permanent", "decrease")] },
+    { label: "Diferencias temporarias con origen en el ejercicio: aumentos", values: [total("temporaryOrigin", "increase")] },
+    { label: "Diferencias temporarias con origen en el ejercicio: disminuciones", values: [-total("temporaryOrigin", "decrease")] },
+    { label: "Diferencias temporarias con origen en ejercicios anteriores: aumentos", values: [total("temporaryReversal", "increase")] },
+    { label: "Diferencias temporarias con origen en ejercicios anteriores: disminuciones", values: [-total("temporaryReversal", "decrease")] },
+    { label: "Reserva de capitalización", values: [-cents(liquidation.capitalizationReserveCents)] },
+    { label: "Compensación de bases imponibles negativas de ejercicios anteriores", values: [-cents(liquidation.lossCompensationCents)] },
+    { label: "Base imponible (resultado fiscal)", values: [cents(liquidation.taxableBaseCents)], strong: true },
+  ];
+  if (liquidation.levelingReductionCents !== 0 || liquidation.levelingAdditionCents !== 0) {
+    rows.push({ label: "Reserva de nivelación (minoración − adición)", values: [cents(liquidation.levelingAdditionCents - liquidation.levelingReductionCents)] });
+  }
+  rows.push(
+    { label: "Cuota íntegra", values: [cents(liquidation.grossQuotaCents)] },
+    { label: "Deducciones y bonificaciones aplicadas", values: [-cents(liquidation.creditsCents)] },
+    { label: "Cuota líquida", values: [cents(liquidation.netQuotaCents)], strong: true },
+    { label: "Retenciones, ingresos a cuenta y pagos fraccionados", values: [-cents(liquidation.withholdingsAndInstallmentsCents)] },
+    { label: "Cuota diferencial (positiva: a ingresar; negativa: a devolver)", values: [cents(liquidation.differentialCents)], strong: true },
+  );
+  return {
+    title: "Conciliación del resultado contable con la base imponible",
+    columns: ["Importe"],
+    rows,
+    note: [
+      `Datos de la liquidación del Impuesto sobre Sociedades del ejercicio (${liquidation.status === "filed" ? "presentada" : "borrador sin presentar"}).`,
+      ledgerMismatch ? `Atención: la liquidación parte de un resultado antes de impuestos de ${new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" }).format(cents(liquidation.accountingResultBeforeTaxCents))} €, distinto del de la contabilidad; revísala en Fiscalidad.` : "",
+    ].filter(Boolean).join(" "),
   };
 }
 

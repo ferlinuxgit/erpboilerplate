@@ -115,10 +115,20 @@ export function SiiResendButton({ recordId, invoiceNumber, label = "Reenviar" }:
 }
 
 /** Fecha desde la que se suministran las facturas. */
-export function SiiSinceForm({ since }: { since: string | null }) {
+export function SiiSinceForm({
+  since,
+  field = "since",
+  label = "Suministrar las facturas desde",
+}: {
+  since: string | null;
+  /** «since»: inicio del suministro; «cashAccountingSince»: inicio del criterio de caja (clave 07). */
+  field?: "since" | "cashAccountingSince";
+  label?: string;
+}) {
   const router = useRouter();
   const [value, setValue] = useState(since ?? "");
   const [busy, setBusy] = useState(false);
+  const id = field === "since" ? "sii-since" : "sii-cash-since";
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -126,22 +136,22 @@ export function SiiSinceForm({ since }: { since: string | null }) {
       const response = await fetch("/api/sii/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ since: value }),
+        body: JSON.stringify({ [field]: value }),
       });
-      if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar la fecha de inicio."));
-      toast.success("Fecha de inicio guardada. Pulsa «Revisar facturas ahora» para actualizar la bandeja.");
+      if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar la fecha."));
+      toast.success("Fecha guardada. Pulsa «Revisar facturas ahora» para actualizar la bandeja.");
       router.refresh();
     } catch (error) {
-      toast.error(errorMessage(error, "No se pudo guardar la fecha de inicio."));
+      toast.error(errorMessage(error, "No se pudo guardar la fecha."));
     } finally {
       setBusy(false);
     }
   };
   return (
     <form className="flex flex-wrap items-end gap-2" onSubmit={save}>
-      <label className="grid gap-1 text-sm" htmlFor="sii-since">
-        <span className="font-semibold">Suministrar las facturas desde</span>
-        <input className="h-9 border border-input bg-background px-2 font-mono text-sm" id="sii-since" onChange={(event) => setValue(event.target.value)} required type="date" value={value} />
+      <label className="grid gap-1 text-sm" htmlFor={id}>
+        <span className="font-semibold">{label}</span>
+        <input className="h-9 border border-input bg-background px-2 font-mono text-sm" id={id} onChange={(event) => setValue(event.target.value)} required type="date" value={value} />
       </label>
       <Button aria-busy={busy} disabled={busy || !value || value === since} type="submit" variant="outline">
         {busy ? "Guardando…" : "Guardar fecha"}

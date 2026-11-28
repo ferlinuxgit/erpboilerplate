@@ -11,11 +11,13 @@ import {
   type JournalFormLine,
 } from "@/components/accounting/journal-entry-utils";
 import { JournalLinesEditor, type JournalAccountOption, type JournalPartnerOption } from "@/components/accounting/journal-lines-editor";
+import { LegalizedBooksConfirmation } from "@/components/accounting/legalized-books-confirmation";
 import { Button } from "@/components/ui/button";
 import { errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { legalizedYearForDate, type LegalizedYearView } from "@/server/accounting/books/legalization-model";
 
 export function EditJournalEntryForm({
   id,
@@ -24,6 +26,7 @@ export function EditJournalEntryForm({
   defaultPostedAt,
   defaultReference,
   defaultLines,
+  legalizedYears = [],
 }: {
   id: string;
   accounts: JournalAccountOption[];
@@ -31,6 +34,8 @@ export function EditJournalEntryForm({
   defaultPostedAt: string;
   defaultReference: string;
   defaultLines: JournalFormLine[];
+  /** Ejercicios con libros presentados a legalizar: editar un asiento suyo pide confirmación. */
+  legalizedYears?: LegalizedYearView[];
 }) {
   const router = useRouter();
   const [postedAt, setPostedAt] = useState(defaultPostedAt);
@@ -38,7 +43,13 @@ export function EditJournalEntryForm({
   const [lines, setLines] = useState<JournalFormLine[]>(defaultLines.length >= 2 ? defaultLines : [emptyJournalLine(), emptyJournalLine()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const blockers = describeJournalEntryBlockers({ postedAt, lines });
+  const [legalizedAck, setLegalizedAck] = useState(false);
+  // Ejercicio con libros presentados a legalizar que contiene la fecha elegida: exige confirmación.
+  const legalizedYear = legalizedYearForDate(legalizedYears, postedAt);
+  const blockers = [
+    ...describeJournalEntryBlockers({ postedAt, lines }),
+    ...(legalizedYear && !legalizedAck ? [`Confirma el aviso de libros legalizados del ejercicio ${legalizedYear.code}.`] : []),
+  ];
   const canSubmit = blockers.length === 0;
   const errorId = error ? "edit-journal-entry-error" : undefined;
 
@@ -55,7 +66,7 @@ export function EditJournalEntryForm({
         const response = await fetch(`/api/journal-entries/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-          body: JSON.stringify({ postedAt, reference, lines: normalizeJournalLinesForSubmit(lines) }),
+          body: JSON.stringify({ postedAt, reference, lines: normalizeJournalLinesForSubmit(lines), ...(legalizedYear && legalizedAck ? { acknowledgeLegalizedBooks: true } : {}) }),
         });
         if (!response.ok) throw new Error(await readApiError(response, "No se pudo actualizar el asiento."));
         toast.success("Asiento actualizado.");
@@ -80,6 +91,9 @@ export function EditJournalEntryForm({
         </div>
       </div>
       <JournalLinesEditor accounts={accounts} errorId={errorId} lines={lines} onChange={setLines} partners={partners} />
+      {legalizedYear ? (
+        <LegalizedBooksConfirmation checked={legalizedAck} disabled={loading} id="edit-journal-entry-legalized" notice={legalizedYear} onChange={setLegalizedAck} />
+      ) : null}
       {error ? <p id="edit-journal-entry-error" className="text-sm text-danger-text" role="alert">{error}</p> : null}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <Button aria-describedby={canSubmit ? undefined : "edit-journal-entry-blockers"} type="submit" disabled={!canSubmit || loading}>

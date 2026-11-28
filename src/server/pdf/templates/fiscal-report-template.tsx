@@ -1,5 +1,6 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
+import { fiscalSummaryDetailRows, type FiscalDetailRow } from "@/server/fiscal/export";
 import type { FiscalSourceDocument, SpanishFiscalSummary } from "@/server/fiscal/spain";
 
 const styles = StyleSheet.create({
@@ -13,6 +14,7 @@ const styles = StyleSheet.create({
   cellRight: { flex: 1, textAlign: "right" },
   cellBox: { width: 36 },
   cellWide: { flex: 3 },
+  cellKey: { width: 64 },
   warning: { marginBottom: 4, color: "#92400e" },
 });
 
@@ -48,6 +50,51 @@ function SourceDocumentRows({ documents, title }: { documents: FiscalSourceDocum
   );
 }
 
+/** Secciones que el PDF pinta con sus propios bloques de desglose (no se repiten). */
+const OWN_SECTIONS = new Set(["IVA repercutido", "IVA soportado", "Retenciones"]);
+
+/** Agrupa las filas de detalle por sección, en el orden en que llegan. */
+function groupBySection(rows: FiscalDetailRow[]) {
+  const groups: Array<{ section: string; rows: FiscalDetailRow[] }> = [];
+  for (const row of rows) {
+    if (OWN_SECTIONS.has(row.section)) continue;
+    const last = groups.at(-1);
+    if (last && last.section === row.section) last.rows.push(row);
+    else groups.push({ section: row.section, rows: [row] });
+  }
+  return groups;
+}
+
+function amountText(amount: FiscalDetailRow["amount"]) {
+  if (amount === null) return "";
+  if (typeof amount === "object") return String(amount.count);
+  return money(amount);
+}
+
+/**
+ * Detalle del modelo con el mismo contenido que el CSV: casillas del 303 y del 390, liquidación,
+ * criterio de caja, prorrata, casillas y perceptores de retenciones, operadores del 349 y terceros
+ * del 347 con sus marcas y trimestres.
+ */
+function DetailSections({ summary }: { summary: SpanishFiscalSummary }) {
+  return (
+    <>
+      {groupBySection(fiscalSummaryDetailRows(summary)).map((group, groupIndex) => (
+        <View key={`${group.section}-${groupIndex}`} style={styles.section}>
+          <Text style={styles.sectionTitle}>{group.section}</Text>
+          {group.rows.map((row, index) => (
+            <View key={`${row.box ?? ""}-${row.label}-${row.taxId ?? ""}-${index}`} style={styles.row} wrap={false}>
+              <Text style={styles.cellKey}>{row.box ?? ""}</Text>
+              <Text style={styles.cellWide}>{row.taxId ? `${row.label} · ${row.taxId}` : row.label}</Text>
+              <Text style={styles.cellRight}>{amountText(row.amount)}</Text>
+            </View>
+          ))}
+        </View>
+      ))}
+    </>
+  );
+}
+
 export function FiscalReportPdfTemplate({
   companyName,
   summary,
@@ -61,49 +108,9 @@ export function FiscalReportPdfTemplate({
         <Text style={styles.title}>{summary.modelName}</Text>
         <Text style={styles.subtitle}>{companyName} · Periodo {summary.periodLabel} · Vence {date(summary.dueDate)} · Borrador interno</Text>
 
-        {summary.modelo130 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Casillas del modelo 130 (acumulado desde el 1 de enero)</Text>
-            {summary.modelo130.boxes.map((box) => (
-              <View style={styles.row} key={box.box}>
-                <Text style={styles.cellBox}>{box.box}</Text>
-                <Text style={styles.cellWide}>{box.label}</Text>
-                <Text style={styles.cellRight}>{money(box.amount)}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
+        {summary.modelo130 || summary.modelo349 || summary.withholdingModel ? <DetailSections summary={summary} /> : null}
 
-        {summary.modelo349 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Operadores intracomunitarios (modelo 349)</Text>
-            {summary.modelo349.operators.length === 0 && summary.modelo349.rectifications.length === 0 ? (
-              <Text>Sin operaciones intracomunitarias en el periodo.</Text>
-            ) : null}
-            {summary.modelo349.operators.map((operator) => (
-              <View style={styles.row} key={`${operator.key}-${operator.taxId}`}>
-                <Text style={styles.cellBox}>{operator.key}</Text>
-                <Text style={styles.cell}>{operator.taxId}</Text>
-                <Text style={styles.cell}>{operator.name}</Text>
-                <Text style={styles.cellRight}>{money(operator.amount)}</Text>
-              </View>
-            ))}
-            {summary.modelo349.rectifications.map((operator) => (
-              <View style={styles.row} key={`r-${operator.key}-${operator.taxId}-${operator.originalPeriod}`}>
-                <Text style={styles.cellBox}>{operator.key}</Text>
-                <Text style={styles.cell}>{operator.taxId}</Text>
-                <Text style={styles.cell}>{operator.name} (rectifica {operator.originalPeriod})</Text>
-                <Text style={styles.cellRight}>{money(operator.amount)}</Text>
-              </View>
-            ))}
-            <View style={styles.row}>
-              <Text style={styles.cellWide}>Total operadores: {summary.modelo349.operatorCount}</Text>
-              <Text style={styles.cellRight}>{money(summary.modelo349.totalAmount)}</Text>
-            </View>
-          </View>
-        ) : null}
-
-        {summary.modelo130 || summary.modelo349 ? null : (
+        {summary.modelo130 || summary.modelo349 || summary.withholdingModel ? null : (
         <>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Resumen</Text>
@@ -186,23 +193,7 @@ export function FiscalReportPdfTemplate({
           )}
         </View>
 
-        {summary.thirdPartyOperations ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Operaciones Modelo 347</Text>
-            {summary.thirdPartyOperations.length === 0 ? (
-              <Text>No hay clientes o proveedores por encima de 3.005,06 EUR.</Text>
-            ) : (
-              summary.thirdPartyOperations.map((operation) => (
-                <View style={styles.row} key={`${operation.type}-${operation.taxId}-${operation.name}`}>
-                  <Text style={styles.cell}>{operation.type === "customer" ? "Cliente" : "Proveedor"}</Text>
-                  <Text style={styles.cell}>{operation.name}</Text>
-                  <Text style={styles.cell}>{operation.taxId}</Text>
-                  <Text style={styles.cellRight}>{money(operation.amount)}</Text>
-                </View>
-              ))
-            )}
-          </View>
-        ) : null}
+        <DetailSections summary={summary} />
 
         </>
         )}

@@ -53,6 +53,9 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       discountPct: invoiceLine.discountPct,
       taxRate: invoiceLine.taxRate,
       retentionRate: invoiceLine.retentionRate,
+      isDisbursement: invoiceLine.isDisbursement,
+      isGlobalDiscount: invoiceLine.isGlobalDiscount,
+      advanceInvoiceId: invoiceLine.advanceInvoiceId,
     })
     .from(invoiceLine)
     .where(eq(invoiceLine.invoiceId, data.id));
@@ -105,12 +108,16 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
     if (!row.taxId) continue;
     lineTaxIds.set(row.invoiceLineId, [...(lineTaxIds.get(row.invoiceLineId) ?? []), row.taxId]);
   }
-  const defaultLines = lines.map((line) => ({
+  // Las líneas del descuento global las regenera el servidor a partir del descuento: no se editan.
+  const defaultLines = lines.filter((line) => !line.isGlobalDiscount).map((line) => ({
     itemId: line.itemId,
     description: line.description,
     quantity: Number(line.quantity),
     unitPrice: Number(line.unitPrice),
-    discountPct: Number(line.discountPct ?? 0),
+    // El suplido se guarda con descuento 100 solo como defensa (ver `invoice_line.isDisbursement`).
+    discountPct: line.isDisbursement ? 0 : Number(line.discountPct ?? 0),
+    isDisbursement: line.isDisbursement,
+    advanceInvoiceId: line.advanceInvoiceId ?? "",
     taxRate: Number(line.taxRate ?? 0),
     retentionRate: Number(line.retentionRate ?? 0),
     taxIds: lineTaxIds.get(line.id) ?? [],
@@ -206,6 +213,9 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
             companyPaymentTermsDays={settings?.paymentTermsDays ?? null}
             vatContext={await vatContextFor(ctx.company.id)}
             spanishFiscalExtras={(await getCompanyFiscalContext(ctx.company.id)).profile.features.eInvoicing === "verifactu"}
+            defaultGlobalDiscountPct={Number(data.globalDiscountPct ?? 0)}
+            defaultGlobalDiscountAmount={Number(data.globalDiscountAmount ?? 0)}
+            defaultIsAdvance={data.isAdvance}
             defaultDocumentClass={data.documentClass}
             defaultLegalMentions={data.legalMentions}
             vatTreatments={(await getCompanySalesVatTreatments(ctx.company.id)).enabled}
@@ -246,6 +256,8 @@ function toSourceLine(line: CreditNoteSource, sign: 1 | -1) {
     taxRate: line.taxRate ?? 0,
     retentionRate: line.retentionRate ?? 0,
     taxes: (line.taxes ?? []).map((selectedTax) => ({ ...selectedTax, id: selectedTax.id ?? null })),
+    ...(line.isDisbursement ? { isDisbursement: true } : {}),
+    ...(line.isGlobalDiscount || line.advanceInvoiceId ? { isDeduction: true } : {}),
   };
 }
 

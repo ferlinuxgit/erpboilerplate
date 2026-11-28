@@ -272,6 +272,19 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
             </View>
           ) : null}
           <View style={styles.totals}>
+            {/* Descuento global (art. 78.Tres.2.º LIVA): minora la base, así que va antes de ella. */}
+            {totals.globalDiscount ? (
+              <>
+                <View style={styles.totalRow}>
+                  <Text>Importe bruto</Text>
+                  <Text style={styles.totalRowValue}>{totals.globalDiscount.grossSubtotal}</Text>
+                </View>
+                <View style={styles.totalRow}>
+                  <Text>{totals.globalDiscount.label}</Text>
+                  <Text style={styles.totalRowValue}>-{totals.globalDiscount.amount}</Text>
+                </View>
+              </>
+            ) : null}
             <View style={styles.totalRow}>
               <Text>Base imponible</Text>
               <Text style={styles.totalRowValue}>{totals.subtotal}</Text>
@@ -300,19 +313,46 @@ export function InvoicePdfTemplate({ company, customer, display = defaultPdfDisp
                 ) : null}
               </>
             )}
+            {/* Suplidos (art. 78.Tres.3.º LIVA): no son importe de la factura, solo del total a pagar. */}
+            {totals.disbursements ? (
+              <>
+                <View style={styles.totalRow}>
+                  <Text>Total factura</Text>
+                  <Text style={styles.totalRowValue}>{totals.disbursements.invoiceTotal}</Text>
+                </View>
+                <View style={styles.totalRow}>
+                  <Text>Suplidos</Text>
+                  <Text style={styles.totalRowValue}>{totals.disbursements.amount}</Text>
+                </View>
+              </>
+            ) : null}
             <View style={styles.totalBox}>
-              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalLabel}>{totals.disbursements ? "Total a pagar" : "Total"}</Text>
               <Text style={styles.total}>{totals.totalAmount}</Text>
             </View>
           </View>
         </View> : null}
+        {showFinancials && totals.disbursements ? (
+          <View style={styles.taxBreakdown} wrap={false}>
+            <SectionHeading label="Suplidos" />
+            <View style={styles.compactTable}>
+              {totals.disbursements.lines.map((row, index) => (
+                <View key={`${row.description}-${index}`} style={[styles.tableRow, index % 2 === 1 ? styles.tableRowAlt : {}]}>
+                  <Text style={styles.descriptionCell}>{row.description}</Text>
+                  <Text style={styles.moneyCell}>{row.amount}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.legalNote}>Pagos realizados en nombre y por cuenta del cliente (art. 78.Tres.3.º de la Ley 37/1992): no forman parte de la base imponible.</Text>
+          </View>
+        ) : null}
         {legalNotes.length > 0 ? (
           <View style={styles.legalNotes} wrap={false}>
             {legalNotes.map((note) => <Text key={note} style={styles.legalNote}>{note}</Text>)}
           </View>
         ) : null}
         <View style={styles.pageFooter} fixed>
-          <Text style={styles.pageFooterCopy}>{company.invoiceFooter || companyName}</Text>
+          <Text style={styles.pageFooterCopy}>{[company.invoiceFooter || companyName, company.registryData].filter(Boolean).join(" · ")}</Text>
           <Text fixed style={styles.pageFooterNumber} render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
         </View>
       </Page>

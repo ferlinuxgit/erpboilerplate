@@ -172,4 +172,30 @@ describe("renderInvoicePdf", () => {
     expect(text).not.toContain("Transferencia a cuenta bancaria");
     expect(text).not.toContain("Desglose de impuestos");
   });
+  it("muestra el descuento global antes de la base, los suplidos aparte y los datos registrales al pie", async () => {
+    const base = createInput();
+    const text = await pdfText(await renderInvoicePdf(createInput({
+      company: { ...base.company, registryData: "Inscrita en el Registro Mercantil de Madrid, tomo 1, folio 2, hoja M-3." },
+      totals: {
+        ...base.totals,
+        subtotal: "90,00 €",
+        totalAmount: "169,40 €",
+        globalDiscount: { label: "Descuento 10 %", grossSubtotal: "100,00 €", amount: "10,00 €" },
+        disbursements: { lines: [{ description: "Tasa registral", amount: "60,50 €" }], amount: "60,50 €", invoiceTotal: "108,90 €" },
+      },
+    })));
+    expect(text.indexOf("Importe bruto")).toBeLessThan(text.indexOf("Descuento 10 %"));
+    expect(text.indexOf("Descuento 10 %")).toBeLessThan(text.indexOf("Base imponible"));
+    expect(text).toContain("Total factura");
+    // Los rótulos en versalitas salen con las letras separadas.
+    const compact = (value: string) => value.replace(/\s+/g, "").toUpperCase();
+    expect(compact(text)).toContain("TOTALAPAGAR");
+    expect(text).toContain("Tasa registral");
+    expect(text).toContain("tomo 1, folio 2, hoja M-3");
+    // Sin descuento ni suplidos, el PDF de siempre.
+    const plain = await pdfText(await renderInvoicePdf(createInput()));
+    expect(plain).not.toContain("Importe bruto");
+    expect(compact(plain)).not.toContain("SUPLIDOS");
+    expect(compact(plain)).not.toContain("TOTALAPAGAR");
+  });
 });

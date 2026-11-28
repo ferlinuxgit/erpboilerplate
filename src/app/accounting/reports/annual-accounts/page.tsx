@@ -44,7 +44,7 @@ export default async function AnnualAccountsPage({ searchParams }: { searchParam
 
   const requestedModel = first(query.model);
   const accounts = await loadAnnualAccounts(ctx.company.id, year.id, { model: isOfficialStatementModelId(requestedModel) ? requestedModel : undefined });
-  const { statements, equityChanges, recognizedIncome, size } = accounts;
+  const { statements, equityChanges, recognizedIncome, size, cashFlow, cashFlowRequired } = accounts;
   const currency = ctx.company.baseCurrencyCode;
   const money = (value: number) => formatMoney(value, currency);
   const canEdit = can(ctx.membership.role, "accounting.write");
@@ -133,6 +133,7 @@ export default async function AnnualAccountsPage({ searchParams }: { searchParam
           <div className="flex flex-wrap gap-2">
             <FileDownloadButton fallbackFileName="cuentas-anuales.pdf" failure="No se pudieron generar las cuentas anuales." href={exportHref("pdf")} label="Descargar PDF" />
             <FileDownloadButton fallbackFileName="cuentas-anuales.xlsx" failure="No se pudieron generar las cuentas anuales." href={exportHref("xlsx")} label="Descargar Excel" />
+            <FileDownloadButton fallbackFileName="cuentas-anuales.docx" failure="No se pudieron generar las cuentas anuales." href={exportHref("docx")} label="Descargar Word" />
           </div>
         )}
       >
@@ -187,8 +188,37 @@ export default async function AnnualAccountsPage({ searchParams }: { searchParam
       </PageSection>
 
       <PageSection
+        title="Estado de flujos de efectivo"
+        description={cashFlowRequired
+          ? "Obligatorio con el modelo normal. Método indirecto: parte del resultado antes de impuestos, quita lo que no es cobro ni pago y añade los cambios del capital corriente, las inversiones y la financiación. Se calcula de los saldos de las cuentas: revísalo."
+          : "Con el modelo abreviado o de PYMES es voluntario (art. 257.3 de la Ley de Sociedades de Capital). Se calcula igual, por el método indirecto del modelo normal, como informe; solo va en las cuentas descargadas si lo pides."}
+        actions={cashFlowRequired ? undefined : (
+          <div className="flex flex-wrap gap-2">
+            <FileDownloadButton fallbackFileName="cuentas-anuales.pdf" failure="No se pudieron generar las cuentas anuales." href={`${exportHref("pdf")}&cashFlow=1`} label="PDF con este estado" />
+            <FileDownloadButton fallbackFileName="cuentas-anuales.xlsx" failure="No se pudieron generar las cuentas anuales." href={`${exportHref("xlsx")}&cashFlow=1`} label="Excel con este estado" />
+            <FileDownloadButton fallbackFileName="cuentas-anuales.docx" failure="No se pudieron generar las cuentas anuales." href={`${exportHref("docx")}&cashFlow=1`} label="Word con este estado" />
+          </div>
+        )}
+      >
+        <div className="space-y-3">
+          {cashFlow.current.unclassified !== 0 ? (
+            <InlineAlert title="Diferencias sin clasificar" tone="warning">
+              {money(cashFlow.current.unclassified)} de la variación del efectivo no tienen partida en el estado
+              {cashFlow.current.unclassifiedAccounts.length > 0 ? ` (cuentas ${cashFlow.current.unclassifiedAccounts.slice(0, 8).map((account) => account.code).join(", ")}${cashFlow.current.unclassifiedAccounts.length > 8 ? "…" : ""})` : ""}. Aparecen en una línea aparte para que el total cuadre: decide con tu asesor dónde presentarlas.
+            </InlineAlert>
+          ) : null}
+          <StatementTable caption="Estado de flujos de efectivo" currentLabel={year.code} lines={cashFlow.lines} money={money} previousLabel={previousLabel} />
+          <p className="text-sm">
+            Comprobación con el efectivo (grupo 57): al inicio {money(cashFlow.current.openingCash)}, al final {money(cashFlow.current.closingCash)}, variación {money(cashFlow.current.cashVariation)}.{" "}
+            {cashFlow.current.unclassified === 0 ? "Las partidas explican toda la variación." : `Las partidas explican ${money(cashFlow.current.explained)}.`}
+          </p>
+        </div>
+      </PageSection>
+
+      <PageSection
         title="Memoria"
-        description="Apartados del modelo de memoria abreviada y de PYMES. Los cuadros se calculan de la contabilidad; el texto lo redactas tú y se guarda para este ejercicio."
+        description="Apartados del modelo de memoria abreviada y de PYMES. Los cuadros se calculan de la contabilidad; el texto lo redactas tú y se guarda para este ejercicio. En Word puedes terminar de redactarla con tu procesador de textos."
+        actions={<FileDownloadButton fallbackFileName="memoria.docx" failure="No se pudo generar la memoria." href={`${exportHref("docx")}&part=notes`} label="Memoria en Word" />}
       >
         <AnnualAccountsNotesEditor
           averageEmployees={accounts.notesData.averageEmployees}
@@ -197,6 +227,7 @@ export default async function AnnualAccountsPage({ searchParams }: { searchParam
           key={year.id}
           notes={accounts.notes}
           taxData={accounts.notesData.taxData}
+          taxFromLiquidation={accounts.notesData.taxFromLiquidation}
         />
       </PageSection>
     </PageShell>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { JournalEntryRowActions } from "@/components/accounting/journal-entry-row-actions";
+import { JournalEntryRowActions, legalizedYearForReversal } from "@/components/accounting/journal-entry-row-actions";
 import {
   ResourceList,
   type ResourceListColumn,
@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { readApiError } from "@/components/ui/form";
 import { formatDate, formatMoney } from "@/lib/format";
 import { journalEntryOriginLabel } from "@/lib/status-labels";
+import type { LegalizedYearView } from "@/server/accounting/books/legalization-model";
 
 type JournalEntryRow = {
   id: string;
@@ -24,6 +25,7 @@ type JournalEntryRow = {
   reversedAt?: Date | string | null;
   reversesEntryId?: string | null;
   sourceType?: string | null;
+  fiscalYearId?: string | null;
 };
 
 function entryOrigin(row: JournalEntryRow) {
@@ -48,11 +50,17 @@ function sumAmounts(rows: JournalEntryRow[], pick: (row: JournalEntryRow) => str
 export function JournalEntriesList({
   canManage,
   currencyCode,
+  legalizedYears = [],
   rows,
   server,
+  todayKey = "",
   totals,
 }: {
   canManage: boolean;
+  /** Ejercicios con libros presentados a legalizar: revertir un asiento suyo avisa y pide confirmación. */
+  legalizedYears?: LegalizedYearView[];
+  /** Hoy en la zona horaria de la empresa (`AAAA-MM-DD`): fecha del contraasiento de una reversión. */
+  todayKey?: string;
   currencyCode: string;
   rows: JournalEntryRow[];
   /** Server pagination state; `rows` is then only the current page. */
@@ -117,7 +125,7 @@ export function JournalEntriesList({
             header: "Acciones",
             className: "text-right",
             cell: (row: JournalEntryRow) => (
-              <JournalEntryRowActions entry={row} id={row.id} />
+              <JournalEntryRowActions entry={row} id={row.id} legalized={legalizedYearForReversal(legalizedYears, row.fiscalYearId, todayKey)} />
             ),
           },
         ]
@@ -157,7 +165,7 @@ export function JournalEntriesList({
             Debe {formatMoney(row.debit, currencyCode)} · Haber{" "}
             {formatMoney(row.credit, currencyCode)}
           </p>
-          {canManage ? <JournalEntryRowActions entry={row} id={row.id} /> : null}
+          {canManage ? <JournalEntryRowActions entry={row} id={row.id} legalized={legalizedYearForReversal(legalizedYears, row.fiscalYearId, todayKey)} /> : null}
         </div>
       )}
       searchPlaceholder="Buscar por número, referencia, fecha o importe"

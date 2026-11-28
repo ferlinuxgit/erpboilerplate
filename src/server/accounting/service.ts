@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { accountChart, company, fiscalYear, journalEntry, journalLine, partner } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { recordAudit } from "@/server/audit";
-import { resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
+import { accountingRange, loadCompanyTimeZone, postedBeforeSql, postedBetweenSql, resolveAccountingDay } from "@/server/accounting/fiscal-year-date";
+import { requireLegalizedBooksConfirmation } from "@/server/accounting/books/legalization";
 import { AccountingRuleError } from "@/server/accounting/errors";
 import { toCents } from "@/server/accounting/money";
 import { ensureJournal } from "@/server/accounting/journals";
@@ -68,8 +69,10 @@ export function aggregateAccountTotals<T extends { code: string; debitCents: num
 export async function listAccounts(companyId: string, range?: { from: Date; toExclusive: Date }) {
   const lifecycle = sql`coalesce(${journalEntry.sourceType}, '') in ('fiscalYearRegularization', 'fiscalYearClosing', 'fiscalYearOpening')`;
   const closingOpening = sql`coalesce(${journalEntry.sourceType}, '') in ('fiscalYearClosing', 'fiscalYearOpening')`;
-  const inPeriod = range ? sql`${journalEntry.postedAt} >= ${range.from} and ${journalEntry.postedAt} < ${range.toExclusive} and not ${lifecycle}` : sql`true`;
-  const beforePeriod = range ? sql`${journalEntry.postedAt} < ${range.from} and not ${closingOpening}` : sql`false`;
+  // Límites en la hora local de la empresa, como el ejercicio (ver `fiscal-year-date.ts`).
+  const period = range ? accountingRange(range, await loadCompanyTimeZone(db, companyId)) : null;
+  const inPeriod = period ? sql`not ${postedBeforeSql(period, "from")} and ${postedBeforeSql(period, "toExclusive")} and not ${lifecycle}` : sql`true`;
+  const beforePeriod = period ? sql`${postedBeforeSql(period, "from")} and not ${closingOpening}` : sql`false`;
   const rows = await db
     .select({
       id: accountChart.id,
@@ -366,19 +369,36 @@ function manualLineValues(entryId: string, lines: PreparedLine[]) {
   }));
 }
 
+export type ManualJournalEntryPayload = {
+  postedAt: Date;
+  reference?: string;
+  lines: ManualJournalLineInput[];
+  /** El usuario ha confirmado que sabe que los libros del ejercicio están presentados a legalizar. */
+  acknowledgeLegalizedBooks?: boolean;
+};
+
+/** Rastro en la auditoría de que se modificó un ejercicio con libros legalizados (con confirmación). */
+function legalizedAuditPayload(notices: Awaited<ReturnType<typeof requireLegalizedBooksConfirmation>>) {
+  return notices.length > 0 ? { legalizedBooksConfirmed: notices } : {};
+}
+
 export async function createJournalEntry(
   companyId: string,
   tenantId: string,
   actorUserId: string,
-  payload: { postedAt: Date; reference?: string; lines: ManualJournalLineInput[] },
+  input: ManualJournalEntryPayload,
 ) {
+  const { acknowledgeLegalizedBooks, ...payload } = input;
   validateJournalLines(payload.lines);
   await assertFiscalPeriodOpen(companyId, payload.postedAt);
 
-  const { entry, lines } = await db.transaction(async (tx) => {
+  const { entry, lines, legalizedBooks } = await db.transaction(async (tx) => {
     const prepared = await prepareManualLines(tx, companyId, payload.lines, payload.reference);
     const generalJournal = await ensureJournal(companyId, "GEN", tx);
     const { number, fiscalYearId } = await reserveJournalEntryNumber(tx, companyId, payload.postedAt);
+    // Libros del ejercicio ya presentados a legalizar: hace falta confirmación expresa (si falta, la
+    // transacción se deshace y no se consume el número).
+    const legalized = await requireLegalizedBooksConfirmation(tx, companyId, [fiscalYearId], acknowledgeLegalizedBooks);
     const [created] = await tx
       .insert(journalEntry)
       .values({ companyId, number, fiscalYearId, journalId: generalJournal.id, postedAt: payload.postedAt, reference: payload.reference ?? null })
@@ -388,10 +408,10 @@ export async function createJournalEntry(
       .update(accountChart)
       .set({ isActive: true })
       .where(and(eq(accountChart.companyId, companyId), inArray(accountChart.id, [...new Set(prepared.map((line) => line.accountId))])));
-    return { entry: created, lines: prepared };
+    return { entry: created, lines: prepared, legalizedBooks: legalized };
   });
 
-  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.create", entityName: "journalEntry", entityId: entry.id, payload: { ...payload, lines } });
+  await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.create", entityName: "journalEntry", entityId: entry.id, payload: { ...payload, lines, ...legalizedAuditPayload(legalizedBooks) } });
   return entry;
 }
 
@@ -412,6 +432,7 @@ async function fiscalYearIdFor(client: DbClient, companyId: string, date: Date) 
  *   Para corregir asientos automáticos o ya revertidos hay que revertir y crear uno nuevo.
  * - Tanto la fecha original como la nueva deben estar en un periodo abierto: así un asiento
  *   de un periodo presentado o de un ejercicio cerrado no puede "sacarse" de él.
+ * - Si los libros del ejercicio están presentados a legalizar, exige confirmación expresa.
  * - La numeración es por ejercicio: el asiento no puede pasar a otro ejercicio.
  * - Se audita con los datos anteriores y los nuevos dentro de la misma transacción.
  */
@@ -420,8 +441,9 @@ export async function updateJournalEntry(
   tenantId: string,
   actorUserId: string,
   id: string,
-  payload: { postedAt: Date; reference?: string; lines: ManualJournalLineInput[] },
+  input: ManualJournalEntryPayload,
 ) {
+  const { acknowledgeLegalizedBooks, ...payload } = input;
   validateJournalLines(payload.lines);
 
   return db.transaction(async (tx) => {
@@ -445,6 +467,7 @@ export async function updateJournalEntry(
     if (existing.fiscalYearId && (await fiscalYearIdFor(tx, companyId, payload.postedAt)) !== existing.fiscalYearId) {
       throw new AccountingRuleError(409, "ENTRY_OTHER_FISCAL_YEAR", "La nueva fecha es de otro ejercicio. Revierte este asiento y créalo en el ejercicio correcto.");
     }
+    const legalizedBooks = await requireLegalizedBooksConfirmation(tx, companyId, [existing.fiscalYearId], acknowledgeLegalizedBooks);
     const lines = await prepareManualLines(tx, companyId, payload.lines, payload.reference);
 
     const previousLines = await tx
@@ -472,6 +495,7 @@ export async function updateJournalEntry(
       payload: {
         before: { postedAt: existing.postedAt, reference: existing.reference, lines: previousLines },
         after: { postedAt: payload.postedAt, reference: payload.reference ?? null, lines },
+        ...legalizedAuditPayload(legalizedBooks),
       },
     }, tx);
     return entry;
@@ -491,10 +515,14 @@ export function assertJournalEntryEditable(entry: { isAutomatic: boolean; revers
   }
 }
 
-export async function deleteJournalEntry(companyId: string, tenantId: string, actorUserId: string, id: string) {
+/**
+ * Revierte un asiento manual con un contraasiento fechado hoy. Si los libros del ejercicio del
+ * asiento original (o del ejercicio en curso) están presentados a legalizar, exige confirmación.
+ */
+export async function deleteJournalEntry(companyId: string, tenantId: string, actorUserId: string, id: string, options: { acknowledgeLegalizedBooks?: boolean } = {}) {
   return db.transaction(async (tx) => {
     const [editable] = await tx
-      .select({ postedAt: journalEntry.postedAt, journalId: journalEntry.journalId, reference: journalEntry.reference, isAutomatic: journalEntry.isAutomatic, reversedAt: journalEntry.reversedAt })
+      .select({ postedAt: journalEntry.postedAt, fiscalYearId: journalEntry.fiscalYearId, journalId: journalEntry.journalId, reference: journalEntry.reference, isAutomatic: journalEntry.isAutomatic, reversedAt: journalEntry.reversedAt })
       .from(journalEntry)
       .where(and(eq(journalEntry.companyId, companyId), eq(journalEntry.id, id)))
       .for("update")
@@ -507,6 +535,7 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
     const lines = await tx.select().from(journalLine).where(eq(journalLine.journalEntryId, id)).orderBy(asc(journalLine.lineNumber), asc(journalLine.id));
     if (lines.length === 0) throw new AccountingRuleError(422, "ENTRY_EMPTY", "No se puede revertir un asiento sin líneas.");
     const { number, fiscalYearId } = await reserveJournalEntryNumber(tx, companyId, reversedAt);
+    const legalizedBooks = await requireLegalizedBooksConfirmation(tx, companyId, [editable.fiscalYearId, fiscalYearId], options.acknowledgeLegalizedBooks);
     const reference = `Reversión · ${editable.reference ?? id}`;
     const [reversal] = await tx
       .insert(journalEntry)
@@ -536,12 +565,17 @@ export async function deleteJournalEntry(companyId: string, tenantId: string, ac
       dueDate: line.dueDate,
     })));
     await tx.update(journalEntry).set({ reversedAt }).where(eq(journalEntry.id, id));
-    await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.reverse", entityName: "journalEntry", entityId: id, payload: { reversalEntryId: reversal.id } }, tx);
+    await recordAudit({ tenantId, companyId, actorUserId, action: "accounting.entry.reverse", entityName: "journalEntry", entityId: id, payload: { reversalEntryId: reversal.id, ...legalizedAuditPayload(legalizedBooks) } }, tx);
     return true;
   });
 }
 
+/**
+ * Mayor de una cuenta. El rango son días civiles (`toExclusive` = día siguiente al último) y se
+ * aplica con los límites del ejercicio en hora local (ver `fiscal-year-date.ts`).
+ */
 export async function getLedgerByAccount(companyId: string, accountId: string, range?: { from?: Date; toExclusive?: Date }) {
+  const inRange = range?.from || range?.toExclusive ? postedBetweenSql(range, await loadCompanyTimeZone(db, companyId)) : undefined;
   return db
     .select({
       lineId: journalLine.id,
@@ -562,22 +596,18 @@ export async function getLedgerByAccount(companyId: string, accountId: string, r
     .from(journalLine)
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
     .leftJoin(partner, eq(partner.id, journalLine.partnerId))
-    .where(and(
-      eq(journalEntry.companyId, companyId),
-      eq(journalLine.accountId, accountId),
-      range?.from ? gte(journalEntry.postedAt, range.from) : undefined,
-      range?.toExclusive ? lt(journalEntry.postedAt, range.toExclusive) : undefined,
-    ))
+    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), inRange))
     .orderBy(desc(journalEntry.postedAt), desc(journalEntry.number), desc(journalLine.lineNumber));
 }
 
-/** Saldo (debe − haber) de una cuenta antes de `before`: saldo anterior del libro mayor filtrado. */
+/** Saldo (debe − haber) de una cuenta antes del día civil `before`: saldo anterior del libro mayor filtrado. */
 export async function getLedgerBalanceBefore(companyId: string, accountId: string, before: Date) {
+  const range = accountingRange({ from: before, toExclusive: before }, await loadCompanyTimeZone(db, companyId));
   const [row] = await db
     .select({ balance: sql<string>`coalesce(sum(${journalLine.debit} - ${journalLine.credit}), 0)` })
     .from(journalLine)
     .innerJoin(journalEntry, eq(journalEntry.id, journalLine.journalEntryId))
-    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), lt(journalEntry.postedAt, before)));
+    .where(and(eq(journalEntry.companyId, companyId), eq(journalLine.accountId, accountId), postedBeforeSql(range, "from")));
   return Number(row?.balance ?? 0);
 }
 

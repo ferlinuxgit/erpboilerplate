@@ -65,6 +65,8 @@ export type InvoicePdfInput = {
     website: string | null;
     logoDataUrl: string | null;
     invoiceFooter: string | null;
+    /** Datos de inscripción en el Registro Mercantil (art. 24 del Código de Comercio): van al pie. */
+    registryData?: string | null;
   };
   customer: {
     number?: string | null;
@@ -98,6 +100,16 @@ export type InvoicePdfInput = {
     retentionAmount: string;
     hasRetention: boolean;
     totalAmount: string;
+    /**
+     * Descuento global de la factura (art. 78.Tres.2.º LIVA): se muestra antes de la base, desde el
+     * importe bruto de los conceptos.
+     */
+    globalDiscount?: { label: string; grossSubtotal: string; amount: string } | null;
+    /**
+     * Suplidos (art. 78.Tres.3.º LIVA): no son importe de la factura. Con ellos el total se desdobla
+     * en «Total factura» (bases + cuotas − retenciones) y «Total a pagar».
+     */
+    disbursements?: { lines: Array<{ description: string; amount: string }>; amount: string; invoiceTotal: string } | null;
     /** Una fila por impuesto y tipo: «IVA 21 %» con su base y cuota. Sustituye a «Impuestos/Retenciones». */
     taxRows?: Array<{ label: string; base: string; amount: string; operation: "ADD" | "SUBTRACT" }>;
     breakdown?: Array<{

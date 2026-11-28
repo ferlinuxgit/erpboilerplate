@@ -253,3 +253,97 @@ export type FiscalFile = {
 export function fiscalFile(fileName: string, text: string, warnings: string[] = []): FiscalFile {
   return { fileName, text, bytes: encodeLatin1(text), warnings };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Declaraciones informativas de retenciones (190, 180 y 193)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Código de provincia de los diseños del 190 (2025), 180 (2023) y 193 (2025) a partir del código
+ * postal: los dos primeros dígitos, salvo la isla de La Palma (códigos postales 387xx), que en
+ * esos tres diseños tiene código propio, el 53. null si el código postal no es español.
+ */
+export function informativeProvinceCode(postalCode: string | null | undefined) {
+  const match = /^(\d{2})(\d)\d{2}$/.exec((postalCode ?? "").replace(/\s/g, ""));
+  if (!match) return null;
+  const province = Number(match[1]);
+  if (province < 1 || province > 52) return null;
+  return match[1] === "38" && match[2] === "7" ? "53" : match[1];
+}
+
+/** ¿Es un código de provincia de esos diseños (01 a 53, o 98: residentes en el extranjero del art. 10 LIRPF)? */
+export function isInformativeProvinceCode(value: string) {
+  return /^\d{2}$/.test(value) && ((Number(value) >= 1 && Number(value) <= 53) || value === "98");
+}
+
+/** Porcentaje en cuatro posiciones (dos enteros y dos decimales), como piden el 180 y el 193. */
+export function percent4(rate: number, fieldLabel = "porcentaje de retención") {
+  const hundredths = Math.round(rate * 100);
+  if (!Number.isFinite(hundredths) || hundredths < 0 || hundredths > 9999) throw new FiscalFileError([`El ${fieldLabel} (${rate}) no cabe en el diseño de registro.`]);
+  return String(hundredths).padStart(4, "0");
+}
+
+/** Teléfono de contacto en nueve dígitos (los últimos nueve; ceros si falta). */
+export function phone9(phone: string | null | undefined) {
+  return (phone ?? "").replace(/\D/g, "").slice(-9).padStart(9, "0");
+}
+
+/** Número identificativo por defecto de una informativa: modelo + ejercicio + secuencial. */
+export function defaultDeclarationNumber(model: string, year: number) {
+  return `${model}${String(year).padStart(4, "0")}000001`;
+}
+
+/**
+ * Campos comunes del registro de tipo 1 (declarante) de las informativas 190, 180 y 193: las
+ * posiciones 1 a 135 son idénticas en los tres diseños (tipo, modelo, ejercicio, NIF, nombre, tipo
+ * de soporte «T», persona de contacto, número identificativo y declaración anterior a ceros).
+ */
+export function informativeDeclarantFields(model: "190" | "180" | "193", year: number, declarant: Declarant, declarationNumber: string): RecordField[] {
+  return [
+    { pos: 1, len: 1, value: "1" },
+    { pos: 2, len: 3, value: model },
+    { pos: 5, len: 4, value: numeric(year, 4) },
+    { pos: 9, len: 9, value: nifField(declarant.taxId), name: "NIF del declarante" },
+    { pos: 18, len: 40, value: alpha(declarant.name, 40) },
+    { pos: 58, len: 1, value: "T", name: "tipo de soporte" },
+    { pos: 59, len: 9, value: phone9(declarant.phone), name: "teléfono" },
+    { pos: 68, len: 40, value: alpha(declarant.contactName ?? declarant.name, 40) },
+    { pos: 108, len: 13, value: declarationNumber, name: "número identificativo" },
+    { pos: 123, len: 13, value: numeric(0, 13), name: "declaración anterior" },
+  ];
+}
+
+/** Campos comunes del arranque del registro de tipo 2 (perceptor) de esas informativas (posiciones 1 a 75). */
+export function informativeRecipientFields(model: "190" | "180" | "193", year: number, declarant: Declarant, recipient: { taxId: string | null; name: string }): RecordField[] {
+  return [
+    { pos: 1, len: 1, value: "2" },
+    { pos: 2, len: 3, value: model },
+    { pos: 5, len: 4, value: numeric(year, 4) },
+    { pos: 9, len: 9, value: nifField(declarant.taxId) },
+    { pos: 18, len: 9, value: nifField(recipient.taxId), name: "NIF del perceptor" },
+    { pos: 36, len: 40, value: alpha(recipient.name, 40) },
+  ];
+}
+
+/** Junta en un solo problema los perceptores a los que les falta un dato (los primeros, y cuántos más). */
+export function listProblems(intro: string, items: string[], limit = 8) {
+  if (items.length === 0) return [];
+  return [`${intro} ${items.slice(0, limit).join("; ")}${items.length > limit ? ` (y ${items.length - limit} más)` : ""}.`];
+}
+
+/**
+ * Provincia del domicilio de un perceptor: la de su ficha de tercero (código postal) y, si no hay,
+ * la que se indique al descargar. null si no se puede saber.
+ */
+export function resolveRecipientProvince(
+  taxId: string | null,
+  postalCodes: Map<string, string | null> | undefined,
+  defaultProvince: string | null | undefined,
+) {
+  const fromCard = informativeProvinceCode(postalCodes?.get(normalizeSpanishNif(taxId)));
+  if (fromCard) return fromCard;
+  const fallback = (defaultProvince ?? "").trim();
+  return isInformativeProvinceCode(fallback) ? fallback : null;
+}
+
+export const MISSING_PROVINCE_HELP = "Añade el código postal en su ficha de cliente o proveedor, o indica al descargar la provincia (dos dígitos) de los perceptores que no tienen ficha, como los trabajadores.";

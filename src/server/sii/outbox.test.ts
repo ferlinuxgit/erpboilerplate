@@ -77,12 +77,12 @@ describe("planOutboxAction (decisión pura)", () => {
 });
 
 describe("elegibilidad y resultado por línea", () => {
-  it("solo el SII de la AEAT en territorio común y fuera del criterio de caja", () => {
+  it("solo el SII de la AEAT en territorio común (también en criterio de caja: clave 07 y libros de cobros y pagos)", () => {
     const base = { siiEnabled: true, countryCode: "ES", territory: "ES", fiscalRegime: "general" };
     expect(siiEligibility(base)).toMatchObject({ enabled: true, supported: true });
     expect(siiEligibility({ ...base, siiEnabled: false })).toMatchObject({ enabled: false, supported: false });
     expect(siiEligibility({ ...base, territory: "ES-CN" }).supported).toBe(false);
-    expect(siiEligibility({ ...base, fiscalRegime: "cash_accounting" }).supported).toBe(false);
+    expect(siiEligibility({ ...base, fiscalRegime: "cash_accounting" }).supported).toBe(true);
     expect(siiEligibility({ ...base, countryCode: "PT", territory: "PT" }).supported).toBe(false);
   });
 

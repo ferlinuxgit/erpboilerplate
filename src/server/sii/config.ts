@@ -54,6 +54,10 @@ export function requireSiiEnvironment(env: Env = process.env): SiiEnvironment {
 const SERVICE_PATHS: Record<SiiBook, string> = {
   ISSUED: "/wlpl/SSII-FACT/ws/fe/SiiFactFEV1SOAP",
   RECEIVED: "/wlpl/SSII-FACT/ws/fr/SiiFactFRV1SOAP",
+  // WSDL SuministroCobrosEmitidas, SuministroPagosRecibidas y SuministroBienesInversion (1.1 «bis»).
+  ISSUED_COLLECTIONS: "/wlpl/SSII-FACT/ws/fe/SiiFactCOBV1SOAP",
+  RECEIVED_PAYMENTS: "/wlpl/SSII-FACT/ws/fr/SiiFactPAGV1SOAP",
+  INVESTMENT_GOODS: "/wlpl/SSII-FACT/ws/bi/SiiFactBIV1SOAP",
 };
 
 /** Orígenes de los servicios: uno para certificados de persona o representante y otro para los de sello. */

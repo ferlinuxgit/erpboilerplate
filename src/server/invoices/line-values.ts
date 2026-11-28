@@ -26,7 +26,13 @@ export function buildInvoiceLineInsertValues(
     description: line.description.trim(),
     quantity: line.quantity.toFixed(3),
     unitPrice: line.unitPrice.toFixed(2),
-    ...(line.discountPct !== undefined && line.discountPct !== null ? { discountPct: line.discountPct.toFixed(3) } : {}),
+    // Suplido: no es base. Se guarda con descuento 100 para que una lectura que no conozca
+    // `isDisbursement` y calcule cantidad × precio × (1 − dto.) obtenga base 0 (su importe va en `lineTotal`).
+    ...(line.isDisbursement
+      ? { discountPct: "100.000", isDisbursement: true }
+      : line.discountPct !== undefined && line.discountPct !== null ? { discountPct: line.discountPct.toFixed(3) } : {}),
+    ...(line.isGlobalDiscount ? { isGlobalDiscount: true } : {}),
+    ...(line.advanceInvoiceId ? { advanceInvoiceId: line.advanceInvoiceId } : {}),
     taxRate: totals.lines[index]!.taxes
       .filter((selectedTax) => selectedTax.operation === "ADD")
       .reduce((sum, selectedTax) => sum + selectedTax.rate, 0)

@@ -32,7 +32,8 @@ import { InvoiceVatTreatmentField } from "@/components/invoices/invoice-vat-trea
 import { InlineAlert } from "@/components/ui/page";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatDate, formatMoney } from "@/lib/format";
-import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { applyGlobalDiscount, calculateInvoiceTotals, summarizeInvoiceAmounts } from "@/lib/invoice-totals";
+import { InvoiceSpecialOptions, optionalAmountRegisterOptions } from "@/components/invoices/invoice-special-options";
 import type { SaleCatalogEntry } from "@/lib/pricing";
 import { defaultDueDateInput, effectivePaymentTermsDays } from "@/server/invoices/due-dates";
 import type { VatTreatmentContext } from "@/lib/country-packs/vat-treatment";
@@ -70,6 +71,9 @@ export function EditInvoiceForm({
   defaultDocumentClass = null,
   defaultLegalMentions = null,
   spanishFiscalExtras = false,
+  defaultGlobalDiscountPct = 0,
+  defaultGlobalDiscountAmount = 0,
+  defaultIsAdvance = false,
   defaultPaymentMethodIds,
   defaultTotalAmount,
   defaultVatTreatment,
@@ -102,6 +106,10 @@ export function EditInvoiceForm({
   defaultLegalMentions?: string | null;
   /** Empresa con normativa española: ofrece la clase de factura y las menciones habituales. */
   spanishFiscalExtras?: boolean;
+  /** Descuento global guardado (art. 78.Tres.2.º LIVA) y si es factura de anticipo (art. 75.Dos). */
+  defaultGlobalDiscountPct?: number;
+  defaultGlobalDiscountAmount?: number;
+  defaultIsAdvance?: boolean;
   defaultPaymentMethodIds: string[];
   defaultTotalAmount: number;
   defaultVatTreatment: SalesVatTreatmentCode | null;
@@ -146,6 +154,9 @@ export function EditInvoiceForm({
       notes: defaultNotes ?? "",
       paymentMethodIds: defaultPaymentMethodIds,
       totalAmount: defaultTotalAmount,
+      globalDiscountPct: defaultGlobalDiscountPct,
+      globalDiscountAmount: defaultGlobalDiscountAmount,
+      isAdvance: defaultIsAdvance,
       lines: defaultLines.length > 0
         ? defaultLines
         : [{ description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 0, retentionRate: 0, taxIds: customerLineTaxIds(activeTaxes, customers.find((customer) => customer.id === defaultCustomerId), vatContext) }],
@@ -157,11 +168,21 @@ export function EditInvoiceForm({
   const { itemBinding, itemOptions, pricingHint } = useInvoiceLinePricing({ catalog, customerId: selectedCustomerId, getValues, initialCustomerId: defaultCustomerId, register, setValue });
   const watchedIssueDate = useWatch({ control, name: "issueDate" });
   const watchedDueDate = useWatch({ control, name: "dueDate" });
+  const watchedDiscountPct = useWatch({ control, name: "globalDiscountPct" });
+  const watchedDiscountAmount = useWatch({ control, name: "globalDiscountAmount" });
+  const watchedIsAdvance = Boolean(useWatch({ control, name: "isAdvance" }));
   const calculatedLines = (watchedLines ?? []).map((line) => ({
     ...line,
     taxes: taxes.filter((configuredTax) => line?.taxIds?.includes(configuredTax.id)),
   }));
-  const totals = calculateInvoiceTotals(calculatedLines);
+  // Sin el bloque de opciones (otros países) manda el descuento guardado, como en el servidor.
+  const discountFor = (pct: number | null | undefined, amount: number | null | undefined) => ({
+    pct: Number(pct ?? defaultGlobalDiscountPct) || 0,
+    amount: Number(amount ?? defaultGlobalDiscountAmount) || 0,
+  });
+  const previewLines = applyGlobalDiscount(calculatedLines, discountFor(watchedDiscountPct, watchedDiscountAmount));
+  const totals = calculateInvoiceTotals(previewLines);
+  const amounts = summarizeInvoiceAmounts(previewLines, totals);
   const paymentMethodError = firstFormErrorMessage(errors.paymentMethodIds);
   const selectedCustomer = customerOptions.find((customer) => customer.id === selectedCustomerId) ?? null;
   const defaultTaxIds = useMemo(() => customerLineTaxIds(activeTaxes, selectedCustomer, vatContext), [activeTaxes, selectedCustomer, vatContext]);
@@ -259,10 +280,10 @@ export function EditInvoiceForm({
       setSubmissionError(null);
       setIssueError(null);
       try {
-        const invoiceTotals = calculateInvoiceTotals(values.lines.map((line) => ({
+        const invoiceTotals = calculateInvoiceTotals(applyGlobalDiscount(values.lines.map((line) => ({
           ...line,
           taxes: taxes.filter((configuredTax) => line.taxIds?.includes(configuredTax.id)),
-        })));
+        })), discountFor(values.globalDiscountPct, values.globalDiscountAmount)));
         const response = await fetch(`/api/invoices/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
@@ -398,6 +419,7 @@ export function EditInvoiceForm({
             unitPrice: register(`lines.${index}.unitPrice`, moneyRegisterOptions),
             discountPct: register(`lines.${index}.discountPct`, discountRegisterOptions),
             setTaxIds: (taxIds) => setValue(`lines.${index}.taxIds`, taxIds, { shouldDirty: true, shouldValidate: true }),
+            isDisbursement: register(`lines.${index}.isDisbursement`),
           })}
           lines={watchedLines ?? []}
           onAdd={() => append(emptyLine)}
@@ -406,7 +428,10 @@ export function EditInvoiceForm({
           onRemove={remove}
           taxes={taxes}
           totals={totals}
+          withDisbursements={spanishFiscalExtras}
         />
+        {/* Vínculo de la línea con la factura de anticipo que descuenta (no se edita a mano). */}
+        {fields.map((field, index) => <input key={`advance-${field.id}`} type="hidden" {...register(`lines.${index}.advanceInvoiceId`)} />)}
         {errors.lines?.root ? <p className="mt-2 font-mono text-xs text-danger-text" role="alert">{errors.lines.root.message}</p> : null}
       </div>
 
@@ -437,11 +462,25 @@ export function EditInvoiceForm({
             operationDateName="operationDate"
             treatmentName="vatTreatment"
           />
+          {spanishFiscalExtras ? (
+            <InvoiceSpecialOptions
+              customerId={selectedCustomerId}
+              discountAmount={register("globalDiscountAmount", optionalAmountRegisterOptions)}
+              discountAmountError={errors.globalDiscountAmount?.message}
+              discountPct={register("globalDiscountPct", optionalAmountRegisterOptions)}
+              discountPctError={errors.globalDiscountPct?.message}
+              excludeInvoiceId={id}
+              initiallyOpen={defaultGlobalDiscountPct > 0 || defaultGlobalDiscountAmount > 0 || defaultIsAdvance || defaultLines.some((line) => line.isDisbursement || line.advanceInvoiceId)}
+              isAdvance={register("isAdvance")}
+              isAdvanceChecked={watchedIsAdvance}
+              onAddAdvance={(line) => append(line)}
+            />
+          ) : null}
           <AccessibleField id="invoice-notes" label="Notas" error={errors.notes?.message} helperText="Opcional; se mostrarán como observaciones internas.">
             <Input id="invoice-notes" placeholder="Observaciones" {...register("notes")} />
           </AccessibleField>
         </div>
-        <InvoiceTotalsSummary error={errors.totalAmount?.message} totals={totals} />
+        <InvoiceTotalsSummary amounts={amounts} error={errors.totalAmount?.message} totals={totals} />
       </div>
 
       <FormActions
