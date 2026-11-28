@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { EInvoiceDownloadButton } from "@/components/invoices/einvoice-actions";
+import { EInvoiceFaceActions } from "@/components/invoices/einvoice-face-actions";
 import { EInvoiceStatusForm } from "@/components/invoices/einvoice-status-form";
 import { InlineAlert, PageSection } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { Dir3Codes } from "@/server/einvoice/dir3";
+import { faceCancellationLabels, faceEnvironmentLabels, faceProcessingLabels } from "@/server/einvoice/face";
 import { getEInvoiceOverview, type EInvoiceFormat } from "@/server/einvoice/service";
 import { EINVOICE_STATUSES, einvoiceRejectionLabels, einvoiceStatusLabels, type EInvoiceRejectionCode, type EInvoiceStatus } from "@/server/einvoice/status";
 import { civilDateKey } from "@/server/invoices/issue-checks";
@@ -43,9 +45,10 @@ const isoDate = (value: string) => formatDate(`${value}T00:00:00Z`);
 export async function EInvoiceCard({ companyId, invoiceId, canManage }: { companyId: string; invoiceId: string; canManage: boolean }) {
   const overview = await getEInvoiceOverview(companyId, invoiceId);
   if (!overview || (!overview.availability.facturae && !overview.availability.ubl)) return null;
-  const { availability, certificate, facturae, ubl, ublAeat, documents, statuses, summary } = overview;
+  const { availability, certificate, facturae, ubl, ublAeat, documents, statuses, summary, faceConfig } = overview;
   const facturaeReady = facturae.problems.length === 0;
   const signedCopy = documents.find((document) => document.format === "FACTURAE" && document.signed);
+  const face = signedCopy?.face ?? null;
   // Estados que aún tiene sentido anotar (la validación completa la hace el servidor).
   const availableStatuses = EINVOICE_STATUSES.filter((status) => {
     if (status === "SENT") return !summary.sentOn;
@@ -90,22 +93,52 @@ export async function EInvoiceCard({ companyId, invoiceId, canManage }: { compan
                 <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "facturae" }} testId="einvoice-facturae-unsigned">
                   Descargar sin firmar (.xml)
                 </EInvoiceDownloadButton>
-                {canManage && certificate.available && signedCopy ? (
+                {canManage && certificate.available && signedCopy && !face?.registryNumber ? (
                   <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "facturae", signed: true, regenerate: true }} testId="einvoice-facturae-resign">
                     Firmar de nuevo
                   </EInvoiceDownloadButton>
                 ) : null}
               </div>
             ) : null}
+            {facturaeReady && faceConfig.enabled ? (
+              <div className="space-y-2" data-testid="einvoice-face">
+                {faceConfig.problem ? (
+                  <InlineAlert title="El envío a FACe no está bien configurado" tone="danger">{faceConfig.problem} Avisa al administrador del sistema.</InlineAlert>
+                ) : null}
+                {face?.registryNumber ? (
+                  <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]" data-testid="einvoice-face-status">
+                    <dt className="font-medium">Registro en FACe</dt>
+                    <dd className="font-mono">{face.registryNumber}{face.environment === "staging" ? " (ENTORNO DE PRUEBAS)" : ""}</dd>
+                    {face.submittedAt ? (<><dt className="font-medium">Remitida</dt><dd>{formatDateTime(face.submittedAt)}{face.contactEmail ? ` · avisos a ${face.contactEmail}` : ""}</dd></>) : null}
+                    <dt className="font-medium">Tramitación</dt>
+                    <dd>{face.processing ? `${faceProcessingLabels[face.processing.code] ?? face.processing.description ?? face.processing.code} (${face.processing.code})${face.processing.reason ? `: ${face.processing.reason}` : ""}` : "Sin consultar todavía"}</dd>
+                    {face.cancellation ? (<><dt className="font-medium">Anulación</dt><dd>{faceCancellationLabels[face.cancellation.code] ?? face.cancellation.description ?? face.cancellation.code} ({face.cancellation.code}){face.cancellation.reason ? `: ${face.cancellation.reason}` : ""}</dd></>) : null}
+                    {face.checkedAt ? (<><dt className="font-medium">Última consulta</dt><dd>{formatDateTime(face.checkedAt)}</dd></>) : null}
+                  </dl>
+                ) : null}
+                {face?.lastError ? <InlineAlert title="Último error de FACe" tone="warning">{face.lastError}</InlineAlert> : null}
+                {canManage && faceConfig.environment && certificate.available ? (
+                  <EInvoiceFaceActions
+                    environmentLabel={faceEnvironmentLabels[faceConfig.environment]}
+                    invoiceId={invoiceId}
+                    production={faceConfig.environment === "production"}
+                    sent={Boolean(face?.registryNumber)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
             <details className="text-xs">
-              <summary className="cursor-pointer font-medium">Cómo presentarla en FACe</summary>
+              <summary className="cursor-pointer font-medium">Cómo presentarla en FACe a mano</summary>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
                 <li>Comprueba que la ficha del cliente tiene los tres códigos DIR3 (oficina contable, órgano gestor y unidad tramitadora): los indica el propio organismo y se pueden consultar en el directorio de face.gob.es.</li>
                 <li>Descarga la factura firmada. Si no tienes el certificado subido, descárgala sin firmar y fírmala con AutoFirma (la aplicación gratuita del Gobierno), eligiendo el formato de firma «Factura electrónica».</li>
-                <li>Entra en <a className="text-link underline" href="https://face.gob.es" rel="noopener noreferrer" target="_blank">face.gob.es</a>, opción «Remitir factura», indica un correo de contacto y sube el fichero.</li>
-                <li>Guarda el número de registro que te da FACe: con él se consulta el estado de la factura. Anota aquí abajo el envío.</li>
+                <li>Entra en <a className="text-link underline" href="https://face.gob.es" rel="noopener noreferrer" target="_blank">face.gob.es</a>, opción «Remitir factura», indica un correo de contacto y sube el fichero (.xsig). Puedes añadir hasta cinco anexos (PDF, imágenes, ZIP o texto).</li>
+                <li>Guarda el justificante con el número de registro que te da FACe: con él se consulta en face.gob.es el estado de la factura (registrada, contabilizada, pagada, rechazada o anulada). Anota aquí abajo el envío.</li>
+                <li>Si te equivocaste, desde face.gob.es puedes solicitar la anulación indicando el motivo; la decide el órgano destinatario.</li>
               </ol>
-              <p className="mt-2 text-muted-foreground">El envío automático a FACe por servicio web no está disponible todavía en la aplicación.</p>
+              {!faceConfig.enabled ? (
+                <p className="mt-2 text-muted-foreground">La remisión automática a FACe no está activada en este servidor (la activa el administrador del sistema, y exige dar de alta el certificado de la empresa en face.gob.es).</p>
+              ) : null}
             </details>
           </div>
         ) : null}

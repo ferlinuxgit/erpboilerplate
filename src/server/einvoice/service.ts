@@ -10,6 +10,7 @@ import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { HttpError } from "@/lib/http";
 import { recordAudit } from "@/server/audit";
 import { buildSpfeStatusMessage } from "@/server/einvoice/application-response";
+import { readFaceConfig, type FaceConfig } from "@/server/einvoice/face";
 import { buildFacturaeXml, facturaeProblems, FACTURAE_VERSION } from "@/server/einvoice/facturae";
 import { EInvoiceError, hasAnyDir3, partyTaxNumber, isValidDir3, looksLikePublicAdministration, missingDir3, type Dir3Codes, type EInvoiceData } from "@/server/einvoice/model";
 import { extractSigningMaterial, Pkcs12Error } from "@/server/einvoice/pkcs12";
@@ -36,8 +37,9 @@ import { getInvoiceVerifactuInfo } from "@/server/verifactu/service";
  * fichero entregado y registro de estados. Los generadores (`facturae.ts`, `ubl.ts`) y la firma
  * (`xades.ts`) son puros; aquí está todo lo que toca la base de datos y el almacenamiento.
  *
- * El envío por servicio web (FACe, solución pública de la AEAT, plataformas privadas) NO está
- * implementado: el fichero se descarga y se presenta a mano.
+ * La remisión a FACe por servicio web está en `face-service.ts` (desactivada salvo FACE_TRANSPORT=face).
+ * El envío a la solución pública de la AEAT y a plataformas privadas NO está implementado: el
+ * fichero se descarga y se presenta a mano.
  */
 
 /** UBL: núcleo EN 16931:2017 (UBL 2.1). UBL_AEAT: perfil de la solución pública de la AEAT (UBL 2.5). */
@@ -339,6 +341,8 @@ export type EInvoiceOverview = {
   ubl: { problems: string[]; warnings: string[] };
   ublAeat: { problems: string[]; warnings: string[] };
   certificate: EInvoiceCertificateState;
+  /** Remisión automática a FACe en este servidor (FACE_TRANSPORT / FACE_ENVIRONMENT). */
+  faceConfig: FaceConfig;
   documents: EInvoiceDocumentInfo[];
   statuses: EInvoiceStatusRow[];
   summary: EInvoiceStatusSummary;
@@ -394,6 +398,7 @@ export async function getEInvoiceOverview(companyId: string, invoiceId: string):
     ubl: availability.ubl ? { problems: ublProblems(data), warnings: warningsOf(() => buildUblXml(data)) } : { problems: [], warnings: [] },
     ublAeat: availability.ublAeat ? { problems: ublProblems(data, "SPFE"), warnings: warningsOf(() => buildUblXml(data, "SPFE")) } : { problems: [], warnings: [] },
     certificate,
+    faceConfig: availability.facturae ? readFaceConfig() : { enabled: false, environment: null, problem: null },
     documents: documents.map((document) => ({
       id: document.id,
       format: EINVOICE_FORMATS.find((format) => format === document.format) ?? "FACTURAE",

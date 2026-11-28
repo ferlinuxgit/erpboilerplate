@@ -2120,6 +2120,16 @@
   ]
  },
  {
+  "method": "POST",
+  "path": "/api/invoices/{id}/einvoice/face",
+  "area": "invoices",
+  "summary": "Remisión de la factura a FACe por servicio web (Facturae firmado, WS-Security): enviar, consultar el estado o solicitar la anulación. Solo si el servidor tiene FACE_TRANSPORT=face y FACE_ENVIRONMENT declarado. Remitir es actuar en nombre de la empresa: exige permiso de escritura.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const faceSchema = z.discriminatedUnion(\"action\", [\n  /** Remite el Facturae firmado; FACe envía los avisos de la factura al correo indicado. */\n  z.object({ action: z.literal(\"send\"), email: z.string().trim().email(\"Indica un correo electrónico válido.\").max(200) }),\n  /** Consulta el estado de tramitación y de anulación en FACe. */\n  z.object({ action: z.literal(\"refresh\") }),\n  /** Solicita la anulación de la factura remitida, con su motivo. */\n  z.object({ action: z.literal(\"cancel\"), reason: z.string().trim().min(1, \"Indica el motivo de la anulación.\").max(1000) }),\n], { error: \"Acción no válida: send, refresh o cancel.\" })"
+ },
+ {
   "method": "GET",
   "path": "/api/invoices/{id}/einvoice",
   "area": "invoices",

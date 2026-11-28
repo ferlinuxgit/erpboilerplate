@@ -30,6 +30,8 @@ vi.mock("@/lib/db", async () => {
 import * as schema from "@/db/schema";
 import { auditLog, company, customer, einvoiceDocument, invoice, invoiceLine, invoiceLineTax, partner, tenant, user } from "@/db/schema";
 import { addEInvoiceStatus, dir3Warnings, einvoiceAvailability, generateEInvoice, getEInvoiceOverview, getEInvoiceStatusMessage, loadEInvoice } from "@/server/einvoice/service";
+import type { FaceTransport } from "@/server/einvoice/face";
+import { refreshFaceStatus, requestFaceCancellation, sendEInvoiceToFace } from "@/server/einvoice/face-service";
 import { unsignedFacturae, verifyFacturaeSignature } from "@/server/einvoice/xades";
 import { readPrivateFile } from "@/server/storage/files";
 import { saveCompanyCertificate } from "@/server/verifactu/certificates";
@@ -230,5 +232,55 @@ describe("factura electrónica: servicio", () => {
     expect(settlement?.xml).toContain("<cbc:CompanyID>B12345674</cbc:CompanyID>");
     await expect(getEInvoiceStatusMessage(COMPANY, "invoice-1", result!.statuses[1].id, NOW)).rejects.toMatchObject({ status: 409 });
     expect(await getEInvoiceStatusMessage(COMPANY, "invoice-1", "no-existe", NOW)).toBeNull();
+  });
+
+  it("FACe: remite el .xsig conservado, guarda el entorno y el registro, consulta y anula (transporte falso)", async () => {
+    const env = { FACE_TRANSPORT: "face", FACE_ENVIRONMENT: "staging" };
+    const sent: Array<{ environment: string; operation: string; envelope: string }> = [];
+    const replies: string[] = [];
+    const transport: FaceTransport = { kind: "fake", async send(request) { sent.push(request); return { httpStatus: 200, body: replies.shift() ?? "" }; } };
+    const wrap = (inner: string) => `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body>${inner}</S:Body></S:Envelope>`;
+
+    // Sin envío activado o sin entorno declarado no sale nada.
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env: {} })).rejects.toMatchObject({ status: 409 });
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env: { FACE_TRANSPORT: "face" } })).rejects.toMatchObject({ status: 503 });
+    expect(sent).toHaveLength(0);
+
+    // Rechazo de FACe: queda el error y el entorno, y se puede reintentar.
+    replies.push(wrap("<ns1:enviarFacturaResponse><return><resultado><codigo>301</codigo><descripcion>Certificado no dado de alta</descripcion></resultado></return></ns1:enviarFacturaResponse>"));
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env, now: NOW })).rejects.toMatchObject({ status: 502, message: expect.stringContaining("Certificado no dado de alta") });
+    let [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.invoiceId, "invoice-1")).then((rows: Array<{ signed: boolean; format: string }>) => rows.filter((r) => r.signed && r.format === "FACTURAE"));
+    expect(row).toMatchObject({ status: "FAILED", faceEnvironment: "staging", faceRegistryNumber: null, faceSubmittedAt: null, faceLastError: "FACe respondió: 301 · Certificado no dado de alta" });
+
+    replies.push(wrap("<ns1:enviarFacturaResponse><return><resultado><codigo>0</codigo><descripcion>Correcto</descripcion></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><fechaRecepcion>2026-12-01 13:00:00</fechaRecepcion></factura></return></ns1:enviarFacturaResponse>"));
+    const face = await sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env, now: NOW });
+    expect(face).toMatchObject({ environment: "staging", registryNumber: "REGAGE26e00001", contactEmail: "facturas@talleres.example", lastError: null });
+    expect(sent.map((request) => `${request.environment}:${request.operation}`)).toEqual(["staging:enviarFactura", "staging:enviarFactura"]);
+    // Lo que viaja es la copia firmada conservada, en base64, con su firma WS-Security.
+    [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.faceRegistryNumber, "REGAGE26e00001"));
+    expect(row).toMatchObject({ status: "SENT", signed: true, format: "FACTURAE" });
+    const stored = await readPrivateFile((row as unknown as { storageKey: string }).storageKey);
+    expect(sent[1].envelope).toContain(`<factura><factura>${stored.toString("base64")}</factura><nombre>F2026-000012.xsig</nombre><mime>application/xml</mime></factura>`);
+    expect(sent[1].envelope).toContain("<wsse:BinarySecurityToken ");
+    // Ya remitida: no se vuelve a enviar ni se vuelve a firmar (queda congelada).
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env, now: NOW })).rejects.toMatchObject({ status: 409 });
+    await expect(generateEInvoice(actor, "invoice-1", { format: "FACTURAE", signed: true, regenerate: true }, NOW)).rejects.toMatchObject({ status: 409 });
+    expect((await generateEInvoice(actor, "invoice-1", { format: "FACTURAE", signed: true }, NOW))!.bytes.equals(stored)).toBe(true);
+    expect(await state.db.select().from(auditLog).where(eq(auditLog.action, "einvoice.face.send"))).toHaveLength(1);
+
+    replies.push(wrap("<ns1:consultarFacturaResponse><return><resultado><codigo>0</codigo></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><tramitacion><codigo>1300</codigo><descripcion>Registrada en RCF</descripcion><motivo/></tramitacion><anulacion><codigo>4100</codigo><descripcion>No solicitada anulación</descripcion><motivo/></anulacion></factura></return></ns1:consultarFacturaResponse>"));
+    const refreshed = await refreshFaceStatus(actor, "invoice-1", { transport, env, now: NOW });
+    expect(refreshed).toMatchObject({ processing: { code: "1300" }, cancellation: { code: "4100" } });
+    // En otro entorno no se consulta: la factura nació en pruebas.
+    await expect(refreshFaceStatus(actor, "invoice-1", { transport, env: { FACE_TRANSPORT: "face", FACE_ENVIRONMENT: "production" }, now: NOW })).rejects.toMatchObject({ status: 409 });
+
+    await expect(requestFaceCancellation(actor, "invoice-1", { reason: " " }, { transport, env, now: NOW })).rejects.toMatchObject({ status: 400 });
+    replies.push(wrap("<ns1:anularFacturaResponse><return><resultado><codigo>0</codigo></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><mensaje>Solicitada anulación</mensaje></factura></return></ns1:anularFacturaResponse>"));
+    replies.push(wrap("<ns1:consultarFacturaResponse><return><resultado><codigo>0</codigo></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><tramitacion><codigo>1300</codigo><descripcion>Registrada en RCF</descripcion><motivo/></tramitacion><anulacion><codigo>4200</codigo><descripcion>Solicitada anulación</descripcion><motivo>Importe erróneo</motivo></anulacion></factura></return></ns1:consultarFacturaResponse>"));
+    const cancelled = await requestFaceCancellation(actor, "invoice-1", { reason: "Importe erróneo" }, { transport, env, now: NOW });
+    expect(cancelled).toMatchObject({ cancellation: { code: "4200", reason: "Importe erróneo" } });
+    expect(sent.at(-2)?.envelope).toContain("<motivo>Importe erróneo</motivo>");
+    const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
+    expect(overview?.documents.find((document) => document.signed)?.face?.registryNumber).toBe("REGAGE26e00001");
   });
 });
