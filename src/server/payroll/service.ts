@@ -7,7 +7,7 @@
  */
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
-import { bankAccount, capitalIncomePayment, partner, payrollEmployee, payrollPayment, payrollSettings, payrollSlip, rentalProperty } from "@/db/schema";
+import { bankAccount, capitalIncomePayment, company, partner, payrollEmployee, payrollPayment, payrollSettings, payrollSlip, rentalProperty } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { createAutomaticEntry, resolveAccounts, resolveBankLedgerAccountId, reverseAutomaticEntries } from "@/server/accounting/auto-post";
 import { AccountingRuleError } from "@/server/accounting/errors";
@@ -32,6 +32,11 @@ import {
   type SlipType,
 } from "@/server/payroll/model";
 import type { CapitalIncomeInput, PayrollEmployeeInput, PayrollPaymentInput, PayrollSettingsInput, PayrollSlipInput, RentalPropertyInput } from "@/server/payroll/schemas";
+import type { modelo190ExtraSchema } from "@/server/payroll/schemas";
+import type { z } from "zod";
+
+type Modelo190ExtraInput = z.infer<typeof modelo190ExtraSchema>;
+import { buildPayrollReceipt } from "@/server/payroll/receipt-model";
 import { getPayrollSettings } from "@/server/payroll/withholding-data";
 
 export type Actor = { tenantId: string; companyId: string; actorUserId: string };
@@ -127,6 +132,23 @@ export async function updateEmployee(actor: Actor, id: string, input: PayrollEmp
   });
 }
 
+/**
+ * Guarda los datos adicionales de la clave A del 190 de un trabajador para un ejercicio (o los borra
+ * con `data: null`). Son opcionales: lo que falte se declara a cero.
+ */
+export async function saveEmployeeModelo190Extra(actor: Actor, id: string, input: { year: number; data: Modelo190ExtraInput | null }) {
+  return db.transaction(async (tx) => {
+    const [current] = await tx.select({ model190Extra: payrollEmployee.model190Extra }).from(payrollEmployee).where(and(eq(payrollEmployee.companyId, actor.companyId), eq(payrollEmployee.id, id))).limit(1).for("update");
+    if (!current) throw notFound("Trabajador");
+    const next: Record<string, Record<string, unknown>> = { ...(current.model190Extra ?? {}) };
+    if (input.data) next[String(input.year)] = input.data;
+    else delete next[String(input.year)];
+    await tx.update(payrollEmployee).set({ model190Extra: next, updatedAt: new Date() }).where(eq(payrollEmployee.id, id));
+    await recordAudit({ ...actor, action: "payrollEmployee.model190Extra", entityName: "payrollEmployee", entityId: id, payload: { year: input.year, cleared: !input.data } }, tx);
+    return { id, year: input.year, data: input.data };
+  });
+}
+
 export async function deleteEmployee(actor: Actor, id: string) {
   return db.transaction(async (tx) => {
     const [slip] = await tx.select({ id: payrollSlip.id }).from(payrollSlip).where(and(eq(payrollSlip.companyId, actor.companyId), eq(payrollSlip.employeeId, id))).limit(1);
@@ -196,6 +218,36 @@ export async function getSlip(companyId: string, id: string) {
     .where(and(eq(payrollSlip.companyId, companyId), eq(payrollSlip.id, id)))
     .limit(1);
   return row ?? null;
+}
+
+/** Datos del recibo de salarios de una nómina (los mismos importes guardados, ordenados). */
+export async function getSlipReceipt(companyId: string, id: string) {
+  const [row] = await db
+    .select({
+      slip: payrollSlip,
+      employeeName: payrollEmployee.name,
+      employeeTaxId: payrollEmployee.taxId,
+      socialSecurityNumber: payrollEmployee.socialSecurityNumber,
+      startDate: payrollEmployee.startDate,
+      companyName: company.name,
+      companyLegalName: company.legalName,
+      companyTaxId: company.vatNumber,
+      fiscalAddress: company.fiscalAddress,
+      postalCode: company.postalCode,
+      city: company.city,
+    })
+    .from(payrollSlip)
+    .innerJoin(payrollEmployee, eq(payrollEmployee.id, payrollSlip.employeeId))
+    .innerJoin(company, eq(company.id, payrollSlip.companyId))
+    .where(and(eq(payrollSlip.companyId, companyId), eq(payrollSlip.id, id)))
+    .limit(1);
+  if (!row) throw notFound("Nómina");
+  const address = [row.fiscalAddress, [row.postalCode, row.city].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null;
+  return buildPayrollReceipt({
+    ...row.slip,
+    company: { name: row.companyLegalName || row.companyName, taxId: row.companyTaxId, address },
+    employee: { name: row.employeeName, taxId: row.employeeTaxId, socialSecurityNumber: row.socialSecurityNumber, startDate: row.startDate },
+  });
 }
 
 /** Meses con nóminas, del más reciente al más antiguo, con sus totales. */
@@ -693,6 +745,8 @@ export async function listRentalProperties(companyId: string) {
       postalCode: rentalProperty.postalCode,
       city: rentalProperty.city,
       province: rentalProperty.province,
+      matchAccountCode: rentalProperty.matchAccountCode,
+      matchText: rentalProperty.matchText,
     })
     .from(rentalProperty)
     .innerJoin(partner, eq(partner.id, rentalProperty.supplierPartnerId))
@@ -718,6 +772,8 @@ function rentalValues(input: RentalPropertyInput) {
     postalCode: clean(input.postalCode),
     city: clean(input.city),
     province: clean(input.province),
+    matchAccountCode: clean(input.matchAccountCode),
+    matchText: clean(input.matchText),
   };
 }
 

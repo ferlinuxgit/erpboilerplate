@@ -1489,6 +1489,8 @@ export const payrollEmployee = pgTable("payroll_employee", {
   // 1 a 4 (contrato o relación).
   contractType: integer("contractType"),
   spouseTaxId: text("spouseTaxId"),
+  // Datos adicionales opcionales de la clave A del 190, por ejercicio («2026» → datos; ver `Modelo190ExtraData`).
+  model190Extra: jsonb("model190Extra").$type<Record<string, Record<string, unknown>>>().notNull().default({}),
   notes: text("notes"),
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -1615,6 +1617,11 @@ export const rentalProperty = pgTable("rental_property", {
   postalCode: text("postalCode"),
   city: text("city"),
   province: text("province"),
+  // Regla para asociar las facturas del alquiler a este inmueble (modelo 180): subcuenta de gasto
+  // exacta de la línea y/o texto que aparece en la descripción de la línea o en el número de factura
+  // del proveedor. Sin regla, las facturas del arrendador van a su primer inmueble.
+  matchAccountCode: text("matchAccountCode"),
+  matchText: text("matchText"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [

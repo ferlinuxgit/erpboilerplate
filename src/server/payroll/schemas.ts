@@ -113,6 +113,9 @@ export const rentalPropertySchema = z.object({
   postalCode: optionalText(10),
   city: optionalText(120),
   province: optionalText(120),
+  /** Regla para asociar las facturas a este inmueble (180): subcuenta de gasto exacta y/o texto. */
+  matchAccountCode: z.string().trim().regex(/^[0-9]{3,12}$/, "La subcuenta de la regla tiene de 3 a 12 dígitos.").nullable().optional(),
+  matchText: optionalText(120),
 }).refine((value) => value.situation === "4" || Boolean(value.cadastralReference), { message: "Indica la referencia catastral, o elige «Sin referencia catastral».", path: ["cadastralReference"] });
 export type RentalPropertyInput = z.infer<typeof rentalPropertySchema>;
 
@@ -122,3 +125,40 @@ export const payrollSettingsSchema = z.object({
   enabledModels: z.array(z.enum(["190", "180", "123", "193"])).max(4),
 });
 export type PayrollSettingsInput = z.infer<typeof payrollSettingsSchema>;
+
+const count = z.number().int().min(0).max(99);
+const countPair = z.object({ total: count, whole: count }).refine((value) => value.whole <= value.total, { message: "Los computados por entero no pueden ser más que el total." });
+const disabilityCounts = z.object({ from33: countPair, reducedMobility: countPair, from65: countPair });
+const extraCents = z.number().int().min(0).max(99_999_999_999);
+
+/**
+ * Datos adicionales de la clave A del 190 de un trabajador y un ejercicio (todos opcionales). Importes
+ * en céntimos. Ver `Modelo190ExtraData` en `@/server/fiscal/withholdings`.
+ */
+export const modelo190ExtraSchema = z.object({
+  geographicMobility: z.boolean().optional(),
+  reductionsCents: extraCents.optional(),
+  deductibleExpensesCents: extraCents.optional(),
+  compensatoryPensionCents: extraCents.optional(),
+  childSupportCents: extraCents.optional(),
+  descendantsUnder3: countPair.optional(),
+  descendantsRest: countPair.optional(),
+  descendantsDisability: disabilityCounts.optional(),
+  ascendantsUnder75: countPair.optional(),
+  ascendantsFrom75: countPair.optional(),
+  ascendantsDisability: disabilityCounts.optional(),
+  firstThreeChildren: z.tuple([z.number().int().min(0).max(2), z.number().int().min(0).max(2), z.number().int().min(0).max(2)]).optional(),
+  housingLoanCommunication: z.boolean().optional(),
+});
+
+/** Guardar (o borrar, con `data: null`) los datos adicionales del 190 de un ejercicio. */
+export const employeeModelo190ExtraSchema = z.object({
+  year: z.number().int().min(2000).max(2100),
+  data: modelo190ExtraSchema.nullable(),
+});
+
+/** Lee lo guardado en `payroll_employee.model190Extra` para un ejercicio; null si no hay o no es válido. */
+export function readModelo190Extra(stored: Record<string, unknown> | null | undefined, year: number) {
+  const parsed = modelo190ExtraSchema.safeParse(stored?.[String(year)]);
+  return parsed.success ? parsed.data : null;
+}

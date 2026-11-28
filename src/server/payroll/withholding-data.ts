@@ -62,6 +62,8 @@ import {
   type WithholdingModelCode,
 } from "@/server/fiscal/withholdings";
 import { PAYROLL_SOURCE_TYPES, key190For, subkey190For, type RecipientKind } from "@/server/payroll/model";
+import { matchRentalProperty, type RentalPropertyRule } from "@/server/payroll/rental-match";
+import { readModelo190Extra } from "@/server/payroll/schemas";
 
 export type InvoiceWithholdingBasis = "registration" | "payment";
 export type PayrollWithholdingBasis = "accrual" | "payment";
@@ -170,6 +172,8 @@ async function loadSupplierInvoiceItems(companyId: string, options: LoadOptions)
       retentionAmount: supplierInvoiceLine.retentionAmount,
       retentionRate: supplierInvoiceLine.retentionRate,
       expenseAccountCode: accountChart.code,
+      lineDescription: supplierInvoiceLine.description,
+      partnerId: partner.id,
       partnerName: partner.name,
       partnerTaxId: partner.taxId,
     })
@@ -205,16 +209,30 @@ async function loadSupplierInvoiceItems(companyId: string, options: LoadOptions)
     paymentsByInvoice.set(payment.invoiceId, list);
   }
 
-  // Una partida por factura, modelo y tipo de retención.
-  type Group = { row: (typeof rows)[number]; model: "111" | "115"; rate: number; baseCents: number; withheldCents: number };
+  // Reglas de los inmuebles alquilados, por arrendador (modelo 180: un registro por inmueble).
+  const rulesByLandlord = new Map<string, RentalPropertyRule[]>();
+  if (rows.some((row) => (row.expenseAccountCode ?? "").startsWith("621"))) {
+    const rules = await db
+      .select({ id: rentalProperty.id, partnerId: rentalProperty.supplierPartnerId, matchAccountCode: rentalProperty.matchAccountCode, matchText: rentalProperty.matchText })
+      .from(rentalProperty)
+      .where(eq(rentalProperty.companyId, companyId))
+      .orderBy(rentalProperty.createdAt);
+    for (const rule of rules) rulesByLandlord.set(rule.partnerId, [...(rulesByLandlord.get(rule.partnerId) ?? []), rule]);
+  }
+
+  // Una partida por factura, modelo, tipo de retención e inmueble.
+  type Group = { row: (typeof rows)[number]; model: "111" | "115"; rate: number; propertyId: string | null; baseCents: number; withheldCents: number };
   const groups = new Map<string, Group>();
   for (const row of rows) {
     const model = (row.expenseAccountCode ?? "").startsWith("621") ? "115" as const : "111" as const;
     const baseCents = toCents(row.subtotal);
     const withheldCents = toCents(row.retentionAmount);
     const rate = Math.round(Number(row.retentionRate ?? 0) * 100) / 100 || (baseCents !== 0 ? Math.round((withheldCents / baseCents) * 10_000) / 100 : 0);
-    const key = `${row.invoiceId}|${model}|${rate}`;
-    const group = groups.get(key) ?? { row, model, rate, baseCents: 0, withheldCents: 0 };
+    const propertyId = model === "115" && row.partnerId
+      ? matchRentalProperty(rulesByLandlord.get(row.partnerId) ?? [], { expenseAccountCode: row.expenseAccountCode, description: row.lineDescription, supplierNumber: row.supplierNumber })
+      : null;
+    const key = `${row.invoiceId}|${model}|${rate}|${propertyId ?? ""}`;
+    const group = groups.get(key) ?? { row, model, rate, propertyId, baseCents: 0, withheldCents: 0 };
     group.baseCents += baseCents;
     group.withheldCents += withheldCents;
     groups.set(key, group);
@@ -222,9 +240,10 @@ async function loadSupplierInvoiceItems(companyId: string, options: LoadOptions)
 
   const items: WithholdingItem[] = [];
   for (const group of groups.values()) {
-    const { row, model, rate } = group;
+    const { row, model, rate, propertyId } = group;
     const label = row.supplierNumber ? `${row.number} (${row.supplierNumber})` : row.number;
     const common = {
+      ...(propertyId ? { propertyId } : {}),
       source: "supplierInvoice" as const,
       sourceId: row.invoiceId,
       model,
@@ -272,6 +291,7 @@ async function loadPayrollItems(companyId: string, options: LoadOptions): Promis
       inKindAmount: payrollSlip.inKindAmount,
       inKindWithholdingAmount: payrollSlip.inKindWithholdingAmount,
       withholdingAmount: payrollSlip.withholdingAmount,
+      severanceExemptAmount: payrollSlip.severanceExemptAmount,
       netAmount: payrollSlip.netAmount,
       employeeName: payrollEmployee.name,
       employeeTaxId: payrollEmployee.taxId,
@@ -305,9 +325,13 @@ async function loadPayrollItems(companyId: string, options: LoadOptions): Promis
       key190: key190For(kind),
       subkey190: subkey190For(kind, row.subkey190),
     };
+    // La indemnización exenta (art. 7.e LIRPF) no está sujeta a retención: sale del 111 y de la clave
+    // del trabajador y va al 190 en la clave L, subclave 05.
+    const exemptCents = toCents(row.severanceExemptAmount);
     const parts = [
-      { inKind: false, baseCents: toCents(row.grossAmount), withheldCents: toCents(row.withholdingAmount) },
-      { inKind: true, baseCents: toCents(row.inKindAmount), withheldCents: toCents(row.inKindWithholdingAmount) },
+      { inKind: false, baseCents: toCents(row.grossAmount) - exemptCents, withheldCents: toCents(row.withholdingAmount), exempt: false },
+      { inKind: true, baseCents: toCents(row.inKindAmount), withheldCents: toCents(row.inKindWithholdingAmount), exempt: false },
+      { inKind: false, baseCents: exemptCents, withheldCents: 0, exempt: true },
     ];
     for (const part of parts) {
       if (part.baseCents === 0 && part.withheldCents === 0) continue;
@@ -322,7 +346,8 @@ async function loadPayrollItems(companyId: string, options: LoadOptions): Promis
         filedPeriodOf: filedPeriodFinder(options.filed, "111"),
       });
       const rate = part.baseCents !== 0 ? Math.round((part.withheldCents / part.baseCents) * 10_000) / 100 : null;
-      for (const portion of portions) items.push({ ...common, inKind: part.inKind, rate, ...portion });
+      const exempt = part.exempt ? { key190: "L", subkey190: "05", excludedFrom111: true } : {};
+      for (const portion of portions) items.push({ ...common, ...exempt, inKind: part.inKind, rate, ...portion });
     }
   }
   return items;
@@ -389,7 +414,7 @@ function periodicFilings(code: "111" | "115" | "123", year: number, monthly: boo
   });
 }
 
-async function loadPersonalData(companyId: string): Promise<Map<string, Modelo190PersonalData>> {
+async function loadPersonalData(companyId: string, year: number): Promise<Map<string, Modelo190PersonalData>> {
   const rows = await db
     .select({
       taxId: payrollEmployee.taxId,
@@ -398,6 +423,7 @@ async function loadPersonalData(companyId: string): Promise<Map<string, Modelo19
       disability: payrollEmployee.disability,
       contractType: payrollEmployee.contractType,
       spouseTaxId: payrollEmployee.spouseTaxId,
+      model190Extra: payrollEmployee.model190Extra,
     })
     .from(payrollEmployee)
     .where(eq(payrollEmployee.companyId, companyId));
@@ -407,12 +433,14 @@ async function loadPersonalData(companyId: string): Promise<Map<string, Modelo19
     disability: row.disability,
     contractType: row.contractType,
     spouseTaxId: row.spouseTaxId,
+    extra: readModelo190Extra(row.model190Extra, year),
   }]));
 }
 
 async function loadRentalProperties(companyId: string): Promise<Map<string, RentalPropertyData[]>> {
   const rows = await db
     .select({
+      id: rentalProperty.id,
       taxId: partner.taxId,
       name: partner.name,
       situation: rentalProperty.situation,
@@ -430,7 +458,7 @@ async function loadRentalProperties(companyId: string): Promise<Map<string, Rent
   for (const row of rows) {
     const key = normalizeRecipientTaxId(row.taxId) || `sin-nif:${row.name.trim().toLowerCase()}`;
     const list = map.get(key) ?? [];
-    list.push({ situation: row.situation, cadastralReference: row.cadastralReference, address: row.address, postalCode: row.postalCode, city: row.city, province: row.province });
+    list.push({ id: row.id, situation: row.situation, cadastralReference: row.cadastralReference, address: row.address, postalCode: row.postalCode, city: row.city, province: row.province });
     map.set(key, list);
   }
   return map;
@@ -502,7 +530,7 @@ export async function loadWithholdingModel(
   const items = yearItems.filter((item) => item.model === periodic);
   const periods = periodicFilings(periodic, year, monthly, yearItems, filed);
   if (code === "190") {
-    const modelo190 = computeModelo190(items, { periods, personalData: await loadPersonalData(companyId) });
+    const modelo190 = computeModelo190(items, { periods, personalData: await loadPersonalData(companyId, year) });
     const checks = [...modelo190.checks, ...(await draftSlipCheck(companyId, start, endExclusive))];
     return { items, summary: { ...base, boxes: [], baseCents: modelo190.totalIncomeCents, withheldCents: modelo190.totalWithheldCents, resultCents: null, modelo190, checks } };
   }
