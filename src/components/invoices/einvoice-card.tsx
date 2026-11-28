@@ -177,7 +177,8 @@ export async function EInvoiceCard({ companyId, invoiceId, canManage }: { compan
             <p className="text-xs text-muted-foreground">
               Con la factura electrónica obligatoria entre empresas, el cliente debe comunicarte si acepta o rechaza la factura y cuándo la paga por completo,
               en un máximo de cuatro días hábiles (art. 10 del Real Decreto 238/2026). Mientras no exista la conexión con la solución pública de la AEAT,
-              anótalo aquí cuando te lo comunique. Sin rechazo, la factura se da por aceptada.
+              anótalo aquí cuando te lo comunique. Sin rechazo, la factura se da por aceptada. Cuando cobres la factura, puedes descargar el mensaje de cobro
+              para la solución pública de la AEAT (la aplicación aún no lo envía).
             </p>
             {statuses.length > 0 ? (
               <ul className="space-y-1 text-xs" data-testid="einvoice-status-history">
@@ -192,6 +193,17 @@ export async function EInvoiceCard({ companyId, invoiceId, canManage }: { compan
                       </span>
                     ) : null}
                     {entry.deadline ? <span className="text-muted-foreground">Plazo del cliente para comunicarlo: hasta el {isoDate(entry.deadline)} (sin contar festivos)</span> : null}
+                    {entry.status === "PAID" ? (
+                      <a
+                        className="text-link underline"
+                        data-testid="einvoice-settlement-message"
+                        download
+                        href={`/api/invoices/${invoiceId}/einvoice/status/${entry.id}/message`}
+                        title="Mensaje UBL de cobro (anexo II de la Orden HAC/1028/2026) para comunicarlo a la solución pública de la AEAT"
+                      >
+                        Descargar comunicación de cobro (UBL)
+                      </a>
+                    ) : null}
                   </li>
                 ))}
               </ul>

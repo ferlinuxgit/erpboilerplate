@@ -2142,6 +2142,15 @@
  },
  {
   "method": "GET",
+  "path": "/api/invoices/{id}/einvoice/status/{eventId}/message",
+  "area": "invoices",
+  "summary": "Descarga el mensaje UBL ApplicationResponse de cobro (SETTLEMENT, anexo II de la Orden HAC/1028/2026) de un estado «Pagada» anotado, para comunicarlo a la solución pública de la AEAT.",
+  "permissions": [
+   "invoice.read"
+  ]
+ },
+ {
+  "method": "GET",
   "path": "/api/invoices/{id}/einvoice/status",
   "area": "invoices",
   "summary": "Historial de estados de la factura electrónica (enviada, recibida, aceptada, rechazada, pagada).",

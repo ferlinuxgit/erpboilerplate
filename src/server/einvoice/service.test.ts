@@ -29,7 +29,7 @@ vi.mock("@/lib/db", async () => {
 
 import * as schema from "@/db/schema";
 import { auditLog, company, customer, einvoiceDocument, invoice, invoiceLine, invoiceLineTax, partner, tenant, user } from "@/db/schema";
-import { addEInvoiceStatus, dir3Warnings, einvoiceAvailability, generateEInvoice, getEInvoiceOverview, loadEInvoice } from "@/server/einvoice/service";
+import { addEInvoiceStatus, dir3Warnings, einvoiceAvailability, generateEInvoice, getEInvoiceOverview, getEInvoiceStatusMessage, loadEInvoice } from "@/server/einvoice/service";
 import { unsignedFacturae, verifyFacturaeSignature } from "@/server/einvoice/xades";
 import { readPrivateFile } from "@/server/storage/files";
 import { saveCompanyCertificate } from "@/server/verifactu/certificates";
@@ -221,5 +221,14 @@ describe("factura electrónica: servicio", () => {
     expect(overview?.summary.current).toBe("PAID");
     expect(overview?.documents.map((document) => `${document.format}:${document.signed}`).sort()).toEqual(["FACTURAE:false", "FACTURAE:true", "UBL:false", "UBL_AEAT:false"]);
     await expect(addEInvoiceStatus(actor, "invoice-draft", { status: "SENT", effectiveDate: "2026-11-20" }, NOW)).rejects.toMatchObject({ status: 409 });
+    // Mensaje de cobro (SETTLEMENT) para la solución pública, solo desde el estado «Pagada».
+    const paid = result!.statuses.find((entry) => entry.status === "PAID")!;
+    const settlement = await getEInvoiceStatusMessage(COMPANY, "invoice-1", paid.id, NOW);
+    expect(settlement?.fileName).toBe("F2026-000012-settlement-2026-12-01.xml");
+    expect(settlement?.xml).toContain("<cbc:ResponseCode>SETTLEMENT</cbc:ResponseCode><cbc:EffectiveDate>2026-11-26</cbc:EffectiveDate>");
+    expect(settlement?.xml).toContain("<cbc:ReferenceDate>2026-12-20</cbc:ReferenceDate>");
+    expect(settlement?.xml).toContain("<cbc:CompanyID>B12345674</cbc:CompanyID>");
+    await expect(getEInvoiceStatusMessage(COMPANY, "invoice-1", result!.statuses[1].id, NOW)).rejects.toMatchObject({ status: 409 });
+    expect(await getEInvoiceStatusMessage(COMPANY, "invoice-1", "no-existe", NOW)).toBeNull();
   });
 });

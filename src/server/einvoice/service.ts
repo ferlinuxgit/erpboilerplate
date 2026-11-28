@@ -9,8 +9,9 @@ import { db } from "@/lib/db";
 import { calculateInvoiceTotals } from "@/lib/invoice-totals";
 import { HttpError } from "@/lib/http";
 import { recordAudit } from "@/server/audit";
+import { buildSpfeStatusMessage } from "@/server/einvoice/application-response";
 import { buildFacturaeXml, facturaeProblems, FACTURAE_VERSION } from "@/server/einvoice/facturae";
-import { EInvoiceError, hasAnyDir3, isValidDir3, looksLikePublicAdministration, missingDir3, type Dir3Codes, type EInvoiceData } from "@/server/einvoice/model";
+import { EInvoiceError, hasAnyDir3, partyTaxNumber, isValidDir3, looksLikePublicAdministration, missingDir3, type Dir3Codes, type EInvoiceData } from "@/server/einvoice/model";
 import { extractSigningMaterial, Pkcs12Error } from "@/server/einvoice/pkcs12";
 import {
   einvoiceStatusProblem,
@@ -595,4 +596,42 @@ export async function addEInvoiceStatus(
   });
   const statuses = await listEInvoiceStatuses(actor.companyId, invoiceId);
   return { statuses, summary: summarizeEInvoiceStatus(statuses) };
+}
+
+/**
+ * Mensaje UBL «ApplicationResponse» con el que el EMISOR comunica el cobro (SETTLEMENT) de la
+ * factura a la solución pública de la AEAT (anexo II de la Orden HAC/1028/2026), a partir del
+ * estado «Pagada» anotado. Del resto de estados no hay mensaje del emisor: el rechazo y el pago los
+ * comunica el cliente, y la aceptación es tácita. La aplicación no lo remite: se descarga.
+ */
+export async function getEInvoiceStatusMessage(companyId: string, invoiceId: string, eventId: string, now = new Date()): Promise<{ xml: string; fileName: string } | null> {
+  const loaded = await loadEInvoice(companyId, invoiceId);
+  if (!loaded) return null;
+  if (!loaded.availability.statuses) throw new HttpError(404, "Los mensajes de estado de la factura electrónica no están disponibles para esta empresa.");
+  const event = (await listEInvoiceStatuses(companyId, invoiceId)).find((entry) => entry.id === eventId);
+  if (!event) return null;
+  if (event.status !== "PAID") {
+    throw new HttpError(409, "Solo el cobro tiene mensaje del emisor para la solución pública de la AEAT: el rechazo y el pago los comunica el cliente, y la aceptación no se comunica.");
+  }
+  const messageDate = civilDateKey(now);
+  try {
+    return buildSpfeStatusMessage({
+      code: "SETTLEMENT",
+      messageId: `SETTLEMENT-${messageDate.replace(/-/g, "")}-${event.id.slice(0, 8)}`,
+      messageDate,
+      effectiveDate: event.effectiveDate,
+      dueDate: loaded.data.dueDate ?? null,
+      invoice: {
+        number: loaded.data.number,
+        issueDate: loaded.data.issueDate,
+        issuerTaxId: partyTaxNumber(loaded.data.issuer),
+        issuerName: (loaded.data.issuer.legalName?.trim() || loaded.data.issuer.name || "").trim(),
+        payableAmount: loaded.data.storedTotal,
+        isCreditNote: loaded.data.isCreditNote,
+      },
+    });
+  } catch (error) {
+    if (error instanceof EInvoiceError) throw new HttpError(422, `No se puede generar el mensaje de cobro. ${error.problems.join(" ")}`);
+    throw error;
+  }
 }
