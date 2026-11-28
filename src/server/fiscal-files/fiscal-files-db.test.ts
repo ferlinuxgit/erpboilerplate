@@ -174,8 +174,23 @@ describe("ficheros de presentación (con base de datos)", () => {
     expect(at(page3, 408, 17)).toBe("N0000000000029500");
   });
 
-  it("explica por qué no hay fichero del 390", async () => {
-    await expect(generate("r-390")).rejects.toThrow(/390/);
+  it("genera el 390 del año con la actividad indicada al descargar", async () => {
+    await expect(generate("r-390")).rejects.toThrow(/actividad principal/);
+    const file = await generate("r-390", { activityDescription: "Reparación de vehículos", activityCode: "A03", iaeCode: "691.2" });
+    expect(file.fileName).toBe("390-2026.txt");
+    expect(at(file.text, 1, 17)).toBe("<T390020260A0000>");
+    const page1 = file.text.slice(328, 328 + 1188);
+    expect(at(page1, 14, 9)).toBe("12345678Z");
+    expect(at(page1, 23, 60).trim()).toBe("PEÑON GARCIA");
+    expect(at(page1, 83, 20).trim()).toBe("ANA");
+    expect(at(page1, 189, 7)).toBe("A036912");
+    // Página 06: el volumen de operaciones del año (1.200 € de febrero y 100 € de julio).
+    const page6 = file.text.slice(328 + 1188 + 1806 + 531 + 1840 + 854, 328 + 1188 + 1806 + 531 + 1840 + 854 + 862);
+    expect(at(page6, 1, 11)).toBe("<T39006000>");
+    expect(at(page6, 684, 17)).toBe("00000000000130000");
+  });
+
+  it("rechaza un modelo que no existe", async () => {
     await expect(generate("no-existe")).rejects.toThrow(/no encontrado/);
   });
 

@@ -1,5 +1,5 @@
 import { FiscalFileError, normalizeSpanishNif, parseFilePeriod, toCents, type Declarant, type FiscalFile } from "@/server/fiscal-files/fields";
-import { hasPresentationFile, MODELO_390_FILE_REASON } from "@/server/fiscal-files/models";
+import { hasPresentationFile } from "@/server/fiscal-files/models";
 import { buildModelo111File } from "@/server/fiscal-files/modelo-111";
 import { buildModelo115File } from "@/server/fiscal-files/modelo-115";
 import { buildModelo123File } from "@/server/fiscal-files/modelo-123";
@@ -10,6 +10,7 @@ import { buildModelo193File } from "@/server/fiscal-files/modelo-193";
 import { buildModelo303File } from "@/server/fiscal-files/modelo-303";
 import { buildModelo347File, type Modelo347Party } from "@/server/fiscal-files/modelo-347";
 import { buildModelo349File } from "@/server/fiscal-files/modelo-349";
+import { buildModelo390File } from "@/server/fiscal-files/modelo-390";
 import type { SpanishFiscalSummary } from "@/server/fiscal/spain";
 
 export { hasPresentationFile, PRESENTATION_FILE_DESIGNS, PRESENTATION_FILE_MODELS, type PresentationFileModel } from "@/server/fiscal-files/models";
@@ -46,8 +47,12 @@ export type PresentationOptions = {
   activityCode?: string | null;
   iaeCode?: string | null;
   has347Operations?: boolean;
-  /** 303 del último periodo con prorrata: código CNAE-2025 de la actividad (cuatro dígitos). */
+  /** 303 del último periodo y 390 con prorrata: código CNAE-2025 de la actividad (cuatro dígitos). */
   cnae?: string | null;
+  /** 390: descripción de la actividad principal (apartado 3.A; código e IAE en `activityCode` e `iaeCode`). */
+  activityDescription?: string | null;
+  /** 390: el resultado negativo del último 303 se dejó a compensar (97) o se pidió su devolución (98). */
+  lastPeriodResult?: string | null;
 };
 
 function boxesToCents(boxes: Array<{ box: string; amount: number }>) {
@@ -94,7 +99,7 @@ export function buildPresentationFile(
   options: PresentationOptions = {},
 ): FiscalFile {
   if (!hasPresentationFile(summary.code)) {
-    throw new FiscalFileError([summary.code === "390" ? MODELO_390_FILE_REASON : `El modelo ${summary.code} no tiene fichero de presentación en el programa.`]);
+    throw new FiscalFileError([`El modelo ${summary.code} no tiene fichero de presentación en el programa.`]);
   }
   const period = parseFilePeriod(reportPeriod);
   if (!period) throw new FiscalFileError([`No se reconoce el periodo «${reportPeriod}» del modelo.`]);
@@ -210,6 +215,29 @@ export function buildPresentationFile(
         postalCodes: postalCodesOf(extras),
         defaultProvince: options.defaultProvince,
       }), "193", modelo193.reconciliation);
+    }
+    case "390": {
+      const profile = summary.fiscalProfile;
+      // Quien lleva los libros en el SII no presenta el 390; Canarias, Ceuta y Melilla no aplican el IVA.
+      if (profile.siiEnabled) throw new FiscalFileError(["La empresa lleva los libros registro en el SII: no está obligada a presentar el 390 (instrucciones del 390)."]);
+      if (profile.territory !== "ES") throw new FiscalFileError(["El 390 es del IVA del territorio común: no corresponde a empresas de Canarias, Ceuta o Melilla."]);
+      const boxes = summary.annualSummaryBoxes;
+      if (!boxes) throw new FiscalFileError(["El modelo 390 guardado no tiene las casillas del resumen anual. Vuelve a abrirlo en borrador para recalcularlo."]);
+      const cash = summary.cashAccounting;
+      if (profile.fiscalRegime === "cash_accounting" && !cash) throw new FiscalFileError(["La empresa está en el régimen especial del criterio de caja y este 390 se calculó antes de que el programa lo liquidara por cobros y pagos. Si no está presentado, vuelve a abrirlo para recalcularlo."]);
+      const last = (options.lastPeriodResult ?? "").trim().toLowerCase();
+      if (last && last !== "compensar" && last !== "devolver") throw new FiscalFileError(["El resultado del último periodo admite «compensar» (casilla 97) o «devolver» (casilla 98)."]);
+      const pct = summary.prorrata ? summary.prorrata.confirmedPct : null;
+      return buildModelo390File({
+        declarant,
+        year: period.year,
+        boxes: boxesToCents(boxes),
+        activity: { description: options.activityDescription, code: options.activityCode, iaeCode: options.iaeCode },
+        has347Operations: options.has347Operations,
+        lastPeriodResult: last ? (last as "compensar" | "devolver") : null,
+        cashAccounting: cash ? { ownRegime: cash.ownRegime, recipient: toCents(cash.purchaseBase) !== 0 || toCents(cash.purchaseTax) !== 0 } : null,
+        prorrata: pct === null ? null : { cnae: options.cnae, pct },
+      });
     }
     case "130": {
       if (!summary.modelo130) throw new FiscalFileError(["El modelo 130 no tiene casillas calculadas para este periodo."]);
