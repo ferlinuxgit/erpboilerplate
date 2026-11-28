@@ -783,7 +783,7 @@ export async function getInstallments(companyId: string, fiscalYearId: string, o
   const losses = lossRegister.rows.map((row): LossCarryforward => ({ originYear: row.originYear, pendingCents: row.pendingCents }));
   const warnings: CorporateTaxWarning[] = [];
   if (regime === "micro") {
-    warnings.push({ code: "micro-installment", message: "Con la escala de microempresas, el porcentaje del art. 40.3 se aplica aquí a cada tramo de la base (5/7 de cada tipo). Contrasta el resultado con el que calcule el formulario de la AEAT." });
+    warnings.push({ code: "micro-installment", message: "Con la escala de microempresas, en la modalidad del art. 40.3 cada tramo de la base lleva su porcentaje (5/7 de su tipo, redondeado por defecto), como indican las instrucciones del modelo 202; si los porcentajes coinciden se agrupan en una fila. El tramo de 50.000 € se toma entero en cada pago: contrástalo con el formulario de la AEAT." });
   }
   if (!ownReturn) {
     warnings.push({ code: "regime-default", message: "El tipo de gravamen se toma de la liquidación del ejercicio. Todavía no la has guardado: se usa el que corresponde a la cifra de negocios del ejercicio anterior." });

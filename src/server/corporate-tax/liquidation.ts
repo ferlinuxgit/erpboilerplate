@@ -15,7 +15,7 @@
  *
  * Fuera de alcance, con aviso: límites de las grandes empresas (disposición adicional 15.ª, cifra
  * de negocios desde 20 millones), tributación mínima (art. 30 bis), grupos fiscales, regímenes
- * especiales y cooperativas. No se numeran casillas del modelo 200: no se han contrastado.
+ * especiales y cooperativas. Las casillas del modelo 200 de cada línea están en `model-200-boxes.ts`.
  */
 
 import { applyRateSchedule, corporateTaxRateSchedule, prorateByDays, type BracketQuota, type CorporateTaxRegime, type RateSchedule } from "@/server/corporate-tax/rates";

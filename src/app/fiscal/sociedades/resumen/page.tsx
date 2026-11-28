@@ -10,6 +10,7 @@ import { formatMoney } from "@/lib/format";
 import type { OfficialStatementLine } from "@/server/accounting/official-statements-model";
 import { CORPORATE_TAX_REGIME_LABELS, type CorporateTaxRegime } from "@/server/corporate-tax/rates";
 import { getCorporateTaxStatements, getCorporateTaxYear, isCorporateTaxCompany } from "@/server/corporate-tax/service";
+import { formatModel200Box, model200BoxesWarning, MODEL_200_BOXES_SOURCE, PROFIT_AND_LOSS_RESULT_BOX, statementBox, TAX_CORRECTION_BOXES } from "@/server/corporate-tax/model-200-boxes";
 import { liquidationRows } from "@/server/corporate-tax/summary";
 import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
 import { formatIsoDate } from "@/server/fixed-assets/schedule";
@@ -29,6 +30,7 @@ export default async function CorporateTaxSummaryPage({ searchParams }: { search
   const money = (value: number) => formatMoney(value, currency);
   const rows = liquidationRows(view);
   const previousLabel = official.previousYearCode ?? undefined;
+  const boxesWarning = model200BoxesWarning(view.year.startYear);
 
   return (
     <PageShell>
@@ -48,8 +50,11 @@ export default async function CorporateTaxSummaryPage({ searchParams }: { search
       <CorporateTaxYearNav basePath="/fiscal/sociedades/resumen" current={fiscalYearId} years={ctx.availableFiscalYears} />
 
       <InlineAlert title="Estos importes se copian a mano en Sociedades WEB" tone="info">
-        El modelo 200 se presenta en la sede electrónica de la AEAT con el formulario Sociedades WEB. El programa prepara los importes; no presenta la declaración ni genera su fichero. Las líneas no llevan número de casilla: búscalas por su nombre en el formulario.
+        El modelo 200 se presenta en la sede electrónica de la AEAT con el formulario Sociedades WEB. El programa prepara los importes; no presenta la declaración ni genera su fichero.
+        {" "}Cada importe lleva su casilla y la página del modelo según el <a className="underline" href={MODEL_200_BOXES_SOURCE.url} rel="noreferrer" target="_blank">{MODEL_200_BOXES_SOURCE.label}</a>; las líneas sin casilla no tienen una equivalente única: búscalas por su nombre.
+        {" "}En la página 12, la casilla {PROFIT_AND_LOSS_RESULT_BOX.box} es el resultado después de impuestos y las casillas {TAX_CORRECTION_BOXES.increase.box}/{TAX_CORRECTION_BOXES.decrease.box} corrigen el gasto o ingreso por el propio impuesto; su suma es el resultado antes de impuestos de la casilla 00501.
       </InlineAlert>
+      {boxesWarning ? <InlineAlert tone="warning">{boxesWarning}</InlineAlert> : null}
       {view.warnings.length > 0 ? (
         <InlineAlert title="Revisa antes de presentar" tone="warning">
           <ul className="list-disc space-y-1 pl-4">
@@ -67,6 +72,7 @@ export default async function CorporateTaxSummaryPage({ searchParams }: { search
             <TableHeader>
               <TableRow>
                 <TableHead>Concepto</TableHead>
+                <TableHead className="whitespace-nowrap">Casilla</TableHead>
                 <TableHead className="text-right">Importe</TableHead>
               </TableRow>
             </TableHeader>
@@ -74,6 +80,7 @@ export default async function CorporateTaxSummaryPage({ searchParams }: { search
               {rows.map((row) => (
                 <TableRow className={row.kind === "total" ? "bg-window-panel font-bold" : undefined} key={row.key}>
                   <TableCell className={row.kind === "detail" ? "pl-8 text-muted-foreground" : undefined}>{row.label}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono text-xs">{formatModel200Box(row.box) || "—"}</TableCell>
                   <TableCell className={`text-right font-mono ${row.kind === "detail" ? "text-muted-foreground" : ""}`}>{money(row.cents / 100)}</TableCell>
                 </TableRow>
               ))}
@@ -111,6 +118,7 @@ function OfficialTable({ caption, currentLabel, lines, money, previousLabel }: {
         <TableHeader>
           <TableRow>
             <TableHead>{caption}</TableHead>
+            <TableHead className="whitespace-nowrap">Casilla</TableHead>
             <TableHead className="text-right">{currentLabel}</TableHead>
             {previousLabel ? <TableHead className="text-right">{previousLabel}</TableHead> : null}
           </TableRow>
@@ -121,6 +129,7 @@ function OfficialTable({ caption, currentLabel, lines, money, previousLabel }: {
             return (
               <TableRow className={strong ? "bg-window-panel font-bold" : undefined} key={line.id}>
                 <TableCell className={indent[Math.min(line.depth, indent.length - 1)]}>{line.label}</TableCell>
+                <TableCell className="font-mono text-xs">{formatModel200Box(statementBox(line.id)) || "—"}</TableCell>
                 <TableCell className="text-right font-mono">{line.amount === 0 && !strong ? "—" : money(line.amount)}</TableCell>
                 {previousLabel ? <TableCell className="text-right font-mono">{!line.previous && !strong ? "—" : money(line.previous ?? 0)}</TableCell> : null}
               </TableRow>

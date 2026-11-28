@@ -17,9 +17,16 @@
  *   exceso, y mínimo a ingresar [33] del 23 % del resultado positivo de la cuenta de pérdidas y
  *   ganancias del periodo, minorado solo en los pagos fraccionados anteriores.
  *
- * NO CONTRASTADO: cómo se aplica la escala de microempresas en la modalidad del art. 40.3. Aquí
- * se aplica el 5/7 a cada tramo (las instrucciones prevén «más de un porcentaje», casillas [19] a
- * [26]), con el tramo de 50.000 € entero. Se avisa en pantalla.
+ * Entidades con más de un tipo (escala de microempresas o de reducida dimensión), CONTRASTADO el
+ * 28-11-2026 con el Manual práctico de Sociedades 2025, capítulo 15, «B.2) Casos específicos
+ * (entidades con más de un porcentaje)» (sede de la AEAT, https://sede.agenciatributaria.gob.es/Sede/ayuda/manuales-videos-folletos/manuales-practicos/manual-sociedades-2025/capitulo-15-pago-fraccionado-is-2026/pago-fraccionado-is-2026/calculo-importe-pago-fraccionado/b-calculo-pago-fraccionado-modalidad-lis/b_2-casos-especificos-entidades-porcentaje.html):
+ * la base del pago fraccionado [19] se reparte en «base a tipo 1, 2…» [20], [23], [61], [64] según
+ * los tipos de gravamen del periodo en curso, y a cada parte se aplica su porcentaje [21], [24],
+ * [62], [65] = 5/7 del tipo correspondiente redondeado por defecto (19/20 por exceso desde 10
+ * millones). Si dos porcentajes coinciden, sus bases se agrupan en una fila (`groupedBrackets`).
+ * Lo que el manual no dice expresamente es si el tramo de 50.000 € se reduce en los pagos de 3, 9
+ * u 11 meses: aquí se toma entero (el art. 40.3 remite a la escala del art. 29 sin prorrateo). Se
+ * avisa en pantalla para que se contraste con el formulario.
  */
 
 import { allocateLosses, LOSS_LIMIT_PCT, LOSS_MINIMUM_CENTS, type LossCarryforward } from "@/server/corporate-tax/liquidation";
@@ -84,6 +91,21 @@ export function computeQuotaInstallment(input: QuotaInstallmentInput): QuotaInst
   return { method: "quota", baseCents, pct: QUOTA_METHOD_PCT, amountCents: Math.round((baseCents * QUOTA_METHOD_PCT) / 100) };
 }
 
+/** Agrupa los tramos que acaban con el mismo porcentaje (instrucciones del 202, casos específicos). */
+export function groupBracketsByPct(brackets: readonly BracketQuota[]): BracketQuota[] {
+  const grouped: BracketQuota[] = [];
+  for (const bracket of brackets) {
+    const existing = grouped.find((entry) => entry.pct === bracket.pct);
+    if (existing) {
+      existing.baseCents += bracket.baseCents;
+      existing.quotaCents = Math.round((existing.baseCents * existing.pct) / 100);
+    } else {
+      grouped.push({ ...bracket });
+    }
+  }
+  return grouped;
+}
+
 export type BaseInstallmentInput = {
   /** Resultado contable antes de impuestos de los 3, 9 u 11 primeros meses. */
   accountingResultBeforeTaxCents: number;
@@ -113,6 +135,8 @@ export type BaseInstallmentResult = {
   baseCents: number;
   largeCompany: boolean;
   brackets: BracketQuota[];
+  /** Tramos con el mismo porcentaje agrupados, como se trasladan al modelo 202 (casillas [20] a [66]). */
+  groupedBrackets: BracketQuota[];
   quotaCents: number;
   bonusesCents: number;
   withholdingsCents: number;
@@ -137,7 +161,9 @@ export function computeBaseInstallment(input: BaseInstallmentInput): BaseInstall
   const largeCompany = isLargeCompany(input.revenueCents);
   const schedule = corporateTaxRateSchedule({ regime: input.regime, startYear: input.startYear, customRatePct: input.customRatePct });
   const brackets = applyRateSchedule(baseCents, schedule.brackets.map((bracket) => ({ upToCents: bracket.upToCents, pct: baseMethodPct(bracket.pct, largeCompany) })));
-  const quotaCents = brackets.reduce((sum, bracket) => sum + bracket.quotaCents, 0);
+  const groupedBrackets = groupBracketsByPct(brackets);
+  // Con porcentajes iguales el formulario calcula una sola fila: la cuota sale de las filas agrupadas.
+  const quotaCents = groupedBrackets.reduce((sum, bracket) => sum + bracket.quotaCents, 0);
 
   const bonusesCents = positive(input.bonusesCents);
   const withholdingsCents = positive(input.withholdingsCents);
@@ -155,6 +181,7 @@ export function computeBaseInstallment(input: BaseInstallmentInput): BaseInstall
     baseCents,
     largeCompany,
     brackets,
+    groupedBrackets,
     quotaCents,
     bonusesCents,
     withholdingsCents,

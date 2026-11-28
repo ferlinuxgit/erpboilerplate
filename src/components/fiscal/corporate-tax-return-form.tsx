@@ -383,7 +383,10 @@ export function CorporateTaxReturnForm({ canWrite, canPost, currencyCode, initia
                 <TableBody>
                   {rows.map((row) => (
                     <TableRow className={row.kind === "total" ? "bg-window-panel font-bold" : undefined} key={row.key}>
-                      <TableCell className={row.kind === "detail" ? "pl-6 text-xs text-muted-foreground" : undefined}>{row.label}</TableCell>
+                      <TableCell className={row.kind === "detail" ? "pl-6 text-xs text-muted-foreground" : undefined}>
+                        {row.label}
+                        {row.box ? <span className="ml-1 whitespace-nowrap font-mono text-[10px] font-normal text-muted-foreground" title={`Casilla ${row.box.box} de la página ${row.box.page} del modelo 200`}>[{row.box.box}]</span> : null}
+                      </TableCell>
                       <TableCell className={`text-right font-mono ${row.kind === "detail" ? "text-xs text-muted-foreground" : ""}`}>{money(row.cents)}</TableCell>
                     </TableRow>
                   ))}
