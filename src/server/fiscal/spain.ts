@@ -1129,7 +1129,9 @@ async function fetchThirdPartyOperations(companyId: string, start: Date, endExcl
       customerName: customer.name,
       quarter,
       domestic,
-      amount: sql<string>`sum(${invoice.totalAmount})`,
+      // Los suplidos (pagos por cuenta del cliente, art. 78.Tres.3.º LIVA) suman al total a pagar
+      // pero no son operaciones del declarante: no entran en el 347.
+      amount: sql<string>`sum(${invoice.totalAmount} - coalesce((select sum(il."lineTotal") from ${invoiceLine} il where il."invoiceId" = ${invoice.id} and il."isDisbursement"), 0))`,
     })
     .from(invoice)
     .innerJoin(customer, eq(customer.id, invoice.customerId))

@@ -206,6 +206,7 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
       operationDate: invoice.operationDate,
       status: invoice.status,
       invoiceType: invoice.invoiceType,
+      isSubstitutive: invoice.isSubstitutive,
       vatTreatment: invoice.vatTreatment,
       vatExemptionCode: invoice.vatExemptionCode,
       rectifiedInvoiceId: invoice.rectifiedInvoiceId,
@@ -260,6 +261,9 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
         discountPct: invoiceLine.discountPct,
         taxRate: invoiceLine.taxRate,
         retentionRate: invoiceLine.retentionRate,
+        isDisbursement: invoiceLine.isDisbursement,
+        isGlobalDiscount: invoiceLine.isGlobalDiscount,
+        advanceInvoiceId: invoiceLine.advanceInvoiceId,
         isService: item.isService,
       })
       .from(invoiceLine)
@@ -291,6 +295,11 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
         retentionRate: Number(line.retentionRate),
         // Con impuestos congelados en la línea mandan esos; las facturas antiguas solo tienen `taxRate`.
         ...(taxes ? { taxes } : {}),
+        // Suplidos (fuera de la base) y líneas negativas de descuento global o anticipo: sin estas
+        // marcas el motor anularía las líneas negativas y la base saldría inflada.
+        isDisbursement: line.isDisbursement,
+        isGlobalDiscount: line.isGlobalDiscount,
+        advanceInvoiceId: line.advanceInvoiceId,
         isService: line.isService,
       }]);
     }
@@ -308,6 +317,7 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
         issueDate: row.issueDate,
         operationDate: row.operationDate,
         invoiceType: row.invoiceType,
+        substitutive: row.isSubstitutive,
         rectificationReason: row.rectificationReason,
         rectificationDescription: row.rectificationDescription,
         vatTreatment: resolveSalesVatTreatment(row.vatTreatment, customerData.countryCode, profile.countryCode),

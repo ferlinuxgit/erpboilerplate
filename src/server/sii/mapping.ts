@@ -133,6 +133,12 @@ export type SiiIssuedSource = {
   servicesByDefault?: boolean;
   /** La empresa aplica el régimen especial del criterio de caja a esta operación (clave 07 si es nacional). */
   cashAccounting?: boolean;
+  /**
+   * Factura que sustituye a simplificadas ya emitidas y declaradas (canje, `invoice.isSubstitutive`),
+   * o su anulación al corregir un canje: se declara como F3 (lista L2 del SII), no como F1 ni como
+   * rectificativa.
+   */
+  substitutive?: boolean;
 };
 
 /** Clave de régimen del criterio de caja (lista L3.1 y L3.2). */
@@ -236,8 +242,8 @@ export function mapIssuedInvoice(source: SiiIssuedSource): SiiMapped<SiiIssuedIn
       issuerNif,
       number: source.number,
       issueDate,
-      invoiceType: alta.invoiceTypeCode,
-      rectification: isCreditNote
+      invoiceType: source.substitutive ? "F3" : alta.invoiceTypeCode,
+      rectification: isCreditNote && !source.substitutive
         ? { kind: "I", rectified: (alta.rectifiedInvoices ?? []).map((original) => ({ number: original.invoiceNumber, date: original.invoiceIssueDate })) }
         : null,
       operationDate: operationDate && operationDate !== issueDate ? operationDate : null,

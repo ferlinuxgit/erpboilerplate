@@ -128,6 +128,29 @@ describe("SuministroLRFacturasEmitidas", () => {
     expect(xml).toMatch(/<sii:Periodo>02<\/sii:Periodo>/);
   });
 
+  it("canje de simplificadas: la factura sustitutiva y su anulación se declaran como F3, sin datos de rectificativa", () => {
+    const xml = emitidas([
+      issued({ substitutive: true }),
+      issued({ substitutive: true, invoiceType: "CREDIT_NOTE", rectificationReason: "R4", original: { number: "FA-9", issueDate: day("2027-03-01"), simplified: false } }),
+    ]);
+    expect(validator.validate(xml)).toEqual([]);
+    expect(xml.match(/<sii:TipoFactura>F3<\/sii:TipoFactura>/g)?.length).toBe(2);
+    expect(xml).not.toContain("<sii:FacturasRectificadas>");
+  });
+
+  it("suplidos, descuento global y anticipos: la base y el total salen netos", () => {
+    const vat21 = [{ id: null, name: "IVA 21%", rate: 21, kind: "VAT", operation: "ADD" as const }];
+    const { invoice } = mapIssuedInvoice(issued({
+      lines: [
+        { description: "Servicio", quantity: 1, unitPrice: 1000, discountPct: 0, taxRate: 21, retentionRate: 0, taxes: vat21 },
+        { description: "Descuento 10 %", quantity: 1, unitPrice: -100, discountPct: 0, taxRate: 21, retentionRate: 0, taxes: vat21, isGlobalDiscount: true },
+        { description: "Tasas pagadas por cuenta del cliente", quantity: 1, unitPrice: 50, discountPct: 0, taxRate: 0, retentionRate: 0, taxes: [], isDisbursement: true },
+      ],
+    }));
+    // Base 900 + IVA 189 = 1.089; el suplido (50) no forma parte del importe declarado.
+    expect(invoice.totalAmount).toBe("1089.00");
+  });
+
   it("F2 simplificada: sin contraparte", () => {
     const xml = emitidas([issued({ customer: { name: "Cliente de mostrador", taxId: null, countryCode: "ES" } })]);
     expect(validator.validate(xml)).toEqual([]);
