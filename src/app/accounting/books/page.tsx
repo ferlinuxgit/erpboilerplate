@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { DiaryExport } from "@/components/accounting/books/diary-export";
 import { FileDownloadButton } from "@/components/accounting/books/file-download-button";
 import { SubmissionForm, UndoSubmissionButton } from "@/components/accounting/books/submission-form";
+import { RenumberEntriesButton } from "@/components/accounting/renumber-entries-button";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { InlineAlert, MetricCard, PageHeader, PageSection, PageShell } from "@/components/ui/page";
@@ -88,6 +89,11 @@ export default async function OfficialBooksPage({ searchParams }: { searchParams
       {overview.outOfOrder > 0 ? (
         <InlineAlert tone="info">
           {overview.outOfOrder === 1 ? "Hay 1 asiento cuyo número interno no sigue" : `Hay ${overview.outOfOrder} asientos cuyo número interno no sigue`} el orden de las fechas (se registraron con fecha anterior a otros ya numerados). En el Libro Diario van por orden de fecha con un número de orden correlativo propio, que es el que exige el Código de Comercio.
+          {canEdit && !year.isClosed && !overview.legalized ? (
+            <span className="mt-2 block">
+              Si prefieres que el número interno siga también ese orden: <RenumberEntriesButton fiscalYearId={year.id} yearCode={year.code} />
+            </span>
+          ) : null}
         </InlineAlert>
       ) : null}
 

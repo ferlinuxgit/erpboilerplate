@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import {
   accountChart,
@@ -22,6 +22,7 @@ import {
   type RecurringTemplateLine,
 } from "@/db/schema";
 import type { DbClient } from "@/lib/db";
+import { fiscalYearAccountingRange, loadCompanyTimeZone, postedInRangeSql } from "@/server/accounting/fiscal-year-date";
 import { ensureJournal, journalCodeForSource } from "@/server/accounting/journals";
 import { toCents } from "@/server/accounting/money";
 import {
@@ -792,20 +793,21 @@ export async function reclassifyCompany(tx: DbClient, companyId: string, options
     }
   }
 
-  // e) Ejercicio de cada asiento (por fecha; no se renumera) y diario según su origen.
-  await tx
-    .update(journalEntry)
-    .set({
-      fiscalYearId: sql`(
-        select fy."id" from "fiscal_year" fy
-        where fy."companyId" = ${companyId}
-          and "journal_entry"."postedAt" >= fy."startsAt"
-          and "journal_entry"."postedAt" < (fy."endsAt" + interval '1 day')
-        order by fy."startsAt" desc
-        limit 1
-      )`,
-    })
-    .where(and(eq(journalEntry.companyId, companyId), isNull(journalEntry.fiscalYearId)));
+  // e) Ejercicio de cada asiento (por fecha; no se renumera) y diario según su origen. El ejercicio
+  // es el del día civil en la hora local de la empresa, con los mismos límites que la numeración
+  // (`fiscal-year-date.ts`): un ticket del 1 de enero a las 00:30 de Madrid es del ejercicio nuevo.
+  const timeZone = await loadCompanyTimeZone(tx, companyId);
+  const fiscalYears = await tx
+    .select({ id: fiscalYear.id, startsAt: fiscalYear.startsAt, endsAt: fiscalYear.endsAt })
+    .from(fiscalYear)
+    .where(eq(fiscalYear.companyId, companyId))
+    .orderBy(desc(fiscalYear.startsAt));
+  for (const year of fiscalYears) {
+    await tx
+      .update(journalEntry)
+      .set({ fiscalYearId: year.id })
+      .where(and(eq(journalEntry.companyId, companyId), isNull(journalEntry.fiscalYearId), postedInRangeSql(fiscalYearAccountingRange(year, timeZone))));
+  }
   const [yearCounts] = await tx
     .select({
       withYear: sql<number>`count(*) filter (where ${journalEntry.fiscalYearId} is not null)`.mapWith(Number),

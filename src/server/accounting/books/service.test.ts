@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import ExcelJS from "exceljs";
 import { unzipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -135,6 +136,13 @@ describe("cuentas anuales", () => {
     expect(rows["current.closing"]).toMatchObject({ total: 4930, values: { capital: 3000, reserves: 400, result: 1530 } });
     expect(accounts.recognizedIncome?.lines.find((line) => line.id === "R.TOTAL")?.amount).toBe(1530);
 
+    // Estado de flujos de efectivo: voluntario con el modelo abreviado y cuadrado con el grupo 57.
+    expect(accounts.cashFlowRequired).toBe(false);
+    expect(accounts.cashFlow.current.unclassified).toBe(0);
+    expect(accounts.cashFlow.lines.find((line) => line.id === "E")?.amount).toBe(accounts.cashFlow.current.cashVariation);
+    expect(accounts.cashFlow.lines.find((line) => line.id === "CASH.CLOSE")?.amount).toBe(accounts.cashFlow.current.closingCash);
+    expect(accounts.cashFlow.previous?.unclassified).toBe(0);
+
     // Tamaño: microempresa con los datos disponibles.
     expect(accounts.size.current).toMatchObject({ assets: 4930, turnover: 2030, employees: null });
     expect(accounts.size.assessment).toMatchObject({ small: true, recommended: "abbreviated" });
@@ -155,7 +163,7 @@ describe("cuentas anuales", () => {
     expect(accounts.recognizedIncome).toBeNull();
     expect(accounts.equityChanges.columns).toHaveLength(10);
     expect(accounts.notes.find((note) => note.id === "1")).toMatchObject({ text: "Venta de mercaderías al por menor.", isDefaultText: false });
-    expect(accounts.notesData).toEqual({ averageEmployees: 2.5, taxData: { permanentDifferences: "100.00" } });
+    expect(accounts.notesData).toEqual({ averageEmployees: 2.5, taxData: { permanentDifferences: "100.00" }, taxFromLiquidation: false });
     expect(accounts.size.current.employees).toBe(2.5);
     const tax = accounts.notes.find((note) => note.id === "8")?.tables[0];
     expect(tax?.rows.at(-1)?.values).toEqual([1630]);
@@ -164,9 +172,31 @@ describe("cuentas anuales", () => {
     const normal = await loadAnnualAccounts(COMPANY, "fy-2026", { model: "normal" });
     expect(normal).toMatchObject({ model: "normal", configuredModel: "pymes" });
     expect(normal.statements.difference).toBe(0);
+    expect(normal.cashFlowRequired).toBe(true);
     await saveAnnualAccountsNotes({ ...actor, fiscalYearId: "fy-2026", sections: { "1": "" } });
     expect((await loadAnnualAccounts(COMPANY, "fy-2026")).notes.find((note) => note.id === "1")?.isDefaultText).toBe(true);
     await setAnnualAccountsModel({ ...actor, model: "abbreviated" });
+  });
+
+  it("toma la conciliación fiscal de la liquidación del Impuesto sobre Sociedades si existe", async () => {
+    const { defaultReturnInputs } = await import("@/server/corporate-tax/service");
+    await state.db.insert(schema.corporateTaxReturn).values({
+      id: "ctr-2026",
+      companyId: COMPANY,
+      fiscalYearId: "fy-2026",
+      inputs: { ...defaultReturnInputs(), adjustments: [{ id: "adj-1", kind: "other", concept: "Multas", sign: "increase", amountCents: 10_000, nature: "permanent" }] },
+    });
+    try {
+      const accounts = await loadAnnualAccounts(COMPANY, "fy-2026");
+      expect(accounts.notesData.taxFromLiquidation).toBe(true);
+      const tax = accounts.notes.find((note) => note.id === "8")?.tables[0];
+      const value = (label: string) => tax?.rows.find((row) => row.label === label)?.values[0];
+      expect(value("Diferencias permanentes: aumentos")).toBe(100);
+      expect(value("Base imponible (resultado fiscal)")).toBe(Number(value("Resultado contable antes de impuestos")) + 100);
+      expect(tax?.note).toContain("borrador sin presentar");
+    } finally {
+      await state.db.delete(schema.corporateTaxReturn).where(eq(schema.corporateTaxReturn.id, "ctr-2026"));
+    }
   });
 });
 

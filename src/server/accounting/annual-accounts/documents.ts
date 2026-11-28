@@ -1,9 +1,10 @@
+import type { CashFlowStatement } from "@/server/accounting/annual-accounts/cash-flow-model";
 import type { EquityChangesStatement, RecognizedIncomeLine } from "@/server/accounting/annual-accounts/equity-changes-model";
 import type { NoteTable } from "@/server/accounting/annual-accounts/notes-model";
 import type { BookDocument, DocSection, DocTable } from "@/server/accounting/books/document";
 import type { OfficialStatementLine, OfficialStatements } from "@/server/accounting/official-statements-model";
 
-/** Cuentas anuales como documento (secciones para PDF y XLSX). Funciones puras. */
+/** Cuentas anuales como documento (secciones para PDF, XLSX y DOCX). Funciones puras. */
 
 export type AnnualAccountsDocumentInput = {
   company: { name: string; taxId: string | null };
@@ -13,6 +14,9 @@ export type AnnualAccountsDocumentInput = {
   statements: OfficialStatements;
   equityChanges: EquityChangesStatement;
   recognizedIncome: { lines: RecognizedIncomeLine[] } | null;
+  /** Estado de flujos de efectivo; se incluye si `cashFlowRequired` (modelo normal) o se pide. */
+  cashFlow?: CashFlowStatement | null;
+  cashFlowRequired?: boolean;
   notes: Array<{ title: string; text: string; tables: NoteTable[]; extraLegalBasis?: string }>;
 };
 
@@ -38,7 +42,29 @@ function noteTable(table: NoteTable): DocTable {
 
 const formatDate = (date: Date) => `${String(date.getUTCDate()).padStart(2, "0")}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
 
-export function annualAccountsSections(input: AnnualAccountsDocumentInput): DocSection[] {
+const formatAmount = (value: number) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" }).format(value);
+
+/** Sección del estado de flujos de efectivo, con la comprobación contra el grupo 57. */
+export function cashFlowSection(cashFlow: CashFlowStatement, year: { code: string; endsAt: Date }, previous: string | null, voluntary: boolean): DocSection {
+  const paragraphs = [
+    `Método indirecto, partidas del modelo normal del Plan General de Contabilidad.${voluntary ? " Estado voluntario con este modelo de cuentas anuales." : ""}`,
+    `Comprobación: la variación del efectivo y otros activos líquidos equivalentes (grupo 57) es ${formatAmount(cashFlow.current.cashVariation)} €.`,
+  ];
+  if (cashFlow.current.unclassified !== 0) {
+    paragraphs.push(`Hay ${formatAmount(cashFlow.current.unclassified)} € sin clasificar (cuentas ${cashFlow.current.unclassifiedAccounts.map((account) => account.code).join(", ") || "sin identificar"}): revísalos antes de formular las cuentas.`);
+  }
+  return {
+    heading: `Estado de flujos de efectivo del ejercicio terminado el ${formatDate(year.endsAt)}`,
+    sheetName: "Flujos de efectivo",
+    paragraphs,
+    tables: [{
+      columns: [{ header: "", width: 5 }, { header: year.code, align: "right" }, ...(previous ? [{ header: previous, align: "right" as const }] : [])],
+      rows: cashFlow.lines.map((line) => ({ cells: [line.label, line.amount, ...(previous ? [line.previous ?? 0] : [])], strong: line.kind !== "line" || line.depth === 0, indent: line.depth })),
+    }],
+  };
+}
+
+export function annualAccountsSections(input: AnnualAccountsDocumentInput, options: { includeCashFlow?: boolean } = {}): DocSection[] {
   const previous = input.previousYear?.code ?? null;
   const closing = formatDate(input.year.endsAt);
   const sections: DocSection[] = [
@@ -80,22 +106,36 @@ export function annualAccountsSections(input: AnnualAccountsDocumentInput): DocS
       })),
     }],
   });
-  input.notes.forEach((note, index) => {
-    sections.push({
-      heading: index === 0 ? `Memoria del ejercicio ${input.year.code} — ${note.title}` : note.title,
-      sheetName: `Memoria ${index + 1}`,
-      paragraphs: [...(note.extraLegalBasis ? [`(Apartado exigido por: ${note.extraLegalBasis}.)`] : []), note.text],
-      tables: note.tables.map(noteTable),
-    });
-  });
+  if (input.cashFlow && (input.cashFlowRequired || options.includeCashFlow)) {
+    sections.push(cashFlowSection(input.cashFlow, input.year, previous, !input.cashFlowRequired));
+  }
+  sections.push(...notesSections(input));
   return sections;
 }
 
-export function annualAccountsDocument(input: AnnualAccountsDocumentInput): BookDocument {
+function notesSections(input: Pick<AnnualAccountsDocumentInput, "notes" | "year">): DocSection[] {
+  return input.notes.map((note, index) => ({
+    heading: index === 0 ? `Memoria del ejercicio ${input.year.code} — ${note.title}` : note.title,
+    sheetName: `Memoria ${index + 1}`,
+    paragraphs: [...(note.extraLegalBasis ? [`(Apartado exigido por: ${note.extraLegalBasis}.)`] : []), note.text],
+    tables: note.tables.map(noteTable),
+  }));
+}
+
+/** Solo la memoria (para terminar de redactarla en un procesador de textos). */
+export function annualAccountsNotesDocument(input: AnnualAccountsDocumentInput): BookDocument {
+  return {
+    title: `Memoria del ejercicio ${input.year.code}`,
+    subtitle: `${input.company.name}${input.company.taxId ? ` · NIF ${input.company.taxId}` : ""} · ${input.modelInfo.name}`,
+    sections: notesSections(input),
+  };
+}
+
+export function annualAccountsDocument(input: AnnualAccountsDocumentInput, options: { includeCashFlow?: boolean } = {}): BookDocument {
   return {
     title: `Cuentas anuales ${input.year.code}`,
     subtitle: `${input.company.name}${input.company.taxId ? ` · NIF ${input.company.taxId}` : ""} · ${input.modelInfo.name}`,
-    sections: annualAccountsSections(input),
+    sections: annualAccountsSections(input, options),
     landscape: true,
   };
 }

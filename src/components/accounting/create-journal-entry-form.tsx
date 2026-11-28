@@ -11,11 +11,13 @@ import {
   type JournalFormLine,
 } from "@/components/accounting/journal-entry-utils";
 import { JournalLinesEditor, type JournalAccountOption, type JournalPartnerOption } from "@/components/accounting/journal-lines-editor";
+import { LegalizedBooksConfirmation } from "@/components/accounting/legalized-books-confirmation";
 import { Button } from "@/components/ui/button";
 import { errorMessage, readApiError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getCsrfHeader } from "@/lib/csrf-client";
+import { legalizedYearForDate, type LegalizedYearView } from "@/server/accounting/books/legalization-model";
 
 type CreateJournalEntryFormProps = {
   accounts: JournalAccountOption[];
@@ -23,16 +25,24 @@ type CreateJournalEntryFormProps = {
   redirectHref?: string;
   /** Fecha propuesta (hoy en la zona horaria de la empresa), "YYYY-MM-DD". */
   defaultPostedAt?: string;
+  /** Ejercicios con libros presentados a legalizar: un asiento con fecha en ellos pide confirmación. */
+  legalizedYears?: LegalizedYearView[];
 };
 
-export function CreateJournalEntryForm({ accounts, defaultPostedAt = "", partners, redirectHref }: CreateJournalEntryFormProps) {
+export function CreateJournalEntryForm({ accounts, defaultPostedAt = "", legalizedYears = [], partners, redirectHref }: CreateJournalEntryFormProps) {
   const router = useRouter();
   const [postedAt, setPostedAt] = useState(defaultPostedAt);
   const [reference, setReference] = useState("");
   const [lines, setLines] = useState<JournalFormLine[]>(() => [emptyJournalLine(), emptyJournalLine()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const blockers = describeJournalEntryBlockers({ postedAt, lines });
+  const [legalizedAck, setLegalizedAck] = useState(false);
+  // Ejercicio con libros presentados a legalizar que contiene la fecha elegida: exige confirmación.
+  const legalizedYear = legalizedYearForDate(legalizedYears, postedAt);
+  const blockers = [
+    ...describeJournalEntryBlockers({ postedAt, lines }),
+    ...(legalizedYear && !legalizedAck ? [`Confirma el aviso de libros legalizados del ejercicio ${legalizedYear.code}.`] : []),
+  ];
   const canSubmit = blockers.length === 0;
   const errorId = error ? "create-journal-entry-error" : undefined;
 
@@ -49,13 +59,14 @@ export function CreateJournalEntryForm({ accounts, defaultPostedAt = "", partner
         const res = await fetch("/api/journal-entries", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-          body: JSON.stringify({ postedAt, reference, lines: normalizeJournalLinesForSubmit(lines) }),
+          body: JSON.stringify({ postedAt, reference, lines: normalizeJournalLinesForSubmit(lines), ...(legalizedYear && legalizedAck ? { acknowledgeLegalizedBooks: true } : {}) }),
         });
         if (!res.ok) throw new Error(await readApiError(res, "No se pudo crear el asiento."));
         const created = (await res.json().catch(() => null)) as { number?: string } | null;
         toast.success(created?.number ? `Asiento ${created.number} creado.` : "Asiento creado.");
         setReference("");
         setLines([emptyJournalLine(), emptyJournalLine()]);
+        setLegalizedAck(false);
         if (redirectHref) {
           router.push(redirectHref);
         } else {
@@ -80,6 +91,9 @@ export function CreateJournalEntryForm({ accounts, defaultPostedAt = "", partner
         </div>
       </div>
       <JournalLinesEditor accounts={accounts} errorId={errorId} lines={lines} onChange={setLines} partners={partners} />
+      {legalizedYear ? (
+        <LegalizedBooksConfirmation checked={legalizedAck} disabled={loading} id="create-journal-entry-legalized" notice={legalizedYear} onChange={setLegalizedAck} />
+      ) : null}
       {error ? <p id="create-journal-entry-error" className="text-sm text-danger-text" role="alert">{error}</p> : null}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <Button aria-describedby={canSubmit ? undefined : "create-journal-entry-blockers"} type="submit" disabled={loading || !canSubmit}>

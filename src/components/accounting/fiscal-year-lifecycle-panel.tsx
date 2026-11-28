@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { LegalizedBooksConfirmation } from "@/components/accounting/legalized-books-confirmation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogFooter } from "@/components/ui/dialog";
 import { errorMessage as describeError, readApiError } from "@/components/ui/form";
@@ -23,6 +24,8 @@ export type FiscalYearLifecycleView = {
   nextYearCode: string;
   daysUntilEnd: number;
   alert: "none" | "ending-soon" | "ended";
+  /** Libros del ejercicio activo presentados a legalizar (reabrirlo pide confirmación expresa). */
+  legalizedBooks?: { submittedAt: string | null; registryName: string | null } | null;
 };
 
 type FiscalYearLifecyclePanelProps = {
@@ -72,12 +75,14 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
   const [confirmReopen, setConfirmReopen] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
   const [reopenError, setReopenError] = useState<string | null>(null);
+  const [reopenLegalizedAck, setReopenLegalizedAck] = useState(false);
   const [opened, setOpened] = useState<{ code: string; openingEntryId: string | null; openingPending: boolean; created: boolean } | null>(null);
   const [checklist, setChecklist] = useState<CloseChecklistView | null>(null);
   const [checklistError, setChecklistError] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
   const { activeYear, nextYear, nextYearCode } = lifecycle;
   const showReopen = (canReopen ?? canWrite) && activeYear.isClosed;
+  const legalizedBooks = lifecycle.legalizedBooks ?? null;
 
   async function reopenYear() {
     const reason = reopenReason.trim();
@@ -91,11 +96,16 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
       const response = await fetch(`/api/accounting/fiscal-years/${encodeURIComponent(activeYear.id)}/reopen`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getCsrfHeader() },
-        body: JSON.stringify({ confirm: true, reason }),
+        body: JSON.stringify({ confirm: true, reason, ...(legalizedBooks && reopenLegalizedAck ? { acknowledgeLegalizedBooks: true } : {}) }),
       });
       if (!response.ok) throw new Error(await readApiError(response, `No se pudo reabrir el ejercicio ${activeYear.code}.`));
+      const result = (await response.json().catch(() => null)) as { legalizedBooks?: unknown } | null;
       setConfirmReopen(false);
       setReopenReason("");
+      setReopenLegalizedAck(false);
+      if (result?.legalizedBooks) {
+        toast.warning(`Los libros de ${activeYear.code} estaban presentados a legalizar: si cambias su contabilidad tendrás que volver a generarlos y presentarlos (Contabilidad › Libros oficiales).`);
+      }
       toast.success(`Ejercicio ${activeYear.code} reabierto. Se han anulado los asientos de cierre${nextYear ? ` y la apertura de ${nextYear.code}` : ""}.`);
       router.refresh();
     } catch (error) {
@@ -363,6 +373,16 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
                 value={reopenReason}
               />
             </div>
+            {legalizedBooks ? (
+              <LegalizedBooksConfirmation
+                checked={reopenLegalizedAck}
+                disabled={busy === "reopen"}
+                id="reopen-fiscal-year-legalized"
+                label="Lo entiendo y quiero reabrir el ejercicio igualmente"
+                notice={{ code: activeYear.code, ...legalizedBooks }}
+                onChange={setReopenLegalizedAck}
+              />
+            ) : null}
             {reopenError ? <InlineAlert role="alert" tone="danger">{reopenError}</InlineAlert> : null}
           </div>
           <DialogFooter>
@@ -370,7 +390,7 @@ export function FiscalYearLifecyclePanel({ canReopen, canWrite, lifecycle, varia
               Cancelar
             </Button>
             <Button
-              disabled={busy === "reopen" || reopenReason.trim().length < REOPEN_REASON_MIN}
+              disabled={busy === "reopen" || reopenReason.trim().length < REOPEN_REASON_MIN || Boolean(legalizedBooks && !reopenLegalizedAck)}
               onClick={() => void reopenYear()}
               type="button"
               variant="destructive"

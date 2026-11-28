@@ -11,14 +11,16 @@
   "method": "GET",
   "path": "/api/accounting/annual-accounts/export",
   "area": "accounting",
-  "summary": "Cuentas anuales de un ejercicio (balance, pérdidas y ganancias, estado de cambios en el patrimonio neto y memoria) en PDF o Excel. `?year=<id del ejercicio>&format=pdf|xlsx&model=abbreviated|pymes|normal`.",
+  "summary": "Cuentas anuales de un ejercicio (balance, pérdidas y ganancias, estados de cambios en el patrimonio neto y de flujos de efectivo, y memoria) en PDF, Excel o Word. `?year=<id del ejercicio>&format=pdf|xlsx|docx&model=abbreviated|pymes|normal`; `part=notes` solo la memoria; `cashFlow=1` añade el estado de flujos de efectivo aunque el modelo no lo exija.",
   "permissions": [
    "accounting.read"
   ],
   "query": [
    "format",
+   "part",
    "model",
-   "year"
+   "year",
+   "cashFlow"
   ]
  },
  {
@@ -131,6 +133,25 @@
   ]
  },
  {
+  "method": "GET",
+  "path": "/api/accounting/fiscal-years/{id}/renumber",
+  "area": "accounting",
+  "summary": "Vista previa de la renumeración de asientos por fecha: cuántos cambiarían de número (no cambia nada).",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/accounting/fiscal-years/{id}/renumber",
+  "area": "accounting",
+  "summary": "Renumera por fecha los asientos del ejercicio (solo ejercicios abiertos y sin libros presentados a legalizar). Exige `confirm: true`. Queda en la auditoría con el mapa número antiguo → nuevo.",
+  "permissions": [
+   "accounting.write"
+  ],
+  "body": "const payloadSchema = z.object({ confirm: z.literal(true) })"
+ },
+ {
   "method": "POST",
   "path": "/api/accounting/fiscal-years/{id}/reopen",
   "area": "accounting",
@@ -138,7 +159,7 @@
   "permissions": [
    "accounting.write"
   ],
-  "body": "const payloadSchema = z.object({\n  confirm: z.literal(true),\n  reason: z.string().trim().min(5).max(500),\n})"
+  "body": "const payloadSchema = z.object({\n  confirm: z.literal(true),\n  reason: z.string().trim().min(5).max(500),\n  // Confirmación expresa cuando los libros del ejercicio ya están presentados a legalizar.\n  acknowledgeLegalizedBooks: z.boolean().optional(),\n})"
  },
  {
   "method": "GET",
@@ -2337,9 +2358,12 @@
   "method": "DELETE",
   "path": "/api/journal-entries/{id}",
   "area": "journal-entries",
-  "summary": "",
+  "summary": "Revierte el asiento con un contraasiento. Con `?acknowledgeLegalizedBooks=1` se confirma que se sabe que los libros del ejercicio están presentados a legalizar (sin él, responde 409 con el aviso).",
   "permissions": [
    "accounting.write"
+  ],
+  "query": [
+   "acknowledgeLegalizedBooks"
   ]
  },
  {
