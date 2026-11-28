@@ -16,7 +16,8 @@ import { getSiiOverview, siiBookLabels, siiOperationLabels, siiStatusLabels, sii
 
 export const metadata: Metadata = { title: "SII" };
 
-const invoiceHref = (record: SiiRecordView) => (record.book === "ISSUED" ? `/invoices/${record.sourceId}` : `/expenses/${record.sourceId}`);
+/** Factura del ERP de cada registro: los cobros van a la factura emitida; los pagos y los bienes de inversión, a la de compra. */
+const invoiceHref = (record: SiiRecordView) => (record.book === "ISSUED" || record.book === "ISSUED_COLLECTIONS" ? `/invoices/${record.invoiceSourceId}` : `/expenses/${record.invoiceSourceId}`);
 
 function deadlineText(record: SiiRecordView) {
   if (!record.dueLabel) return "Sin plazo propio";
@@ -62,13 +63,24 @@ export default async function SiiPage() {
   const { eligibility } = overview;
   const sendable = overview.pending.filter((record) => record.status === "PENDING" && !record.blockedReason).length;
   const accepted = (overview.counts.ACCEPTED ?? 0) + (overview.counts.ACCEPTED_WITH_ERRORS ?? 0);
+  // Los libros de cobros, pagos y bienes de inversión solo se muestran si aplican a la empresa o ya tienen algo.
+  const visibleBooks = overview.books.filter((book) => book.total > 0
+    || book.book === "ISSUED" || book.book === "RECEIVED"
+    || (book.book === "INVESTMENT_GOODS" && overview.prorrataYears.length > 0)
+    || ((book.book === "ISSUED_COLLECTIONS" || book.book === "RECEIVED_PAYMENTS") && overview.cashAccounting.active));
+  const bookNote = (book: string) => {
+    if (book === "ISSUED_COLLECTIONS") return overview.cashAccounting.active ? "Facturas emitidas con la clave 07" : "Solo si estás en el criterio de caja";
+    if (book === "RECEIVED_PAYMENTS") return "Facturas recibidas con la clave 07 (tuyas o de proveedores acogidos)";
+    if (book === "INVESTMENT_GOODS") return overview.prorrataYears.length > 0 ? `Ejercicios con prorrata definitiva: ${overview.prorrataYears.join(", ")}` : "Solo con prorrata definitiva confirmada";
+    return null;
+  };
 
   return (
     <PageShell>
       <PageHeader
         eyebrow="Fiscalidad"
         title="SII · Suministro Inmediato de Información"
-        description="Envío a la Agencia Tributaria del detalle de tus facturas emitidas y recibidas, en un plazo de cuatro días hábiles."
+        description="Envío a la Agencia Tributaria del detalle de tus facturas emitidas y recibidas (y, si te afectan, de los cobros y pagos del criterio de caja y del libro de bienes de inversión)."
         backHref="/fiscal"
         backLabel="Volver a fiscalidad"
         meta={(
@@ -125,7 +137,7 @@ export default async function SiiPage() {
           ) : null}
           {overview.overdue.length > 0 ? (
             <InlineAlert tone="danger" title={`${formatCount(overview.overdue.length, "factura fuera de plazo", "facturas fuera de plazo")}`}>
-              El plazo legal es de cuatro días hábiles desde la expedición (emitidas) o desde el registro contable (recibidas). Envíalas cuanto antes:
+              El plazo legal es de cuatro días hábiles desde la expedición (emitidas), desde el registro contable (recibidas) o desde el cobro o pago (criterio de caja). Envíalas cuanto antes:
               el retraso se sanciona con el 0,5 % del importe de la factura, con un mínimo de 300 € y un máximo de 6.000 € por trimestre.
               {" "}Facturas: {overview.overdue.slice(0, 8).map((record) => record.invoiceNumber).join(", ")}{overview.overdue.length > 8 ? "…" : ""}.
             </InlineAlert>
@@ -138,6 +150,36 @@ export default async function SiiPage() {
             <MetricCard label="Aceptadas por la AEAT" value={accepted} helper={`Entorno: ${overview.environment ? siiEnvironmentLabels[overview.environment] : "sin configurar"}`} tone={accepted > 0 ? "success" : "neutral"} />
           </section>
 
+          <PageSection title="Libros registro" description="Estado de lo comunicado en cada libro. Cuenta el último envío de cada factura, cobro, pago o bien de inversión.">
+            <TableContainer>
+              <Table className="min-w-[40rem]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Libro</TableHead>
+                    <TableHead className="text-right">Aceptados</TableHead>
+                    <TableHead className="text-right">Pendientes</TableHead>
+                    <TableHead className="text-right">Bloqueados</TableHead>
+                    <TableHead className="text-right">Rechazados o con errores</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleBooks.map((book) => (
+                    <TableRow key={book.book}>
+                      <TableCell>
+                        <span className="font-semibold">{book.title}</span>
+                        {bookNote(book.book) ? <span className="block text-xs text-muted-foreground">{bookNote(book.book)}</span> : null}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">{book.counts.ACCEPTED ?? 0}</TableCell>
+                      <TableCell className="text-right font-mono">{(book.counts.PENDING ?? 0) + (book.counts.SENT ?? 0) - book.blocked}</TableCell>
+                      <TableCell className="text-right font-mono">{book.blocked}</TableCell>
+                      <TableCell className="text-right font-mono">{(book.counts.REJECTED ?? 0) + (book.counts.ACCEPTED_WITH_ERRORS ?? 0)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </PageSection>
+
           <PageSection
             title="Acciones"
             description={`Las facturas se revisan y se envían solas cada pocos minutos.${overview.lastDetectionAt ? ` Última revisión: ${formatDateTime(overview.lastDetectionAt)}.` : " Todavía no se ha hecho ninguna revisión."}`}
@@ -149,6 +191,15 @@ export default async function SiiPage() {
                   <SiiSinceForm since={overview.sinceKey} />
                   <p className="mt-1 text-xs text-muted-foreground">
                     Por defecto, el 1 de enero del año en que activas el SII: los libros del SII abarcan el año natural completo. Las facturas anteriores a esta fecha no se envían.
+                  </p>
+                </div>
+              ) : null}
+              {canWrite && eligibility.supported && overview.cashAccounting.active ? (
+                <div>
+                  <SiiSinceForm field="cashAccountingSince" label="Criterio de caja desde" since={overview.cashAccounting.sinceKey} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Las facturas con fecha de operación desde este día se envían con la clave 07 (criterio de caja) y sus cobros y pagos se comunican aparte.
+                    El régimen se aplica por años completos: normalmente, el 1 de enero del año en que te acoges. Las anteriores van con su clave ordinaria.
                   </p>
                 </div>
               ) : null}
@@ -317,7 +368,25 @@ export default async function SiiPage() {
           <PageSection title="Qué se envía y qué no" description="Para que sepas hasta dónde llega esta pantalla.">
             <ul className="list-disc space-y-1 pl-5 text-sm">
               <li>Se envían los libros de <strong>facturas expedidas</strong> y de <strong>facturas recibidas</strong>: altas, modificaciones y bajas.</li>
-              <li>No se envían todavía el libro de bienes de inversión (anual), el de determinadas operaciones intracomunitarias, los cobros en metálico de más de 6.000 € ni los cobros y pagos del criterio de caja. Si te afectan, comunícalos desde la sede de la Agencia Tributaria.</li>
+              <li>
+                <strong>Criterio de caja</strong>: si tu empresa está en el régimen (Configuración › Fiscalidad) o lo está el proveedor (casilla de la factura de compra),
+                la factura va con la clave 07 y cada cobro o pago se comunica en su libro en los cuatro días hábiles siguientes, con su fecha, importe y medio.
+                Lo que siga sin cobrar o pagar el 31 de diciembre del año siguiente se comunica en esa fecha como «no se cobra / paga».
+                Un cobro o pago corregido o borrado se anula enviándolo en negativo (en estos libros la AEAT no admite modificaciones ni bajas).
+              </li>
+              <li>
+                <strong>Bienes de inversión</strong>: el libro anual se prepara cuando confirmas la prorrata definitiva del año en Configuración › Fiscalidad, con las
+                compras marcadas como bien de inversión de 3.005,06 € o más durante sus años de regularización. Hay que enviarlo antes del 30 de enero del año siguiente.
+                Si vendes o das de baja un bien, ese apunte se queda bloqueado: comunícalo desde la sede de la Agencia Tributaria.
+              </li>
+              <li>
+                Las <strong>rectificativas</strong> se envían siempre «por diferencias» (tipo I), porque en esta aplicación una rectificativa recoge solo la diferencia
+                con la factura original; la rectificación «por sustitución» no se usa.
+              </li>
+              <li>
+                No se envían el libro de <strong>determinadas operaciones intracomunitarias</strong> (envíos de bienes para informes o ventas en consigna, que la aplicación
+                no registra) ni los cobros en metálico de más de 6.000 €. Si te afectan, comunícalos desde la sede de la Agencia Tributaria.
+              </li>
               <li>Las importaciones se envían con su DUA: anota el número y la fecha del DUA en la factura de compra.</li>
               <li>Los festivos que no cuentan para el plazo son los nacionales; los autonómicos y locales sí cuentan.</li>
             </ul>

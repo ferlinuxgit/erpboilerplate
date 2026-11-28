@@ -12,7 +12,7 @@ import { getSiiTransportConfig, isSiiEnvironment, readSiiEnvironment, requireSii
 import { civilKey, formatCivil, parseCivilKey, siiDeadlineStatus, type SiiDeadlineStatus } from "@/server/sii/deadlines";
 import { detectSiiRecords, ensureSiiSettings, isRegisteredInSii, loadSiiCompanyProfile, siiEligibility, type OutboxHistoryEntry } from "@/server/sii/outbox";
 import { SII_ERROR_DUPLICATE, SII_FAULT_ERROR, SII_TRANSPORT_ERROR } from "@/server/sii/sender";
-import type { SiiBook, SiiOperation, SiiStatus } from "@/server/sii/types";
+import { SII_BOOKS, type SiiBook, type SiiOperation, type SiiStatus } from "@/server/sii/types";
 import { getCompanyCertificateInfo } from "@/server/verifactu/certificates";
 
 export const siiStatusLabels: Record<string, string> = {
@@ -31,7 +31,22 @@ export const siiStatusTone: Record<string, "neutral" | "success" | "warning" | "
   REJECTED: "danger",
 };
 
-export const siiBookLabels: Record<string, string> = { ISSUED: "Expedida", RECEIVED: "Recibida" };
+export const siiBookLabels: Record<string, string> = {
+  ISSUED: "Expedida",
+  RECEIVED: "Recibida",
+  ISSUED_COLLECTIONS: "Cobro (criterio de caja)",
+  RECEIVED_PAYMENTS: "Pago (criterio de caja)",
+  INVESTMENT_GOODS: "Bien de inversión",
+};
+
+/** Nombre de cada libro registro tal y como lo llama la AEAT, para el resumen por libros. */
+export const siiBookTitles: Record<SiiBook, string> = {
+  ISSUED: "Facturas expedidas",
+  RECEIVED: "Facturas recibidas",
+  ISSUED_COLLECTIONS: "Cobros de facturas expedidas (criterio de caja)",
+  RECEIVED_PAYMENTS: "Pagos de facturas recibidas (criterio de caja)",
+  INVESTMENT_GOODS: "Bienes de inversión (anual)",
+};
 export const siiOperationLabels: Record<string, string> = { A0: "Alta", A1: "Modificación", BAJA: "Baja" };
 
 export type SiiRecordView = {
@@ -61,6 +76,8 @@ export type SiiRecordView = {
   /** El último envío falló sin respuesta por registro (conexión o rechazo del envío completo). */
   sendFailed: boolean;
   createdAt: Date;
+  /** Factura del ERP a la que pertenece el registro (en cobros, pagos y bienes de inversión no es `sourceId`). */
+  invoiceSourceId: string;
 };
 
 const recordView = {
@@ -85,16 +102,19 @@ const recordView = {
   aeatErrorCode: siiRecord.aeatErrorCode,
   aeatErrorMessage: siiRecord.aeatErrorMessage,
   createdAt: siiRecord.createdAt,
+  // Cobros y pagos: payload.cash.invoiceSourceId; bienes de inversión: payload.good.invoiceSourceId.
+  linkedInvoiceId: sql<string | null>`coalesce(${siiRecord.payload}->'cash'->>'invoiceSourceId', ${siiRecord.payload}->'good'->>'invoiceSourceId')`,
 };
 
-type RawView = Pick<typeof siiRecord.$inferSelect, keyof typeof recordView>;
+type RawView = Pick<typeof siiRecord.$inferSelect, Exclude<keyof typeof recordView, "linkedInvoiceId">> & { linkedInvoiceId: string | null };
 
 /** Un registro está fuera de plazo mientras su alta no esté aceptada y haya pasado el último día. */
-function toView(row: RawView, today: { year: number; month: number; day: number }): SiiRecordView {
+function toView({ linkedInvoiceId, ...row }: RawView, today: { year: number; month: number; day: number }): SiiRecordView {
   const due = parseCivilKey(row.dueDate);
   const open = row.status === "PENDING" || row.status === "REJECTED" || row.status === "SENT";
   return {
     ...row,
+    invoiceSourceId: linkedInvoiceId ?? row.sourceId,
     book: row.book as SiiBook,
     operation: row.operation as SiiOperation,
     status: row.status as SiiStatus,
@@ -136,6 +156,15 @@ export async function getSiiOverview(companyId: string, now = new Date()) {
   const rejected = current.filter((record) => record.status === "REJECTED" || record.status === "ACCEPTED_WITH_ERRORS").sort(byNewest);
   const accepted = current.filter((record) => record.status === "ACCEPTED").sort((left, right) => (right.sentAt?.getTime() ?? 0) - (left.sentAt?.getTime() ?? 0));
   const overdue = current.filter((record) => record.deadline === "overdue");
+  // Estado de cada libro (registro vigente de cada factura, cobro, pago o bien).
+  const books = SII_BOOKS.map((book) => {
+    const ofBook = current.filter((record) => record.book === book);
+    const bookCounts: Record<string, number> = {};
+    for (const record of ofBook) bookCounts[record.status] = (bookCounts[record.status] ?? 0) + 1;
+    return { book, title: siiBookTitles[book], total: ofBook.length, counts: bookCounts, blocked: ofBook.filter((record) => record.status === "PENDING" && record.blockedReason).length };
+  });
+  const cashAccountingActive = profile.fiscalRegime === "cash_accounting";
+  const prorrataYears = Object.keys(profile.vatProrataFinal).sort();
 
   return {
     companyName: profile.name,
@@ -156,6 +185,13 @@ export async function getSiiOverview(companyId: string, now = new Date()) {
     accepted: accepted.slice(0, 50),
     acceptedTotal: accepted.length,
     otherEnvironmentCount: otherEnvironment?.count ?? 0,
+    books,
+    cashAccounting: {
+      active: cashAccountingActive,
+      sinceKey: cashAccountingActive && settings?.cashAccountingSince ? civilKey(fiscalCivilDate(settings.cashAccountingSince, profile.timezone)) : null,
+    },
+    /** Ejercicios con prorrata definitiva confirmada: los únicos con libro de bienes de inversión. */
+    prorrataYears,
   };
 }
 
@@ -185,6 +221,22 @@ export async function updateSiiSince(companyId: string, sinceKey: string) {
   const since = localMidnightInstant(date.year, date.month - 1, date.day, profile.timezone);
   await db.update(siiSettings).set({ since, updatedAt: new Date() }).where(eq(siiSettings.companyId, companyId));
   return { since };
+}
+
+/**
+ * Fecha desde la que la empresa aplica el régimen especial del criterio de caja: las operaciones
+ * devengadas desde ella llevan la clave 07 y sus cobros y pagos se suministran. Solo tiene sentido
+ * con el régimen activado en Configuración › Fiscalidad.
+ */
+export async function updateSiiCashAccountingSince(companyId: string, sinceKey: string) {
+  const profile = await requireSupported(companyId);
+  if (profile.fiscalRegime !== "cash_accounting") throw new HttpError(409, "La empresa no está en el régimen especial del criterio de caja: actívalo antes en Configuración › Fiscalidad.");
+  const date = parseCivilKey(sinceKey);
+  if (!date) throw new HttpError(400, "Indica una fecha válida.");
+  await ensureSiiSettings(db, profile);
+  const cashAccountingSince = localMidnightInstant(date.year, date.month - 1, date.day, profile.timezone);
+  await db.update(siiSettings).set({ cashAccountingSince, updatedAt: new Date() }).where(eq(siiSettings.companyId, companyId));
+  return { cashAccountingSince };
 }
 
 /**

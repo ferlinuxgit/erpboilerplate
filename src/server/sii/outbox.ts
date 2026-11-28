@@ -5,20 +5,25 @@
  */
 import { createHash } from "node:crypto";
 
-import { and, asc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, ne, notInArray, or, sql } from "drizzle-orm";
 
-import { company, companySettings, customer, invoice, invoiceLine, invoiceLineTax, item, partner, siiRecord, siiSettings, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { accountChart, company, companySettings, customer, fixedAsset, invoice, invoiceLine, invoiceLineTax, invoicePayment, item, partner, payment, paymentMethod, siiRecord, siiSettings, supplierInvoice, supplierInvoiceLine, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { db, type DbClient } from "@/lib/db";
 import { getCountryFiscalProfile } from "@/lib/country-packs/profile";
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { standardVatRate } from "@/lib/country-packs/vat-rates";
-import { fiscalCivilDate, localMidnightInstant, resolveSalesVatTreatment, resolveSupplierVatTreatment } from "@/lib/fiscal-spain";
+import { fiscalCivilDate, localMidnightInstant, resolveSalesVatTreatment, resolveSupplierVatTreatment, reverseChargeTaxAmount } from "@/lib/fiscal-spain";
 import type { InvoiceCalculationTax } from "@/lib/invoice-totals";
+import { normalizeVatProrataFinal } from "@/server/fiscal/prorrata";
 import { DRAFT_NUMBER_PREFIX } from "@/server/invoices/lifecycle";
+import { cashMovementsToSend, cashPeriodOf, planCashMovements, siiPaymentMethodCode, type CashSourceMovement } from "@/server/sii/cash";
 import { readSiiEnvironment, type SiiEnvironment } from "@/server/sii/config";
-import { civilKey, parseExtraHolidays, siiDeadline } from "@/server/sii/deadlines";
-import { civilDateOf, mapIssuedInvoice, mapReceivedInvoice, type SiiIssuedSource, type SiiReceivedSource } from "@/server/sii/mapping";
-import type { SiiBook, SiiOperation, SiiRecordPayload, SiiStatus } from "@/server/sii/types";
+import { addSiiBusinessDays, civilKey, parseExtraHolidays, SII_DEADLINE_BUSINESS_DAYS, siiDeadline } from "@/server/sii/deadlines";
+import { investmentGoodsDueDate, mapInvestmentGoods, type SiiInvestmentGoodSource } from "@/server/sii/investment-goods";
+import { civilDateOf, mapIssuedInvoice, mapReceivedInvoice, SII_CASH_ACCOUNTING_KEY, siiPartyId, type SiiIssuedSource, type SiiReceivedSource } from "@/server/sii/mapping";
+import type { SiiBook, SiiCashMovement, SiiCashRecord, SiiOperation, SiiParty, SiiRecordPayload, SiiStatus } from "@/server/sii/types";
+import { SII_ANNUAL_PERIOD } from "@/server/sii/xml";
+import { formatAeatAmount, formatAeatDate } from "@/server/verifactu/format";
 
 const BATCH = 500;
 
@@ -96,14 +101,17 @@ export type SiiCompanyProfile = {
   siiEnabled: boolean;
   fiscalRegime: string;
   businessType: string;
+  /** Prorrata definitiva confirmada por ejercicio ({ "2026": 83 }): de ella depende el libro de bienes de inversión. */
+  vatProrataFinal: Record<string, number>;
 };
 
 export type SiiEligibility = { enabled: boolean; supported: boolean; reason: string | null };
 
 /**
  * El SII que implementa este módulo es el de la AEAT (territorio común). Fuera quedan Canarias
- * (SII del IGIC, de la Agencia Tributaria Canaria), Ceuta y Melilla, y el régimen especial del
- * criterio de caja (exige además suministrar cobros y pagos, que no está implementado).
+ * (SII del IGIC, de la Agencia Tributaria Canaria) y Ceuta y Melilla. Una empresa en el régimen
+ * especial del criterio de caja sí se suministra: sus facturas llevan la clave 07 y sus cobros y
+ * pagos van en los libros de cobros y de pagos.
  */
 export function siiEligibility(profile: Pick<SiiCompanyProfile, "siiEnabled" | "countryCode" | "territory" | "fiscalRegime">): SiiEligibility {
   if (!profile.siiEnabled) return { enabled: false, supported: false, reason: "El SII no está activado en esta empresa." };
@@ -112,9 +120,6 @@ export function siiEligibility(profile: Pick<SiiCompanyProfile, "siiEnabled" | "
   }
   if (profile.territory && profile.territory !== "ES") {
     return { enabled: true, supported: false, reason: "Solo se suministra al SII de la AEAT (Península y Baleares). El SII de Canarias (IGIC) y las operaciones de Ceuta y Melilla no están cubiertos." };
-  }
-  if (profile.fiscalRegime === "cash_accounting") {
-    return { enabled: true, supported: false, reason: "El régimen especial del criterio de caja exige suministrar también los cobros y pagos, que todavía no está disponible: no se envía nada para no dejar registros incompletos." };
   }
   return { enabled: true, supported: true, reason: null };
 }
@@ -133,6 +138,7 @@ export async function loadSiiCompanyProfile(client: DbClient, companyId: string)
       siiEnabled: companySettings.siiEnabled,
       fiscalRegime: companySettings.fiscalRegime,
       businessType: companySettings.businessType,
+      vatProrataFinal: companySettings.vatProrataFinal,
     })
     .from(company)
     .leftJoin(companySettings, eq(companySettings.companyId, company.id))
@@ -149,6 +155,7 @@ export async function loadSiiCompanyProfile(client: DbClient, companyId: string)
     siiEnabled: row.siiEnabled ?? false,
     fiscalRegime: row.fiscalRegime ?? "general",
     businessType: row.businessType ?? "both",
+    vatProrataFinal: normalizeVatProrataFinal(row.vatProrataFinal),
   };
 }
 
@@ -170,9 +177,27 @@ type MappedDocument = {
   payload: SiiRecordPayload | null;
   problems: string[];
   dueDate: string | null;
+  /** Datos para los libros de cobros y pagos (solo facturas vivas). */
+  cash?: {
+    /** Importe total de la factura (lo que se cobra o se paga), en céntimos. */
+    totalCents: number;
+    operationDate: Date;
+    /** Recibidas: fecha de registro (ningún pago se declara antes). */
+    notBefore?: Date | null;
+    rectifiedId: string | null;
+    counterpartyName: string | null;
+  };
 };
 
-async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile, since: Date, extraHolidays: string[]): Promise<MappedDocument[]> {
+type LoadOptions = {
+  since: Date;
+  extraHolidays: string[];
+  /** Desde cuándo aplica la empresa el criterio de caja; null si no está en el régimen. */
+  cashAccountingSince: Date | null;
+};
+
+async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile, options: LoadOptions): Promise<MappedDocument[]> {
+  const { since, extraHolidays, cashAccountingSince } = options;
   const rows = await client
     .select({
       id: invoice.id,
@@ -186,6 +211,7 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
       rectifiedInvoiceId: invoice.rectifiedInvoiceId,
       rectificationReason: invoice.rectificationReason,
       rectificationDescription: invoice.rectificationDescription,
+      totalAmount: invoice.totalAmount,
       issuerSnapshot: invoice.issuerSnapshot,
       customerSnapshot: invoice.customerSnapshot,
       customerName: customer.name,
@@ -293,6 +319,8 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
         original: row.rectifiedInvoiceId ? originals.get(row.rectifiedInvoiceId) ?? null : null,
         timeZone: profile.timezone,
         servicesByDefault: profile.businessType === "services",
+        // Criterio de caja: operaciones devengadas (regla general) desde que la empresa aplica el régimen.
+        cashAccounting: Boolean(cashAccountingSince && (row.operationDate ?? row.issueDate) >= cashAccountingSince),
       });
       const problems = [...mapped.problems];
       if ((linesByInvoice.get(row.id) ?? []).length === 0) problems.push("La factura no tiene líneas.");
@@ -306,13 +334,20 @@ async function loadIssuedDocuments(client: DbClient, profile: SiiCompanyProfile,
           accrual: civilDateOf(row.operationDate ?? row.issueDate, profile.timezone),
           extraHolidays,
         })),
+        cash: {
+          totalCents: Math.round(Number(row.totalAmount) * 100),
+          operationDate: row.operationDate ?? row.issueDate,
+          rectifiedId: row.rectifiedInvoiceId,
+          counterpartyName: customerData.name,
+        },
       });
     }
   }
   return documents;
 }
 
-async function loadReceivedDocuments(client: DbClient, profile: SiiCompanyProfile, since: Date, extraHolidays: string[]): Promise<MappedDocument[]> {
+async function loadReceivedDocuments(client: DbClient, profile: SiiCompanyProfile, options: LoadOptions): Promise<MappedDocument[]> {
+  const { since, extraHolidays, cashAccountingSince } = options;
   const rectified = supplierInvoice;
   const rows = await client
     .select({
@@ -333,6 +368,8 @@ async function loadReceivedDocuments(client: DbClient, profile: SiiCompanyProfil
       importDuaNumber: supplierInvoice.importDuaNumber,
       importDuaDate: supplierInvoice.importDuaDate,
       prorrataPct: supplierInvoice.prorrataPct,
+      totalAmount: supplierInvoice.totalAmount,
+      supplierCashAccounting: supplierInvoice.supplierCashAccounting,
       supplierName: partner.name,
       supplierTaxId: partner.taxId,
       supplierCountry: partner.countryCode,
@@ -402,6 +439,8 @@ async function loadReceivedDocuments(client: DbClient, profile: SiiCompanyProfil
         lines: linesByInvoice.get(row.id) ?? [],
         timeZone: profile.timezone,
         selfAssessmentRate: standardVatRate(profile.countryCode) || 21,
+        // La deducción nace con el pago si el proveedor está en criterio de caja o lo está la empresa.
+        cashAccounting: row.supplierCashAccounting || Boolean(cashAccountingSince && (row.operationDate ?? row.issueDate) >= cashAccountingSince),
       });
       const problems = [...mapped.problems];
       if ((linesByInvoice.get(row.id) ?? []).length === 0) problems.push("La factura no tiene líneas.");
@@ -412,6 +451,13 @@ async function loadReceivedDocuments(client: DbClient, profile: SiiCompanyProfil
         payload: { book: "RECEIVED", invoice: mapped.invoice },
         problems,
         dueDate: civilKey(siiDeadline({ start: accounting, accrual: accounting, extraHolidays })),
+        cash: {
+          totalCents: Math.round(Number(row.totalAmount) * 100),
+          operationDate: row.operationDate ?? row.issueDate,
+          notBefore: row.accountingDate,
+          rectifiedId: row.rectifiedInvoiceId,
+          counterpartyName: row.supplierName,
+        },
       });
     }
   }
@@ -421,6 +467,19 @@ async function loadReceivedDocuments(client: DbClient, profile: SiiCompanyProfil
 // ── Sincronización de la bandeja ────────────────────────────────────────────────────────────
 
 function recordColumns(payload: SiiRecordPayload) {
+  if (payload.book === "INVESTMENT_GOODS") {
+    const { good } = payload;
+    return {
+      fiscalYear: good.year,
+      period: SII_ANNUAL_PERIOD,
+      invoiceNumber: good.number || "(sin número)",
+      invoiceDate: good.issueDate,
+      invoiceTypeCode: null,
+      counterpartyName: `${good.goodId} · ${good.issuer.name}`,
+      totalAmount: good.annualRegularization ?? null,
+    };
+  }
+  if (payload.book !== "ISSUED" && payload.book !== "RECEIVED") throw new Error("Los cobros y pagos tienen su propia sincronización.");
   const { invoice: content } = payload;
   const counterparty = payload.book === "ISSUED" ? payload.invoice.counterparty?.name ?? null : payload.invoice.issuer.name;
   return {
@@ -436,8 +495,8 @@ function recordColumns(payload: SiiRecordPayload) {
 
 export type SiiDetectionSummary = { companyId: string; created: number; updated: number; cancelled: number; discarded: number; skipped: string | null };
 
-async function syncBook(client: DbClient, companyId: string, environment: SiiEnvironment, book: SiiBook, documents: MappedDocument[], summary: SiiDetectionSummary) {
-  if (documents.length === 0) return;
+async function syncBook(client: DbClient, companyId: string, environment: SiiEnvironment, book: SiiBook, documents: MappedDocument[], summary: SiiDetectionSummary, options: { discardAbsentPending?: boolean } = {}) {
+  if (documents.length === 0 && !options.discardAbsentPending) return;
   const history = new Map<string, OutboxHistoryEntry[]>();
   const existing = await client
     .select({ id: siiRecord.id, sourceId: siiRecord.sourceId, operation: siiRecord.operation, status: siiRecord.status, contentHash: siiRecord.contentHash })
@@ -446,6 +505,18 @@ async function syncBook(client: DbClient, companyId: string, environment: SiiEnv
     .orderBy(asc(siiRecord.createdAt), asc(siiRecord.id));
   for (const row of existing) {
     history.set(row.sourceId, [...(history.get(row.sourceId) ?? []), { id: row.id, operation: row.operation as SiiOperation, status: row.status as SiiStatus, contentHash: row.contentHash }]);
+  }
+
+  if (options.discardAbsentPending) {
+    // Lo que ya no se deriva de los datos (p. ej. se ha quitado la prorrata definitiva del año) y
+    // aún no ha salido se descarta. Lo ya aceptado por la AEAT no se da de baja automáticamente.
+    const present = new Set(documents.map((document) => document.sourceId));
+    for (const [sourceId, entries] of history) {
+      const latest = entries[entries.length - 1];
+      if (present.has(sourceId) || latest.status !== "PENDING" || latest.operation === "BAJA") continue;
+      await client.delete(siiRecord).where(and(eq(siiRecord.id, latest.id), eq(siiRecord.status, "PENDING")));
+      summary.discarded += 1;
+    }
   }
 
   for (const document of documents) {
@@ -521,24 +592,377 @@ async function syncBook(client: DbClient, companyId: string, environment: SiiEnv
   }
 }
 
+// ── Cobros y pagos del criterio de caja ─────────────────────────────────────────────────────
+
+type CashDocument = {
+  /** Id del cobro o pago (o del abono, o del vencimiento del 31 de diciembre). */
+  sourceId: string;
+  invoiceSourceId: string;
+  issuer: SiiCashRecord["issuer"];
+  number: string;
+  issueDate: string;
+  date: Date;
+  target: SiiCashMovement;
+  counterpartyName: string | null;
+};
+
+type CashInvoice = MappedDocument & { payload: Extract<SiiRecordPayload, { book: "ISSUED" | "RECEIVED" }>; cash: NonNullable<MappedDocument["cash"]> };
+
+/** Facturas vivas con clave 07: las únicas que admiten cobros o pagos (errores 3005 y 3007 de la AEAT). */
+function cashInvoices(documents: MappedDocument[]): CashInvoice[] {
+  return documents.filter((document): document is CashInvoice => Boolean(
+    document.live && document.cash && document.payload
+    && (document.payload.book === "ISSUED" || document.payload.book === "RECEIVED")
+    && document.payload.invoice.regimeKey === SII_CASH_ACCOUNTING_KEY,
+  ));
+}
+
+async function loadCollections(client: DbClient, companyId: string, invoiceIds: string[]) {
+  const result = new Map<string, CashSourceMovement[]>();
+  for (let offset = 0; offset < invoiceIds.length; offset += BATCH) {
+    const rows = await client
+      .select({ id: invoicePayment.id, invoiceId: invoicePayment.invoiceId, amount: invoicePayment.amountApplied, date: payment.postedAt, methodType: paymentMethod.type, account: paymentMethod.bankAccountNumber })
+      .from(invoicePayment)
+      .innerJoin(payment, eq(payment.id, invoicePayment.paymentId))
+      .leftJoin(paymentMethod, eq(paymentMethod.id, payment.paymentMethodId))
+      .where(and(eq(invoicePayment.companyId, companyId), inArray(invoicePayment.invoiceId, invoiceIds.slice(offset, offset + BATCH))));
+    for (const row of rows) {
+      result.set(row.invoiceId, [...(result.get(row.invoiceId) ?? []), { id: row.id, date: row.date, amountCents: Math.round(Number(row.amount) * 100), method: siiPaymentMethodCode(row.methodType), account: row.account }]);
+    }
+  }
+  return result;
+}
+
+async function loadSupplierPayments(client: DbClient, companyId: string, invoiceIds: string[]) {
+  const result = new Map<string, CashSourceMovement[]>();
+  for (let offset = 0; offset < invoiceIds.length; offset += BATCH) {
+    const rows = await client
+      .select({ id: supplierInvoicePayment.id, invoiceId: supplierInvoicePayment.supplierInvoiceId, amount: supplierInvoicePayment.amountApplied, date: supplierPayment.postedAt, methodType: paymentMethod.type })
+      .from(supplierInvoicePayment)
+      .innerJoin(supplierPayment, eq(supplierPayment.id, supplierInvoicePayment.supplierPaymentId))
+      .leftJoin(paymentMethod, eq(paymentMethod.id, supplierPayment.paymentMethodId))
+      .where(and(eq(supplierInvoicePayment.companyId, companyId), inArray(supplierInvoicePayment.supplierInvoiceId, invoiceIds.slice(offset, offset + BATCH))));
+    for (const row of rows) {
+      // La cuenta de la forma de pago es la de la empresa, no la del proveedor: no se informa.
+      result.set(row.invoiceId, [...(result.get(row.invoiceId) ?? []), { id: row.id, date: row.date, amountCents: Math.round(Number(row.amount) * 100), method: siiPaymentMethodCode(row.methodType) }]);
+    }
+  }
+  return result;
+}
+
+/** Cobros o pagos que hay que tener declarados de las facturas con clave 07 de un libro. */
+function buildCashDocuments(documents: MappedDocument[], movements: Map<string, CashSourceMovement[]>, timeZone: string, now: Date): CashDocument[] {
+  const invoices = cashInvoices(documents);
+  // Abonos que compensan una factura: la rectificativa (importe negativo) cuenta como cobro de la rectificada.
+  const credits = new Map<string, CashSourceMovement[]>();
+  for (const document of documents) {
+    if (!document.live || !document.cash?.rectifiedId || document.cash.totalCents >= 0) continue;
+    credits.set(document.cash.rectifiedId, [
+      ...(credits.get(document.cash.rectifiedId) ?? []),
+      { id: `${document.sourceId}:abono`, date: document.cash.notBefore ?? document.cash.operationDate, amountCents: -document.cash.totalCents, method: "04" },
+    ]);
+  }
+  return invoices.flatMap((document) => {
+    const { invoice: content } = document.payload;
+    const issuer: SiiCashRecord["issuer"] = document.payload.book === "ISSUED" ? { nif: document.payload.invoice.issuerNif } : document.payload.invoice.issuer;
+    return planCashMovements({
+      invoiceId: document.sourceId,
+      operationDate: document.cash.operationDate,
+      totalCents: document.cash.totalCents,
+      movements: [...(movements.get(document.sourceId) ?? []), ...(credits.get(document.sourceId) ?? [])],
+      timeZone,
+      now,
+      notBefore: document.cash.notBefore,
+    }).map((planned) => ({
+      sourceId: planned.sourceId,
+      invoiceSourceId: document.sourceId,
+      issuer,
+      number: content.number,
+      issueDate: content.issueDate,
+      date: planned.date,
+      target: planned.movement,
+      counterpartyName: document.cash.counterpartyName,
+    }));
+  });
+}
+
+const WAITING_FOR_INVOICE = "La factura todavía no consta en el SII con la clave del criterio de caja (07): este registro se enviará en cuanto la AEAT la acepte.";
+
+function netAmount(movements: SiiCashMovement[]) {
+  return formatAeatAmount(movements.reduce((sum, movement) => sum + Math.round(Number(movement.amount) * 100), 0) / 100);
+}
+
+/**
+ * Sincroniza un libro de cobros o de pagos. Cada registro es un cobro o pago: alta (A0) al
+ * aparecer; si cambia después de aceptado, una corrección (A1: anulación en negativo más el nuevo);
+ * si desaparece, su anulación (BAJA: el mismo movimiento en negativo). Los tres viajan en el mismo
+ * mensaje de suministro: en estos libros no existen ni la modificación ni la baja.
+ */
+async function syncCashBook(
+  client: DbClient,
+  input: { companyId: string; environment: SiiEnvironment; book: "ISSUED_COLLECTIONS" | "RECEIVED_PAYMENTS"; parentBook: "ISSUED" | "RECEIVED"; documents: CashDocument[]; liveInvoiceIds: Set<string>; timeZone: string; extraHolidays: string[] },
+  summary: SiiDetectionSummary,
+) {
+  const { companyId, environment, book } = input;
+  const scope = and(eq(siiRecord.companyId, companyId), eq(siiRecord.environment, environment));
+  const existing = await client
+    .select({ id: siiRecord.id, sourceId: siiRecord.sourceId, operation: siiRecord.operation, status: siiRecord.status, contentHash: siiRecord.contentHash, payload: siiRecord.payload })
+    .from(siiRecord)
+    .where(and(scope, eq(siiRecord.book, book)))
+    .orderBy(asc(siiRecord.createdAt), asc(siiRecord.id));
+  if (existing.length === 0 && input.documents.length === 0) return;
+
+  // Facturas que constan en el SII con la clave 07 (su última comunicación aceptada).
+  const parents = await client
+    .select({ sourceId: siiRecord.sourceId, operation: siiRecord.operation, status: siiRecord.status, payload: siiRecord.payload })
+    .from(siiRecord)
+    .where(and(scope, eq(siiRecord.book, input.parentBook), inArray(siiRecord.status, ["ACCEPTED", "ACCEPTED_WITH_ERRORS"])))
+    .orderBy(asc(siiRecord.createdAt), asc(siiRecord.id));
+  const registeredParents = new Set<string>();
+  for (const parent of parents) {
+    const content = parent.payload as unknown as SiiRecordPayload;
+    const registered = parent.operation !== "BAJA" && (content.book === "ISSUED" || content.book === "RECEIVED") && content.invoice.regimeKey === SII_CASH_ACCOUNTING_KEY;
+    if (registered) registeredParents.add(parent.sourceId);
+    else registeredParents.delete(parent.sourceId);
+  }
+
+  const history = new Map<string, Array<OutboxHistoryEntry & { payload: SiiCashRecord | null }>>();
+  for (const row of existing) {
+    const content = row.payload as unknown as SiiRecordPayload;
+    const cash = content.book === "ISSUED_COLLECTIONS" || content.book === "RECEIVED_PAYMENTS" ? content.cash : null;
+    history.set(row.sourceId, [...(history.get(row.sourceId) ?? []), { id: row.id, operation: row.operation as SiiOperation, status: row.status as SiiStatus, contentHash: row.contentHash, payload: cash }]);
+  }
+  const documents = new Map(input.documents.map((document) => [document.sourceId, document]));
+
+  for (const sourceId of new Set([...documents.keys(), ...history.keys()])) {
+    const document = documents.get(sourceId) ?? null;
+    const entries = history.get(sourceId) ?? [];
+    const latest = entries[entries.length - 1];
+    const accepted = [...entries].reverse().find((entry) => ACCEPTED.has(entry.status));
+    const declared = accepted?.payload?.declared ?? [];
+    const identity = document ?? latest?.payload ?? null;
+    if (!identity) continue;
+
+    if (!document && !input.liveInvoiceIds.has(identity.invoiceSourceId)) {
+      // La factura ya no está en criterio de caja o se ha anulado (su baja arrastra sus cobros): lo pendiente sobra.
+      if (latest?.status === "PENDING") {
+        await client.delete(siiRecord).where(and(eq(siiRecord.id, latest.id), eq(siiRecord.status, "PENDING")));
+        summary.discarded += 1;
+      }
+      continue;
+    }
+
+    const problems = registeredParents.has(identity.invoiceSourceId) ? [] : [WAITING_FOR_INVOICE];
+    const base = { invoiceSourceId: identity.invoiceSourceId, issuer: identity.issuer, number: identity.number, issueDate: identity.issueDate };
+    const contentHash = document ? createHash("sha256").update(JSON.stringify([base, document.target, problems])).digest("hex") : null;
+    const action = planOutboxAction({ live: Boolean(document), contentHash, history: entries });
+    if (action.kind === "none") continue;
+    if (action.kind === "delete") {
+      await client.delete(siiRecord).where(and(eq(siiRecord.id, action.recordId), eq(siiRecord.status, "PENDING")));
+      summary.discarded += 1;
+      continue;
+    }
+
+    const registered = isRegisteredInSii(entries);
+    const target = document ? [document.target] : [];
+    const movements = registered ? cashMovementsToSend(declared, target) : target;
+    const pendingId = action.kind === "create" ? null : action.recordId;
+    if (movements.length === 0) {
+      // Nada que declarar (lo que consta ya es lo correcto): una comunicación pendiente sobra.
+      if (pendingId) {
+        await client.delete(siiRecord).where(and(eq(siiRecord.id, pendingId), eq(siiRecord.status, "PENDING")));
+        summary.discarded += 1;
+      }
+      continue;
+    }
+    const operation: SiiOperation = !document ? "BAJA" : registered ? "A1" : "A0";
+    const date = document?.date ?? null;
+    const period = date ? cashPeriodOf(date, input.timeZone) : null;
+    const payload: SiiRecordPayload = { book, cash: { ...base, movements, declared: target } };
+    const now = new Date();
+    const values = {
+      operation,
+      fiscalYear: period?.year ?? movements[0].date.slice(6, 10),
+      period: period?.period ?? movements[0].date.slice(3, 5),
+      invoiceNumber: base.number || "(sin número)",
+      invoiceDate: base.issueDate,
+      invoiceTypeCode: null,
+      counterpartyName: document?.counterpartyName ?? null,
+      totalAmount: netAmount(movements),
+      payload: payload as unknown as Record<string, unknown>,
+      contentHash: contentHash ?? createHash("sha256").update(JSON.stringify(["BAJA", base, movements])).digest("hex"),
+      // Cuatro días hábiles desde el cobro o pago; una corrección o una anulación no tienen plazo propio.
+      dueDate: operation === "A0" && date ? civilKey(addSiiBusinessDays(civilDateOf(date, input.timeZone), SII_DEADLINE_BUSINESS_DAYS, input.extraHolidays)) : null,
+      blockedReason: problems.length > 0 ? problems.join(" ") : null,
+      updatedAt: now,
+    };
+    if (pendingId) {
+      await client
+        .update(siiRecord)
+        .set({ ...values, ...(document ? {} : { counterpartyName: undefined }), attempts: 0, nextAttemptAt: null, aeatErrorCode: null, aeatErrorMessage: null })
+        .where(and(eq(siiRecord.id, pendingId), eq(siiRecord.status, "PENDING")));
+      if (operation === "BAJA") summary.cancelled += 1;
+      else summary.updated += 1;
+    } else {
+      await client.insert(siiRecord).values({ companyId, book, sourceId, environment, status: "PENDING", ...values }).onConflictDoNothing();
+      if (operation === "BAJA") summary.cancelled += 1;
+      else summary.created += 1;
+    }
+  }
+}
+
+// ── Libro de bienes de inversión ────────────────────────────────────────────────────────────
+
+/** Cuentas de terrenos y edificaciones: regularización en diez años (mismo criterio que el 303). */
+const isRealEstateAccount = (code: string | null | undefined) => /^(210|211|220|221)/.test(code ?? "");
+
+/**
+ * Apuntes del libro de bienes de inversión de los ejercicios con prorrata definitiva confirmada
+ * (desde el año de inicio del suministro). Sin prorrata definitiva no hay libro que suministrar.
+ */
+async function loadInvestmentGoodDocuments(client: DbClient, profile: SiiCompanyProfile, since: Date, now: Date): Promise<MappedDocument[]> {
+  const sinceYear = fiscalCivilDate(since, profile.timezone).year;
+  const currentYear = fiscalCivilDate(now, profile.timezone).year;
+  const years = Object.keys(profile.vatProrataFinal).map(Number).filter((year) => year >= sinceYear && year <= currentYear).sort();
+  if (years.length === 0) return [];
+
+  const rows = await client
+    .select({
+      lineId: supplierInvoiceLine.id,
+      invoiceId: supplierInvoice.id,
+      number: supplierInvoice.number,
+      supplierDocumentNumber: supplierInvoice.supplierDocumentNumber,
+      issueDate: supplierInvoice.issueDate,
+      accountingDate: supplierInvoice.accountingDate,
+      description: supplierInvoiceLine.description,
+      subtotal: supplierInvoiceLine.subtotalAmount,
+      taxAmount: supplierInvoiceLine.taxAmount,
+      taxDeductiblePct: supplierInvoiceLine.taxDeductiblePct,
+      prorrataPct: supplierInvoice.prorrataPct,
+      vatTreatment: supplierInvoice.vatTreatment,
+      supplierName: partner.name,
+      supplierTaxId: partner.taxId,
+      supplierCountry: partner.countryCode,
+      supplierKind: partner.supplierKind,
+      accountCode: accountChart.code,
+    })
+    .from(supplierInvoiceLine)
+    .innerJoin(supplierInvoice, eq(supplierInvoiceLine.supplierInvoiceId, supplierInvoice.id))
+    .innerJoin(partner, eq(partner.id, supplierInvoice.supplierPartnerId))
+    .leftJoin(accountChart, eq(accountChart.id, supplierInvoiceLine.expenseAccountId))
+    .where(and(
+      eq(supplierInvoice.companyId, profile.id),
+      notInArray(supplierInvoice.status, ["VOID", "DRAFT"]),
+      gte(supplierInvoice.accountingDate, localMidnightInstant(years[0] - 9, 0, 1, profile.timezone)),
+      lt(supplierInvoice.accountingDate, localMidnightInstant(years[years.length - 1] + 1, 0, 1, profile.timezone)),
+      or(eq(supplierInvoiceLine.isInvestmentGood, true), sql`${accountChart.code} like '2%'`),
+    ));
+  if (rows.length === 0) return [];
+
+  // Ficha de inmovilizado enlazada a la factura (solo si hay exactamente una: si no, no se sabe a qué línea corresponde).
+  const assetsByInvoice = new Map<string, Array<{ code: string; description: string; inServiceDate: string; disposalDate: string | null }>>();
+  const invoiceIds = [...new Set(rows.map((row) => row.invoiceId))];
+  for (let offset = 0; offset < invoiceIds.length; offset += BATCH) {
+    const assets = await client
+      .select({ supplierInvoiceId: fixedAsset.supplierInvoiceId, code: fixedAsset.code, description: fixedAsset.description, inServiceDate: fixedAsset.inServiceDate, disposalDate: fixedAsset.disposalDate })
+      .from(fixedAsset)
+      .where(and(eq(fixedAsset.companyId, profile.id), inArray(fixedAsset.supplierInvoiceId, invoiceIds.slice(offset, offset + BATCH))));
+    for (const asset of assets) {
+      if (asset.supplierInvoiceId) assetsByInvoice.set(asset.supplierInvoiceId, [...(assetsByInvoice.get(asset.supplierInvoiceId) ?? []), asset]);
+    }
+  }
+  const isoToAeat = (iso: string) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
+  const selfAssessmentRate = standardVatRate(profile.countryCode) || 21;
+
+  const goods: SiiInvestmentGoodSource[] = rows.map((row) => {
+    const treatment = resolveSupplierVatTreatment(row.vatTreatment, row.supplierCountry, row.supplierKind, profile.countryCode);
+    const selfAssessed = treatment === "INTRA_EU" || treatment === "REVERSE_CHARGE";
+    const vat = selfAssessed ? reverseChargeTaxAmount(Number(row.subtotal), Number(row.taxAmount), selfAssessmentRate) : Number(row.taxAmount);
+    const id = siiPartyId(row.supplierTaxId, row.supplierCountry);
+    const issuer: SiiParty | null = id ? { name: row.supplierName, ...id } : null;
+    const assets = assetsByInvoice.get(row.invoiceId) ?? [];
+    const asset = assets.length === 1 ? assets[0] : null;
+    return {
+      lineId: row.lineId,
+      invoiceId: row.invoiceId,
+      number: row.number,
+      description: row.description ?? "",
+      purchaseYear: fiscalCivilDate(row.accountingDate, profile.timezone).year,
+      baseCents: Math.round(Number(row.subtotal) * 100),
+      vatCents: Math.round(Number(vat) * 100),
+      deductiblePct: Math.min(Math.max(Number(row.taxDeductiblePct ?? 100), 0), 100),
+      appliedProrrataPct: Math.min(Math.max(Number(row.prorrataPct ?? 100), 0), 100),
+      realEstate: isRealEstateAccount(row.accountCode),
+      issuer,
+      invoiceNumber: (row.supplierDocumentNumber ?? "").trim() || row.number,
+      invoiceIssueDate: formatAeatDate(row.issueDate, profile.timezone),
+      accountingDate: formatAeatDate(row.accountingDate, profile.timezone),
+      asset: asset ? { code: asset.code, description: asset.description, inServiceDate: isoToAeat(asset.inServiceDate), disposalYear: asset.disposalDate ? Number(asset.disposalDate.slice(0, 4)) : null } : null,
+    };
+  });
+
+  return years.flatMap((year) => mapInvestmentGoods(goods.filter((good) => good.purchaseYear <= year), { year, finalPct: profile.vatProrataFinal[String(year)], finalByYear: profile.vatProrataFinal })
+    .map((mapped): MappedDocument => ({
+      sourceId: mapped.sourceId,
+      live: true,
+      payload: { book: "INVESTMENT_GOODS", good: mapped.good },
+      problems: mapped.problems,
+      dueDate: investmentGoodsDueDate(year),
+    })));
+}
+
+/**
+ * Desde cuándo aplica la empresa el criterio de caja. El régimen se aplica por años naturales
+ * (art. 163 undecies LIVA), así que la primera vez se toma el 1 de enero del año en curso; se puede
+ * cambiar en la pantalla del SII. Las operaciones anteriores se suministran con su clave ordinaria.
+ */
+async function resolveCashAccountingSince(client: DbClient, profile: SiiCompanyProfile, settings: typeof siiSettings.$inferSelect, now: Date) {
+  if (profile.fiscalRegime !== "cash_accounting") return null;
+  if (settings.cashAccountingSince) return settings.cashAccountingSince;
+  const start = localMidnightInstant(fiscalCivilDate(now, profile.timezone).year, 0, 1, profile.timezone);
+  await client.update(siiSettings).set({ cashAccountingSince: start, updatedAt: new Date() }).where(eq(siiSettings.companyId, profile.id));
+  return start;
+}
+
 /** Revisa las facturas de una empresa y deja en la bandeja lo que falta por comunicar. */
 export async function detectSiiRecords(companyId: string, options: { client?: DbClient; env?: Record<string, string | undefined>; now?: Date } = {}): Promise<SiiDetectionSummary> {
   const client = options.client ?? db;
   const env = options.env ?? process.env;
+  const now = options.now ?? new Date();
   const summary: SiiDetectionSummary = { companyId, created: 0, updated: 0, cancelled: 0, discarded: 0, skipped: null };
   const profile = await loadSiiCompanyProfile(client, companyId);
   if (!profile) return { ...summary, skipped: "Empresa no encontrada." };
   const eligibility = siiEligibility(profile);
   if (!eligibility.supported) return { ...summary, skipped: eligibility.reason };
-  const environment = readSiiEnvironment(env);
-  if (!environment.environment) return { ...summary, skipped: environment.problem };
+  const environmentConfig = readSiiEnvironment(env);
+  if (!environmentConfig.environment) return { ...summary, skipped: environmentConfig.problem };
+  const environment = environmentConfig.environment;
 
-  const settings = await ensureSiiSettings(client, profile, options.now);
+  const settings = await ensureSiiSettings(client, profile, now);
   const extraHolidays = parseExtraHolidays(env.SII_EXTRA_HOLIDAYS);
-  const issuedDocuments = await loadIssuedDocuments(client, profile, settings.since, extraHolidays);
-  await syncBook(client, companyId, environment.environment, "ISSUED", issuedDocuments, summary);
-  await syncBook(client, companyId, environment.environment, "RECEIVED", await loadReceivedDocuments(client, profile, settings.since, extraHolidays), summary);
-  await client.update(siiSettings).set({ lastDetectionAt: options.now ?? new Date(), updatedAt: new Date() }).where(eq(siiSettings.companyId, companyId));
+  const loadOptions: LoadOptions = { since: settings.since, extraHolidays, cashAccountingSince: await resolveCashAccountingSince(client, profile, settings, now) };
+  const issuedDocuments = await loadIssuedDocuments(client, profile, loadOptions);
+  await syncBook(client, companyId, environment, "ISSUED", issuedDocuments, summary);
+  const receivedDocuments = await loadReceivedDocuments(client, profile, loadOptions);
+  await syncBook(client, companyId, environment, "RECEIVED", receivedDocuments, summary);
+
+  // Cobros y pagos de las facturas con clave 07 (empresa en criterio de caja o proveedores acogidos a él).
+  const issuedCash = cashInvoices(issuedDocuments).map((document) => document.sourceId);
+  await syncCashBook(client, {
+    companyId, environment, book: "ISSUED_COLLECTIONS", parentBook: "ISSUED", timeZone: profile.timezone, extraHolidays,
+    liveInvoiceIds: new Set(issuedCash),
+    documents: buildCashDocuments(issuedDocuments, issuedCash.length > 0 ? await loadCollections(client, companyId, issuedCash) : new Map(), profile.timezone, now),
+  }, summary);
+  const receivedCash = cashInvoices(receivedDocuments).map((document) => document.sourceId);
+  await syncCashBook(client, {
+    companyId, environment, book: "RECEIVED_PAYMENTS", parentBook: "RECEIVED", timeZone: profile.timezone, extraHolidays,
+    liveInvoiceIds: new Set(receivedCash),
+    documents: buildCashDocuments(receivedDocuments, receivedCash.length > 0 ? await loadSupplierPayments(client, companyId, receivedCash) : new Map(), profile.timezone, now),
+  }, summary);
+
+  await syncBook(client, companyId, environment, "INVESTMENT_GOODS", await loadInvestmentGoodDocuments(client, profile, settings.since, now), summary, { discardAbsentPending: true });
+
+  await client.update(siiSettings).set({ lastDetectionAt: now, updatedAt: new Date() }).where(eq(siiSettings.companyId, companyId));
   return summary;
 }
 

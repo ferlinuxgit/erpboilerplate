@@ -12,11 +12,15 @@ import { loadSiiCompanyProfile, siiEligibility } from "@/server/sii/outbox";
 import type { SiiTransport } from "@/server/sii/transport";
 import type { SiiBook, SiiOperation, SiiRecordPayload, SiiStatus } from "@/server/sii/types";
 import {
+  buildBajaLRBienesInversion,
   buildBajaLRFacturasEmitidas,
   buildBajaLRFacturasRecibidas,
   buildSoapEnvelope,
+  buildSuministroLRBienesInversion,
+  buildSuministroLRCobrosEmitidas,
   buildSuministroLRFacturasEmitidas,
   buildSuministroLRFacturasRecibidas,
+  buildSuministroLRPagosRecibidas,
   chunkForSubmission,
   parseSiiResponse,
   type SiiLineResult,
@@ -82,18 +86,33 @@ export function findLine(lines: SiiLineResult[], record: Pick<RecordRow, "id" | 
 
 export function buildSubmissionXml(input: { holder: { name: string; nif: string }; book: SiiBook; operation: SiiOperation; records: Array<Pick<RecordRow, "id" | "payload">> }) {
   const payloads = input.records.map((record) => ({ id: record.id, payload: record.payload as unknown as SiiRecordPayload }));
+  if (input.book === "ISSUED_COLLECTIONS" || input.book === "RECEIVED_PAYMENTS") {
+    // Libros de cobros y pagos: no hay modificación ni baja. El alta, la corrección (anulación en
+    // negativo más el movimiento nuevo) y la anulación viajan en el mismo mensaje de suministro.
+    const records = payloads.flatMap(({ payload }) => (payload.book === "ISSUED_COLLECTIONS" || payload.book === "RECEIVED_PAYMENTS" ? [payload.cash] : []));
+    return buildSoapEnvelope(input.book === "ISSUED_COLLECTIONS"
+      ? buildSuministroLRCobrosEmitidas({ holder: input.holder, records })
+      : buildSuministroLRPagosRecibidas({ holder: input.holder, records }));
+  }
+  if (input.book === "INVESTMENT_GOODS") {
+    const goods = payloads.flatMap(({ id, payload }) => (payload.book === "INVESTMENT_GOODS" ? [{ ...payload.good, refExterna: id }] : []));
+    return buildSoapEnvelope(input.operation === "BAJA"
+      ? buildBajaLRBienesInversion({ holder: input.holder, goods })
+      : buildSuministroLRBienesInversion({ holder: input.holder, communication: input.operation, goods }));
+  }
+  const invoices = payloads.flatMap(({ id, payload }) => (payload.book === "ISSUED" || payload.book === "RECEIVED" ? [{ id, payload }] : []));
   if (input.operation === "BAJA") {
-    const cancellations = payloads.map(({ id, payload }) => ({ ...cancellationFor(payload), refExterna: id }));
+    const cancellations = invoices.map(({ id, payload }) => ({ ...cancellationFor(payload), refExterna: id }));
     return buildSoapEnvelope(input.book === "ISSUED"
       ? buildBajaLRFacturasEmitidas({ holder: input.holder, cancellations })
       : buildBajaLRFacturasRecibidas({ holder: input.holder, cancellations }));
   }
   if (input.book === "ISSUED") {
-    const invoices = payloads.flatMap(({ id, payload }) => (payload.book === "ISSUED" ? [{ ...payload.invoice, refExterna: id }] : []));
-    return buildSoapEnvelope(buildSuministroLRFacturasEmitidas({ holder: input.holder, communication: input.operation, invoices }));
+    const issued = invoices.flatMap(({ id, payload }) => (payload.book === "ISSUED" ? [{ ...payload.invoice, refExterna: id }] : []));
+    return buildSoapEnvelope(buildSuministroLRFacturasEmitidas({ holder: input.holder, communication: input.operation, invoices: issued }));
   }
-  const invoices = payloads.flatMap(({ id, payload }) => (payload.book === "RECEIVED" ? [{ ...payload.invoice, refExterna: id }] : []));
-  return buildSoapEnvelope(buildSuministroLRFacturasRecibidas({ holder: input.holder, communication: input.operation, invoices }));
+  const received = invoices.flatMap(({ id, payload }) => (payload.book === "RECEIVED" ? [{ ...payload.invoice, refExterna: id }] : []));
+  return buildSoapEnvelope(buildSuministroLRFacturasRecibidas({ holder: input.holder, communication: input.operation, invoices: received }));
 }
 
 export type SiiSubmissionSummary = {

@@ -3,14 +3,19 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { mapInvestmentGoods } from "@/server/sii/investment-goods";
 import { mapIssuedInvoice, mapReceivedInvoice, cancellationFor, type SiiIssuedSource, type SiiReceivedSource } from "@/server/sii/mapping";
 import { siiXsdValidator } from "@/server/sii/test-fixtures/xsd-validator";
 import {
+  buildBajaLRBienesInversion,
   buildBajaLRFacturasEmitidas,
   buildBajaLRFacturasRecibidas,
   buildSoapEnvelope,
+  buildSuministroLRBienesInversion,
+  buildSuministroLRCobrosEmitidas,
   buildSuministroLRFacturasEmitidas,
   buildSuministroLRFacturasRecibidas,
+  buildSuministroLRPagosRecibidas,
   chunkForSubmission,
   parseSiiResponse,
   SII_MAX_RECORDS_PER_SUBMISSION,
@@ -369,6 +374,85 @@ describe("bajas", () => {
     const xml = buildBajaLRFacturasRecibidas({ holder, cancellations: [cancellationFor({ book: "RECEIVED", invoice: mapReceivedInvoice(received()).invoice })] });
     expect(validator.validate(xml)).toEqual([]);
     expect(xml).toMatch(/<sii:IDEmisorFactura>\s*<sii:NombreRazon>Proveedor SL<\/sii:NombreRazon>\s*<sii:NIF>B85121501<\/sii:NIF>/);
+  });
+});
+
+describe("criterio de caja (clave 07)", () => {
+  const key = (xml: string) => /<sii:ClaveRegimenEspecialOTrascendencia>(\d+)</.exec(xml)?.[1];
+
+  it("expedida nacional de una empresa acogida: clave 07; si la operación está excluida del régimen, su clave ordinaria", () => {
+    const xml = emitidas([issued({ cashAccounting: true })]);
+    expect(validator.validate(xml)).toEqual([]);
+    expect(key(xml)).toBe("07");
+    // Inversión del sujeto pasivo (S2), exportación (E2) o entrega intracomunitaria (E5): validación 17 de expedidas.
+    expect(mapIssuedInvoice(issued({ cashAccounting: true, vatTreatment: "REVERSE_CHARGE" })).invoice.regimeKey).toBe("01");
+    expect(mapIssuedInvoice(issued({ cashAccounting: true, vatTreatment: "EXPORT", customer: { name: "Client Inc", taxId: "123456", countryCode: "US" } })).invoice.regimeKey).toBe("02");
+    expect(mapIssuedInvoice(issued({ cashAccounting: true, vatTreatment: "INTRA_EU", customer: { name: "Client GmbH", taxId: "DE123456789", countryCode: "DE" } })).invoice.regimeKey).not.toBe("07");
+    expect(mapIssuedInvoice(issued()).invoice.regimeKey).toBe("01");
+  });
+
+  it("recibida de un proveedor acogido: clave 07 solo en operaciones nacionales (no con inversión del sujeto pasivo)", () => {
+    const xml = recibidas([received({ cashAccounting: true })]);
+    expect(validator.validate(xml)).toEqual([]);
+    expect(key(xml)).toBe("07");
+    expect(mapReceivedInvoice(received({ cashAccounting: true, vatTreatment: "REVERSE_CHARGE", lines: [{ description: "Chatarra", subtotal: "500.00", taxAmount: "0", taxRate: "0", taxDeductiblePct: "100" }] })).invoice.regimeKey).toBe("01");
+  });
+
+  const movement = { date: "15-04-2027", amount: "121.00", method: "01" as const, account: "ES9121000418450200051332" };
+
+  it("SuministroLRCobrosEmitidas: cabecera sin TipoComunicacion; los cobros de una factura en un único registro", () => {
+    const xml = buildSuministroLRCobrosEmitidas({
+      holder,
+      records: [
+        { issuer: { nif: "B12345674" }, number: "FA-2027-0001", issueDate: "10-03-2027", movements: [movement] },
+        { issuer: { nif: "B12345674" }, number: "FA-2027-0001", issueDate: "10-03-2027", movements: [{ date: "31-12-2028", amount: "10.00", method: "03", account: "no debe salir" }] },
+        { issuer: { nif: "B12345674" }, number: "FA-2027-0002", issueDate: "11-03-2027", movements: [{ ...movement, amount: "-121.00" }, { ...movement, date: "16-04-2027" }] },
+      ],
+    });
+    expect(validator.validate(xml)).toEqual([]);
+    expect(xml).not.toContain("TipoComunicacion");
+    expect(xml.match(/<siiLR:RegistroLRCobros>/g)).toHaveLength(2);
+    expect(xml).toMatch(/<siiLR:IDFactura>\s*<sii:IDEmisorFactura>\s*<sii:NIF>B12345674<\/sii:NIF>\s*<\/sii:IDEmisorFactura>\s*<sii:NumSerieFacturaEmisor>FA-2027-0001</);
+    expect(xml).toMatch(/<sii:Cobro>\s*<sii:Fecha>15-04-2027<\/sii:Fecha>\s*<sii:Importe>121.00<\/sii:Importe>\s*<sii:Medio>01<\/sii:Medio>\s*<sii:Cuenta_O_Medio>ES9121000418450200051332</);
+    // Con el medio 03 no se admite la cuenta (error 1152).
+    expect(xml).toMatch(/<sii:Medio>03<\/sii:Medio>\s*<\/sii:Cobro>/);
+    expect(xml).toContain("<sii:Importe>-121.00</sii:Importe>");
+  });
+
+  it("SuministroLRPagosRecibidas: el emisor va con nombre e identificación", () => {
+    const xml = buildSuministroLRPagosRecibidas({
+      holder,
+      records: [{ issuer: { name: "Proveedor SL", nif: "B85121501" }, number: "A/2027/55", issueDate: "08-03-2027", movements: [{ date: "20-04-2027", amount: "242.00", method: "05" }] }],
+    });
+    expect(validator.validate(xml)).toEqual([]);
+    expect(xml).toMatch(/<siiLR:RegistroLRPagos>\s*<siiLR:IDFactura>\s*<sii:IDEmisorFactura>\s*<sii:NombreRazon>Proveedor SL<\/sii:NombreRazon>\s*<sii:NIF>B85121501</);
+    expect(xml).toMatch(/<sii:Pago>\s*<sii:Fecha>20-04-2027<\/sii:Fecha>\s*<sii:Importe>242.00<\/sii:Importe>\s*<sii:Medio>05<\/sii:Medio>\s*<\/sii:Pago>/);
+    expect(() => buildSuministroLRPagosRecibidas({ holder, records: [{ issuer: { nif: "B85121501" }, number: "X", issueDate: "08-03-2027", movements: [movement] }] })).toThrow(/nombre del emisor/);
+  });
+});
+
+describe("libro de bienes de inversión", () => {
+  const goods = mapInvestmentGoods([{
+    lineId: "line-1", invoiceId: "sup-1", number: "FR-1", description: "Máquina cortadora", purchaseYear: 2026, baseCents: 1_000_000, vatCents: 210_000,
+    deductiblePct: 100, appliedProrrataPct: 80, realEstate: false, issuer: { name: "Proveedor SL", nif: "B85121501" },
+    invoiceNumber: "A/2026/7", invoiceIssueDate: "10-03-2026", accountingDate: "12-03-2026",
+  }], { year: 2027, finalPct: 50, finalByYear: { 2026: 80 } }).map((entry) => ({ ...entry.good, refExterna: "rec-bi-1" }));
+
+  it("SuministroLRBienesInversion: periodo 0A, factura de compra y apunte con prorrata y regularización", () => {
+    const xml = buildSuministroLRBienesInversion({ holder, communication: "A0", goods });
+    expect(validator.validate(xml)).toEqual([]);
+    expect(xml).toContain("<sii:TipoComunicacion>A0</sii:TipoComunicacion>");
+    expect(xml).toMatch(/<sii:PeriodoLiquidacion>\s*<sii:Ejercicio>2027<\/sii:Ejercicio>\s*<sii:Periodo>0A<\/sii:Periodo>/);
+    expect(xml).toMatch(/<sii:IDEmisorFactura>\s*<sii:NombreRazon>Proveedor SL<\/sii:NombreRazon>\s*<sii:NIF>B85121501</);
+    expect(xml).toMatch(/<siiLR:BienesInversion>\s*<sii:IdentificacionBien>Máquina cortadora<\/sii:IdentificacionBien>\s*<sii:FechaInicioUtilizacion>12-03-2026<\/sii:FechaInicioUtilizacion>\s*<sii:ProrrataAnualDefinitiva>50.00<\/sii:ProrrataAnualDefinitiva>\s*<sii:RegularizacionAnualDeduccion>-126.00<\/sii:RegularizacionAnualDeduccion>\s*<sii:RefExterna>rec-bi-1</);
+    expect(validator.validate(buildSuministroLRBienesInversion({ holder, communication: "A1", goods: [{ ...goods[0], annualRegularization: null }] }))).toEqual([]);
+  });
+
+  it("BajaLRBienesInversion: ejercicio, factura e identificación del bien", () => {
+    const xml = buildBajaLRBienesInversion({ holder, goods });
+    expect(validator.validate(xml)).toEqual([]);
+    expect(xml).not.toContain("TipoComunicacion");
+    expect(xml).toMatch(/<siiLR:IdentificacionBien>Máquina cortadora<\/siiLR:IdentificacionBien>\s*<siiLR:RefExterna>rec-bi-1</);
   });
 });
 

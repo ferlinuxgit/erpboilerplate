@@ -2189,20 +2189,28 @@ export const siiSettings = pgTable("sii_settings", {
   // de registro >= esta. Por defecto, el 1 de enero del año en que se activa.
   since: timestamp("since", { withTimezone: true, mode: "date" }).notNull(),
   lastDetectionAt: timestamp("lastDetectionAt", { withTimezone: true, mode: "date" }),
+  // Régimen especial del criterio de caja: las operaciones desde esta fecha llevan la clave 07.
+  // null si la empresa no está en el régimen (o aún no ha pasado por la bandeja estando en él).
+  cashAccountingSince: timestamp("cashAccountingSince", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
 /**
- * Bandeja de salida del SII: un registro por cada comunicación de una factura a la AEAT (alta A0,
- * modificación A1 o baja). El historial se conserva: el registro vigente de una factura es el
- * último. `sourceId` es el id de la factura emitida (`invoice`) o recibida (`supplier_invoice`);
- * va sin clave ajena a propósito, para no condicionar el borrado de borradores en esos módulos.
+ * Bandeja de salida del SII: un registro por cada comunicación a la AEAT (alta A0, modificación A1
+ * o baja). El historial se conserva: el registro vigente de un origen es el último. `sourceId` va
+ * sin clave ajena a propósito, para no condicionar el borrado en los módulos de origen. Según el
+ * libro es: el id de la factura emitida (`invoice`, ISSUED) o recibida (`supplier_invoice`,
+ * RECEIVED); el id de la aplicación del cobro (`invoice_payment`, ISSUED_COLLECTIONS) o del pago
+ * (`supplier_invoice_payment`, RECEIVED_PAYMENTS), o «<factura>:abono|propio|limite» en los
+ * movimientos que no son un cobro o pago; y «<línea de la factura recibida>:<ejercicio>» en el
+ * libro de bienes de inversión (INVESTMENT_GOODS).
  */
 export const siiRecord = pgTable("sii_record", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
-  // ISSUED (libro de facturas expedidas) o RECEIVED (recibidas).
+  // ISSUED (facturas expedidas), RECEIVED (recibidas), ISSUED_COLLECTIONS (cobros del criterio de
+  // caja), RECEIVED_PAYMENTS (pagos del criterio de caja) o INVESTMENT_GOODS (bienes de inversión).
   book: text("book").notNull(),
   sourceId: text("sourceId").notNull(),
   // A0 (alta), A1 (modificación) o BAJA.
@@ -2241,7 +2249,7 @@ export const siiRecord = pgTable("sii_record", {
   index("sii_record_source_idx").on(table.companyId, table.book, table.sourceId, table.createdAt),
   index("sii_record_status_idx").on(table.status, table.nextAttemptAt),
   index("sii_record_company_created_idx").on(table.companyId, table.createdAt),
-  check("sii_record_book_valid", sql`${table.book} IN ('ISSUED', 'RECEIVED')`),
+  check("sii_record_book_valid", sql`${table.book} IN ('ISSUED', 'RECEIVED', 'ISSUED_COLLECTIONS', 'RECEIVED_PAYMENTS', 'INVESTMENT_GOODS')`),
   check("sii_record_operation_valid", sql`${table.operation} IN ('A0', 'A1', 'BAJA')`),
   check("sii_record_environment_valid", sql`${table.environment} IN ('production', 'test')`),
   check("sii_record_status_valid", sql`${table.status} IN ('PENDING', 'SENT', 'ACCEPTED', 'ACCEPTED_WITH_ERRORS', 'REJECTED')`),

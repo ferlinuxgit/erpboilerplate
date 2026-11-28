@@ -4045,11 +4045,11 @@
   "method": "PATCH",
   "path": "/api/sii/settings",
   "area": "sii",
-  "summary": "Fecha desde la que se suministran las facturas al SII.",
+  "summary": "Fecha desde la que se suministran las facturas al SII o desde la que se aplica el criterio de caja (clave 07).",
   "permissions": [
    "fiscal.write"
   ],
-  "body": "const payloadSchema = z.object({ since: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) })"
+  "body": "const payloadSchema = z.union([z.object({ since: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) }), z.object({ cashAccountingSince: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) })])"
  },
  {
   "method": "GET",
