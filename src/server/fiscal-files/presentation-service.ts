@@ -1,11 +1,12 @@
-import { and, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gt, gte, isNotNull, lt, sql } from "drizzle-orm";
 
-import { accountChart, company, partner, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
+import { accountChart, capitalIncomePayment, company, partner, payrollEmployee, payrollSlip, supplierInvoice, supplierInvoiceLine } from "@/db/schema";
 import { db } from "@/lib/db";
 import { fiscalTimeZoneFor, isSpanishFiscalModelCode, parseSpanishFiscalPeriod } from "@/lib/fiscal-spain";
 import { HttpError } from "@/lib/http";
 import { recordAudit } from "@/server/audit";
-import { FiscalFileError, normalizeSpanishNif, type Declarant, type FiscalFile } from "@/server/fiscal-files/fields";
+import { FiscalFileError, normalizeSpanishNif, toCents, type Declarant, type FiscalFile } from "@/server/fiscal-files/fields";
+import { MODELO_390_FILE_REASON } from "@/server/fiscal-files/models";
 import { buildPresentationFile, hasPresentationFile, type PresentationExtras, type PresentationOptions } from "@/server/fiscal-files/presentation";
 import { assertCountryFeature } from "@/server/fiscal/country-guard";
 import { getFiscalReport, resolveFiscalReportSummary, type FiscalSummarySource } from "@/server/fiscal/service";
@@ -50,11 +51,60 @@ async function loadPartyAddresses(companyId: string) {
   return addresses;
 }
 
+/** Fechas de pago de los dividendos del año a cada perceptor, por NIF normalizado (fecha de devengo del 193). */
+async function loadDividendDates(companyId: string, year: number) {
+  const rows = await db
+    .select({ taxId: capitalIncomePayment.recipientTaxId, paymentDate: capitalIncomePayment.paymentDate })
+    .from(capitalIncomePayment)
+    .where(and(
+      eq(capitalIncomePayment.companyId, companyId),
+      eq(capitalIncomePayment.kind, "dividend"),
+      gte(capitalIncomePayment.paymentDate, `${year}-01-01`),
+      lt(capitalIncomePayment.paymentDate, `${year + 1}-01-01`),
+    ));
+  const dates = new Map<string, string[]>();
+  for (const row of rows) {
+    const key = normalizeSpanishNif(row.taxId);
+    if (!key) continue;
+    dates.set(key, [...(dates.get(key) ?? []), row.paymentDate]);
+  }
+  return dates;
+}
+
+/**
+ * Cotizaciones a la Seguridad Social a cargo del trabajador en las nóminas contabilizadas del año
+ * (por fecha de devengo), por «NIF|clave del 190»: son los gastos deducibles del art. 19.2.a LIRPF
+ * que pide el 190.
+ */
+async function loadEmployeeSocialSecurity(companyId: string, year: number) {
+  const rows = await db
+    .select({ taxId: payrollEmployee.taxId, recipientKind: payrollEmployee.recipientKind, amount: sql<string>`coalesce(sum(${payrollSlip.employeeSocialSecurity}), '0')` })
+    .from(payrollSlip)
+    .innerJoin(payrollEmployee, eq(payrollEmployee.id, payrollSlip.employeeId))
+    .where(and(eq(payrollSlip.companyId, companyId), eq(payrollSlip.status, "posted"), gte(payrollSlip.accrualDate, `${year}-01-01`), lt(payrollSlip.accrualDate, `${year + 1}-01-01`)))
+    .groupBy(payrollEmployee.taxId, payrollEmployee.recipientKind);
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${normalizeSpanishNif(row.taxId)}|${row.recipientKind === "director" ? "E" : "A"}`;
+    totals.set(key, (totals.get(key) ?? 0) + toCents(Number(row.amount)));
+  }
+  return totals;
+}
+
 async function loadExtras(companyId: string, summary: SpanishFiscalSummary, period: string): Promise<PresentationExtras> {
-  if (summary.code === "111" || summary.code === "115") {
+  // Las fotos antiguas del 111 y del 115 no llevan el número de perceptores: se cuenta en las facturas.
+  if ((summary.code === "111" || summary.code === "115") && !summary.withholdingModel) {
     return { withholdingRecipients: await countWithholdingRecipients(companyId, summary.code, period, fiscalTimeZoneFor(summary.fiscalProfile.territory)) };
   }
-  if (summary.code === "347") return { partyAddresses: await loadPartyAddresses(companyId) };
+  if (summary.code === "347" || summary.code === "180") return { partyAddresses: await loadPartyAddresses(companyId) };
+  if (summary.code === "190") {
+    const [partyAddresses, employeeSocialSecurity] = await Promise.all([loadPartyAddresses(companyId), loadEmployeeSocialSecurity(companyId, Number(period.slice(0, 4)))]);
+    return { partyAddresses, employeeSocialSecurity };
+  }
+  if (summary.code === "193") {
+    const [partyAddresses, dividendDates] = await Promise.all([loadPartyAddresses(companyId), loadDividendDates(companyId, Number(period.slice(0, 4)))]);
+    return { partyAddresses, dividendDates };
+  }
   return {};
 }
 
@@ -75,9 +125,7 @@ export async function generatePresentationFile(input: {
   const report = await getFiscalReport(input.companyId, input.reportId);
   if (!report) throw new HttpError(404, "Modelo no encontrado.");
   if (!isSpanishFiscalModelCode(report.code) || !hasPresentationFile(report.code)) {
-    throw new HttpError(422, report.code === "390"
-      ? "El programa no genera el fichero del 390: usa el resumen anual como guía para rellenarlo en la sede."
-      : `El modelo ${report.code} no tiene fichero de presentación en el programa.`);
+    throw new HttpError(422, report.code === "390" ? MODELO_390_FILE_REASON : `El modelo ${report.code} no tiene fichero de presentación en el programa.`);
   }
   const [companyRow] = await db
     .select({ name: company.name, legalName: company.legalName, vatNumber: company.vatNumber, phone: company.phone, countryCode: company.countryCode })

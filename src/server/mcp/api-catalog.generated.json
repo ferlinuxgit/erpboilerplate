@@ -1666,13 +1666,19 @@
   "method": "GET",
   "path": "/api/fiscal-files/presentation/{id}",
   "area": "fiscal-files",
-  "summary": "Fichero de presentación de un modelo guardado, para importarlo en la sede de la AEAT (texto de longitud fija en ISO-8859-1 según el diseño de registro del modelo). `?tipo=` fuerza el tipo de declaración (I, U, N, C, D…) y `?iban=` la cuenta de domiciliación o devolución. Los avisos que conviene revisar viajan en la cabecera `X-Fiscal-File-Warnings` (JSON codificado en URI). Si faltan datos responde 422 con el detalle.",
+  "summary": "Fichero de presentación de un modelo guardado, para importarlo en la sede de la AEAT (texto de longitud fija en ISO-8859-1 según el diseño de registro del modelo). Parámetros de la descarga (los datos que el programa no guarda): - `?tipo=` fuerza el tipo de declaración (I, U, N, C, D…) y `?iban=` la cuenta de domiciliación o devolución (autoliquidaciones); - `?provincia=` (dos dígitos): provincia de los perceptores sin ficha con código postal (190, 180, 193); - `?exonerado390=1`, `?actividad=` (A01…C), `?iae=` y `?con347=1`: volumen de operaciones del 303 del último periodo para quien no prese …",
   "permissions": [
    "fiscal.read"
   ],
   "query": [
    "tipo",
-   "iban"
+   "iban",
+   "provincia",
+   "exonerado390",
+   "actividad",
+   "iae",
+   "con347",
+   "cnae"
   ]
  },
  {
