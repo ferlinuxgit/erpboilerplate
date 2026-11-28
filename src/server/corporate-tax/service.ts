@@ -45,11 +45,23 @@ import { computeCorporateTax, type CorporateTaxResult, type CorporateTaxWarning,
 import {
   buildCorporateTaxEntryLines,
   computeDeferredTax,
+  computeLossCredit,
   CORPORATE_TAX_ACCOUNTS,
   hasDeferredTax,
+  lossCreditExpenseCents,
   type CorporateTaxEntryLine,
   type DeferredTax,
+  type LossCredit,
 } from "@/server/corporate-tax/posting-model";
+import {
+  FINANCIAL_EXPENSE_PREFIXES,
+  FINANCIAL_INCOME_PREFIXES,
+  isCapitalizationEquityAccount,
+  proposeCapitalizationReserve,
+  proposeFinancialExpensesLimit,
+  type CapitalizationReserveProposal,
+  type FinancialExpensesProposal,
+} from "@/server/corporate-tax/proposals";
 import { CORPORATE_TAX_REGIMES, suggestedRegime, type CorporateTaxRegime } from "@/server/corporate-tax/rates";
 import type { CorporateTaxReturnInput, InstallmentInput } from "@/server/corporate-tax/schemas";
 import { fiscalYearEndExclusive, assertFiscalYearOpen } from "@/server/fiscal/locks";
@@ -107,6 +119,7 @@ export function defaultReturnInputs(regime: CorporateTaxRegime = "general"): Cor
     credits: [],
     withholdingsOverrideCents: null,
     installmentsOverrideCents: null,
+    recognizeLossCredit: false,
   };
 }
 
@@ -303,17 +316,24 @@ export type CorporateTaxView = {
   };
   reconciliation: ReconciliationRow[];
   suggestions: AdjustmentSuggestion[];
+  /** Propuestas editables a partir de los saldos (arts. 16 y 25); null si no hay datos o no aplica. */
+  proposals: { financialExpenses: FinancialExpensesProposal | null; capitalizationReserve: CapitalizationReserveProposal | null };
+  /** Crédito por bases negativas (4745) que lleva el asiento; null si no se ha pedido. */
+  lossCredit: (LossCredit & { ledgerBalanceCents: number }) | null;
   window: { from: string; to: string };
   warnings: CorporateTaxWarning[];
 };
 
-function postedSnapshotOf(view: Pick<CorporateTaxView, "result" | "deferred">) {
+function postedSnapshotOf(view: Pick<CorporateTaxView, "result" | "deferred" | "lossCredit">) {
   return {
     netQuotaCents: view.result.netQuotaCents,
     withholdingsCents: view.result.withholdingsCents,
     installmentsCents: view.result.installmentsCents,
     deferredAssetCents: view.deferred.assetChangeCents,
     deferredLiabilityCents: view.deferred.liabilityChangeCents,
+    // Ausentes en los asientos anteriores a la opción del crédito por pérdidas: cuentan como 0.
+    lossCreditRecognizedCents: view.lossCredit?.recognizeCents ?? 0,
+    lossCreditReversedCents: view.lossCredit?.reverseCents ?? 0,
   };
 }
 
@@ -447,11 +467,19 @@ export async function getCorporateTaxYear(
   }
 
   const deferred = computeDeferredTax(inputs.adjustments, result.marginalRatePct);
+  const account4745Cents = closingBalanceCents(rows, CORPORATE_TAX_ACCOUNTS.lossCredit) - sumByPrefix(ownNet, CORPORATE_TAX_ACCOUNTS.lossCredit);
+  const lossCredit = inputs.recognizeLossCredit
+    ? { ...computeLossCredit({ generatedLossCents: result.generatedLossCents, compensatedCents: result.losses.appliedCents, ratePct: result.marginalRatePct, ledgerBalanceCents: account4745Cents }), ledgerBalanceCents: account4745Cents }
+    : null;
+  if (lossCredit && result.losses.appliedCents > 0 && account4745Cents <= 0) {
+    warnings.push({ code: "loss-credit-empty", message: "Compensas bases negativas pero la cuenta 4745 no tiene saldo: no se da de baja ningún crédito. Si lo registraste en otra cuenta, ajústalo a mano." });
+  }
   const entryLines = buildCorporateTaxEntryLines({
     netQuotaCents: result.netQuotaCents,
     withholdingsCents: result.withholdingsCents,
     installmentsCents: result.installmentsCents,
     deferred: hasDeferredTax(deferred) ? deferred : null,
+    lossCredit: lossCredit && (lossCredit.recognizeCents > 0 || lossCredit.reverseCents > 0) ? lossCredit : null,
     yearCode: year.code,
   });
   const ownTaxExpenseCents = sumByPrefix(ownNet, "630");
@@ -465,11 +493,37 @@ export async function getCorporateTaxYear(
   }
 
   const posted = stored?.journalEntryId ? { journalEntryId: stored.journalEntryId, postedAt: stored.postedAt?.toISOString() ?? null } : null;
-  const view = { result, deferred };
+  const view = { result, deferred, lossCredit };
+  const totalDeferredExpenseCents = deferred.expenseCents + lossCreditExpenseCents(lossCredit);
   const fines = periodNetCents(rows, "678");
+  const sumPeriod = (prefixes: readonly string[]) => prefixes.reduce((sum, prefix) => sum + periodNetCents(rows, prefix), 0);
+  const financialExpensesCents = sumPeriod(FINANCIAL_EXPENSE_PREFIXES);
+  const financialExpenses = financialExpensesCents > 0
+    ? proposeFinancialExpensesLimit({
+      financialExpensesCents,
+      financialIncomeCents: -sumPeriod(FINANCIAL_INCOME_PREFIXES),
+      operatingResultCents: lineAmountCents(statements, "PG.A"),
+      depreciationCents: -lineAmountCents(statements, "PG.8"),
+      capitalSubsidiesCents: lineAmountCents(statements, "PG.9"),
+      assetDisposalResultCents: lineAmountCents(statements, "PG.11"),
+      periodDays: days,
+    })
+    : null;
+  // Fondos propios computables del art. 25.2 (saldo acreedor en positivo): al inicio y al cierre del ejercicio.
+  const equityRows = rows.filter((row) => isCapitalizationEquityAccount(row.code));
+  const capitalizationReserve = regime === "custom"
+    ? null
+    : proposeCapitalizationReserve({
+      openingEquityCents: -equityRows.reduce((sum, row) => sum + row.priorCents, 0),
+      closingEquityCents: -equityRows.reduce((sum, row) => sum + row.priorCents + row.debitCents - row.creditCents, 0),
+      startYear,
+    });
   const suggestions: AdjustmentSuggestion[] = [
     ...(fines > 0 ? [{ kind: "fines", concept: "Multas y sanciones (cuenta 678)", amountCents: fines, detail: "Saldo de la cuenta 678 «Gastos excepcionales». Incluye solo la parte que sean multas, sanciones o recargos: el resto de gastos excepcionales sí es deducible." }] : []),
     ...suggestionsFromAssets,
+    ...(financialExpenses && financialExpenses.excessCents > 0
+      ? [{ kind: "financial-expenses", concept: "Gastos financieros netos no deducibles (art. 16)", amountCents: financialExpenses.excessCents, detail: financialExpenses.explanation }]
+      : []),
   ];
 
   const window = corporateTaxReturnWindow(year.endsAt);
@@ -509,12 +563,14 @@ export async function getCorporateTaxYear(
       {
         label: "Gasto por impuesto sobre beneficios (cuentas 630)",
         ledgerCents: taxExpensePostedCents,
-        liquidationCents: result.netQuotaCents + deferred.expenseCents,
-        differenceCents: taxExpensePostedCents - result.netQuotaCents - deferred.expenseCents,
+        liquidationCents: result.netQuotaCents + totalDeferredExpenseCents,
+        differenceCents: taxExpensePostedCents - result.netQuotaCents - totalDeferredExpenseCents,
         help: "Lo contabilizado como gasto por impuesto frente a la cuota líquida (más el impuesto diferido) calculada. Coincide cuando el asiento del impuesto está al día.",
       },
     ],
     suggestions: suggestions.filter((suggestion) => !inputs.adjustments.some((item) => item.kind === suggestion.kind && item.concept === suggestion.concept)),
+    proposals: { financialExpenses, capitalizationReserve },
+    lossCredit,
     window: { from: iso(window.from), to: iso(window.to) },
     warnings,
   };
@@ -533,6 +589,7 @@ function toStoredInputs(input: CorporateTaxReturnInput): CorporateTaxReturnInput
     credits: input.credits.filter((item) => item.amountCents > 0).map((item) => ({ ...item, concept: item.concept.trim() })),
     withholdingsOverrideCents: input.withholdingsOverrideCents ?? null,
     installmentsOverrideCents: input.installmentsOverrideCents ?? null,
+    recognizeLossCredit: input.recognizeLossCredit ?? false,
   };
 }
 

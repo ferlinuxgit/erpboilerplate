@@ -310,6 +310,15 @@ export function CorporateTaxReturnForm({ canWrite, canPost, currencyCode, initia
               <AccessibleField helperText={`Reducción por el aumento de los fondos propios (art. 25). Tope este ejercicio: ${money(result.capitalizationReserve.limitCents)}. Exige dotar una reserva indisponible.`} id="ct-capitalization" label="Reserva de capitalización">
                 <DecimalInput adornment="€" disabled={!editable} minimumFractionDigits={2} onValueChange={(value) => update({ capitalizationReserveCents: Math.max(toCents(value), 0) })} value={inputs.capitalizationReserveCents / 100} />
               </AccessibleField>
+              {view.proposals.capitalizationReserve && view.proposals.capitalizationReserve.reductionCents > 0 ? (
+                <div className="rounded border border-border bg-window-panel p-2 text-xs md:col-span-2">
+                  <p className="font-bold">Propuesta de reserva de capitalización: {money(view.proposals.capitalizationReserve.reductionCents)}</p>
+                  <p className="mt-0.5 text-muted-foreground">{view.proposals.capitalizationReserve.explanation}</p>
+                  {editable && inputs.capitalizationReserveCents !== view.proposals.capitalizationReserve.reductionCents ? (
+                    <Button className="mt-1" onClick={() => update({ capitalizationReserveCents: view.proposals.capitalizationReserve?.reductionCents ?? 0 })} size="sm" type="button" variant="outline">Usar la propuesta</Button>
+                  ) : null}
+                </div>
+              ) : null}
               <AccessibleField helperText={`Solo entidades de reducida dimensión (art. 105): hasta el 10 % de la base. Tope este ejercicio: ${money(result.leveling.reductionLimitCents)}.`} id="ct-leveling-reduction" label="Reserva de nivelación: minoración">
                 <DecimalInput adornment="€" disabled={!editable} minimumFractionDigits={2} onValueChange={(value) => update({ levelingReductionCents: Math.max(toCents(value), 0) })} value={inputs.levelingReductionCents / 100} />
               </AccessibleField>
@@ -317,6 +326,16 @@ export function CorporateTaxReturnForm({ canWrite, canPost, currencyCode, initia
                 <DecimalInput adornment="€" disabled={!editable} minimumFractionDigits={2} onValueChange={(value) => update({ levelingAdditionCents: Math.max(toCents(value), 0) })} value={inputs.levelingAdditionCents / 100} />
               </AccessibleField>
             </div>
+            <label className="mt-3 flex items-start gap-2 text-sm" htmlFor="ct-loss-credit">
+              <input checked={inputs.recognizeLossCredit === true} className="mt-0.5 size-4" disabled={!editable} id="ct-loss-credit" onChange={(event) => update({ recognizeLossCredit: event.target.checked })} type="checkbox" />
+              <span>
+                Registrar el crédito fiscal por bases negativas (cuenta 4745)
+                <span className="block text-xs text-muted-foreground">
+                  Opcional. Solo si es probable que la sociedad tenga beneficios para compensarlas (norma 13.ª del PGC). El asiento reconoce la base negativa del año al tipo del impuesto y da de baja lo que se compensa ahora, hasta el saldo de la 4745.
+                  {view.lossCredit ? ` Este año: se reconocen ${money(view.lossCredit.recognizeCents)} y se aplican ${money(view.lossCredit.reverseCents)} (saldo de la 4745: ${money(view.lossCredit.ledgerBalanceCents)}).` : ""}
+                </span>
+              </span>
+            </label>
           </PageSection>
 
           <PageSection description="Restan de la cuota íntegra: donativos, I+D, creación de empleo, doble imposición…" title="4. Bonificaciones y deducciones">
@@ -441,8 +460,8 @@ export function CorporateTaxReturnForm({ canWrite, canPost, currencyCode, initia
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {view.entry.lines.map((line) => (
-                      <TableRow key={`${line.role}-${line.debitCents}-${line.creditCents}`}>
+                    {view.entry.lines.map((line, index) => (
+                      <TableRow key={`${index}-${line.role}`}>
                         <TableCell><span className="font-mono font-semibold">{line.accountCode}</span> <span className="text-xs text-muted-foreground">{line.concept.split(" · ")[1] ?? line.concept}</span></TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono">{line.debitCents ? money(line.debitCents) : ""}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono">{line.creditCents ? money(line.creditCents) : ""}</TableCell>

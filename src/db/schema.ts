@@ -1724,6 +1724,8 @@ export type CorporateTaxReturnInputs = {
   /** null = saldo de la cuenta 473 y pagos fraccionados registrados en el programa. */
   withholdingsOverrideCents: number | null;
   installmentsOverrideCents: number | null;
+  /** Registrar el crédito fiscal por bases negativas (4745) en el asiento del impuesto. Ausente = no. */
+  recognizeLossCredit?: boolean;
 };
 
 /** Liquidación del modelo 200 de un ejercicio: datos, asiento del impuesto y foto de lo presentado. */
