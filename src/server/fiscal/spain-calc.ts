@@ -909,18 +909,28 @@ export function buildModelo390Summary(issued: IssuedVatResult, supplier: Supplie
   if (options.periodResults && options.periodResults.length > 0) {
     const openingCents = options.openingCents ?? 0;
     let toPay = 0;
+    let appliedTotal = 0;
     const previous: number[] = [];
     let last: Modelo303Compensation | null = null;
     for (const period of options.periodResults) {
       last = computeModelo303Compensation({ openingCents, previousResultsCents: previous, resultCents: period.resultCents });
       if (last.resultCents > 0) toPay += last.resultCents;
+      appliedTotal += last.appliedCents;
       previous.push(period.resultCents);
     }
+    // Diseño de registro del 390 (dr390e2026, apartados 7 y 9): la 85 es lo compensado EN el año de
+    // cuotas que venían del ejercicio anterior (se compensa primero lo más antiguo); la 97 (o la 98
+    // si se pidió la devolución) es solo el resultado negativo del último periodo; la 662 recoge las
+    // cuotas generadas en el año que siguen pendientes y no están en la 97. La 659 (IVA a la
+    // importación diferido) no se calcula: vale 0.
+    const fromOpening = Math.min(openingCents, appliedTotal);
+    const openingLeft = Math.max(0, openingCents - appliedTotal);
     push("84", "Suma de resultados (65; sin régimen simplificado)", totals.resultCents, "settlement");
-    push("85", "Compensación de cuotas del ejercicio anterior", openingCents, "settlement");
-    push("86", "Resultado de la liquidación (84 − 85)", totals.resultCents - openingCents, "settlement");
+    push("85", "Compensación de cuotas del ejercicio anterior aplicada en el ejercicio", fromOpening, "settlement");
+    push("86", "Resultado de la liquidación (84 + 659 − 85)", totals.resultCents - fromOpening, "settlement");
     push("95", "Total de resultados a ingresar en las autoliquidaciones (303) del ejercicio", toPay, "settlement");
-    push("97", "A compensar al cerrar el último periodo (si pediste la devolución, es la casilla 98)", last?.carryForwardCents ?? 0, "settlement");
+    push("97", "Resultado del último periodo a compensar (si pediste la devolución, es la casilla 98)", last?.generatedCents ?? 0, "settlement");
+    push("662", "Cuotas pendientes de compensación generadas en el ejercicio, distintas de las de la casilla 97", Math.max(0, (last?.pendingAfterCents ?? 0) - openingLeft), "settlement");
   }
 
   rows.push(...buildModelo303VolumeBoxes(options.volumeIssued ?? issued, { model: "390", cashYearIssued: options.cashYearIssued }));

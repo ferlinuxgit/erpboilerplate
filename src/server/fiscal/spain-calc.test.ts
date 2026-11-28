@@ -298,13 +298,26 @@ describe("Modelo 390: numeración oficial (instrucciones y diseño de registro d
     // Deducible interior corriente al 21 %: 605 y 606, con sus totales 48 y 49.
     expect([annualBox(rows, "605"), annualBox(rows, "606"), annualBox(rows, "48"), annualBox(rows, "49")]).toEqual([1000, 210, 1000, 210]);
     expect([annualBox(rows, "64"), annualBox(rows, "65"), annualBox(rows, "84")]).toEqual([210, 1890, 1890]);
-    // 85: saldo del ejercicio anterior; 86 = 84 − 85.
+    // 85: lo compensado en el año del saldo del ejercicio anterior (100, usado en el 2T); 86 = 84 − 85.
     expect([annualBox(rows, "85"), annualBox(rows, "86")]).toEqual([100, 1790]);
     // 1T: −800 (más 100 de saldo inicial = 900 a compensar). 2T: 1.000 − 900 = 100; 3T: 500 → 600 a
-    // ingresar en el año. 4T deja 300 a compensar o devolver.
-    expect([annualBox(rows, "95"), annualBox(rows, "97")]).toEqual([600, 300]);
+    // ingresar en el año. 4T genera 300 a compensar o devolver (97); no queda nada más pendiente (662).
+    expect([annualBox(rows, "95"), annualBox(rows, "97"), annualBox(rows, "662")]).toEqual([600, 300, 0]);
     // Volumen de operaciones: 99 y total 108.
     expect([annualBox(rows, "99"), annualBox(rows, "108")]).toEqual([10_000, 10_000]);
+  });
+
+  it("390: la 85 solo recoge lo compensado del año anterior y la 662 lo generado en el año que sigue pendiente", () => {
+    const issuedVat = computeIssuedVat([issued({ unitPrice: 10_000, taxRate: 21 })]);
+    const supplierVat = computeSupplierVat([received({ subtotal: 1000, taxAmount: 210, totalAmount: 1210 })], 100);
+    // Saldo anterior de 1.000; 1T +300 (compensa 300 del anterior), 2T −500, 3T −200, 4T −100.
+    const rows = buildModelo390Summary(issuedVat, supplierVat, {
+      openingCents: 100_000,
+      periodResults: [{ period: "2026-Q1", resultCents: 30_000 }, { period: "2026-Q2", resultCents: -50_000 }, { period: "2026-Q3", resultCents: -20_000 }, { period: "2026-Q4", resultCents: -10_000 }],
+    });
+    // 85 = 300 (no los 1.000 del saldo inicial); 97 = 100 del último periodo; 662 = 500 + 200 del año.
+    expect([annualBox(rows, "85"), annualBox(rows, "95"), annualBox(rows, "97"), annualBox(rows, "662")]).toEqual([300, 0, 100, 700]);
+    expect(annualBox(rows, "86")).toBe(annualBox(rows, "84")! - 300);
   });
 
   it("separa adquisiciones intracomunitarias de bienes y de servicios, la inversión del sujeto pasivo y las rectificativas", () => {
