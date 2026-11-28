@@ -133,16 +133,22 @@ Todo lo anterior compila, pasa el lint y los tests unitarios, y la migración `0
 ### Lo que no se ha podido comprobar
 Como en las tandas anteriores: compila, pasa lint y tests unitarios (muchos contra Postgres en memoria) y las migraciones se han probado sobre datos antiguos. **No se ha abierto ninguna pantalla, ni se ha importado ningún fichero en la sede, ni se ha enviado nada a la AEAT, a FACe, a Legalia 2 ni a A3/ContaPlus.** Todo esto necesita una prueba real antes de usarse para presentar.
 
-## 4. Sigue pendiente
+## 4. Cuarta tanda (2026-11-28): implementado
 
-1. **Probar en real** todo lo anterior: es lo más importante que queda.
-2. **Fichero de presentación** del 390, del 303 en criterio de caja, y de 190, 180, 123 y 193.
-3. **Numeración de casillas del modelo 200.**
-4. **Factura electrónica:** envío a FACe por servicio web; perfil UBL de la AEAT (Orden HAC/1028/2026) y conexión con la solución pública, cuyas especificaciones técnicas no se pudieron contrastar.
-5. **SII:** libros de bienes de inversión y de operaciones intracomunitarias, cobros y pagos de criterio de caja, y arranque del proceso de envío en el contenedor.
-6. **Fichero de envío de Legalia 2** (no hay especificación pública de su sintaxis) y memoria en DOCX.
-7. **Estado de flujos de efectivo** (obligatorio con balance normal) y renumeración de asientos por fecha.
-8. **Nóminas:** otras deducciones, retribución en especie completa, claves restantes del 190; no es un programa de cálculo de nóminas.
-9. Suplidos fuera de la base, descuento por pronto pago y anticipos en factura; datos registrales en el pie; corrección de una F3 errónea.
-10. Listados por fecha y cierre que aún usan límites en UTC; aviso al tocar un ejercicio ya legalizado.
-11. Festivos en los plazos (solo se trasladan fines de semana).
+- **Ficheros de presentación** también del 390, 123, 190 (con datos adicionales de la clave A y clave L.05), 180 (un registro por inmueble) y 193, y del 303 en criterio de caja con sus páginas de volumen de operaciones y prorrata. Exportaciones CSV y PDF de los modelos con todo el detalle; el paquete del gestor y el PDF del asesor salen de la foto de lo presentado.
+- **390:** casillas 85, 86, 97 y la nueva 662 según su diseño de registro.
+- **SII:** criterio de caja (clave 07, libros de cobros y pagos), libro de bienes de inversión, canjes como F3, arranque del proceso en el contenedor (`SII_WORKER_ENABLED`).
+- **Festivos nacionales** en los plazos de los modelos y del SII.
+- **Factura electrónica:** perfil UBL de la solución pública de la AEAT (Orden HAC/1028/2026), mensajes de estado del anexo II, envío a FACe por servicio web firmado (`FACE_TRANSPORT`, `FACE_ENVIRONMENT`), DIR3 e IBAN congelados en cada fichero.
+- **Facturas:** suplidos fuera de la base, descuento global o por pronto pago, facturas de anticipo y su descuento en la final (cuenta 438), datos registrales en el pie, corrección de un canje, devoluciones del TPV en la 708.
+- **Contabilidad:** estado de flujos de efectivo, conciliación fiscal de la memoria desde la liquidación de Sociedades, exportación a Word, renumeración de asientos por fecha, aviso en ejercicios con libros legalizados y límites en hora local en diario, mayor y cierre.
+- **Sociedades:** casillas del modelo 200 (diseño de registro 2025), propuestas de limitación de gastos financieros y reserva de capitalización, crédito fiscal por bases negativas. **Nóminas:** otras deducciones, especie contabilizada, pagas extra y finiquitos, recibo de salarios en PDF.
+- **Prueba de pantallas** (`tests/e2e/compliance-screens.spec.ts`): las 28 pantallas de cumplimiento cargan con una empresa nueva y un 303, 390, 347 y 111 se crean y abren sin errores.
+
+## 5. Sigue pendiente
+
+1. **Probar cada flujo en real**, con datos y certificado de verdad, y **presentar en pruebas**: importar los ficheros en la sede, VERI\*FACTU y SII en el entorno de pruebas de la AEAT, FACe en `se-face`.
+2. **Legalia 2:** no hay especificación pública de la sintaxis de su fichero de envío; se entregan los libros con huellas e instrucciones.
+3. **Factura electrónica entre empresas:** conexión con la solución pública de la AEAT (el formato ya se genera) cuando publique sus servicios.
+4. **Festivos autonómicos y locales** en los plazos.
+5. Revisión por un contable de las clasificaciones automáticas (estado de flujos de efectivo, cambios en el patrimonio neto, conciliación fiscal).
