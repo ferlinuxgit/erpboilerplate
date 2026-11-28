@@ -826,17 +826,18 @@ export const invoiceLineTax = pgTable("invoice_line_tax", {
 
 /**
  * Ficheros de factura electrónica generados para una factura emitida (Facturae 3.2.2, firmado o
- * no, y UBL 2.1). Se conserva el fichero entregado (almacenamiento privado) con su huella: lo que
- * se descargó o envió debe poder recuperarse tal cual. Una fila por factura, formato y firma; al
- * regenerar se sustituye.
+ * no; UBL 2.1 del núcleo EN 16931 y UBL 2.5 con el perfil de la solución pública de la AEAT). Se
+ * conserva el fichero entregado (almacenamiento privado) con su huella: lo que se descargó o envió
+ * debe poder recuperarse tal cual. Una fila por factura, formato y firma; al regenerar se sustituye,
+ * salvo que ya se haya remitido a FACe (entonces queda congelada).
  */
 export const einvoiceDocument = pgTable("einvoice_document", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text("companyId").notNull().references(() => company.id, { onDelete: "cascade" }),
   invoiceId: text("invoiceId").notNull().references(() => invoice.id, { onDelete: "cascade" }),
-  // FACTURAE o UBL.
+  // FACTURAE, UBL (núcleo EN 16931:2017) o UBL_AEAT (perfil de la solución pública de la AEAT).
   format: text("format").notNull(),
-  // Versión del formato: «3.2.2» (Facturae) o «2.1 · urn:cen.eu:en16931:2017» (UBL).
+  // Versión del formato: «3.2.2» (Facturae), «2.1 · urn:cen.eu:en16931:2017» (UBL) o «2.5 · …spfe…» (UBL_AEAT).
   formatVersion: text("formatVersion").notNull(),
   // Firmado con XAdES-EPES (solo Facturae).
   signed: boolean("signed").notNull().default(false),
@@ -845,16 +846,37 @@ export const einvoiceDocument = pgTable("einvoice_document", {
   sha256: text("sha256").notNull(),
   storageKey: text("storageKey").notNull(),
   fileName: text("fileName").notNull(),
-  // GENERATED (generado y descargable). Reservado para el envío por servicio web: SENT, FAILED.
+  // GENERATED (generado y descargable), SENT (remitido a FACe) o FAILED (FACe lo rechazó al remitirlo).
   status: text("status").notNull().default("GENERATED"),
+  // Datos de encaminamiento y cobro tomados de la ficha del cliente AL GENERAR (no forman parte de
+  // la instantánea fiscal de la factura): DIR3 de la Administración y IBAN de domiciliación.
+  dir3Codes: jsonb("dir3Codes").$type<{ accountingOffice?: string | null; managingBody?: string | null; processingUnit?: string | null; proposingBody?: string | null }>(),
+  customerIban: text("customerIban"),
+  // Remisión a FACe por servicio web (solo el Facturae firmado). El entorno se guarda en cada envío.
+  faceEnvironment: text("faceEnvironment"),
+  faceRegistryNumber: text("faceRegistryNumber"),
+  faceContactEmail: text("faceContactEmail"),
+  faceSubmittedAt: timestamp("faceSubmittedAt", { withTimezone: true, mode: "date" }),
+  // Último estado de tramitación y de anulación devuelto por FACe (código, descripción y motivo).
+  faceProcessingCode: text("faceProcessingCode"),
+  faceProcessingDescription: text("faceProcessingDescription"),
+  faceProcessingReason: text("faceProcessingReason"),
+  faceCancellationCode: text("faceCancellationCode"),
+  faceCancellationDescription: text("faceCancellationDescription"),
+  faceCancellationReason: text("faceCancellationReason"),
+  faceCheckedAt: timestamp("faceCheckedAt", { withTimezone: true, mode: "date" }),
+  // Último error de FACe (código y descripción) si la remisión o la consulta no fue bien.
+  faceLastError: text("faceLastError"),
   generatedByUserId: text("generatedByUserId").references(() => user.id, { onDelete: "set null" }),
   generatedAt: timestamp("generatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   unique("einvoice_document_invoice_format_signed_unique").on(table.invoiceId, table.format, table.signed),
   index("einvoice_document_company_idx").on(table.companyId, table.generatedAt),
-  check("einvoice_document_format_valid", sql`${table.format} IN ('FACTURAE', 'UBL')`),
+  check("einvoice_document_format_valid", sql`${table.format} IN ('FACTURAE', 'UBL', 'UBL_AEAT')`),
   check("einvoice_document_status_valid", sql`${table.status} IN ('GENERATED', 'SENT', 'FAILED')`),
+  check("einvoice_document_face_environment_valid", sql`${table.faceEnvironment} IS NULL OR ${table.faceEnvironment} IN ('production', 'staging')`),
+  uniqueIndex("einvoice_document_face_registry_unique").on(table.faceEnvironment, table.faceRegistryNumber),
 ]);
 
 /**
@@ -873,7 +895,8 @@ export const einvoiceStatusEvent = pgTable("einvoice_status_event", {
   // Rechazo: tipo (lista L1 del anexo II de la Orden HAC/1028/2026: 01 comercial, 02 consumo particular) y motivo.
   rejectionCode: text("rejectionCode"),
   reason: text("reason"),
-  // MANUAL (anotado por un usuario). Reservado para la solución pública y las plataformas privadas.
+  // MANUAL (anotado por un usuario) o FACE (remisión o estado devuelto por FACe). Reservado para la
+  // solución pública y las plataformas privadas.
   source: text("source").notNull().default("MANUAL"),
   createdByUserId: text("createdByUserId").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

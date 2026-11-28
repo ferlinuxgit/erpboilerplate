@@ -29,7 +29,9 @@ vi.mock("@/lib/db", async () => {
 
 import * as schema from "@/db/schema";
 import { auditLog, company, customer, einvoiceDocument, invoice, invoiceLine, invoiceLineTax, partner, tenant, user } from "@/db/schema";
-import { addEInvoiceStatus, dir3Warnings, einvoiceAvailability, generateEInvoice, getEInvoiceOverview, loadEInvoice } from "@/server/einvoice/service";
+import { addEInvoiceStatus, dir3Warnings, einvoiceAvailability, generateEInvoice, getEInvoiceOverview, getEInvoiceStatusMessage, loadEInvoice } from "@/server/einvoice/service";
+import type { FaceTransport } from "@/server/einvoice/face";
+import { refreshFaceStatus, requestFaceCancellation, sendEInvoiceToFace } from "@/server/einvoice/face-service";
 import { unsignedFacturae, verifyFacturaeSignature } from "@/server/einvoice/xades";
 import { readPrivateFile } from "@/server/storage/files";
 import { saveCompanyCertificate } from "@/server/verifactu/certificates";
@@ -44,11 +46,11 @@ const NOW = new Date("2026-12-01T12:00:00Z");
 const issuerSnapshot = { name: "Talleres Norte", legalName: "Talleres Norte, S.L.", taxId: "B12345674", address: "Calle Mayor 1", addressLine2: null, postalCode: "28013", city: "Madrid", province: "Madrid", countryCode: "ES" };
 const customerSnapshot = { name: "Ayuntamiento de Villaejemplo", taxId: "P2807900B", address: "Plaza de la Villa 1", addressLine2: null, postalCode: "28005", city: "Villaejemplo", province: "Madrid", countryCode: "ES" };
 
-async function seedInvoice(id: string, values: Record<string, unknown>, lines: Array<{ description: string; quantity: string; unitPrice: string; taxes: Array<{ name: string; rate: string; kind: string; operation: string }> }>) {
+async function seedInvoice(id: string, values: Record<string, unknown>, lines: Array<{ description: string; quantity: string; unitPrice: string; taxes: Array<{ name: string; rate: string; kind: string; operation: string }>; extra?: Record<string, unknown> }>) {
   await state.db.insert(invoice).values({ id, companyId: COMPANY, customerId: "customer-1", issueDate: new Date(Date.UTC(2026, 10, 20)), issuerSnapshot, customerSnapshot, ...values });
   for (const [index, line] of lines.entries()) {
     const lineId = `${id}-line-${index}`;
-    await state.db.insert(invoiceLine).values({ id: lineId, invoiceId: id, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, lineTotal: "0.00" });
+    await state.db.insert(invoiceLine).values({ id: lineId, invoiceId: id, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, lineTotal: "0.00", ...line.extra });
     for (const tax of line.taxes) await state.db.insert(invoiceLineTax).values({ invoiceLineId: lineId, ...tax, baseAmount: "0.00", amount: "0.00" });
   }
 }
@@ -86,10 +88,10 @@ afterAll(async () => {
 
 describe("factura electrónica: servicio", () => {
   it("ofrece cada formato por capacidad del territorio, no por país", () => {
-    expect(einvoiceAvailability("ES")).toEqual({ facturae: true, ubl: true, statuses: true });
-    expect(einvoiceAvailability("ES-CN")).toMatchObject({ facturae: true });
-    expect(einvoiceAvailability("FR")).toEqual({ facturae: false, ubl: true, statuses: false });
-    expect(einvoiceAvailability("MX")).toEqual({ facturae: false, ubl: false, statuses: false });
+    expect(einvoiceAvailability("ES")).toEqual({ facturae: true, ubl: true, ublAeat: true, statuses: true });
+    expect(einvoiceAvailability("ES-CN")).toMatchObject({ facturae: true, ublAeat: true });
+    expect(einvoiceAvailability("FR")).toEqual({ facturae: false, ubl: true, ublAeat: false, statuses: false });
+    expect(einvoiceAvailability("MX")).toEqual({ facturae: false, ubl: false, ublAeat: false, statuses: false });
   });
 
   it("no genera nada de un borrador", async () => {
@@ -122,6 +124,9 @@ describe("factura electrónica: servicio", () => {
     expect(xml).toContain("<InstallmentDueDate>2026-12-20</InstallmentDueDate>");
     const [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.invoiceId, "invoice-1"));
     expect(row).toMatchObject({ format: "FACTURAE", formatVersion: "3.2.2", signed: false, sha256: file!.sha256, status: "GENERATED", generatedByUserId: "user-1" });
+    // Los DIR3 que entraron en el fichero quedan guardados con él, aunque luego cambie la ficha.
+    expect(row.dir3Codes).toEqual({ accountingOffice: "L01280796", managingBody: "L01280796", processingUnit: "L01280796", proposingBody: null });
+    expect(row.customerIban).toBeNull();
     expect((await readPrivateFile(row.storageKey)).equals(file!.bytes)).toBe(true);
     const audits = await state.db.select().from(auditLog).where(eq(auditLog.action, "einvoice.generate"));
     expect(audits).toHaveLength(1);
@@ -175,6 +180,34 @@ describe("factura electrónica: servicio", () => {
     expect(creditUbl!.bytes.toString("utf8")).toContain("<cbc:InvoiceTypeCode>384</cbc:InvoiceTypeCode>");
   });
 
+  it("genera el UBL con el perfil de la AEAT y guarda su versión", async () => {
+    const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
+    expect(overview?.ublAeat).toEqual({ problems: [], warnings: [] });
+    const file = await generateEInvoice(actor, "invoice-1", { format: "UBL_AEAT" }, NOW);
+    const xml = file!.bytes.toString("utf8");
+    expect(file).toMatchObject({ fileName: "F2026-000012-ubl-aeat.xml", signed: false });
+    expect(xml).toContain("<cbc:CustomizationID>urn:cen.eu:en16931:2026#conformant#urn:aeat.es:spfe:1.0.0:extended</cbc:CustomizationID>");
+    expect(xml).toContain('<cbc:CompanyID schemeID="FC">P2807900B</cbc:CompanyID>');
+    const [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.format, "UBL_AEAT"));
+    expect(row).toMatchObject({ formatVersion: "2.5 · urn:cen.eu:en16931:2026#conformant#urn:aeat.es:spfe:1.0.0:extended", dir3Codes: null });
+    // Rectificativa por diferencias con causa R4: tipo y modalidad en el perfil de la AEAT.
+    const credit = await generateEInvoice(actor, "invoice-credit", { format: "UBL_AEAT" }, NOW);
+    expect(credit!.bytes.toString("utf8")).toContain("<cbc:DocumentTypeCode>R4</cbc:DocumentTypeCode>");
+  });
+
+  it("rectificativa por sustitución: base y cuota de la factura rectificada recalculadas de sus líneas", async () => {
+    await seedInvoice("invoice-substitution", {
+      number: "R2026-000002", totalAmount: "121.00", status: "SENT", issuedAt: new Date("2026-11-26T10:00:00Z"), issueDate: new Date(Date.UTC(2026, 10, 26)),
+      invoiceType: "CREDIT_NOTE", rectifiedInvoiceId: "invoice-1", rectificationReason: "R1", rectificationType: "SUBSTITUTION", rectificationDescription: "Precio corregido",
+    }, [{ description: "Mantenimiento de alumbrado", quantity: "1.000", unitPrice: "100.00", taxes: [{ name: "IVA 21 %", rate: "21.000", kind: "VAT", operation: "ADD" }] }]);
+    const loaded = await loadEInvoice(COMPANY, "invoice-substitution");
+    expect(loaded?.data.corrective).toMatchObject({ originalTaxableBase: 200, originalTaxAmount: 42 });
+    const file = await generateEInvoice(actor, "invoice-substitution", { format: "UBL_AEAT" }, NOW);
+    const xml = file!.bytes.toString("utf8");
+    expect(xml).toContain("<cbc:DocumentTypeCode>Base</cbc:DocumentTypeCode><cbc:DocumentDescription>200.00</cbc:DocumentDescription>");
+    expect(xml).toContain("<cbc:DocumentTypeCode>Cuota</cbc:DocumentTypeCode><cbc:DocumentDescription>42.00</cbc:DocumentDescription>");
+  });
+
   it("registra los estados que la norma obliga a comunicar y rechaza los incoherentes", async () => {
     await expect(addEInvoiceStatus(actor, "invoice-1", { status: "REJECTED", effectiveDate: "2026-11-24" }, NOW)).rejects.toMatchObject({ status: 422 });
     await expect(addEInvoiceStatus(actor, "invoice-1", { status: "ACCEPTED", effectiveDate: "2026-12-02" }, NOW)).rejects.toMatchObject({ status: 422 });
@@ -188,7 +221,82 @@ describe("factura electrónica: servicio", () => {
     expect(result?.statuses[1]).toMatchObject({ reason: "Falta el número de expediente", rejectionCode: "01", deadline: "2026-11-27" });
     const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
     expect(overview?.summary.current).toBe("PAID");
-    expect(overview?.documents.map((document) => `${document.format}:${document.signed}`).sort()).toEqual(["FACTURAE:false", "FACTURAE:true", "UBL:false"]);
+    expect(overview?.documents.map((document) => `${document.format}:${document.signed}`).sort()).toEqual(["FACTURAE:false", "FACTURAE:true", "UBL:false", "UBL_AEAT:false"]);
     await expect(addEInvoiceStatus(actor, "invoice-draft", { status: "SENT", effectiveDate: "2026-11-20" }, NOW)).rejects.toMatchObject({ status: 409 });
+    // Mensaje de cobro (SETTLEMENT) para la solución pública, solo desde el estado «Pagada».
+    const paid = result!.statuses.find((entry) => entry.status === "PAID")!;
+    const settlement = await getEInvoiceStatusMessage(COMPANY, "invoice-1", paid.id, NOW);
+    expect(settlement?.fileName).toBe("F2026-000012-settlement-2026-12-01.xml");
+    expect(settlement?.xml).toContain("<cbc:ResponseCode>SETTLEMENT</cbc:ResponseCode><cbc:EffectiveDate>2026-11-26</cbc:EffectiveDate>");
+    expect(settlement?.xml).toContain("<cbc:ReferenceDate>2026-12-20</cbc:ReferenceDate>");
+    expect(settlement?.xml).toContain("<cbc:CompanyID>B12345674</cbc:CompanyID>");
+    await expect(getEInvoiceStatusMessage(COMPANY, "invoice-1", result!.statuses[1].id, NOW)).rejects.toMatchObject({ status: 409 });
+    expect(await getEInvoiceStatusMessage(COMPANY, "invoice-1", "no-existe", NOW)).toBeNull();
+  });
+
+  it("FACe: remite el .xsig conservado, guarda el entorno y el registro, consulta y anula (transporte falso)", async () => {
+    const env = { FACE_TRANSPORT: "face", FACE_ENVIRONMENT: "staging" };
+    const sent: Array<{ environment: string; operation: string; envelope: string }> = [];
+    const replies: string[] = [];
+    const transport: FaceTransport = { kind: "fake", async send(request) { sent.push(request); return { httpStatus: 200, body: replies.shift() ?? "" }; } };
+    const wrap = (inner: string) => `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body>${inner}</S:Body></S:Envelope>`;
+
+    // Sin envío activado o sin entorno declarado no sale nada.
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env: {} })).rejects.toMatchObject({ status: 409 });
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env: { FACE_TRANSPORT: "face" } })).rejects.toMatchObject({ status: 503 });
+    expect(sent).toHaveLength(0);
+
+    // Rechazo de FACe: queda el error y el entorno, y se puede reintentar.
+    replies.push(wrap("<ns1:enviarFacturaResponse><return><resultado><codigo>301</codigo><descripcion>Certificado no dado de alta</descripcion></resultado></return></ns1:enviarFacturaResponse>"));
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env, now: NOW })).rejects.toMatchObject({ status: 502, message: expect.stringContaining("Certificado no dado de alta") });
+    let [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.invoiceId, "invoice-1")).then((rows: Array<{ signed: boolean; format: string }>) => rows.filter((r) => r.signed && r.format === "FACTURAE"));
+    expect(row).toMatchObject({ status: "FAILED", faceEnvironment: "staging", faceRegistryNumber: null, faceSubmittedAt: null, faceLastError: "FACe respondió: 301 · Certificado no dado de alta" });
+
+    replies.push(wrap("<ns1:enviarFacturaResponse><return><resultado><codigo>0</codigo><descripcion>Correcto</descripcion></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><fechaRecepcion>2026-12-01 13:00:00</fechaRecepcion></factura></return></ns1:enviarFacturaResponse>"));
+    const face = await sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env, now: NOW });
+    expect(face).toMatchObject({ environment: "staging", registryNumber: "REGAGE26e00001", contactEmail: "facturas@talleres.example", lastError: null });
+    expect(sent.map((request) => `${request.environment}:${request.operation}`)).toEqual(["staging:enviarFactura", "staging:enviarFactura"]);
+    // Lo que viaja es la copia firmada conservada, en base64, con su firma WS-Security.
+    [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.faceRegistryNumber, "REGAGE26e00001"));
+    expect(row).toMatchObject({ status: "SENT", signed: true, format: "FACTURAE" });
+    const stored = await readPrivateFile((row as unknown as { storageKey: string }).storageKey);
+    expect(sent[1].envelope).toContain(`<factura><factura>${stored.toString("base64")}</factura><nombre>F2026-000012.xsig</nombre><mime>application/xml</mime></factura>`);
+    expect(sent[1].envelope).toContain("<wsse:BinarySecurityToken ");
+    // Ya remitida: no se vuelve a enviar ni se vuelve a firmar (queda congelada).
+    await expect(sendEInvoiceToFace(actor, "invoice-1", { email: "facturas@talleres.example" }, { transport, env, now: NOW })).rejects.toMatchObject({ status: 409 });
+    await expect(generateEInvoice(actor, "invoice-1", { format: "FACTURAE", signed: true, regenerate: true }, NOW)).rejects.toMatchObject({ status: 409 });
+    expect((await generateEInvoice(actor, "invoice-1", { format: "FACTURAE", signed: true }, NOW))!.bytes.equals(stored)).toBe(true);
+    expect(await state.db.select().from(auditLog).where(eq(auditLog.action, "einvoice.face.send"))).toHaveLength(1);
+
+    replies.push(wrap("<ns1:consultarFacturaResponse><return><resultado><codigo>0</codigo></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><tramitacion><codigo>1300</codigo><descripcion>Registrada en RCF</descripcion><motivo/></tramitacion><anulacion><codigo>4100</codigo><descripcion>No solicitada anulación</descripcion><motivo/></anulacion></factura></return></ns1:consultarFacturaResponse>"));
+    const refreshed = await refreshFaceStatus(actor, "invoice-1", { transport, env, now: NOW });
+    expect(refreshed).toMatchObject({ processing: { code: "1300" }, cancellation: { code: "4100" } });
+    // En otro entorno no se consulta: la factura nació en pruebas.
+    await expect(refreshFaceStatus(actor, "invoice-1", { transport, env: { FACE_TRANSPORT: "face", FACE_ENVIRONMENT: "production" }, now: NOW })).rejects.toMatchObject({ status: 409 });
+
+    await expect(requestFaceCancellation(actor, "invoice-1", { reason: " " }, { transport, env, now: NOW })).rejects.toMatchObject({ status: 400 });
+    replies.push(wrap("<ns1:anularFacturaResponse><return><resultado><codigo>0</codigo></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><mensaje>Solicitada anulación</mensaje></factura></return></ns1:anularFacturaResponse>"));
+    replies.push(wrap("<ns1:consultarFacturaResponse><return><resultado><codigo>0</codigo></resultado><factura><numeroRegistro>REGAGE26e00001</numeroRegistro><tramitacion><codigo>1300</codigo><descripcion>Registrada en RCF</descripcion><motivo/></tramitacion><anulacion><codigo>4200</codigo><descripcion>Solicitada anulación</descripcion><motivo>Importe erróneo</motivo></anulacion></factura></return></ns1:consultarFacturaResponse>"));
+    const cancelled = await requestFaceCancellation(actor, "invoice-1", { reason: "Importe erróneo" }, { transport, env, now: NOW });
+    expect(cancelled).toMatchObject({ cancellation: { code: "4200", reason: "Importe erróneo" } });
+    expect(sent.at(-2)?.envelope).toContain("<motivo>Importe erróneo</motivo>");
+    const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
+    expect(overview?.documents.find((document) => document.signed)?.face?.registryNumber).toBe("REGAGE26e00001");
+  });
+
+  it("suplido y descuento global guardados: el XML cuadra con invoice.totalAmount", async () => {
+    const vat21 = { name: "IVA 21 %", rate: "21.000", kind: "VAT", operation: "ADD" };
+    await seedInvoice("invoice-special", { number: "F2026-000030", totalAmount: "158.90", status: "SENT", issuedAt: new Date("2026-11-27T10:00:00Z"), issueDate: new Date(Date.UTC(2026, 10, 27)) }, [
+      { description: "Gestión", quantity: "1.000", unitPrice: "100.00", taxes: [vat21] },
+      { description: "Descuento 10 %", quantity: "1.000", unitPrice: "-10.00", taxes: [vat21], extra: { isGlobalDiscount: true } },
+      // Suplido guardado con descuento 100 (defensa del esquema): el servicio lo lee como importe íntegro.
+      { description: "Tasa pagada por cuenta del cliente", quantity: "1.000", unitPrice: "50.00", taxes: [], extra: { isDisbursement: true, discountPct: "100" } },
+    ]);
+    const facturae = (await generateEInvoice(actor, "invoice-special", { format: "FACTURAE" }, NOW))!.bytes.toString("utf8");
+    expect(facturae).toContain("<TotalGrossAmount>100.00</TotalGrossAmount><GeneralDiscounts><Discount><DiscountReason>Descuento 10 %</DiscountReason><DiscountAmount>10.00</DiscountAmount></Discount></GeneralDiscounts><TotalGeneralDiscounts>10.00</TotalGeneralDiscounts>");
+    expect(facturae).toContain("<InvoiceTotal>108.90</InvoiceTotal><ReimbursableExpenses><ReimbursableExpenses><ReimbursableExpensesAmount>50.00</ReimbursableExpensesAmount></ReimbursableExpenses></ReimbursableExpenses><TotalOutstandingAmount>108.90</TotalOutstandingAmount><TotalExecutableAmount>158.90</TotalExecutableAmount><TotalReimbursableExpenses>50.00</TotalReimbursableExpenses>");
+    await expect(generateEInvoice(actor, "invoice-special", { format: "UBL" }, NOW)).rejects.toMatchObject({ status: 422 });
+    const aeat = (await generateEInvoice(actor, "invoice-special", { format: "UBL_AEAT" }, NOW))!.bytes.toString("utf8");
+    expect(aeat).toContain('<cbc:PayableAmount currencyID="EUR">158.90</cbc:PayableAmount>');
   });
 });

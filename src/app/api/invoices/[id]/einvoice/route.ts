@@ -5,7 +5,8 @@ import { handleRouteError, invalidJsonResponse, jsonError, readJsonBody } from "
 import { authenticateApiActor, hasApiActorPermission, isAuthError, type AuthenticatedApiActor } from "@/lib/integration-auth";
 import { generateEInvoice, getEInvoiceOverview, type EInvoiceFormat, type GeneratedEInvoice } from "@/server/einvoice/service";
 
-const formatSchema = z.enum(["facturae", "ubl"]);
+/** «ubl»: núcleo EN 16931:2017 (UBL 2.1). «ubl-aeat»: perfil de la solución pública de la AEAT (UBL 2.5). */
+const formatSchema = z.enum(["facturae", "ubl", "ubl-aeat"]);
 const generateSchema = z.object({
   format: formatSchema,
   /** Firma XAdES-EPES con el certificado de la empresa (solo Facturae). */
@@ -27,12 +28,14 @@ function fileResponse(file: GeneratedEInvoice) {
 }
 
 const actorOf = (actor: AuthenticatedApiActor) => ({ tenantId: actor.context.tenant.id, companyId: actor.context.company.id, actorUserId: actor.actorUserId });
-const toFormat = (value: "facturae" | "ubl"): EInvoiceFormat => (value === "ubl" ? "UBL" : "FACTURAE");
+const formats: Record<z.infer<typeof formatSchema>, EInvoiceFormat> = { facturae: "FACTURAE", ubl: "UBL", "ubl-aeat": "UBL_AEAT" };
+const toFormat = (value: z.infer<typeof formatSchema>): EInvoiceFormat => formats[value];
 
 /**
  * Factura electrónica de una factura emitida.
  * - Sin `format`: situación (formatos disponibles, datos que faltan, ficheros generados y estados).
- * - `?format=facturae|ubl`: descarga el fichero SIN firmar (Facturae 3.2.2 o UBL 2.1).
+ * - `?format=facturae|ubl|ubl-aeat`: descarga el fichero SIN firmar (Facturae 3.2.2, UBL 2.1 o UBL 2.5
+ *   con el perfil de la solución pública de la AEAT).
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -47,7 +50,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json(overview);
     }
     const format = formatSchema.safeParse(requested);
-    if (!format.success) return jsonError(400, "El formato debe ser «facturae» o «ubl».");
+    if (!format.success) return jsonError(400, "El formato debe ser «facturae», «ubl» o «ubl-aeat».");
     const file = await generateEInvoice(actorOf(actor), id, { format: toFormat(format.data), signed: false });
     if (!file) return jsonError(404, "Factura no encontrada.");
     return fileResponse(file);

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { errorMessage, readApiError } from "@/components/ui/form";
 import { getCsrfHeader } from "@/lib/csrf-client";
 
-type DownloadRequest = { format: "facturae" | "ubl"; signed?: boolean; regenerate?: boolean };
+type DownloadRequest = { format: "facturae" | "ubl" | "ubl-aeat"; signed?: boolean; regenerate?: boolean };
 
 function fileNameFrom(response: Response, fallback: string) {
   const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
@@ -55,7 +55,7 @@ export function EInvoiceDownloadButton({
         body: JSON.stringify(request),
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo generar la factura electrónica."));
-      saveBlob(await response.blob(), fileNameFrom(response, request.format === "ubl" ? "factura-ubl.xml" : "facturae.xml"));
+      saveBlob(await response.blob(), fileNameFrom(response, request.format === "facturae" ? "facturae.xml" : "factura-ubl.xml"));
       toast.success(request.signed ? "Factura electrónica firmada y descargada." : "Factura electrónica descargada.");
       // La copia generada queda guardada: se refresca la lista de ficheros de la ficha.
       router.refresh();

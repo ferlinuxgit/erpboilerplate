@@ -2149,17 +2149,27 @@
   ]
  },
  {
+  "method": "POST",
+  "path": "/api/invoices/{id}/einvoice/face",
+  "area": "invoices",
+  "summary": "Remisión de la factura a FACe por servicio web (Facturae firmado, WS-Security): enviar, consultar el estado o solicitar la anulación. Solo si el servidor tiene FACE_TRANSPORT=face y FACE_ENVIRONMENT declarado. Remitir es actuar en nombre de la empresa: exige permiso de escritura.",
+  "permissions": [
+   "invoice.write"
+  ],
+  "body": "const faceSchema = z.discriminatedUnion(\"action\", [\n  /** Remite el Facturae firmado; FACe envía los avisos de la factura al correo indicado. */\n  z.object({ action: z.literal(\"send\"), email: z.string().trim().email(\"Indica un correo electrónico válido.\").max(200) }),\n  /** Consulta el estado de tramitación y de anulación en FACe. */\n  z.object({ action: z.literal(\"refresh\") }),\n  /** Solicita la anulación de la factura remitida, con su motivo. */\n  z.object({ action: z.literal(\"cancel\"), reason: z.string().trim().min(1, \"Indica el motivo de la anulación.\").max(1000) }),\n], { error: \"Acción no válida: send, refresh o cancel.\" })"
+ },
+ {
   "method": "GET",
   "path": "/api/invoices/{id}/einvoice",
   "area": "invoices",
-  "summary": "Factura electrónica de una factura emitida. - Sin `format`: situación (formatos disponibles, datos que faltan, ficheros generados y estados). - `?format=facturae|ubl`: descarga el fichero SIN firmar (Facturae 3.2.2 o UBL 2.1).",
+  "summary": "Factura electrónica de una factura emitida. - Sin `format`: situación (formatos disponibles, datos que faltan, ficheros generados y estados). - `?format=facturae|ubl|ubl-aeat`: descarga el fichero SIN firmar (Facturae 3.2.2, UBL 2.1 o UBL 2.5 con el perfil de la solución pública de la AEAT).",
   "permissions": [
    "invoice.read"
   ],
   "query": [
    "format"
   ],
-  "body": "const formatSchema = z.enum([\"facturae\", \"ubl\"])"
+  "body": "const formatSchema = z.enum([\"facturae\", \"ubl\", \"ubl-aeat\"])"
  },
  {
   "method": "POST",
@@ -2167,7 +2177,16 @@
   "area": "invoices",
   "summary": "Genera y descarga la factura electrónica; con `signed: true` firma el Facturae (XAdES-EPES) con el certificado de la empresa. Firmar es actuar en nombre de la empresa: exige permiso de escritura.",
   "permissions": [],
-  "body": "const generateSchema = z.object({\n  format: formatSchema,\n  /** Firma XAdES-EPES con el certificado de la empresa (solo Facturae). */\n  signed: z.boolean().optional(),\n  /** Vuelve a generar aunque exista una copia conservada (p. ej. para firmar de nuevo). */\n  regenerate: z.boolean().optional(),\n})\n\nconst formatSchema = z.enum([\"facturae\", \"ubl\"])"
+  "body": "const generateSchema = z.object({\n  format: formatSchema,\n  /** Firma XAdES-EPES con el certificado de la empresa (solo Facturae). */\n  signed: z.boolean().optional(),\n  /** Vuelve a generar aunque exista una copia conservada (p. ej. para firmar de nuevo). */\n  regenerate: z.boolean().optional(),\n})\n\nconst formatSchema = z.enum([\"facturae\", \"ubl\", \"ubl-aeat\"])"
+ },
+ {
+  "method": "GET",
+  "path": "/api/invoices/{id}/einvoice/status/{eventId}/message",
+  "area": "invoices",
+  "summary": "Descarga el mensaje UBL ApplicationResponse de cobro (SETTLEMENT, anexo II de la Orden HAC/1028/2026) de un estado «Pagada» anotado, para comunicarlo a la solución pública de la AEAT.",
+  "permissions": [
+   "invoice.read"
+  ]
  },
  {
   "method": "GET",

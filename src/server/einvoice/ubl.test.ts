@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { EInvoiceError } from "@/server/einvoice/model";
 import { baseInvoice } from "@/server/einvoice/test-fixtures";
-import { buildUblXml, UBL_CUSTOMIZATION_ID, ublProblems } from "@/server/einvoice/ubl";
+import { buildUblXml, UBL_CUSTOMIZATION_ID, UBL_SPFE_CUSTOMIZATION_ID, UBL_SPFE_PROFILE_ID, ublProblems } from "@/server/einvoice/ubl";
 
 function first(xml: string, tag: string): string | null {
   const match = new RegExp(`<${tag}(?: [^>]*)?>(.*?)</${tag}>`, "s").exec(xml);
@@ -151,5 +151,148 @@ describe("UBL 2.1 (núcleo EN 16931:2017)", () => {
     expect(ublProblems(surcharge)[0]).toContain("recargo de equivalencia");
     expect(ublProblems(baseInvoice({ customer: { ...baseInvoice().customer, taxId: null } }))[0]).toContain("NIF del cliente");
     expect(ublProblems(baseInvoice())).toEqual([]);
+  });
+});
+
+describe("UBL 2.5, perfil de la solución pública de la AEAT (anexo I de la Orden HAC/1028/2026)", () => {
+  const { xml, fileName, warnings } = buildUblXml(baseInvoice(), "SPFE");
+
+  it("cabecera como en el ejemplo oficial factura.xml: especificación, perfil, copia y QR en UUID", () => {
+    expect(first(xml, "cbc:CustomizationID")).toBe(UBL_SPFE_CUSTOMIZATION_ID);
+    expect(first(xml, "cbc:ProfileID")).toBe(UBL_SPFE_PROFILE_ID);
+    expect(first(xml, "cbc:CopyIndicator")).toBe("false");
+    // El orden de UBL: ID, CopyIndicator, IssueDate.
+    expect(xml.indexOf("<cbc:CopyIndicator>")).toBeGreaterThan(xml.indexOf("<cbc:ID>"));
+    expect(xml.indexOf("<cbc:CopyIndicator>")).toBeLessThan(xml.indexOf("<cbc:IssueDate>"));
+    const reference = first(xml, "cac:AdditionalDocumentReference")!;
+    expect(first(reference, "cbc:ID")).toBe("urn:aeat:names:specification:schema:QR");
+    expect(first(reference, "cbc:UUID")).toContain("ValidarQR?nif=B12345674");
+    expect(xml).not.toContain("cbc:Note>");
+    expect(fileName).toBe("F2026-000012-ubl-aeat.xml");
+    expect(warnings).toEqual([]);
+  });
+
+  it("partes con NIF español en el esquema «LOC»/«FC» repetido en la entidad legal", () => {
+    const supplier = first(xml, "cac:AccountingSupplierParty")!;
+    expect(supplier).toContain('<cbc:CompanyID schemeID="FC">B12345674</cbc:CompanyID>');
+    expect(first(first(supplier, "cac:TaxScheme")!, "cbc:ID")).toBe("LOC");
+    expect(first(supplier, "cac:PartyLegalEntity")).toContain("<cbc:CompanyID>B12345674</cbc:CompanyID>");
+    expect(first(first(supplier, "cac:Contact")!, "cbc:Name")).toBe("Talleres Norte, S.L.");
+    const customer = first(xml, "cac:AccountingCustomerParty")!;
+    expect(customer).toContain('<cbc:CompanyID schemeID="FC">A58818501</cbc:CompanyID>');
+  });
+
+  it("clave de régimen 01 en cada línea y medio de pago con IBAN y esquema", () => {
+    const lines = all(xml, "cac:InvoiceLine");
+    for (const line of lines) {
+      const property = first(line, "cac:AdditionalItemProperty")!;
+      expect(first(property, "cbc:Name")).toBe("urn:aeat:names:specification:schema:lin:REGI");
+      expect(first(property, "cbc:Value")).toBe("01");
+      expect(first(property, "cbc:ValueQualifier")).toBe("IVA");
+    }
+    expect(xml).toContain('<cbc:ID schemeID="IBAN">ES9121000418450200051332</cbc:ID>');
+  });
+
+  it("criterio de caja: clave de régimen 07 y mención en anotación «REG»", () => {
+    const cash = buildUblXml(baseInvoice({ cashAccounting: true, legalLiterals: ["Régimen especial del criterio de caja."] }), "SPFE").xml;
+    expect(first(first(cash, "cac:AdditionalItemProperty")!, "cbc:Value")).toBe("07");
+    const annotation = first(cash, "cac:Annotation")!;
+    expect(first(annotation, "cbc:SubjectCode")).toBe("REG");
+    expect(first(annotation, "cbc:AnnotationContent")).toBe("Régimen especial del criterio de caja.");
+  });
+
+  it("recargo de equivalencia: categoría «N» con dos desgloses de la misma base", () => {
+    const { xml: surcharge } = buildUblXml(baseInvoice({
+      lines: [{ description: "Género", quantity: 10, unitPrice: 12.35, taxes: [{ rate: 21, kind: "VAT", operation: "ADD" }, { rate: 5.2, kind: "SURCHARGE", operation: "ADD" }] }],
+      storedTotal: 155.86,
+    }), "SPFE");
+    const subtotals = all(first(surcharge, "cac:TaxTotal")!, "cac:TaxSubtotal");
+    expect(subtotals).toHaveLength(2);
+    expect(subtotals.map((subtotal) => [first(first(subtotal, "cac:TaxCategory")!, "cbc:ID"), first(subtotal, "cbc:Percent"), first(subtotal, "cbc:TaxableAmount"), first(subtotal, "cbc:TaxAmount")]))
+      .toEqual([["N", "21", "123.50", "25.94"], ["N", "5.2", "123.50", "6.42"]]);
+    expect(first(surcharge, "cbc:PayableAmount")).toBe("155.86");
+    expect(first(first(surcharge, "cac:ClassifiedTaxCategory")!, "cbc:ID")).toBe("N");
+  });
+
+  it("recargo de equivalencia: rechaza mezclar líneas y tipos que no corresponden", () => {
+    const mixed = baseInvoice({
+      lines: [
+        { description: "Género", quantity: 1, unitPrice: 100, taxes: [{ rate: 21, kind: "VAT", operation: "ADD" }, { rate: 5.2, kind: "SURCHARGE", operation: "ADD" }] },
+        { description: "Servicio", quantity: 1, unitPrice: 100, taxes: [{ rate: 21, kind: "VAT", operation: "ADD" }] },
+      ],
+      storedTotal: 347.2,
+    });
+    expect(ublProblems(mixed, "SPFE").join(" ")).toContain("BR-ES-IVA-CR-17");
+    const wrongRate = baseInvoice({ lines: [{ description: "Género", quantity: 1, unitPrice: 100, taxes: [{ rate: 10, kind: "VAT", operation: "ADD" }, { rate: 5.2, kind: "SURCHARGE", operation: "ADD" }] }], storedTotal: 115.2 });
+    expect(ublProblems(wrongRate, "SPFE").join(" ")).toContain("BR-ES-N-5");
+  });
+
+  it("retención: WithholdingTaxTotal con concepto y línea «RETE» en negativo (BR-CO-16)", () => {
+    const { xml: withheld, warnings: withheldWarnings } = buildUblXml(baseInvoice({
+      lines: [{ description: "Honorarios", quantity: 1, unitPrice: 1000, taxes: [{ rate: 21, kind: "VAT", operation: "ADD" }, { name: "IRPF profesionales", rate: 15, kind: "WITHHOLDING", operation: "SUBTRACT" }] }],
+      storedTotal: 1060,
+    }), "SPFE");
+    const block = first(withheld, "cac:WithholdingTaxTotal")!;
+    expect(first(block, "cbc:TaxAmount")).toBe("150.00");
+    expect(first(block, "cbc:TaxTypeCode")).toBe("01");
+    const collection = first(withheld, "cac:CollectionInvoiceLine")!;
+    expect(first(collection, "cbc:ID")).toBe("urn:aeat:names:specification:schema:add:RETE");
+    expect(first(collection, "cbc:TaxInclusiveLineExtensionAmount")).toBe("-150.00");
+    // A pagar = total con IVA + BT-179 (negativo).
+    expect(cents(first(withheld, "cbc:TaxInclusiveAmount")) + cents(first(collection, "cbc:TaxInclusiveLineExtensionAmount"))).toBe(cents(first(withheld, "cbc:PayableAmount")));
+    expect(withheldWarnings.join(" ")).toContain("lista L5");
+  });
+
+  it("rectificativa por diferencias: tipo R1–R4 y modalidad «I»", () => {
+    const credit = buildUblXml(baseInvoice({
+      number: "R2026-000003",
+      isCreditNote: true,
+      lines: [{ description: "Devolución", quantity: 1, unitPrice: -40, taxes: [{ rate: 21, kind: "VAT", operation: "ADD" }] }],
+      storedTotal: -48.4,
+      corrective: { originalNumber: "F2026-000012", originalIssueDate: "2026-11-20", reason: "R1", type: "DIFFERENCES", description: "Error en el precio" },
+    }), "SPFE").xml;
+    expect(first(credit, "cbc:InvoiceTypeCode")).toBe("384");
+    const references = all(credit, "cac:AdditionalDocumentReference");
+    const tipo = references.find((reference) => first(reference, "cbc:ID") === "urn:aeat:names:specification:schema:RECT:TIPO")!;
+    expect(first(tipo, "cbc:DocumentTypeCode")).toBe("R1");
+    const modalidad = references.find((reference) => first(reference, "cbc:ID") === "urn:aeat:names:specification:schema:RECT:MODALIDAD")!;
+    expect(first(modalidad, "cbc:DocumentTypeCode")).toBe("I");
+    expect(credit).not.toContain("RECT:IMPORTES");
+    expect(first(first(credit, "cac:InvoiceDocumentReference")!, "cbc:ID")).toBe("F2026-000012");
+    expect(credit).not.toContain("cac:PaymentMeans");
+  });
+
+  it("rectificativa por sustitución: exige y emite base y cuota rectificadas", () => {
+    const corrective = { originalNumber: "F2026-000012", originalIssueDate: "2026-11-20", reason: "R1", type: "SUBSTITUTION", description: null };
+    const withoutAmounts = baseInvoice({ isCreditNote: true, corrective });
+    expect(ublProblems(withoutAmounts, "SPFE").join(" ")).toContain("SPFE-CORE-52");
+    const credit = buildUblXml(baseInvoice({ isCreditNote: true, corrective: { ...corrective, originalTaxableBase: 369.97, originalTaxAmount: 70.89 } }), "SPFE").xml;
+    const amounts = all(credit, "cac:AdditionalDocumentReference").filter((reference) => first(reference, "cbc:ID") === "urn:aeat:names:specification:schema:RECT:IMPORTES");
+    expect(amounts.map((reference) => [first(reference, "cbc:DocumentTypeCode"), first(reference, "cbc:DocumentDescription")])).toEqual([["Base", "369.97"], ["Cuota", "70.89"]]);
+    expect(ublProblems(baseInvoice({ isCreditNote: true, corrective: { ...corrective, reason: "R5" } }), "SPFE").join(" ")).toContain("R1 a R4");
+  });
+
+  it("solo NIF español, domicilio completo y sin entregas intracomunitarias", () => {
+    const foreign = baseInvoice({ customer: { name: "Kunde GmbH", taxId: "DE123456789", address: "Hauptstraße 1", postalCode: "10115", city: "Berlin", province: "Berlin", countryCode: "DE" }, vatTreatment: "INTRA_EU", lines: [{ description: "Pieza", quantity: 1, unitPrice: 100, taxes: [] }], storedTotal: 100 });
+    const problems = ublProblems(foreign, "SPFE").join(" ");
+    expect(problems).toContain("NIF español");
+    expect(problems).toContain("intracomunitarias");
+    expect(ublProblems(baseInvoice({ customer: { ...baseInvoice().customer, province: null } }), "SPFE").join(" ")).toContain("provincia del cliente");
+    expect(ublProblems(baseInvoice(), "SPFE")).toEqual([]);
+  });
+
+  it("exenta: categoría «E» con el texto pero sin código, y aviso", () => {
+    const { xml: exempt, warnings: exemptWarnings } = buildUblXml(baseInvoice({ lines: [{ description: "Formación", quantity: 1, unitPrice: 100, taxes: [] }], storedTotal: 100, vatTreatment: "EXEMPT", legalLiterals: ["Operación exenta de IVA (art. 20 Ley 37/1992 del IVA)."] }), "SPFE");
+    const category = first(first(exempt, "cac:TaxTotal")!, "cac:TaxCategory")!;
+    expect(first(category, "cbc:ID")).toBe("E");
+    expect(category).not.toContain("TaxExemptionReasonCode");
+    expect(first(category, "cbc:TaxExemptionReason")).toContain("art. 20");
+    expect(exemptWarnings.join(" ")).toContain("VATEX-ES");
+  });
+
+  it("IGIC: categoría «L» y calificador IGIC en la clave de régimen", () => {
+    const igic = buildUblXml(baseInvoice({ issuerTerritory: "ES-CN", lines: [{ description: "Servicio", quantity: 1, unitPrice: 100, taxes: [{ rate: 7, kind: "VAT", operation: "ADD" }] }], storedTotal: 107 }), "SPFE").xml;
+    expect(first(first(igic, "cac:ClassifiedTaxCategory")!, "cbc:ID")).toBe("L");
+    expect(first(first(igic, "cac:AdditionalItemProperty")!, "cbc:ValueQualifier")).toBe("IGIC");
   });
 });

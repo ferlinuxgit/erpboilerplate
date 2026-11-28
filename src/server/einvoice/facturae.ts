@@ -10,6 +10,8 @@ import {
   isOtherOutputTax,
   isSurchargeTax,
   isVatTax,
+  isDisbursementLine,
+  isGlobalDiscountLine,
   isWithholdingTax,
   lineTotalCostCents,
   normalizeDir3,
@@ -44,10 +46,27 @@ import { clip, el, txt, xmlDocument, type XmlNode } from "@/server/einvoice/xml"
  * - Las cuotas del desglose de la factura (`TaxesOutputs`, `TaxesWithheld`) son las del motor: se
  *   calculan por tipo sobre la suma de bases, no sumando cuotas de línea. Las cuotas de cada línea
  *   son informativas y su suma puede diferir en céntimos de las de la factura.
- * - `InvoiceTotal` = bruto + impuestos repercutidos − retenciones: es el total guardado de la factura.
+ * - `InvoiceTotal` = bruto + impuestos repercutidos − retenciones (sin suplidos).
+ *
+ * Líneas especiales de la factura (anotaciones del XSD de `InvoiceTotalsType`):
+ * - SUPLIDOS (`isDisbursement`, art. 78.Tres.3.º LIVA): no son base imponible, así que no van como
+ *   línea de detalle sino en `ReimbursableExpenses` y `TotalReimbursableExpenses` («suplidos
+ *   incorporados en la factura»), y suman en `TotalExecutableAmount` («TotalOutstandingAmount −
+ *   retenciones + suplidos…»). Su descripción, que el tipo no admite, va en la información adicional.
+ * - DESCUENTO GLOBAL (`isGlobalDiscount`, art. 78.Tres.2.º LIVA): `GeneralDiscounts`, uno por
+ *   combinación de impuestos, y `TotalGeneralDiscounts`; `TotalGrossAmountBeforeTaxes` =
+ *   `TotalGrossAmount` − descuentos generales, y las bases del desglose de la factura ya los
+ *   restan. Las cuotas de cada línea siguen siendo sobre su bruto (informativas, como el esquema).
+ * - ANTICIPO DESCONTADO (`advanceInvoiceId`): la factura de anticipo ya repercutió el IVA de lo
+ *   cobrado (art. 75.Dos LIVA), así que la final MINORA LA BASE (art. 80 no aplica: no es una
+ *   rectificación) y el anticipo va como línea de detalle negativa con su impuesto. NO se usa
+ *   `PaymentsOnAccount`, que según el XSD resta de `InvoiceTotal` sin tocar la base ni las cuotas:
+ *   sería para pagos a cuenta sin factura propia, y con IVA ya repercutido duplicaría la cuota.
+ * - Datos registrales del emisor persona jurídica: `RegistrationData` (Tomo, Libro, Folio, Hoja,
+ *   Sección y Registro) deducidos del texto libre de la empresa; si no se reconoce nada, se omiten.
  *
  * Lo que este generador NO cubre: lotes (modalidad L), facturas en divisa distinta del euro,
- * descuentos y cargos generales, anticipos, suplidos, cesiones de crédito, adjuntos y extensiones.
+ * cargos generales, cesiones de crédito, adjuntos y extensiones.
  */
 
 export const FACTURAE_VERSION = "3.2.2";
@@ -162,6 +181,31 @@ function administrativeCentres(data: EInvoiceData, problems: string[]): XmlNode 
   ])));
 }
 
+/**
+ * `RegistrationData` (RegistrationDataType, campos de hasta 20 caracteres) a partir del texto libre
+ * de los datos registrales («Registro Mercantil de Madrid, Tomo 1234, Folio 56, Hoja M-7890…»).
+ * Solo lo que se reconoce con seguridad; un campo que no cabe en 20 caracteres no se emite.
+ */
+export function registrationDataFields(text: string | null | undefined): Array<[string, string]> {
+  const source = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!source) return [];
+  const value = (pattern: RegExp) => {
+    const match = pattern.exec(source);
+    const found = match?.[1]?.trim().replace(/[.,;]+$/, "");
+    return found && Array.from(found).length <= 20 ? found : null;
+  };
+  const fields: Array<[string, string | null]> = [
+    ["Book", value(/\blibro\s*:?\s*([^,;]+)/i)],
+    ["RegisterOfCompaniesLocation", value(/registro\s+mercantil\s+de\s+([^,;.]+)/i)],
+    ["Sheet", value(/\bhoja\s*(?:n\.?º|n[úu]m\.?|n[úu]mero)?\s*:?\s*([^,;\s]+)/i)],
+    ["Folio", value(/\bfolio\s*:?\s*([^,;\s]+)/i)],
+    ["Section", value(/\bsecci[oó]n\s*:?\s*([^,;]+)/i)],
+    ["Volume", value(/\btomo\s*:?\s*([^,;\s]+)/i)],
+    ["AdditionalRegistrationData", value(/\binscripci[oó]n\s*:?\s*([^,;]+)/i)],
+  ];
+  return fields.filter((field): field is [string, string] => field[1] !== null);
+}
+
 function partyNode(tag: "SellerParty" | "BuyerParty", party: EInvoiceParty, who: string, problems: string[], warnings: string[], centres: XmlNode | null): XmlNode {
   const taxNumber = partyTaxNumber(party);
   if (taxNumber.length < 3 || taxNumber.length > 30) problems.push(`Falta el NIF ${who}: Facturae no admite facturas sin identificación fiscal de las dos partes.`);
@@ -181,9 +225,14 @@ function partyNode(tag: "SellerParty" | "BuyerParty", party: EInvoiceParty, who:
     ]);
   } else {
     const tradeName = party.legalName?.trim() && party.name?.trim() && party.legalName.trim() !== party.name.trim() ? clip(party.name, 40) : null;
+    const registration = tag === "SellerParty" ? registrationDataFields(party.registryData) : [];
+    if (tag === "SellerParty" && party.registryData?.trim() && registration.length === 0) {
+      warnings.push("No se han reconocido los datos registrales de la empresa (tomo, folio, hoja…): no van en los campos estructurados de Facturae.");
+    }
     person = el("LegalEntity", [
       txt("CorporateName", clip(fullName, 80) ?? "-"),
       txt("TradeName", tradeName),
+      registration.length > 0 ? el("RegistrationData", registration.map(([name, value]) => txt(name, value))) : null,
       addressNode(party, who, problems),
       contactNode(party),
     ]);
@@ -337,7 +386,15 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
   // --- Líneas -------------------------------------------------------------------------------
   const invoiceGroups = new Map<string, OutputGroup>();
   const withheldGroups = new Map<number, { rate: number; baseCents: number; taxCents: number }>();
-  const lineNodes = data.lines.map((line, index) => {
+  const lineNodes: XmlNode[] = [];
+  const generalDiscounts: Array<{ reason: string; cents: number }> = [];
+  const reimbursable: Array<{ description: string; cents: number }> = [];
+  data.lines.forEach((line, index) => {
+    // Suplido: fuera de la base y de los impuestos; va en ReimbursableExpenses.
+    if (isDisbursementLine(line)) {
+      reimbursable.push({ description: line.description?.trim() || "Suplido", cents: amountToCents(totals.lines[index]?.disbursementAmount ?? 0) });
+      return;
+    }
     const grossCents = amountToCents(totals.lines[index]?.subtotal ?? 0);
     const totalCostCents = lineTotalCostCents(line);
     const discountCents = totalCostCents - grossCents;
@@ -353,6 +410,11 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
       if (current) current.baseCents += tax.baseCents;
       else withheldGroups.set(tax.rate, { rate: tax.rate, baseCents: tax.baseCents, taxCents: 0 });
     }
+    // Descuento global: resta de las bases del desglose, pero no es una línea de detalle.
+    if (isGlobalDiscountLine(line)) {
+      generalDiscounts.push({ reason: clip(line.description, 2500) ?? "Descuento", cents: -grossCents });
+      return;
+    }
     const otherNames = taxes.outputs.filter((group) => group.code === TAX_TYPE_CODE.OTHER && group.name).map((group) => `05 = ${group.name}`);
     // Exenta o no sujeta: el motivo va precedido del código del impuesto al que se refiere.
     const special = taxes.zeroIndirect && (nature === "EXEMPT" || nature === "EXPORT" || nature === "INTRA_EU" || nature === "NOT_SUBJECT")
@@ -362,7 +424,7 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
         ])
       : null;
     if (!line.description?.trim()) problems.push(`La línea ${index + 1} no tiene descripción.`);
-    return el("InvoiceLine", [
+    lineNodes.push(el("InvoiceLine", [
       txt("ItemDescription", clip(line.description, 2500) ?? "-"),
       txt("Quantity", decimalString(line.quantity, 8)),
       txt("UnitPriceWithoutTax", decimalString(line.unitPrice, 8, 2)),
@@ -379,8 +441,11 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
       el("TaxesOutputs", taxes.outputs.map(outputTaxNode)),
       otherNames.length > 0 ? txt("AdditionalLineItemInformation", clip(otherNames.join("; "), 2500)) : null,
       special,
-    ]);
+    ]));
   });
+  if (lineNodes.length === 0 && data.lines.length > 0) problems.push("La factura solo tiene suplidos o descuentos: Facturae exige al menos una línea de detalle.");
+  const generalDiscountCents = generalDiscounts.reduce((sum, discount) => sum + discount.cents, 0);
+  const reimbursableCents = reimbursable.reduce((sum, expense) => sum + expense.cents, 0);
 
   // --- Desglose de la factura: cuadra con los totales del motor ---------------------------------
   const groups = [...invoiceGroups.values()];
@@ -400,7 +465,9 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
   const settledWithheld = settle(withheld.map((tax) => taxOn(tax.baseCents, tax.rate)), totals.retentionCents);
   withheld.forEach((tax, index) => { tax.taxCents = settledWithheld[index]; });
 
+  // Total a pagar (con suplidos) y total de la factura (sin ellos).
   const totalCents = totals.totalCents;
+  const invoiceTotalCents = totals.invoiceTotalCents;
 
   // --- Rectificativa ------------------------------------------------------------------------
   let corrective: XmlNode | null = null;
@@ -455,6 +522,7 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
   if (longLiterals.length > 0) warnings.push("Alguna mención legal supera los 250 caracteres de Facturae y se ha recortado.");
 
   const additionalInformation = [
+    reimbursable.length > 0 ? `Suplidos (art. 78.Tres.3.º Ley 37/1992): ${reimbursable.map((expense) => `${expense.description} ${amount(expense.cents)}`).join("; ")}` : null,
     data.verifactuUrl ? `Factura verificable en la sede electrónica de la AEAT (VERI*FACTU): ${data.verifactuUrl}` : null,
     data.notes?.trim() || null,
   ].filter(Boolean).join(" | ");
@@ -463,7 +531,7 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
 
   const sellerTaxNumber = partyTaxNumber(data.issuer);
   const operationDate = data.operationDate && ISO_DATE.test(data.operationDate) && data.operationDate !== data.issueDate ? data.operationDate : null;
-  const totalAmountNode = (name: string) => el(name, [txt("TotalAmount", amount(totalCents))]);
+  const totalAmountNode = (name: string, cents: number) => el(name, [txt("TotalAmount", amount(cents))]);
 
   const root = el("fe:Facturae", [
     el("FileHeader", [
@@ -474,9 +542,9 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
       el("Batch", [
         txt("BatchIdentifier", clip(`${sellerTaxNumber}${invoiceNumber}${invoiceSeries ?? ""}`, 70)),
         txt("InvoicesCount", "1"),
-        totalAmountNode("TotalInvoicesAmount"),
-        totalAmountNode("TotalOutstandingAmount"),
-        totalAmountNode("TotalExecutableAmount"),
+        totalAmountNode("TotalInvoicesAmount", invoiceTotalCents),
+        totalAmountNode("TotalOutstandingAmount", invoiceTotalCents),
+        totalAmountNode("TotalExecutableAmount", totalCents),
         txt("InvoiceCurrencyCode", "EUR"),
       ]),
     ]),
@@ -500,13 +568,21 @@ export function buildFacturaeTree(data: EInvoiceData): { root: XmlNode; warnings
       el("TaxesOutputs", groups.map(outputTaxNode)),
       withheld.length > 0 ? el("TaxesWithheld", withheld.map(withheldTaxNode)) : null,
       el("InvoiceTotals", [
-        txt("TotalGrossAmount", amount(totals.subtotalCents)),
+        txt("TotalGrossAmount", amount(totals.subtotalCents + generalDiscountCents)),
+        generalDiscounts.length > 0
+          ? el("GeneralDiscounts", generalDiscounts.map((discount) => el("Discount", [txt("DiscountReason", discount.reason), txt("DiscountAmount", amount(discount.cents))])))
+          : null,
+        generalDiscounts.length > 0 ? txt("TotalGeneralDiscounts", amount(generalDiscountCents)) : null,
         txt("TotalGrossAmountBeforeTaxes", amount(totals.subtotalCents)),
         txt("TotalTaxOutputs", amount(totals.taxCents)),
         txt("TotalTaxesWithheld", amount(totals.retentionCents)),
-        txt("InvoiceTotal", amount(totalCents)),
-        txt("TotalOutstandingAmount", amount(totalCents)),
+        txt("InvoiceTotal", amount(invoiceTotalCents)),
+        reimbursable.length > 0
+          ? el("ReimbursableExpenses", reimbursable.map((expense) => el("ReimbursableExpenses", [txt("ReimbursableExpensesAmount", amount(expense.cents))])))
+          : null,
+        txt("TotalOutstandingAmount", amount(invoiceTotalCents)),
         txt("TotalExecutableAmount", amount(totalCents)),
+        reimbursable.length > 0 ? txt("TotalReimbursableExpenses", amount(reimbursableCents)) : null,
       ]),
       el("Items", lineNodes),
       paymentDetails,

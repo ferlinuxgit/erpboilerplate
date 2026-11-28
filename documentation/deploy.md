@@ -159,6 +159,27 @@ Las facturas y gastos recurrentes y los recordatorios de cobro automáticos se p
 - **Remesas de cobros (adeudos SEPA CORE, pain.008.001.02)**: cada empresa necesita su *identificador de acreedor SEPA* (Ajustes › Empresa) y un mandato firmado por cliente (ficha del cliente › Domiciliación bancaria). No requiere configuración del servidor.
 - Cambios de esquema de este bloque: columna `company.sepaCreditorId`, tablas `sepa_mandate`, `sepa_direct_debit_remittance`, `sepa_direct_debit_item`, `bank_connection`, `bank_connection_account` y el valor `PSD2` en el check `bank_transaction_import_source_valid`. Genera y aplica la migración (`npm run db:generate` + `npm run db:migrate`).
 
+## Factura electrónica (Facturae, UBL y FACe)
+
+Desde la ficha de una factura emitida se descargan Facturae 3.2.2 (firmado XAdES-EPES con el certificado
+de la empresa o sin firmar), UBL 2.1 del núcleo EN 16931 y UBL 2.5 con el perfil de la solución pública de
+la AEAT (Orden HAC/1028/2026, anexo I), además del mensaje UBL de cobro (anexo II) desde el estado
+«Pagada». Nada de esto necesita configuración. Cada fichero se conserva en el almacenamiento privado
+(`/app/.data` en producción) con su huella y con los DIR3 e IBAN de domiciliación usados.
+
+**Remisión a FACe (opcional, sin probar contra FACe).** Para activarla:
+
+1. Cada empresa da de alta en face.gob.es («alta proveedores») la parte pública del certificado que
+   sube en Fiscalidad › VERI*FACTU: con él se firma la petición (WS-Security X.509).
+2. `FACE_TRANSPORT=face` y `FACE_ENVIRONMENT`, **obligatoria y sin valor por defecto**: `staging`
+   (https://se-face-webservice.redsara.es/facturasspp2, pruebas) o `production`
+   (https://webservice.face.gob.es/facturasspp2). Si falta o es otro valor, la ficha lo avisa y no se envía.
+3. Cada envío guarda su entorno: las consultas de estado y las anulaciones solo se hacen desde un servidor
+   configurado en ese mismo entorno. Prueba primero en `staging` con un certificado real.
+
+Lo remitido a FACe queda congelado (no se vuelve a firmar). La aplicación no remite nada a la solución
+pública de la AEAT: los ficheros UBL se suben a mano o los entrega una plataforma privada.
+
 ## VERI*FACTU (envío a la AEAT)
 
 Sin configurar, el envío está desactivado y **ninguna empresa puede activar VERI*FACTU** (una factura no
