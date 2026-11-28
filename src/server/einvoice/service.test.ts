@@ -86,10 +86,10 @@ afterAll(async () => {
 
 describe("factura electrónica: servicio", () => {
   it("ofrece cada formato por capacidad del territorio, no por país", () => {
-    expect(einvoiceAvailability("ES")).toEqual({ facturae: true, ubl: true, statuses: true });
-    expect(einvoiceAvailability("ES-CN")).toMatchObject({ facturae: true });
-    expect(einvoiceAvailability("FR")).toEqual({ facturae: false, ubl: true, statuses: false });
-    expect(einvoiceAvailability("MX")).toEqual({ facturae: false, ubl: false, statuses: false });
+    expect(einvoiceAvailability("ES")).toEqual({ facturae: true, ubl: true, ublAeat: true, statuses: true });
+    expect(einvoiceAvailability("ES-CN")).toMatchObject({ facturae: true, ublAeat: true });
+    expect(einvoiceAvailability("FR")).toEqual({ facturae: false, ubl: true, ublAeat: false, statuses: false });
+    expect(einvoiceAvailability("MX")).toEqual({ facturae: false, ubl: false, ublAeat: false, statuses: false });
   });
 
   it("no genera nada de un borrador", async () => {
@@ -122,6 +122,9 @@ describe("factura electrónica: servicio", () => {
     expect(xml).toContain("<InstallmentDueDate>2026-12-20</InstallmentDueDate>");
     const [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.invoiceId, "invoice-1"));
     expect(row).toMatchObject({ format: "FACTURAE", formatVersion: "3.2.2", signed: false, sha256: file!.sha256, status: "GENERATED", generatedByUserId: "user-1" });
+    // Los DIR3 que entraron en el fichero quedan guardados con él, aunque luego cambie la ficha.
+    expect(row.dir3Codes).toEqual({ accountingOffice: "L01280796", managingBody: "L01280796", processingUnit: "L01280796", proposingBody: null });
+    expect(row.customerIban).toBeNull();
     expect((await readPrivateFile(row.storageKey)).equals(file!.bytes)).toBe(true);
     const audits = await state.db.select().from(auditLog).where(eq(auditLog.action, "einvoice.generate"));
     expect(audits).toHaveLength(1);
@@ -175,6 +178,34 @@ describe("factura electrónica: servicio", () => {
     expect(creditUbl!.bytes.toString("utf8")).toContain("<cbc:InvoiceTypeCode>384</cbc:InvoiceTypeCode>");
   });
 
+  it("genera el UBL con el perfil de la AEAT y guarda su versión", async () => {
+    const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
+    expect(overview?.ublAeat).toEqual({ problems: [], warnings: [] });
+    const file = await generateEInvoice(actor, "invoice-1", { format: "UBL_AEAT" }, NOW);
+    const xml = file!.bytes.toString("utf8");
+    expect(file).toMatchObject({ fileName: "F2026-000012-ubl-aeat.xml", signed: false });
+    expect(xml).toContain("<cbc:CustomizationID>urn:cen.eu:en16931:2026#conformant#urn:aeat.es:spfe:1.0.0:extended</cbc:CustomizationID>");
+    expect(xml).toContain('<cbc:CompanyID schemeID="FC">P2807900B</cbc:CompanyID>');
+    const [row] = await state.db.select().from(einvoiceDocument).where(eq(einvoiceDocument.format, "UBL_AEAT"));
+    expect(row).toMatchObject({ formatVersion: "2.5 · urn:cen.eu:en16931:2026#conformant#urn:aeat.es:spfe:1.0.0:extended", dir3Codes: null });
+    // Rectificativa por diferencias con causa R4: tipo y modalidad en el perfil de la AEAT.
+    const credit = await generateEInvoice(actor, "invoice-credit", { format: "UBL_AEAT" }, NOW);
+    expect(credit!.bytes.toString("utf8")).toContain("<cbc:DocumentTypeCode>R4</cbc:DocumentTypeCode>");
+  });
+
+  it("rectificativa por sustitución: base y cuota de la factura rectificada recalculadas de sus líneas", async () => {
+    await seedInvoice("invoice-substitution", {
+      number: "R2026-000002", totalAmount: "121.00", status: "SENT", issuedAt: new Date("2026-11-26T10:00:00Z"), issueDate: new Date(Date.UTC(2026, 10, 26)),
+      invoiceType: "CREDIT_NOTE", rectifiedInvoiceId: "invoice-1", rectificationReason: "R1", rectificationType: "SUBSTITUTION", rectificationDescription: "Precio corregido",
+    }, [{ description: "Mantenimiento de alumbrado", quantity: "1.000", unitPrice: "100.00", taxes: [{ name: "IVA 21 %", rate: "21.000", kind: "VAT", operation: "ADD" }] }]);
+    const loaded = await loadEInvoice(COMPANY, "invoice-substitution");
+    expect(loaded?.data.corrective).toMatchObject({ originalTaxableBase: 200, originalTaxAmount: 42 });
+    const file = await generateEInvoice(actor, "invoice-substitution", { format: "UBL_AEAT" }, NOW);
+    const xml = file!.bytes.toString("utf8");
+    expect(xml).toContain("<cbc:DocumentTypeCode>Base</cbc:DocumentTypeCode><cbc:DocumentDescription>200.00</cbc:DocumentDescription>");
+    expect(xml).toContain("<cbc:DocumentTypeCode>Cuota</cbc:DocumentTypeCode><cbc:DocumentDescription>42.00</cbc:DocumentDescription>");
+  });
+
   it("registra los estados que la norma obliga a comunicar y rechaza los incoherentes", async () => {
     await expect(addEInvoiceStatus(actor, "invoice-1", { status: "REJECTED", effectiveDate: "2026-11-24" }, NOW)).rejects.toMatchObject({ status: 422 });
     await expect(addEInvoiceStatus(actor, "invoice-1", { status: "ACCEPTED", effectiveDate: "2026-12-02" }, NOW)).rejects.toMatchObject({ status: 422 });
@@ -188,7 +219,7 @@ describe("factura electrónica: servicio", () => {
     expect(result?.statuses[1]).toMatchObject({ reason: "Falta el número de expediente", rejectionCode: "01", deadline: "2026-11-27" });
     const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
     expect(overview?.summary.current).toBe("PAID");
-    expect(overview?.documents.map((document) => `${document.format}:${document.signed}`).sort()).toEqual(["FACTURAE:false", "FACTURAE:true", "UBL:false"]);
+    expect(overview?.documents.map((document) => `${document.format}:${document.signed}`).sort()).toEqual(["FACTURAE:false", "FACTURAE:true", "UBL:false", "UBL_AEAT:false"]);
     await expect(addEInvoiceStatus(actor, "invoice-draft", { status: "SENT", effectiveDate: "2026-11-20" }, NOW)).rejects.toMatchObject({ status: 409 });
   });
 });

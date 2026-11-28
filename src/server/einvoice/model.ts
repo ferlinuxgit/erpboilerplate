@@ -46,6 +46,9 @@ export type EInvoiceCorrective = {
   /** DIFFERENCES o SUBSTITUTION, como se eligió en el formulario. */
   type: string | null;
   description: string | null;
+  /** Base imponible y cuota de la factura rectificada: los pide el perfil de la AEAT en las rectificativas por sustitución. */
+  originalTaxableBase?: number | null;
+  originalTaxAmount?: number | null;
 };
 
 export type EInvoicePayment = {
@@ -77,6 +80,8 @@ export type EInvoiceData = {
   vatTreatment?: string | null;
   /** Causa de exención o no sujeción comunicada a VERI*FACTU (E1–E6, N1, N2), si se indicó. */
   vatExemptionCode?: string | null;
+  /** Régimen especial del criterio de caja (clave de régimen 07 del perfil UBL de la AEAT). */
+  cashAccounting?: boolean;
   /** Menciones legales obligatorias de la factura (exención, inversión del sujeto pasivo, criterio de caja…). */
   legalLiterals: string[];
   corrective?: EInvoiceCorrective | null;

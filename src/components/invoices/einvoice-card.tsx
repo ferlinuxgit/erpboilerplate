@@ -5,7 +5,8 @@ import { EInvoiceStatusForm } from "@/components/invoices/einvoice-status-form";
 import { InlineAlert, PageSection } from "@/components/ui/page";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { getEInvoiceOverview } from "@/server/einvoice/service";
+import type { Dir3Codes } from "@/server/einvoice/dir3";
+import { getEInvoiceOverview, type EInvoiceFormat } from "@/server/einvoice/service";
 import { EINVOICE_STATUSES, einvoiceRejectionLabels, einvoiceStatusLabels, type EInvoiceRejectionCode, type EInvoiceStatus } from "@/server/einvoice/status";
 import { civilDateKey } from "@/server/invoices/issue-checks";
 
@@ -21,6 +22,17 @@ function ProblemList({ items }: { items: string[] }) {
   return items.length === 1 ? <>{items[0]}</> : <ul className="list-disc space-y-1 pl-4">{items.map((item) => <li key={item}>{item}</li>)}</ul>;
 }
 
+const formatLabels: Record<EInvoiceFormat, string> = { FACTURAE: "Facturae", UBL: "UBL", UBL_AEAT: "UBL de la AEAT" };
+
+function dir3Summary(codes: Dir3Codes) {
+  return [
+    codes.accountingOffice ? `oficina contable ${codes.accountingOffice}` : null,
+    codes.managingBody ? `órgano gestor ${codes.managingBody}` : null,
+    codes.processingUnit ? `unidad tramitadora ${codes.processingUnit}` : null,
+    codes.proposingBody ? `órgano proponente ${codes.proposingBody}` : null,
+  ].filter(Boolean).join(", ");
+}
+
 const isoDate = (value: string) => formatDate(`${value}T00:00:00Z`);
 
 /**
@@ -31,7 +43,7 @@ const isoDate = (value: string) => formatDate(`${value}T00:00:00Z`);
 export async function EInvoiceCard({ companyId, invoiceId, canManage }: { companyId: string; invoiceId: string; canManage: boolean }) {
   const overview = await getEInvoiceOverview(companyId, invoiceId);
   if (!overview || (!overview.availability.facturae && !overview.availability.ubl)) return null;
-  const { availability, certificate, facturae, ubl, documents, statuses, summary } = overview;
+  const { availability, certificate, facturae, ubl, ublAeat, documents, statuses, summary } = overview;
   const facturaeReady = facturae.problems.length === 0;
   const signedCopy = documents.find((document) => document.format === "FACTURAE" && document.signed);
   // Estados que aún tiene sentido anotar (la validación completa la hace el servidor).
@@ -102,9 +114,7 @@ export async function EInvoiceCard({ companyId, invoiceId, canManage }: { compan
           <div className="space-y-2 border-t border-window-dark-shadow pt-4" data-testid="einvoice-ubl">
             <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Factura entre empresas (UBL 2.1 · EN 16931)</h3>
             <p className="text-xs text-muted-foreground">
-              Formato europeo para intercambiar facturas con otras empresas. {availability.statuses
-                ? "Es la sintaxis que usará la solución pública de la AEAT cuando la factura electrónica entre empresas sea obligatoria (Real Decreto 238/2026). Este fichero sigue el núcleo de la norma europea; el perfil propio de la AEAT y el envío a su plataforma aún no están disponibles."
-                : "Sigue el núcleo de la norma europea EN 16931."}
+              Formato europeo para intercambiar facturas con otras empresas y plataformas privadas. Sigue el núcleo de la norma europea EN 16931.
             </p>
             {ubl.problems.length > 0 ? (
               <InlineAlert title="No se puede generar el UBL de esta factura" tone="warning"><ProblemList items={ubl.problems} /></InlineAlert>
@@ -119,16 +129,39 @@ export async function EInvoiceCard({ companyId, invoiceId, canManage }: { compan
           </div>
         ) : null}
 
+        {availability.ublAeat ? (
+          <div className="space-y-2 border-t border-window-dark-shadow pt-4" data-testid="einvoice-ubl-aeat">
+            <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Solución pública de la AEAT (UBL 2.5)</h3>
+            <p className="text-xs text-muted-foreground">
+              Perfil de la factura electrónica entre empresas de la Orden HAC/1028/2026 (Real Decreto 238/2026), con la clave de régimen, el tipo de rectificativa,
+              el QR, las retenciones y el recargo de equivalencia. La aplicación todavía no la remite a la AEAT: descárgala para subirla a la solución pública o
+              entregarla a tu plataforma de facturación. El fichero no se ha podido probar contra el validador de la AEAT.
+            </p>
+            {ublAeat.problems.length > 0 ? (
+              <InlineAlert title="No se puede generar con el perfil de la AEAT" tone="warning"><ProblemList items={ublAeat.problems} /></InlineAlert>
+            ) : (
+              <>
+                {ublAeat.warnings.length > 0 ? <InlineAlert title="Ten en cuenta" tone="warning"><ProblemList items={ublAeat.warnings} /></InlineAlert> : null}
+                <div className="flex flex-wrap gap-2">
+                  <EInvoiceDownloadButton invoiceId={invoiceId} request={{ format: "ubl-aeat" }} testId="einvoice-ubl-aeat-download">Descargar UBL de la AEAT (.xml)</EInvoiceDownloadButton>
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
+
         {documents.length > 0 ? (
           <div className="space-y-2 border-t border-window-dark-shadow pt-4" data-testid="einvoice-documents">
             <h3 className="font-mono text-xs font-bold uppercase tracking-wide">Ficheros generados</h3>
             <ul className="space-y-1 text-xs">
               {documents.map((document) => (
                 <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5" key={document.id}>
-                  <span className="font-medium">{document.format === "UBL" ? "UBL" : "Facturae"} {document.signed ? "firmada" : "sin firmar"}</span>
+                  <span className="font-medium">{formatLabels[document.format]} {document.signed ? "firmada" : "sin firmar"}</span>
                   <span className="text-muted-foreground">{document.fileName} · {formatDateTime(document.generatedAt)}</span>
                   <span className="break-all font-mono text-muted-foreground" title="Huella SHA-256 del fichero conservado">{document.sha256.slice(0, 16)}…</span>
                   {document.signerSubject ? <span className="text-muted-foreground">Firmada por: {document.signerSubject}</span> : null}
+                  {document.dir3Codes ? <span className="text-muted-foreground">DIR3 usados: {dir3Summary(document.dir3Codes)}</span> : null}
+                  {document.customerIban ? <span className="text-muted-foreground">IBAN de domiciliación usado: {document.customerIban}</span> : null}
                 </li>
               ))}
             </ul>

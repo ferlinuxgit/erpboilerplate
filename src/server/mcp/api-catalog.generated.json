@@ -2123,14 +2123,14 @@
   "method": "GET",
   "path": "/api/invoices/{id}/einvoice",
   "area": "invoices",
-  "summary": "Factura electrónica de una factura emitida. - Sin `format`: situación (formatos disponibles, datos que faltan, ficheros generados y estados). - `?format=facturae|ubl`: descarga el fichero SIN firmar (Facturae 3.2.2 o UBL 2.1).",
+  "summary": "Factura electrónica de una factura emitida. - Sin `format`: situación (formatos disponibles, datos que faltan, ficheros generados y estados). - `?format=facturae|ubl|ubl-aeat`: descarga el fichero SIN firmar (Facturae 3.2.2, UBL 2.1 o UBL 2.5 con el perfil de la solución pública de la AEAT).",
   "permissions": [
    "invoice.read"
   ],
   "query": [
    "format"
   ],
-  "body": "const formatSchema = z.enum([\"facturae\", \"ubl\"])"
+  "body": "const formatSchema = z.enum([\"facturae\", \"ubl\", \"ubl-aeat\"])"
  },
  {
   "method": "POST",
@@ -2138,7 +2138,7 @@
   "area": "invoices",
   "summary": "Genera y descarga la factura electrónica; con `signed: true` firma el Facturae (XAdES-EPES) con el certificado de la empresa. Firmar es actuar en nombre de la empresa: exige permiso de escritura.",
   "permissions": [],
-  "body": "const generateSchema = z.object({\n  format: formatSchema,\n  /** Firma XAdES-EPES con el certificado de la empresa (solo Facturae). */\n  signed: z.boolean().optional(),\n  /** Vuelve a generar aunque exista una copia conservada (p. ej. para firmar de nuevo). */\n  regenerate: z.boolean().optional(),\n})\n\nconst formatSchema = z.enum([\"facturae\", \"ubl\"])"
+  "body": "const generateSchema = z.object({\n  format: formatSchema,\n  /** Firma XAdES-EPES con el certificado de la empresa (solo Facturae). */\n  signed: z.boolean().optional(),\n  /** Vuelve a generar aunque exista una copia conservada (p. ej. para firmar de nuevo). */\n  regenerate: z.boolean().optional(),\n})\n\nconst formatSchema = z.enum([\"facturae\", \"ubl\", \"ubl-aeat\"])"
  },
  {
   "method": "GET",
