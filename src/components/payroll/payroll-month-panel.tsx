@@ -112,6 +112,7 @@ export function PayrollMonthPanel({ period, slips, summary, banks, canWrite, cur
                     <StatusBadge tone="info">Contabilizada</StatusBadge>
                   )}
                   {slip.journalEntryId ? <Link className="ml-1 text-xs text-link hover:underline" href={`/accounting/entries/${slip.journalEntryId}`}>Ver asiento</Link> : null}
+                  <a className="ml-1 text-xs text-link hover:underline" href={`/api/payroll/slips/${slip.id}/receipt`} rel="noreferrer" target="_blank">Recibo (PDF)</a>
                 </TableCell>
                 {canWrite ? (
                   <TableCell className="whitespace-nowrap text-right">

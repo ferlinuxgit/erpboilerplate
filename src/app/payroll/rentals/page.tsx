@@ -42,6 +42,7 @@ export default async function RentalPropertiesPage() {
                   <TableHead>Referencia catastral</TableHead>
                   <TableHead>Situación</TableHead>
                   <TableHead>Dirección</TableHead>
+                  <TableHead>Regla de facturas</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -53,6 +54,7 @@ export default async function RentalPropertiesPage() {
                     <TableCell className="font-mono">{property.cadastralReference ?? "—"}</TableCell>
                     <TableCell title={RENTAL_PROPERTY_SITUATIONS[property.situation]}>{property.situation}</TableCell>
                     <TableCell>{[property.address, property.postalCode, property.city, property.province].filter(Boolean).join(", ") || "—"}</TableCell>
+                    <TableCell className="text-xs">{[property.matchAccountCode ? `subcuenta ${property.matchAccountCode}` : null, property.matchText ? `«${property.matchText}»` : null].filter(Boolean).join(" y ") || "—"}</TableCell>
                     <TableCell className="text-right">{canWrite ? <DeleteRentalPropertyButton id={property.id} /> : null}</TableCell>
                   </TableRow>
                 ))}
