@@ -85,6 +85,8 @@ export default async function RectifyInvoicePage({ params }: { params: Promise<{
               taxRate: line.taxRate ?? 0,
               retentionRate: line.retentionRate ?? 0,
               taxes: (line.taxes ?? []).map((selectedTax) => ({ ...selectedTax, id: selectedTax.id ?? null })),
+              ...(line.isDisbursement ? { isDisbursement: true } : {}),
+              ...(line.isGlobalDiscount || line.advanceInvoiceId ? { isDeduction: true } : {}),
             }))}
             pendingToRectify={pendingToRectify}
             showAccounts={(await getCompanyFiscalContext(ctx.company.id)).profile.features.eInvoicing === "verifactu"}

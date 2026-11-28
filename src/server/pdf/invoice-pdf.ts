@@ -2,7 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { taxTerritoryOf } from "@/lib/country-packs/territory";
 import { company, companySettings, customer, invoice, invoicePaymentMethod, partner, type InvoicePartySnapshot } from "@/db/schema";
-import { calculateInvoiceTotals } from "@/lib/invoice-totals";
+import { calculateInvoiceTotals, summarizeInvoiceAmounts } from "@/lib/invoice-totals";
 import { db } from "@/lib/db";
 import { paymentMethodTypeLabels, type PaymentMethodType } from "@/lib/payment-methods";
 import {
@@ -104,6 +104,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       companyWebsite: company.website,
       companyLogoDataUrl: company.logoDataUrl,
       companyInvoiceFooter: company.invoiceFooter,
+      companyRegistryData: company.registryData,
       companyBaseCurrencyCode: company.baseCurrencyCode,
       customerNumber: partner.number,
       customerName: customer.name,
@@ -172,6 +173,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
     email: row.companyEmail,
     phone: row.companyPhone,
     website: row.companyWebsite,
+    registryData: row.companyRegistryData,
   };
   const customerParty: InvoicePartySnapshot = row.customerSnapshot ?? {
     name: row.customerName,
@@ -191,7 +193,12 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
   // Clase de documento: la congelada al emitir; antes de emitir, la elegida o la que resulta del NIF.
   const documentClass = effectiveDocumentClass({ documentClass: row.documentClass, customerTaxId: customerParty.taxId });
   const territory = taxTerritoryOf(issuer);
+  // F3 de signo contrario que anula un canje erróneo (FAQ de VERI*FACTU de la AEAT): no es una rectificativa.
+  const cancelsSubstitutive = isCreditNote && row.isSubstitutive;
   const legalNotes = [
+    cancelsSubstitutive
+      ? `Anula la factura ${original?.number ?? "—"} de fecha ${formatDate(original?.issueDate ?? null) ?? "—"}, expedida por error en sustitución de simplificadas.${row.rectificationDescription ? ` Motivo: ${row.rectificationDescription}` : ""}`
+      : null,
     // Canje (art. 7.2 del Reglamento de facturación): referencia a las simplificadas sustituidas.
     substituted.length > 0
       ? `Factura expedida en sustitución de ${substituted.length === 1 ? "la factura simplificada" : "las facturas simplificadas"} ${substituted.map((entry) => `${entry.number} (${formatDate(entry.issueDate)})`).join(", ")}.`
@@ -224,10 +231,17 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       ? rectificationTypeLabels[row.rectificationType as RectificationType]
       : null;
 
+  // Suplidos y descuento global van aparte (en los totales), no como conceptos del detalle.
+  const amounts = summarizeInvoiceAmounts(lines, totals);
+  const disbursementLines = lines.flatMap((line, index) => line.isDisbursement
+    ? [{ description: line.description, amount: formatMoney(totals.lines[index]?.disbursementAmount ?? 0, currency) }]
+    : []);
+  const discountLine = lines.find((line) => line.isGlobalDiscount);
+
   return {
     filename: safeInvoiceFilename(row.number, isCreditNote),
     input: {
-      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : isCreditNote ? "Factura rectificativa" : documentClassTitle(documentClass),
+      documentTitle: lifecycle === "DRAFT" ? (isCreditNote ? "Borrador de rectificativa" : "Borrador") : cancelsSubstitutive ? `${documentClassTitle(documentClass)} (anulación)` : isCreditNote ? "Factura rectificativa" : documentClassTitle(documentClass),
       documentEyebrow: lifecycle === "DRAFT" ? "Documento sin validez fiscal" : lifecycle === "VOID" ? "Documento anulado" : "Documento comercial",
       number: row.number,
       issueDate: formatDate(row.issueDate) ?? "",
@@ -236,7 +250,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
       draft: lifecycle === "DRAFT",
       verifactu,
       legalNotes,
-      rectification: isCreditNote
+      rectification: isCreditNote && !cancelsSubstitutive
         ? {
             originalNumber: original?.number ?? "—",
             originalIssueDate: formatDate(original?.issueDate ?? null) ?? "—",
@@ -281,6 +295,8 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         // Logo y pie son presentación, no datos fiscales: siempre los actuales.
         logoDataUrl: row.companyLogoDataUrl,
         invoiceFooter: row.companyInvoiceFooter,
+        // Dato registral congelado al emitir (los emitidos antes de existir el campo, el actual).
+        registryData: (row.issuerSnapshot ? row.issuerSnapshot.registryData ?? row.companyRegistryData : row.companyRegistryData)?.trim() || null,
       },
       customer: {
         number: customerParty.number ?? null,
@@ -294,10 +310,11 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         countryCode: customerParty.countryCode,
       },
       // Cada línea muestra su base y los tipos de IVA/IRPF; las cuotas van en los totales.
-      lines: lines.map((line, index) => {
+      lines: lines.flatMap((line, index) => {
+        if (line.isDisbursement || line.isGlobalDiscount) return [];
         const lineTotals = totals.lines[index];
         const columns = lineTaxColumns(lineTotals?.taxes ?? []);
-        return {
+        return [{
           description: line.description,
           quantity: formatDecimal(line.quantity, 3),
           unitPrice: formatMoney(line.unitPrice, currency),
@@ -306,7 +323,7 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
           vat: columns.vat,
           withholding: columns.withholding,
           lineTotal: formatMoney(lineTotals?.subtotal ?? 0, currency),
-        };
+        }];
       }),
       totals: {
         subtotal: formatMoney(totals.subtotal, currency),
@@ -314,6 +331,20 @@ export async function getInvoicePdfData(companyId: string, invoiceId: string): P
         retentionAmount: formatMoney(totals.retentionAmount, currency),
         hasRetention: totals.retentionAmount !== 0,
         totalAmount: formatMoney(totals.totalAmount, currency),
+        globalDiscount: amounts.globalDiscountAmount !== 0
+          ? {
+              label: discountLine?.description || "Descuento",
+              grossSubtotal: formatMoney(amounts.subtotal + amounts.globalDiscountAmount, currency),
+              amount: formatMoney(amounts.globalDiscountAmount, currency),
+            }
+          : null,
+        disbursements: disbursementLines.length > 0
+          ? {
+              lines: disbursementLines,
+              amount: formatMoney(amounts.disbursementAmount, currency),
+              invoiceTotal: formatMoney(amounts.totalAmount - amounts.disbursementAmount, currency),
+            }
+          : null,
         // Una fila por impuesto y tipo con su base (art. 6.1.f/g RD 1619/2012).
         taxRows: taxTotalRows(totals.taxBuckets, (value) => formatMoney(value, currency)),
         // Desglose por tipo impositivo (base y cuota por tipo, art. 6.1.f/g RD 1619/2012).

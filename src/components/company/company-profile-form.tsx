@@ -70,6 +70,10 @@ export function CompanyProfileForm({ initialValues, part }: CompanyProfileFormPr
   const logoDataUrl = watchedValues.logoDataUrl ?? "";
   const [formError, setFormError] = useState<string | null>(null);
   const invoiceHelper = "Necesario para emitir facturas.";
+  // Sociedades mercantiles (NIF que empieza por A, B, C o D): el art. 24 del Código de Comercio
+  // exige sus datos de inscripción en el Registro Mercantil en la documentación, facturas incluidas.
+  const spanishRegistry = countryProfile.features.nationalTaxIdValidation === "es";
+  const missingRegistryData = spanishRegistry && /^[ABCD]/i.test(watchedValues.vatNumber?.trim() ?? "") && !watchedValues.registryData?.trim();
 
   const handleLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -206,6 +210,19 @@ export function CompanyProfileForm({ initialValues, part }: CompanyProfileFormPr
                   ))}
                 </Select>
               </AccessibleField>
+              {spanishRegistry ? (
+                <AccessibleField
+                  id="company-registry-data"
+                  label="Datos registrales"
+                  error={errors.registryData?.message}
+                  helperText={missingRegistryData
+                    ? "Aviso: tu NIF es de sociedad y la ley (art. 24 del Código de Comercio) pide imprimir en las facturas los datos de inscripción en el Registro Mercantil."
+                    : "Se imprimen en el pie de las facturas. Obligatorio para sociedades (art. 24 del Código de Comercio)."}
+                  className="md:col-span-6"
+                >
+                  <Input id="company-registry-data" maxLength={300} placeholder="Inscrita en el Registro Mercantil de Madrid, tomo 1234, folio 56, hoja M-78901" {...register("registryData")} />
+                </AccessibleField>
+              ) : null}
             </div>
           </section>
 

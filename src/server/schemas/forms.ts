@@ -83,6 +83,8 @@ export const companyProfileSchema = z.object({
     .optional()
     .or(z.literal("")),
   invoiceFooter: z.string().trim().max(500, "El pie de factura no puede superar 500 caracteres.").optional().or(z.literal("")),
+  /** Inscripción en el Registro Mercantil (art. 24 del Código de Comercio): se imprime en las facturas. */
+  registryData: z.string().trim().max(300, "Los datos registrales no pueden superar 300 caracteres.").optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
   const vatProblem = value.vatNumber?.trim() ? describeTaxIdProblemForCountry(value.vatNumber, value.countryCode) : null;
   if (vatProblem) {

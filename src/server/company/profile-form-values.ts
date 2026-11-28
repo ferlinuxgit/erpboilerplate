@@ -20,5 +20,6 @@ export function companyProfileFormValues(row: typeof company.$inferSelect): Comp
     website: row.website ?? "",
     logoDataUrl: row.logoDataUrl ?? "",
     invoiceFooter: row.invoiceFooter ?? "",
+    registryData: row.registryData ?? "",
   };
 }

@@ -892,6 +892,8 @@ export async function refundTicket(actor: PosActor, input: RefundInput) {
       type: "DIFFERENCES",
       scope: everything ? "FULL" : "PARTIAL",
       description,
+      // Devolución de mercancía: el abono va a la (708) «Devoluciones de ventas», no minora la 700.
+      commercialReason: "RETURN",
       ...(everything ? {} : {
         lines: requested.map((entry) => {
           const line = lineById.get(entry.lineId)!;
@@ -1136,11 +1138,13 @@ export async function getTicketPrint(companyId: string, invoiceId: string) {
   const verifactuInfo = await getInvoiceVerifactuInfo(companyId, invoiceId);
   return {
     invoice: { ...row, totalAmount: num(row.totalAmount) },
-    lines: lines.map((line, index) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, total: totals.lines[index]?.lineTotal ?? 0 })),
+    lines: lines.map((line, index) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, total: totals.lines[index]?.lineTotal ?? 0, isDisbursement: Boolean(line.isDisbursement) })),
     totals: {
       subtotal: totals.subtotal,
       tax: totals.taxAmount,
       total: totals.totalAmount,
+      /** Suplidos (art. 78.Tres.3.º LIVA): fuera de la base; el ticket los imprime aparte. */
+      disbursements: totals.disbursementAmount,
       breakdown: totals.taxBuckets.filter((bucket) => bucket.operation === "ADD").map((bucket) => ({ rate: bucket.rate, base: bucket.baseAmount, tax: bucket.amount })),
     },
     payment: ticket ? { kind: ticket.kind, cash: num(ticket.cashAmount), card: num(ticket.cardAmount), cashReceived: ticket.cashReceived === null ? null : num(ticket.cashReceived), change: ticket.changeGiven === null ? null : num(ticket.changeGiven), tip: num(ticket.tipAmount), registerName: ticket.registerName } : null,

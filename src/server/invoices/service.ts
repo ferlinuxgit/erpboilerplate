@@ -59,6 +59,7 @@ import {
 import {
   advanceDeductionProblem,
   advanceDeductionsOf,
+  advanceTaxKey,
   basesByAdvanceTaxKey,
   buildPostingSalesLines,
   negativeBaseProblem,
@@ -67,6 +68,7 @@ import {
 } from "@/server/invoices/advances";
 import {
   ISSUED_LOCKED_FIELDS,
+  type CorrectSubstitutiveInput,
   type CreateCreditNoteInput,
   type CreateInvoiceInput,
   type SubstituteSimplifiedInput,
@@ -1403,15 +1405,37 @@ export async function createCreditNote(actor: InvoiceActor, originalId: string, 
   return creditNote;
 }
 
-/** Factura (no anulada) que ya sustituye a alguna de estas simplificadas, si la hay. */
+/**
+ * Factura de canje vigente (no anulada ni corregida) que ya sustituye a alguna de estas
+ * simplificadas, si la hay. Una F3 corregida (con su F3 de signo contrario emitida) ya no cuenta:
+ * se puede expedir la nueva.
+ */
 export async function findSubstitutiveOf(client: DbClient, companyId: string, invoiceIds: string[]) {
   if (invoiceIds.length === 0) return null;
   const rows = await client
-    .select({ id: invoice.id, number: invoice.number, substitutesInvoiceIds: invoice.substitutesInvoiceIds })
+    .select({ id: invoice.id, number: invoice.number, invoiceType: invoice.invoiceType, substitutesInvoiceIds: invoice.substitutesInvoiceIds, rectifiedInvoiceId: invoice.rectifiedInvoiceId, issuedAt: invoice.issuedAt })
     .from(invoice)
     .where(and(eq(invoice.companyId, companyId), eq(invoice.isSubstitutive, true), ne(invoice.status, "VOID")));
   const wanted = new Set(invoiceIds);
-  return rows.find((row) => (row.substitutesInvoiceIds ?? []).some((id) => wanted.has(id))) ?? null;
+  const cancelled = new Set(rows.filter((row) => row.invoiceType === "CREDIT_NOTE" && row.issuedAt && row.rectifiedInvoiceId).map((row) => row.rectifiedInvoiceId!));
+  return rows.find((row) => row.invoiceType === "INVOICE" && !cancelled.has(row.id) && (row.substitutesInvoiceIds ?? []).some((id) => wanted.has(id))) ?? null;
+}
+
+/** F3 de signo contrario emitida que anula esta factura de canje, si la hay. */
+export async function findSubstitutiveCancellationOf(client: DbClient, companyId: string, substitutiveId: string) {
+  const [row] = await client
+    .select({ id: invoice.id, number: invoice.number })
+    .from(invoice)
+    .where(and(
+      eq(invoice.companyId, companyId),
+      eq(invoice.rectifiedInvoiceId, substitutiveId),
+      eq(invoice.invoiceType, "CREDIT_NOTE"),
+      eq(invoice.isSubstitutive, true),
+      isNotNull(invoice.issuedAt),
+      ne(invoice.status, "VOID"),
+    ))
+    .limit(1);
+  return row ?? null;
 }
 
 /**
@@ -1432,91 +1456,228 @@ export async function substituteSimplifiedInvoices(actor: InvoiceActor, invoiceI
   if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
   await ensureCompanyDefaults(actor);
 
-  const created = await db.transaction(async (tx) => {
-    const originals: InvoiceRow[] = [];
-    for (const id of ids) {
-      const row = await lockInvoice(tx, actor.companyId, id);
-      if (!row) {
-        if (id === invoiceId) return null;
-        throw new HttpError(404, "Alguna de las facturas simplificadas no existe en esta empresa.");
-      }
-      originals.push(row);
-    }
-    for (const original of originals) {
-      if (original.invoiceType !== "INVOICE" || invoiceLifecycle(original) !== "ISSUED" || original.isSubstitutive) {
-        throw new HttpError(409, `${original.number} no es una factura simplificada emitida: solo esas se pueden convertir en factura completa.`);
-      }
-      const originalClass = effectiveDocumentClass({ documentClass: original.documentClass, customerTaxId: original.customerSnapshot?.taxId });
-      if (originalClass !== "SIMPLIFIED") {
-        throw new HttpError(409, `${original.number} ya identifica al cliente con su NIF: no necesita convertirse en factura completa.`);
-      }
-      const balance = await getInvoiceBalance(tx, actor.companyId, original.id, original.totalAmount);
-      if (balance.creditedCents !== 0) {
-        throw new HttpError(409, `${original.number} tiene rectificativas: no se puede convertir automáticamente. Emite una factura nueva por el importe que quedó.`);
-      }
-    }
-    if (new Set(originals.map((original) => original.customerId)).size > 1) {
-      throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben ser del mismo cliente.");
-    }
-    if (new Set(originals.map((original) => original.vatTreatment ?? "DOMESTIC")).size > 1) {
-      throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben tener el mismo tratamiento de IVA.");
-    }
-    const already = await findSubstitutiveOf(tx, actor.companyId, ids);
-    if (already) throw new HttpError(409, `Ya existe la factura ${already.number} en sustitución de esa factura simplificada.`);
-    const latest = originals.reduce((max, original) => (original.issueDate > max ? original.issueDate : max), originals[0].issueDate);
-    if (issueDate < latest) throw new HttpError(400, "La factura completa no puede tener fecha anterior a la de la simplificada que sustituye.");
+  const created = await db.transaction((tx) => substituteInTransaction(tx, actor, { ids, customerId: input.customerId, issueDate, seriesId }));
+  if (created) await storeInvoicePdfQuietly(actor.companyId, created.id);
+  return created;
+}
 
-    await assertActiveCustomer(tx, actor.companyId, input.customerId);
-    const recipient = await loadCustomerSnapshot(tx, actor.companyId, input.customerId);
-    if (!recipient?.taxId?.trim()) {
-      throw new HttpError(422, "Para convertirla en factura completa el cliente debe tener NIF. Complétalo en su ficha o elige otro cliente.");
+/** Canje dentro de una transacción (lo usan el canje y su corrección). `ids[0]` es la simplificada pedida. */
+async function substituteInTransaction(
+  tx: AppDbTransaction,
+  actor: InvoiceActor,
+  { ids, customerId, issueDate, seriesId }: { ids: string[]; customerId: string; issueDate: Date; seriesId: string | null },
+) {
+  const invoiceId = ids[0]!;
+  const input = { customerId };
+  const originals: InvoiceRow[] = [];
+  for (const id of ids) {
+    const row = await lockInvoice(tx, actor.companyId, id);
+    if (!row) {
+      if (id === invoiceId) return null;
+      throw new HttpError(404, "Alguna de las facturas simplificadas no existe en esta empresa.");
     }
+    originals.push(row);
+  }
+  for (const original of originals) {
+    if (original.invoiceType !== "INVOICE" || invoiceLifecycle(original) !== "ISSUED" || original.isSubstitutive) {
+      throw new HttpError(409, `${original.number} no es una factura simplificada emitida: solo esas se pueden convertir en factura completa.`);
+    }
+    const originalClass = effectiveDocumentClass({ documentClass: original.documentClass, customerTaxId: original.customerSnapshot?.taxId });
+    if (originalClass !== "SIMPLIFIED") {
+      throw new HttpError(409, `${original.number} ya identifica al cliente con su NIF: no necesita convertirse en factura completa.`);
+    }
+    const balance = await getInvoiceBalance(tx, actor.companyId, original.id, original.totalAmount);
+    if (balance.creditedCents !== 0) {
+      throw new HttpError(409, `${original.number} tiene rectificativas: no se puede convertir automáticamente. Emite una factura nueva por el importe que quedó.`);
+    }
+  }
+  if (new Set(originals.map((original) => original.customerId)).size > 1) {
+    throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben ser del mismo cliente.");
+  }
+  if (new Set(originals.map((original) => original.vatTreatment ?? "DOMESTIC")).size > 1) {
+    throw new HttpError(409, "Las facturas simplificadas que se sustituyen juntas deben tener el mismo tratamiento de IVA.");
+  }
+  const already = await findSubstitutiveOf(tx, actor.companyId, ids);
+  if (already) throw new HttpError(409, `Ya existe la factura ${already.number} en sustitución de esa factura simplificada.`);
+  const latest = originals.reduce((max, original) => (original.issueDate > max ? original.issueDate : max), originals[0].issueDate);
+  if (issueDate < latest) throw new HttpError(400, "La factura completa no puede tener fecha anterior a la de la simplificada que sustituye.");
 
-    const lines: CalculatedLine[] = [];
-    for (const original of [...originals].sort((left, right) => left.issueDate.getTime() - right.issueDate.getTime())) {
-      for (const stored of await loadStoredLines(tx, original.id)) {
-        const line: CalculatedLine & { lineId?: string } = { ...stored };
-        delete line.lineId;
-        // Con varias simplificadas, cada concepto dice de cuál viene.
-        lines.push(originals.length > 1 ? { ...line, description: `${line.description} (${original.number})`.slice(0, 500) } : line);
-      }
-    }
-    const totals = calculateInvoiceTotals(lines);
-    const originalsTotalCents = originals.reduce((sum, original) => sum + toCents(original.totalAmount), 0);
-    if (toCents(totals.totalAmount) !== originalsTotalCents) {
-      throw new HttpError(409, "El importe recalculado no coincide con el de las facturas simplificadas: no se puede convertir automáticamente.");
-    }
+  await assertActiveCustomer(tx, actor.companyId, input.customerId);
+  const recipient = await loadCustomerSnapshot(tx, actor.companyId, input.customerId);
+  if (!recipient?.taxId?.trim()) {
+    throw new HttpError(422, "Para convertirla en factura completa el cliente debe tener NIF. Complétalo en su ficha o elige otro cliente.");
+  }
 
-    const numbers = originals.map((original) => original.number);
-    const id = randomUUID();
-    const first = originals[0];
+  const lines: CalculatedLine[] = [];
+  for (const original of [...originals].sort((left, right) => left.issueDate.getTime() - right.issueDate.getTime())) {
+    for (const stored of await loadStoredLines(tx, original.id)) {
+      const line: CalculatedLine & { lineId?: string } = { ...stored };
+      delete line.lineId;
+      // Con varias simplificadas, cada concepto dice de cuál viene.
+      lines.push(originals.length > 1 ? { ...line, description: `${line.description} (${original.number})`.slice(0, 500) } : line);
+    }
+  }
+  const totals = calculateInvoiceTotals(lines);
+  const originalsTotalCents = originals.reduce((sum, original) => sum + toCents(original.totalAmount), 0);
+  if (toCents(totals.totalAmount) !== originalsTotalCents) {
+    throw new HttpError(409, "El importe recalculado no coincide con el de las facturas simplificadas: no se puede convertir automáticamente.");
+  }
+
+  const numbers = originals.map((original) => original.number);
+  const id = randomUUID();
+  const first = originals[0];
+  await tx.insert(invoice).values({
+    id,
+    companyId: actor.companyId,
+    customerId: input.customerId,
+    number: provisionalDraftNumber(id),
+    issueDate,
+    // No se cobra: el cobro es el de las simplificadas.
+    dueDate: null,
+    totalAmount: money(totals.totalAmount),
+    status: "DRAFT",
+    vatTreatment: first.vatTreatment,
+    vatExemptionCode: first.vatExemptionCode,
+    legalMentions: first.legalMentions,
+    // Art. 6.1.i: la operación se hizo en la fecha de la simplificada (la más reciente si hay varias).
+    operationDate: originals.length === 1 ? first.operationDate ?? first.issueDate : latest,
+    documentClass: "FULL",
+    isSubstitutive: true,
+    substitutesInvoiceIds: ids,
+    notes: `Sustituye a ${numbers.length === 1 ? "la factura simplificada" : "las facturas simplificadas"} ${numbers.join(", ")}.`,
+    seriesId,
+  });
+  await writeLines(tx, id, lines, false);
+  const issued = await issueInvoiceInTransaction(tx, actor, id);
+  return { id: issued.id, number: issued.number, status: issued.status, totalAmount: totals.totalAmount, substitutedNumbers: numbers };
+}
+
+/**
+ * Corrige una factura de canje (F3) errónea —cliente o datos de la operación equivocados— como
+ * indican las preguntas frecuentes de VERI*FACTU de la AEAT: «mediante el alta de otras dos
+ * facturas tipo F3: una F3 de importe negativo […] para contrarrestar dicha F3 original errónea y
+ * una nueva F3 con los datos correctos».
+ *
+ * La F3 negativa se guarda como abono (`CREDIT_NOTE`) de la F3 errónea que sustituye a las mismas
+ * simplificadas; se numera con las facturas, no con las rectificativas, y como cualquier canje no
+ * genera asiento, ni cobro, ni cuenta en los modelos. Si el error está en la simplificada, hay que
+ * rectificar la simplificada (no esto).
+ */
+export async function correctSubstitutiveInvoice(actor: InvoiceActor, substitutiveId: string, input: CorrectSubstitutiveInput) {
+  const issueDate = parseDate(input.issueDate, "La fecha de la factura no es válida.") ?? new Date();
+  const seriesId = input.seriesId?.trim() || null;
+  if (seriesId) await assertSelectableSeries(db, actor.companyId, seriesId, ["SALES_INVOICE"]);
+  await ensureCompanyDefaults(actor);
+
+  const result = await db.transaction(async (tx) => {
+    const wrong = await lockInvoice(tx, actor.companyId, substitutiveId);
+    if (!wrong) return null;
+    if (wrong.invoiceType !== "INVOICE" || !wrong.isSubstitutive || invoiceLifecycle(wrong) !== "ISSUED") {
+      throw new HttpError(409, "Solo se puede corregir una factura de canje emitida (la que sustituye a simplificadas).");
+    }
+    const already = await findSubstitutiveCancellationOf(tx, actor.companyId, wrong.id);
+    if (already) throw new HttpError(409, `La factura ${wrong.number} ya se corrigió con la ${already.number}.`);
+    const substitutedIds = wrong.substitutesInvoiceIds ?? [];
+    if (substitutedIds.length === 0) throw new HttpError(422, "La factura de canje no indica las simplificadas que sustituye.");
+    if (issueDate < wrong.issueDate) throw new HttpError(400, "La corrección no puede tener fecha anterior a la factura de canje que corrige.");
+    const description = input.description.trim();
+
+    // 1) F3 de signo contrario: las mismas líneas en negativo, al mismo cliente (el que tenía la errónea).
+    const lines = (await loadStoredLines(tx, wrong.id)).map((line) => ({ ...line, quantity: -line.quantity }));
+    const totals = calculateInvoiceTotals(lines, { allowNegative: true });
+    const cancellationId = randomUUID();
     await tx.insert(invoice).values({
-      id,
+      id: cancellationId,
       companyId: actor.companyId,
-      customerId: input.customerId,
-      number: provisionalDraftNumber(id),
+      customerId: wrong.customerId,
+      number: provisionalDraftNumber(cancellationId),
       issueDate,
-      // No se cobra: el cobro es el de las simplificadas.
       dueDate: null,
       totalAmount: money(totals.totalAmount),
       status: "DRAFT",
-      vatTreatment: first.vatTreatment,
-      vatExemptionCode: first.vatExemptionCode,
-      legalMentions: first.legalMentions,
-      // Art. 6.1.i: la operación se hizo en la fecha de la simplificada (la más reciente si hay varias).
-      operationDate: originals.length === 1 ? first.operationDate ?? first.issueDate : latest,
+      invoiceType: "CREDIT_NOTE",
+      rectifiedInvoiceId: wrong.id,
+      // Sin causa de rectificación propia: VERI*FACTU la registra como F3, no como R1–R5.
+      rectificationReason: "R4",
+      rectificationType: "DIFFERENCES",
+      rectificationDescription: description,
+      vatTreatment: wrong.vatTreatment,
+      vatExemptionCode: wrong.vatExemptionCode,
+      legalMentions: wrong.legalMentions,
+      operationDate: wrong.operationDate,
       documentClass: "FULL",
       isSubstitutive: true,
-      substitutesInvoiceIds: ids,
-      notes: `Sustituye a ${numbers.length === 1 ? "la factura simplificada" : "las facturas simplificadas"} ${numbers.join(", ")}.`,
+      substitutesInvoiceIds: substitutedIds,
+      notes: `Anula la factura de canje ${wrong.number}. ${description}`.slice(0, 1000),
       seriesId,
     });
-    await writeLines(tx, id, lines, false);
-    const issued = await issueInvoiceInTransaction(tx, actor, id);
-    return { id: issued.id, number: issued.number, status: issued.status, totalAmount: totals.totalAmount, substitutedNumbers: numbers };
+    await writeLines(tx, cancellationId, lines, true);
+    const cancellation = await issueInvoiceInTransaction(tx, actor, cancellationId);
+
+    // 2) F3 nueva con los datos correctos (mismas simplificadas, mismo orden).
+    const ordered = [...substitutedIds];
+    const corrected = await substituteInTransaction(tx, actor, { ids: ordered, customerId: input.customerId, issueDate, seriesId });
+    if (!corrected) throw new HttpError(404, "Alguna de las facturas simplificadas ya no existe.");
+    await recordAudit({
+      tenantId: actor.tenantId,
+      companyId: actor.companyId,
+      actorUserId: actor.actorUserId,
+      action: "invoice.substitute.correct",
+      entityName: "invoice",
+      entityId: wrong.id,
+      payload: { number: wrong.number, cancellationId, cancellationNumber: cancellation.number, correctedId: corrected.id, correctedNumber: corrected.number, description },
+    }, tx);
+    return {
+      cancellation: { id: cancellationId, number: cancellation.number },
+      corrected: { id: corrected.id, number: corrected.number, totalAmount: corrected.totalAmount },
+    };
   });
-  if (created) await storeInvoicePdfQuietly(actor.companyId, created.id);
-  return created;
+  if (result) {
+    await storeInvoicePdfQuietly(actor.companyId, result.cancellation.id);
+    await storeInvoicePdfQuietly(actor.companyId, result.corrected.id);
+  }
+  return result;
+}
+
+/**
+ * Anticipos emitidos de un cliente con base pendiente de descontar, por tipo de impuestos, con los
+ * impuestos (ids) de su línea: lo que necesita la factura final para añadir «Anticipo según factura X».
+ */
+export async function listAvailableAdvances(companyId: string, customerId: string, options: { excludeInvoiceId?: string | null } = {}) {
+  const rows = await db
+    .select({ id: invoice.id })
+    .from(invoice)
+    .where(and(
+      eq(invoice.companyId, companyId),
+      eq(invoice.customerId, customerId),
+      eq(invoice.isAdvance, true),
+      eq(invoice.invoiceType, "INVOICE"),
+      isNotNull(invoice.issuedAt),
+      ne(invoice.status, "VOID"),
+    ))
+    .orderBy(asc(invoice.issueDate));
+  if (rows.length === 0) return [];
+  const states = await loadAdvanceStates(db, companyId, rows.map((row) => row.id), options.excludeInvoiceId ?? null);
+  const result: Array<{ id: string; number: string; pending: Array<{ taxKey: string; amount: number; taxIds: string[]; taxRate: number; retentionRate: number }> }> = [];
+  for (const row of rows) {
+    const state = states.get(row.id);
+    if (!state) continue;
+    const lines = await loadStoredLines(db, row.id);
+    const pending = [...state.baseByTaxKey.entries()].flatMap(([taxKey, cents]) => {
+      const remaining = cents - (state.deductedByTaxKey.get(taxKey) ?? 0);
+      if (remaining <= 0) return [];
+      const sample = lines.find((line) => !line.isDisbursement && advanceTaxKey(line) === taxKey);
+      return [{
+        taxKey,
+        amount: remaining / 100,
+        taxIds: (sample?.taxes ?? []).map((selectedTax) => selectedTax.id).filter((id): id is string => Boolean(id)),
+        taxRate: Number(sample?.taxRate ?? 0),
+        retentionRate: Number(sample?.retentionRate ?? 0),
+      }];
+    });
+    if (pending.length > 0) result.push({ id: row.id, number: state.number, pending });
+  }
+  return result;
 }
 
 /** Duplica una factura (emitida o borrador) como nuevo borrador con fecha de hoy. Útil para facturas recurrentes. */
