@@ -16,6 +16,15 @@
  *   Sin clase (facturas antiguas): F1 si el cliente tiene NIF / NIF-IVA y F2 si no lo tiene.
  * - F3: factura expedida en sustitución de facturas simplificadas (canje), con la agrupación
  *   `FacturasSustituidas` (apdo. 5: solo con F3) y Destinatarios obligatorio (apdo. 13).
+ * - Corrección de una F3 errónea: según las preguntas frecuentes de la AEAT para desarrolladores,
+ *   «mediante el alta de otras dos facturas tipo F3: una F3 de importe negativo […] y una nueva F3
+ *   con los datos correctos». La F3 negativa se guarda como un abono que sustituye a las mismas
+ *   simplificadas: aquí sale como F3 (no como R1–R5), sin datos de rectificación.
+ * - Suplidos (art. 78.Tres.3.º LIVA): no entran en el desglose ni en ImporteTotal. Misma fuente:
+ *   «no se registran en la información del registro de facturación de alta. A la hora de indicar
+ *   el importe total de una factura que contiene un suplido, este no será tenido en cuenta y solo
+ *   se consignará la suma de base imponible y cuota repercutida». `totals.subtotal` y el desglose
+ *   por tipo ya llegan sin ellos (el motor los suma solo al total a pagar).
  * - Rectificativas: R1–R4 según la causa guardada; R5 si la factura original era simplificada (F2).
  * - TipoRectificativa "I" (por diferencias): nuestras rectificativas siempre expresan importes por
  *   diferencia (también las de tipo "sustitución", que llevan las líneas originales en negativo y
@@ -231,7 +240,10 @@ export function buildBreakdown(treatment: SalesTreatment, totals: MapInvoiceInpu
 export function mapInvoiceToAlta(input: MapInvoiceInput): VerifactuAltaContent {
   const recipient = recipientFor(input.customer);
   const breakdown = buildBreakdown(input.vatTreatment, input.totals, input.taxCode ?? "01", input.exemptionCode);
-  const isCreditNote = input.invoiceType === "CREDIT_NOTE";
+  // Un abono que cita simplificadas sustituidas no es una rectificativa: es la F3 de signo
+  // contrario que anula un canje erróneo.
+  const isSubstitutiveCancellation = input.invoiceType === "CREDIT_NOTE" && Boolean(input.substituted?.length) && Boolean(recipient);
+  const isCreditNote = input.invoiceType === "CREDIT_NOTE" && !isSubstitutiveCancellation;
 
   let invoiceTypeCode: VerifactuInvoiceTypeCode;
   if (isCreditNote) {

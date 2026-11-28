@@ -35,7 +35,28 @@ const paymentMethodIdsSchema = z.array(paymentMethodReferenceSchema).max(12, "No
 /** Serie de numeración elegida (vacío o null = la serie por defecto). */
 const seriesIdSchema = z.string().trim().max(80, "La serie seleccionada no es válida.").nullable().optional();
 
-export const invoiceLineSchema = invoiceLineFormSchema;
+/**
+ * Línea de factura. Sobre la línea de siempre añade:
+ * - `isDisbursement`: suplido (pago por cuenta del cliente, art. 78.Tres.3.º de la Ley 37/1992);
+ * - `advanceInvoiceId`: la línea descuenta un anticipo ya facturado y por eso su precio es negativo
+ *   (es la única línea negativa que admite una factura ordinaria).
+ */
+export const invoiceLineSchema = invoiceLineFormSchema
+  .extend({
+    unitPrice: z.number({ error: "El precio no es válido." }),
+    isDisbursement: z.boolean().optional(),
+    advanceInvoiceId: z.string().trim().max(80, "El anticipo seleccionado no es válido.").optional().nullable().or(z.literal("")),
+  })
+  .superRefine((value, ctx) => {
+    const deductsAdvance = Boolean(value.advanceInvoiceId);
+    if (!deductsAdvance && value.unitPrice < 0) ctx.addIssue({ code: "custom", message: "El precio no puede ser negativo.", path: ["unitPrice"] });
+    if (deductsAdvance && value.unitPrice >= 0) ctx.addIssue({ code: "custom", message: "La línea que descuenta un anticipo lleva el importe en negativo.", path: ["unitPrice"] });
+    if (deductsAdvance && value.isDisbursement) ctx.addIssue({ code: "custom", message: "Un suplido no puede descontar un anticipo.", path: ["isDisbursement"] });
+  });
+
+/** Descuento global de la factura (también el de pronto pago): porcentaje o importe sin impuestos. */
+const globalDiscountPctSchema = z.number().min(0, "El descuento no puede ser negativo.").max(100, "El descuento no puede superar el 100 %.").optional().nullable();
+const globalDiscountAmountSchema = z.number().min(0, "El descuento no puede ser negativo.").max(9_999_999_999, "El descuento no es válido.").optional().nullable();
 
 export const createInvoiceSchema = z.object({
   customerId: z.string().trim().optional().or(z.literal("")),
@@ -56,6 +77,11 @@ export const createInvoiceSchema = z.object({
   /** Operación intracomunitaria sin comprobación reciente en VIES: confirmación expresa de quien emite. */
   confirmVies: z.boolean().optional(),
   seriesId: seriesIdSchema,
+  /** Descuento global: minora la base de cada tipo en proporción (art. 78.Tres.2.º LIVA). Manda el porcentaje. */
+  globalDiscountPct: globalDiscountPctSchema,
+  globalDiscountAmount: globalDiscountAmountSchema,
+  /** Factura de anticipo (art. 75.Dos LIVA): su base va a la 438 y se descuenta en la factura final. */
+  isAdvance: z.boolean().optional(),
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea."),
   /** "draft" guarda un borrador editable; "issue" (por defecto, compatible con integraciones) emite. */
   mode: z.enum(["draft", "issue"]).optional(),
@@ -87,6 +113,9 @@ export const updateDraftInvoiceSchema = z.object({
   legalMentions: legalMentionsSchema,
   confirmVies: z.boolean().optional(),
   seriesId: seriesIdSchema,
+  globalDiscountPct: globalDiscountPctSchema,
+  globalDiscountAmount: globalDiscountAmountSchema,
+  isAdvance: z.boolean().optional(),
   totalAmount: z.number().optional(),
   lines: z.array(invoiceLineSchema).min(1, "Debes añadir al menos una línea.").optional(),
   /** Tras guardar, emitir la factura en la misma operación. */
@@ -106,7 +135,7 @@ export const issuedInvoiceEditSchema = z.object({
 
 /** Campos que siguen siendo editables en una factura emitida. */
 export const ISSUED_EDITABLE_FIELDS = ["notes", "paymentMethodIds", "paymentMethodId"] as const;
-export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "operationDate", "vatExemptionCode", "documentClass", "legalMentions", "totalAmount", "seriesId"] as const;
+export const ISSUED_LOCKED_FIELDS = ["customerId", "issueDate", "dueDate", "lines", "vatTreatment", "operationDate", "vatExemptionCode", "documentClass", "legalMentions", "totalAmount", "seriesId", "globalDiscountPct", "globalDiscountAmount", "isAdvance"] as const;
 
 export const creditNoteLineSchema = z.object({
   itemId: z.string().trim().optional().nullable(),
@@ -118,6 +147,8 @@ export const creditNoteLineSchema = z.object({
   /** Líneas antiguas sin impuestos configurados: tipo de IVA y retención de la línea original. */
   taxRate: z.number().min(0).max(100).optional(),
   retentionRate: z.number().min(0).max(100).optional(),
+  /** Suplido que se devuelve (no es base ni lleva impuestos). */
+  isDisbursement: z.boolean().optional(),
 });
 
 export const createCreditNoteSchema = z.object({
@@ -168,7 +199,21 @@ export const substituteSimplifiedSchema = z.object({
   seriesId: seriesIdSchema,
 });
 
+/**
+ * Corrección de una factura de canje (F3) errónea: se anula con otra F3 de importe contrario y se
+ * expide una F3 nueva con los datos correctos (preguntas frecuentes de VERI*FACTU de la AEAT).
+ */
+export const correctSubstitutiveSchema = z.object({
+  /** Cliente correcto (con NIF) al que se expide la nueva factura completa. */
+  customerId: z.string().trim().min(1, "Elige el cliente al que se expide la factura corregida."),
+  issueDate: z.string().trim().optional().or(z.literal("")),
+  /** Qué estaba mal en el canje (queda en la factura que lo anula). */
+  description: z.string().trim().min(3, "Explica brevemente qué estaba mal en la factura.").max(500, "El motivo no puede superar 500 caracteres."),
+  seriesId: seriesIdSchema,
+});
+
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type UpdateDraftInvoiceInput = z.infer<typeof updateDraftInvoiceSchema>;
 export type CreateCreditNoteInput = z.infer<typeof createCreditNoteSchema>;
 export type SubstituteSimplifiedInput = z.infer<typeof substituteSimplifiedSchema>;
+export type CorrectSubstitutiveInput = z.infer<typeof correctSubstitutiveSchema>;
