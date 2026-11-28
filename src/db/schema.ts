@@ -1547,6 +1547,15 @@ export const payrollSlip = pgTable("payroll_slip", {
   advancesAmount: numeric("advancesAmount", { precision: 12, scale: 2 }).notNull().default("0"),
   // Líquido a percibir.
   netAmount: numeric("netAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // monthly (nómina) | extra (paga extraordinaria) | settlement (finiquito).
+  slipType: text("slipType").notNull().default("monthly"),
+  // Parte del bruto que es indemnización (cuenta 641) y, de ella, la exenta (190, clave L.05).
+  severanceAmount: numeric("severanceAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  severanceExemptAmount: numeric("severanceExemptAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Otras deducciones del trabajador (embargos, cuotas sindicales, préstamos): importe y cuenta.
+  otherDeductions: jsonb("otherDeductions").$type<Array<{ kind: "garnishment" | "union" | "loan" | "other"; concept: string; amountCents: number; accountCode: string }>>().notNull().default([]),
+  // Retribución en especie contabilizada en la nómina (64x contra cuenta puente); null = no se contabiliza.
+  inKindPosting: jsonb("inKindPosting").$type<{ expenseAccount: string; counterAccount: string }>(),
   // draft (sin asiento) | posted (contabilizada).
   status: text("status").notNull().default("draft"),
   journalEntryId: text("journalEntryId").references((): AnyPgColumn => journalEntry.id, { onDelete: "set null" }),
@@ -1564,6 +1573,8 @@ export const payrollSlip = pgTable("payroll_slip", {
   check("payroll_slip_status_valid", sql`${table.status} IN ('draft', 'posted')`),
   check("payroll_slip_period_valid", sql`${table.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
   check("payroll_slip_amounts_valid", sql`${table.grossAmount} >= 0 AND ${table.inKindAmount} >= 0 AND ${table.inKindWithholdingAmount} >= 0 AND ${table.withholdingAmount} >= 0 AND ${table.employeeSocialSecurity} >= 0 AND ${table.employerSocialSecurity} >= 0 AND ${table.advancesAmount} >= 0 AND ${table.netAmount} >= 0`),
+  check("payroll_slip_type_valid", sql`${table.slipType} IN ('monthly', 'extra', 'settlement')`),
+  check("payroll_slip_severance_valid", sql`${table.severanceAmount} >= 0 AND ${table.severanceExemptAmount} >= 0 AND ${table.severanceExemptAmount} <= ${table.severanceAmount}`),
 ]);
 
 /**

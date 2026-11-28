@@ -42,6 +42,23 @@ export const payrollSlipSchema = z.object({
   employerSocialSecurity: amount("La Seguridad Social de la empresa no puede ser negativa.").optional(),
   advancesAmount: amount("Los anticipos no pueden ser negativos.").optional(),
   netAmount: amount("El líquido no puede ser negativo."),
+  /** Nómina mensual, paga extra o finiquito (por defecto, mensual). */
+  slipType: z.enum(["monthly", "extra", "settlement"]).optional(),
+  /** Parte del bruto que es indemnización (641) y, de ella, la exenta. */
+  severanceAmount: amount("La indemnización no puede ser negativa.").optional(),
+  severanceExemptAmount: amount("La indemnización exenta no puede ser negativa.").optional(),
+  /** Embargos, cuotas sindicales, préstamos… que se restan del líquido. Importes en euros. */
+  otherDeductions: z.array(z.object({
+    kind: z.enum(["garnishment", "union", "loan", "other"]),
+    concept: z.string().trim().min(1, "Indica el concepto de la deducción.").max(120),
+    amount: z.number().positive("El importe de la deducción debe ser mayor que cero.").max(9_999_999_999),
+    accountCode: z.string().trim().regex(/^[0-9]{3,12}$/, "La cuenta de la deducción tiene de 3 a 12 dígitos."),
+  })).max(10, "Como mucho 10 deducciones por nómina.").optional(),
+  /** Contabilizar la retribución en especie (64x contra una cuenta puente); null u omitido = no. */
+  inKindPosting: z.object({
+    expenseAccount: z.string().trim().regex(/^64[0-9]{1,10}$/, "El gasto de la especie va en una cuenta del subgrupo 64."),
+    counterAccount: z.string().trim().regex(/^[0-9]{3,12}$/, "La contrapartida tiene de 3 a 12 dígitos."),
+  }).nullable().optional(),
   notes: optionalText(2000),
   /** Contabilizar al guardar. */
   post: z.boolean().optional(),

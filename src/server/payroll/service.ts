@@ -18,6 +18,7 @@ import { assertFiscalPeriodOpen, resolveOpenPostingDate } from "@/server/fiscal/
 import {
   PAYROLL_ACCOUNTS,
   PAYROLL_SOURCE,
+  SLIP_TYPE_LABELS,
   buildSlipPostingLines,
   parsePayrollImport,
   periodEndDate,
@@ -27,6 +28,8 @@ import {
   validateSlip,
   type PayrollImportRow,
   type RecipientKind,
+  type SlipPostingLine,
+  type SlipType,
 } from "@/server/payroll/model";
 import type { CapitalIncomeInput, PayrollEmployeeInput, PayrollPaymentInput, PayrollSettingsInput, PayrollSlipInput, RentalPropertyInput } from "@/server/payroll/schemas";
 import { getPayrollSettings } from "@/server/payroll/withholding-data";
@@ -158,6 +161,11 @@ const slipColumns = {
   employerSocialSecurity: payrollSlip.employerSocialSecurity,
   advancesAmount: payrollSlip.advancesAmount,
   netAmount: payrollSlip.netAmount,
+  slipType: payrollSlip.slipType,
+  severanceAmount: payrollSlip.severanceAmount,
+  severanceExemptAmount: payrollSlip.severanceExemptAmount,
+  otherDeductions: payrollSlip.otherDeductions,
+  inKindPosting: payrollSlip.inKindPosting,
   status: payrollSlip.status,
   journalEntryId: payrollSlip.journalEntryId,
   paymentDate: payrollSlip.paymentDate,
@@ -217,6 +225,10 @@ function slipValues(input: PayrollSlipInput) {
     employerSocialSecurity: input.employerSocialSecurity ?? 0,
     advancesAmount: input.advancesAmount ?? 0,
     netAmount: input.netAmount,
+    severanceAmount: input.severanceAmount ?? 0,
+    severanceExemptAmount: input.severanceExemptAmount ?? 0,
+    otherDeductions: (input.otherDeductions ?? []).map((item) => ({ kind: item.kind, concept: item.concept, amountCents: toCents(item.amount), accountCode: item.accountCode })),
+    inKindPosting: input.inKindPosting ?? null,
   };
   const cents = slipCents(amounts);
   const validation = validateSlip(cents);
@@ -225,10 +237,16 @@ function slipValues(input: PayrollSlipInput) {
   if (accrualDate.slice(0, 7) !== input.period) {
     throw new AccountingRuleError(422, "PAYROLL_DATE_PERIOD", "La fecha de la nómina tiene que ser del mismo mes que la nómina.");
   }
+  const slipType: SlipType = input.slipType ?? "monthly";
   return {
     employeeId: input.employeeId,
     period: input.period,
-    concept: input.concept?.trim() || "Nómina",
+    concept: input.concept?.trim() || SLIP_TYPE_LABELS[slipType],
+    slipType,
+    severanceAmount: centsToAmount(cents.severanceCents),
+    severanceExemptAmount: centsToAmount(cents.severanceExemptCents),
+    otherDeductions: cents.otherDeductions,
+    inKindPosting: cents.inKindPosting,
     accrualDate,
     grossAmount: centsToAmount(cents.grossCents),
     inKindAmount: centsToAmount(cents.inKindCents),
@@ -307,8 +325,15 @@ async function payrollAccountIds(tx: DbClient, companyId: string) {
     socialSecurity: (await ensureSubaccount(companyId, PAYROLL_ACCOUNTS.socialSecurity, tx)).id,
     payable: (await ensureSubaccount(companyId, PAYROLL_ACCOUNTS.payable, tx)).id,
     advances: (await ensureSubaccount(companyId, PAYROLL_ACCOUNTS.advances, tx)).id,
+    severance: (await ensureSubaccount(companyId, PAYROLL_ACCOUNTS.severance, tx)).id,
   };
   return ids;
+}
+
+/** Subcuenta de cada línea del asiento: las fijas del módulo o la que eligió el usuario. */
+async function slipLineAccountId(tx: DbClient, companyId: string, accounts: Awaited<ReturnType<typeof payrollAccountIds>>, line: SlipPostingLine) {
+  if ("accountCode" in line) return (await ensureSubaccount(companyId, line.accountCode, tx)).id;
+  return accounts[line.role];
 }
 
 async function postSlipInTransaction(tx: DbClient, actor: Actor, id: string) {
@@ -325,12 +350,22 @@ async function postSlipInTransaction(tx: DbClient, actor: Actor, id: string) {
   const accounts = await payrollAccountIds(tx, actor.companyId);
   const reference = `${slip.concept} ${periodLabel(slip.period)} · ${employee?.name ?? ""}`.trim().slice(0, 200);
   const meta = { concept: reference, documentType: PAYROLL_DOCUMENT_TYPE, documentNumber: slip.period, documentId: slip.id };
+  const lines = [];
+  for (const line of buildSlipPostingLines(cents)) {
+    lines.push({
+      accountId: await slipLineAccountId(tx, actor.companyId, accounts, line),
+      debit: centsToAmount(line.debitCents),
+      credit: centsToAmount(line.creditCents),
+      ...meta,
+      ...("concept" in line ? { concept: `${reference} · ${line.concept}`.slice(0, 200) } : {}),
+    });
+  }
   const entry = await createAutomaticEntry({
     ...actor,
     dbClient: tx,
     postedAt,
     reference,
-    lines: buildSlipPostingLines(cents).map((line) => ({ accountId: accounts[line.role], debit: centsToAmount(line.debitCents), credit: centsToAmount(line.creditCents), ...meta })),
+    lines,
     action: "payrollSlip.post",
     entityName: PAYROLL_SOURCE.slip,
     entityId: slip.id,
@@ -341,7 +376,7 @@ async function postSlipInTransaction(tx: DbClient, actor: Actor, id: string) {
   return entry;
 }
 
-/** Contabiliza una nómina: 640 y 642 al debe; 4751, 476, 460 y 465 al haber, con fecha de devengo. */
+/** Contabiliza una nómina: 640 (641 la indemnización) y 642 al debe; 4751, 476, 460, otras deducciones y 465 al haber, con fecha de devengo. */
 export async function postSlip(actor: Actor, id: string) {
   return db.transaction((tx) => postSlipInTransaction(tx, actor, id));
 }
