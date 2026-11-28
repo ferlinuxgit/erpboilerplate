@@ -484,6 +484,13 @@
       "when": 1795783361085,
       "tag": "0068_compliance_batch_2",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795843434052,
+      "tag": "0069_compliance_batch_3",
+      "breakpoints": true
     }
   ]
 }
