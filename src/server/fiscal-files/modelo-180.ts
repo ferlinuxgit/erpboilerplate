@@ -6,7 +6,8 @@ import {
 
 /**
  * Modelo 180 (resumen anual de retenciones sobre arrendamientos de inmuebles urbanos): registros de
- * 500 posiciones, uno de tipo 1 (declarante) y uno de tipo 2 por perceptor e inmueble. Diseños de
+ * 500 posiciones, uno de tipo 1 (declarante) y uno de tipo 2 por perceptor e inmueble (las
+ * facturas asociadas a un inmueble por su regla forman su propio registro). Diseños de
  * registro oficiales «Modelo 180», ejercicio 2023 y siguientes (Orden HFP/1284/2023):
  * https://sede.agenciatributaria.gob.es/static_files/Sede/Disenyo_registro/DR_100_199/archivos_23/DR_Mod_180_2023.pdf
  *
@@ -29,6 +30,11 @@ export type Modelo180FileRecipient = {
   property: { situation: string; cadastralReference: string | null; address: string | null; postalCode: string | null; city: string | null } | null;
   /** Inmuebles dados de alta para el arrendador (con más de uno hay que repartir a mano). */
   propertyCount?: number;
+  /**
+   * Inmueble al que se han asociado las facturas por su regla: el registro es de ese inmueble y un
+   * mismo arrendador puede tener varios registros (el diseño pide uno por inmueble).
+   */
+  propertyId?: string | null;
 };
 
 export type Modelo180Input = {
@@ -117,7 +123,7 @@ export function buildModelo180File(input: Modelo180Input): FiscalFile {
   });
 
   const warnings = ["La dirección de cada inmueble va entera en «nombre de la vía pública» (el programa la guarda como texto libre): en la sede, separa el tipo de vía y el número, y añade el código de municipio si te lo pide."];
-  if (input.recipients.some((row) => (row.propertyCount ?? 1) > 1)) warnings.push("Algún arrendador tiene varios inmuebles: el 180 lleva un registro por inmueble y el fichero solo incluye el primero con todo el alquiler. Repártelo en la sede.");
+  if (input.recipients.some((row) => (row.propertyCount ?? 1) > 1 && !row.propertyId)) warnings.push("Algún arrendador tiene varios inmuebles y facturas sin asociar a ninguno: el fichero lleva esas facturas en un registro con su primer inmueble. Repártelas en la sede o indica en cada inmueble la regla que identifica sus facturas.");
   if (!(input.declarant.phone ?? "").replace(/\D/g, "")) warnings.push("Falta el teléfono de contacto de la empresa (va a ceros): añádelo en Configuración › Empresa o complétalo en la sede.");
   return fiscalFile(`180-${year}.txt`, `${records.join("\r\n")}\r\n`, warnings);
 }
