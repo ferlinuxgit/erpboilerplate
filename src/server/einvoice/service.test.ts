@@ -46,11 +46,11 @@ const NOW = new Date("2026-12-01T12:00:00Z");
 const issuerSnapshot = { name: "Talleres Norte", legalName: "Talleres Norte, S.L.", taxId: "B12345674", address: "Calle Mayor 1", addressLine2: null, postalCode: "28013", city: "Madrid", province: "Madrid", countryCode: "ES" };
 const customerSnapshot = { name: "Ayuntamiento de Villaejemplo", taxId: "P2807900B", address: "Plaza de la Villa 1", addressLine2: null, postalCode: "28005", city: "Villaejemplo", province: "Madrid", countryCode: "ES" };
 
-async function seedInvoice(id: string, values: Record<string, unknown>, lines: Array<{ description: string; quantity: string; unitPrice: string; taxes: Array<{ name: string; rate: string; kind: string; operation: string }> }>) {
+async function seedInvoice(id: string, values: Record<string, unknown>, lines: Array<{ description: string; quantity: string; unitPrice: string; taxes: Array<{ name: string; rate: string; kind: string; operation: string }>; extra?: Record<string, unknown> }>) {
   await state.db.insert(invoice).values({ id, companyId: COMPANY, customerId: "customer-1", issueDate: new Date(Date.UTC(2026, 10, 20)), issuerSnapshot, customerSnapshot, ...values });
   for (const [index, line] of lines.entries()) {
     const lineId = `${id}-line-${index}`;
-    await state.db.insert(invoiceLine).values({ id: lineId, invoiceId: id, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, lineTotal: "0.00" });
+    await state.db.insert(invoiceLine).values({ id: lineId, invoiceId: id, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, lineTotal: "0.00", ...line.extra });
     for (const tax of line.taxes) await state.db.insert(invoiceLineTax).values({ invoiceLineId: lineId, ...tax, baseAmount: "0.00", amount: "0.00" });
   }
 }
@@ -282,5 +282,21 @@ describe("factura electrónica: servicio", () => {
     expect(sent.at(-2)?.envelope).toContain("<motivo>Importe erróneo</motivo>");
     const overview = await getEInvoiceOverview(COMPANY, "invoice-1");
     expect(overview?.documents.find((document) => document.signed)?.face?.registryNumber).toBe("REGAGE26e00001");
+  });
+
+  it("suplido y descuento global guardados: el XML cuadra con invoice.totalAmount", async () => {
+    const vat21 = { name: "IVA 21 %", rate: "21.000", kind: "VAT", operation: "ADD" };
+    await seedInvoice("invoice-special", { number: "F2026-000030", totalAmount: "158.90", status: "SENT", issuedAt: new Date("2026-11-27T10:00:00Z"), issueDate: new Date(Date.UTC(2026, 10, 27)) }, [
+      { description: "Gestión", quantity: "1.000", unitPrice: "100.00", taxes: [vat21] },
+      { description: "Descuento 10 %", quantity: "1.000", unitPrice: "-10.00", taxes: [vat21], extra: { isGlobalDiscount: true } },
+      // Suplido guardado con descuento 100 (defensa del esquema): el servicio lo lee como importe íntegro.
+      { description: "Tasa pagada por cuenta del cliente", quantity: "1.000", unitPrice: "50.00", taxes: [], extra: { isDisbursement: true, discountPct: "100" } },
+    ]);
+    const facturae = (await generateEInvoice(actor, "invoice-special", { format: "FACTURAE" }, NOW))!.bytes.toString("utf8");
+    expect(facturae).toContain("<TotalGrossAmount>100.00</TotalGrossAmount><GeneralDiscounts><Discount><DiscountReason>Descuento 10 %</DiscountReason><DiscountAmount>10.00</DiscountAmount></Discount></GeneralDiscounts><TotalGeneralDiscounts>10.00</TotalGeneralDiscounts>");
+    expect(facturae).toContain("<InvoiceTotal>108.90</InvoiceTotal><ReimbursableExpenses><ReimbursableExpenses><ReimbursableExpensesAmount>50.00</ReimbursableExpensesAmount></ReimbursableExpenses></ReimbursableExpenses><TotalOutstandingAmount>108.90</TotalOutstandingAmount><TotalExecutableAmount>158.90</TotalExecutableAmount><TotalReimbursableExpenses>50.00</TotalReimbursableExpenses>");
+    await expect(generateEInvoice(actor, "invoice-special", { format: "UBL" }, NOW)).rejects.toMatchObject({ status: 422 });
+    const aeat = (await generateEInvoice(actor, "invoice-special", { format: "UBL_AEAT" }, NOW))!.bytes.toString("utf8");
+    expect(aeat).toContain('<cbc:PayableAmount currencyID="EUR">158.90</cbc:PayableAmount>');
   });
 });

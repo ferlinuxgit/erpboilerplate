@@ -25,6 +25,8 @@ export type EInvoiceParty = {
   email?: string | null;
   phone?: string | null;
   website?: string | null;
+  /** Datos registrales (Registro Mercantil) en texto libre, tal y como se imprimen en la factura. */
+  registryData?: string | null;
 };
 
 export type EInvoiceLineTax = { name?: string | null; rate: number; kind?: string | null; operation: "ADD" | "SUBTRACT" };
@@ -35,7 +37,16 @@ export type EInvoiceLine = {
   unitPrice: number;
   discountPct?: number | null;
   taxes: EInvoiceLineTax[];
+  /** Suplido (art. 78.Tres.3.º LIVA): fuera de la base imponible, se suma al total a pagar. */
+  isDisbursement?: boolean;
+  /** Línea negativa del descuento global de la factura (una por combinación de impuestos). */
+  isGlobalDiscount?: boolean;
+  /** Línea negativa que descuenta un anticipo ya facturado (con su IVA): id de la factura de anticipo. */
+  advanceInvoiceId?: string | null;
 };
+
+export const isDisbursementLine = (line: Pick<EInvoiceLine, "isDisbursement">) => Boolean(line.isDisbursement);
+export const isGlobalDiscountLine = (line: Pick<EInvoiceLine, "isDisbursement" | "isGlobalDiscount">) => !line.isDisbursement && Boolean(line.isGlobalDiscount);
 
 export type EInvoiceCorrective = {
   originalNumber: string;
@@ -139,7 +150,11 @@ export function lineTotalCostCents(line: Pick<EInvoiceLine, "quantity" | "unitPr
   return roundHalfAwayFromZero(line.quantity * line.unitPrice * 100);
 }
 
-export type EInvoiceTotals = InvoiceTotals & { totalCents: number; subtotalCents: number; taxCents: number; retentionCents: number };
+/**
+ * `totalCents` es el total a pagar (incluye los suplidos, como `invoice.totalAmount`);
+ * `invoiceTotalCents`, el importe de la factura sin suplidos (bases + cuotas − retenciones).
+ */
+export type EInvoiceTotals = InvoiceTotals & { totalCents: number; subtotalCents: number; taxCents: number; retentionCents: number; disbursementCents: number; invoiceTotalCents: number };
 
 /**
  * Totales de la factura con el motor fiscal de la aplicación (el mismo que el PDF y el registro
@@ -152,7 +167,10 @@ export function computeEInvoiceTotals(data: Pick<EInvoiceData, "lines" | "isCred
     quantity: line.quantity,
     unitPrice: line.unitPrice,
     discountPct: line.discountPct ?? 0,
-    taxes: line.taxes.map((tax) => ({ name: tax.name ?? null, rate: tax.rate, kind: tax.kind ?? "VAT", operation: tax.operation })),
+    taxes: line.isDisbursement ? [] : line.taxes.map((tax) => ({ name: tax.name ?? null, rate: tax.rate, kind: tax.kind ?? "VAT", operation: tax.operation })),
+    ...(line.isDisbursement ? { isDisbursement: true } : {}),
+    ...(line.isGlobalDiscount && !line.isDisbursement ? { isGlobalDiscount: true } : {}),
+    ...(line.advanceInvoiceId && !line.isDisbursement ? { advanceInvoiceId: line.advanceInvoiceId } : {}),
   }));
   const totals = calculateInvoiceTotals(lines, { allowNegative: data.isCreditNote });
   const totalCents = amountToCents(totals.totalAmount);
@@ -167,6 +185,8 @@ export function computeEInvoiceTotals(data: Pick<EInvoiceData, "lines" | "isCred
     subtotalCents: amountToCents(totals.subtotal),
     taxCents: amountToCents(totals.taxAmount),
     retentionCents: amountToCents(totals.retentionAmount),
+    disbursementCents: amountToCents(totals.disbursementAmount),
+    invoiceTotalCents: totalCents - amountToCents(totals.disbursementAmount),
   };
 }
 

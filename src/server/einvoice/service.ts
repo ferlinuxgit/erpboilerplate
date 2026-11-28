@@ -90,6 +90,7 @@ function partyFrom(snapshot: InvoicePartySnapshot): EInvoiceData["issuer"] {
     email: snapshot.email ?? null,
     phone: snapshot.phone ?? null,
     website: snapshot.website ?? null,
+    registryData: snapshot.registryData ?? null,
   };
 }
 
@@ -134,6 +135,7 @@ export async function loadEInvoice(companyId: string, invoiceId: string): Promis
       companyCity: company.city,
       companyProvince: company.province,
       companyCountryCode: company.countryCode,
+      companyRegistryData: company.registryData,
       customerName: customer.name,
       customerIban: customer.iban,
       dir3AccountingOffice: customer.dir3AccountingOffice,
@@ -185,6 +187,7 @@ export async function loadEInvoice(companyId: string, invoiceId: string): Promis
     city: row.companyCity,
     province: row.companyProvince,
     countryCode: row.companyCountryCode,
+    registryData: row.companyRegistryData,
   };
   const customerParty: InvoicePartySnapshot = row.customerSnapshot ?? {
     name: row.customerName,
@@ -208,6 +211,9 @@ export async function loadEInvoice(companyId: string, invoiceId: string): Promis
       unitPrice: Number(line.unitPrice ?? 0),
       discountPct: Number(line.discountPct ?? 0),
       taxes: (line.taxes ?? []).map((tax) => ({ name: tax.name ?? null, rate: Number(tax.rate), kind: tax.kind ?? "VAT", operation: tax.operation })),
+      isDisbursement: line.isDisbursement,
+      isGlobalDiscount: line.isGlobalDiscount,
+      advanceInvoiceId: line.advanceInvoiceId,
     })));
     originalAmounts = { base: totals.subtotal, tax: totals.taxAmount };
   }
@@ -245,6 +251,9 @@ export async function loadEInvoice(companyId: string, invoiceId: string): Promis
       unitPrice: Number(line.unitPrice ?? 0),
       discountPct: Number(line.discountPct ?? 0),
       taxes: (line.taxes ?? []).map((tax) => ({ name: tax.name ?? null, rate: Number(tax.rate), kind: tax.kind ?? "VAT", operation: tax.operation })),
+      ...(line.isDisbursement ? { isDisbursement: true } : {}),
+      ...(line.isGlobalDiscount ? { isGlobalDiscount: true } : {}),
+      ...(line.advanceInvoiceId ? { advanceInvoiceId: line.advanceInvoiceId } : {}),
     })),
     storedTotal: Number(row.totalAmount),
     vatTreatment,

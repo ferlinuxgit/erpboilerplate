@@ -8,6 +8,8 @@ import {
   isOtherOutputTax,
   isSurchargeTax,
   isVatTax,
+  isDisbursementLine,
+  isGlobalDiscountLine,
   isWithholdingTax,
   lineTotalCostCents,
   partyCountry,
@@ -74,6 +76,19 @@ import { clip, el, txt, xmlDocument, type XmlNode } from "@/server/einvoice/xml"
  *    - Quedan fuera (se explica y no se genera): impuestos especiales y otros cargos (BG-28, L9),
  *      suplidos (BG-34 «SUPL»), terceros (BG-ES-1), referencia catastral, facturas recapitulativas,
  *      destinatarios sin NIF español y operaciones intracomunitarias (la categoría «K» no se admite).
+ *
+ * Líneas especiales (ambos perfiles):
+ * - Descuento global (`isGlobalDiscount`): descuento de documento (BG-20, `cac:AllowanceCharge` con
+ *   `ChargeIndicator` false, su categoría y tipo), no una línea de precio negativo; resta de la base
+ *   del desglose y figura en BT-107 (`AllowanceTotalAmount`).
+ * - Anticipo descontado (`advanceInvoiceId`): la factura de anticipo ya llevó su IVA, así que la
+ *   final minora la base con una línea negativa con su categoría. No se usa BT-113
+ *   (`PrepaidAmount`), que resta del importe a pagar sin tocar la base ni las cuotas.
+ * - Suplidos (`isDisbursement`): el núcleo EN 16931:2017 no tiene dónde expresar un importe a pagar
+ *   fuera de la base (BR-CO-16 obliga a que lo pagadero sea el total con IVA menos lo anticipado),
+ *   así que con suplidos NO se genera ese perfil. El perfil de la AEAT sí los prevé: BG-34 «Cargos
+ *   en nombre de un tercero», `cac:CollectionInvoiceLine` con BT-ES-10 «SUPL», importe (BT-179) y
+ *   descripción (BT-180), sumados al importe a pagar.
  *
  * Redondeos: los mismos del motor fiscal (céntimos); bases por línea, cuotas por tipo.
  */
@@ -215,13 +230,13 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
 
   if (!ISO_DATE.test(data.issueDate)) problems.push("La factura no tiene fecha de expedición.");
   if (data.lines.length === 0) problems.push("La factura no tiene líneas.");
-  const withSurcharge = data.lines.filter((line) => line.taxes.some(isSurchargeTax));
+  const withSurcharge = data.lines.filter((line) => !isDisbursementLine(line) && line.taxes.some(isSurchargeTax));
   if (withSurcharge.length > 0 && !spfe) {
     problems.push("La factura lleva recargo de equivalencia, que el núcleo EN 16931:2017 no sabe expresar. Usa Facturae o el perfil UBL de la solución pública de la AEAT.");
   }
   if (withSurcharge.length > 0 && spfe) {
     // BR-ES-IVA-CR-17 (art. 16.4 del Reglamento de facturación): una factura con recargo solo lleva operaciones con recargo.
-    if (withSurcharge.length !== data.lines.length) problems.push("La factura mezcla líneas con y sin recargo de equivalencia: la solución pública de la AEAT exige que todas lo lleven (regla BR-ES-IVA-CR-17).");
+    if (withSurcharge.length !== data.lines.filter((line) => !isDisbursementLine(line)).length) problems.push("La factura mezcla líneas con y sin recargo de equivalencia: la solución pública de la AEAT exige que todas lo lleven (regla BR-ES-IVA-CR-17).");
     for (const line of withSurcharge) {
       const vat = line.taxes.filter(isVatTax);
       const surcharges = line.taxes.filter(isSurchargeTax);
@@ -237,7 +252,15 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
       ? "La factura lleva impuestos distintos del IVA, IGIC o IPSI: el perfil de la AEAT los pide como cargos con su código (lista L9), que la aplicación no guarda. Usa Facturae."
       : "La factura lleva impuestos distintos del IVA, IGIC o IPSI, que el núcleo EN 16931:2017 no sabe expresar. Usa Facturae.");
   }
-  if (data.lines.some((line) => line.taxes.filter(isVatTax).length > 1)) problems.push("Alguna línea tiene más de un tipo de IVA: EN 16931 solo admite uno por línea.");
+  const disbursements = data.lines.filter(isDisbursementLine);
+  if (disbursements.length > 0 && !spfe) {
+    problems.push("La factura lleva suplidos, que el núcleo EN 16931:2017 no sabe expresar (no son base imponible y suman al importe a pagar). Usa Facturae o el perfil UBL de la solución pública de la AEAT.");
+  }
+  const globalDiscounts = data.lines.filter(isGlobalDiscountLine);
+  if (spfe && globalDiscounts.length > 0 && withSurcharge.length > 0) {
+    problems.push("Descuento global con recargo de equivalencia: el perfil de la AEAT pediría el descuento en los dos desgloses «N» y la documentación no indica cómo. Usa Facturae.");
+  }
+  if (data.lines.some((line) => !isDisbursementLine(line) && line.taxes.filter(isVatTax).length > 1)) problems.push("Alguna línea tiene más de un tipo de IVA: EN 16931 solo admite uno por línea.");
   if (problems.length > 0) throw new EInvoiceError(problems);
 
   const totals = computeEInvoiceTotals(data);
@@ -290,7 +313,20 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
 
   const breakdown = new Map<string, { category: Category; baseCents: number }>();
   const withheld = new Map<string, { rate: number; concept: string; baseCents: number }>();
-  const lineNodes = data.lines.map((line, index) => {
+  const lineNodes: XmlNode[] = [];
+  const allowanceNodes: XmlNode[] = [];
+  let documentAllowanceCents = 0;
+  const collectionNodes: XmlNode[] = [];
+  data.lines.forEach((line, index) => {
+    if (isDisbursementLine(line)) {
+      // BG-34 «Cargos en nombre de un tercero» (solo perfil de la AEAT; el núcleo ya se ha rechazado).
+      collectionNodes.push(el("cac:CollectionInvoiceLine", [
+        txt("cbc:ID", `${SPFE_ADDITIONAL}SUPL`),
+        money("cbc:TaxInclusiveLineExtensionAmount", amountToCents(totals.lines[index]?.disbursementAmount ?? 0)),
+        el("cac:Item", [txt("cbc:Description", clip(line.description, 200) ?? "Suplido")]),
+      ]));
+      return;
+    }
     const netCents = amountToCents(totals.lines[index]?.subtotal ?? 0);
     const vat = line.taxes.find(isVatTax);
     const surcharge = spfe ? line.taxes.find(isSurchargeTax) : undefined;
@@ -312,14 +348,29 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
       else withheld.set(key, { rate: tax.rate, concept, baseCents: netCents });
     }
 
+    if (isGlobalDiscountLine(line)) {
+      // BG-20: descuento de documento con la categoría de las líneas que descuenta.
+      documentAllowanceCents += -netCents;
+      allowanceNodes.push(el("cac:AllowanceCharge", [
+        txt("cbc:ChargeIndicator", "false"),
+        txt("cbc:AllowanceChargeReason", clip(line.description, 200) ?? "Descuento"),
+        money("cbc:Amount", -netCents),
+        el("cac:TaxCategory", [
+          txt("cbc:ID", category.id),
+          category.id === "O" ? null : txt("cbc:Percent", decimalString(category.rate, 4)),
+          el("cac:TaxScheme", [txt("cbc:ID", "VAT")]),
+        ]),
+      ]));
+      return;
+    }
     // BR-27: el precio no puede ser negativo; el signo de una línea de abono va en la cantidad.
     const negativePrice = line.unitPrice < 0;
     const quantity = negativePrice ? -line.quantity : line.quantity;
     const unitPrice = negativePrice ? -line.unitPrice : line.unitPrice;
     const allowanceCents = lineTotalCostCents(line) - netCents;
     if (!line.description?.trim()) problems.push(`La línea ${index + 1} no tiene descripción.`);
-    return el("cac:InvoiceLine", [
-      txt("cbc:ID", String(index + 1)),
+    lineNodes.push(el("cac:InvoiceLine", [
+      txt("cbc:ID", String(lineNodes.length + 1)),
       // C62 = «unidad» (UN/ECE Rec. 20): la aplicación no guarda la unidad de medida en la línea.
       txt("cbc:InvoicedQuantity", decimalString(quantity, 8), { unitCode: "C62" }),
       money("cbc:LineExtensionAmount", netCents),
@@ -348,8 +399,9 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
           : null,
       ]),
       el("cac:Price", [txt("cbc:PriceAmount", decimalString(unitPrice, 8, 2), { currencyID: currency })]),
-    ]);
+    ]));
   });
+  if (lineNodes.length === 0 && data.lines.length > 0) problems.push("La factura solo tiene suplidos o descuentos: UBL exige al menos una línea.");
 
   // Cuotas por categoría y tipo; el descuadre de céntimos frente al motor (que agrupa por tipo) va al grupo mayor.
   const groups = [...breakdown.values()].map((group) => ({ ...group, taxCents: amountToCents((group.baseCents * group.category.rate) / 10000) }));
@@ -492,6 +544,7 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
       : null,
     // BR-CO-25: con importe a pagar positivo debe constar el vencimiento o las condiciones de pago.
     !data.isCreditNote && payableCents > 0 && !dueDate ? el("cac:PaymentTerms", [txt("cbc:Note", "Pago al contado")]) : null,
+    ...allowanceNodes,
     el("cac:TaxTotal", [
       money("cbc:TaxAmount", totals.taxCents),
       ...groups.map((group) => el("cac:TaxSubtotal", [
@@ -518,9 +571,11 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
         ])
       : null,
     el("cac:LegalMonetaryTotal", [
-      money("cbc:LineExtensionAmount", totals.subtotalCents),
+      // BT-106 = suma de líneas; BT-109 = BT-106 − descuentos de documento (BT-107).
+      money("cbc:LineExtensionAmount", totals.subtotalCents + documentAllowanceCents),
       money("cbc:TaxExclusiveAmount", totals.subtotalCents),
       money("cbc:TaxInclusiveAmount", totals.subtotalCents + totals.taxCents),
+      allowanceNodes.length > 0 ? money("cbc:AllowanceTotalAmount", documentAllowanceCents) : null,
       money("cbc:PayableAmount", payableCents),
     ]),
     // BG-34 «Retenciones» (BT-ES-16 «RETE»): en negativo, para que el importe a pagar cumpla BR-CO-16 (ver cabecera).
@@ -531,6 +586,7 @@ export function buildUblTree(data: EInvoiceData, profile: UblProfile = "EN16931"
           el("cac:Item", [txt("cbc:Description", "Retenciones practicadas en la factura")]),
         ])
       : null,
+    ...collectionNodes,
     ...lineNodes,
   ], { xmlns: NS_INVOICE, "xmlns:cac": NS_CAC, "xmlns:cbc": NS_CBC });
 
