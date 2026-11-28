@@ -405,7 +405,7 @@
   "method": "GET",
   "path": "/api/advisor/fiscal-reports/{id}/pdf",
   "area": "advisor",
-  "summary": "PDF de un modelo fiscal preparado (mismas casillas que en la ficha del modelo).",
+  "summary": "PDF de un modelo fiscal preparado (mismas casillas que en la ficha del modelo). Un modelo presentado sale de la foto de lo presentado, no del cálculo con los datos de hoy.",
   "permissions": []
  },
  {

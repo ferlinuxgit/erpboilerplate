@@ -2,6 +2,7 @@ import {
   alpha, amountSignedN, amountUnsigned, buildRecord, declarantProblems, fiscalFile, FiscalFileError, normalizeSpanishNif, numeric,
   wrapSelfAssessment, type Declarant, type FilePeriod, type FiscalFile, type RecordField,
 } from "@/server/fiscal-files/fields";
+import { MODELO_303_ACTIVITY_CODES } from "@/server/fiscal-files/models";
 
 /**
  * Modelo 303 (autoliquidación del IVA): fichero para importar en el formulario de la sede.
@@ -90,8 +91,7 @@ const VOLUME_BOXES = new Set(PAGE4_BOXES.map((entry) => entry.box));
 /** Filas que el programa calcula como información y no tienen casilla oficial. */
 const IGNORED_BOXES = new Set(["EXE", ""]);
 
-/** Códigos de actividad de las instrucciones del 303 (apartado de exonerados del 390, columna B). */
-export const MODELO_303_ACTIVITY_CODES = ["A01", "A02", "A03", "A04", "A05", "B01", "B02", "B03", "B04", "B05", "B06", "C"] as const;
+export { MODELO_303_ACTIVITY_CODES };
 
 export type Modelo303Input = {
   declarant: Declarant;

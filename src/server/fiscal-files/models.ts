@@ -27,13 +27,44 @@ export const PRESENTATION_FILE_DESIGNS: Record<PresentationFileModel, string> = 
 };
 
 /**
- * Por qué el programa no genera el fichero del 390 (diseño «dr390e2026.xlsx», versión 1.00). Las
- * casillas numeradas que calcula el programa cabrían en el diseño, pero este exige además datos que
- * el programa no guarda y cuyo contenido no se puede deducir con seguridad: la identificación del
- * representante de las personas jurídicas, la descripción, el código y el epígrafe de cada
- * actividad, el reparto del resultado del último periodo entre «a compensar» (97) y «a devolver»
- * (98), y el apartado 8 de tributación por razón de territorio, que repite las casillas 658, 84 y
- * 659 por Administración. Un fichero a medias sería rechazado por la sede o, peor, importado con
- * datos equivocados.
+ * Por qué el programa no genera el fichero del 390 (diseño «dr390e2026.xlsx», versión 1.00, de la
+ * sede: https://sede.agenciatributaria.gob.es/static_files/Sede/Disenyo_registro/DR_300_399/archivos_26/dr390e2026.xlsx).
+ *
+ * El diseño se podría rellenar: las casillas numeradas del resumen anual siguen la numeración
+ * oficial, la actividad, el código y el epígrafe se podrían pedir al descargar (como en el 303) y el
+ * representante y el apartado 8 (tributación por territorios) no son obligatorios para quien solo
+ * tributa a la Administración del Estado. Lo que impide generarlo con seguridad es el apartado 9
+ * del resumen, que no sigue todavía la definición de las instrucciones del 390:
+ * - la casilla 85 debe ser lo compensado en el ejercicio de cuotas de años anteriores (la suma de
+ *   las casillas 78 de los 303) y el resumen pone el saldo inicial entero;
+ * - la 97 (o la 98 si se pidió la devolución) debe ser solo el resultado del último 303, y las cuotas
+ *   del año que siguen pendientes van aparte en la 662; el resumen pone en la 97 todo el saldo
+ *   pendiente al cerrar el año.
+ * Un fichero con esas casillas pasaría la importación y llevaría a la AEAT importes que no cruzan con
+ * los 303 presentados.
  */
-export const MODELO_390_FILE_REASON = "El programa no genera el fichero del 390: el diseño de registro de la AEAT exige datos que el programa no guarda (representante, descripción y epígrafe de cada actividad, reparto del saldo final entre compensar y devolver, tributación por territorios) y un fichero incompleto no pasaría la validación de la sede. Rellena el 390 en la sede con las casillas numeradas del resumen anual, que siguen la numeración oficial.";
+export const MODELO_390_FILE_REASON = "El programa todavía no genera el fichero del 390: el resumen anual calcula las casillas 85 y 97 de forma simplificada (saldo inicial y saldo pendiente al cerrar el año) y el diseño de la AEAT pide lo compensado en el ejercicio (85), el resultado del último 303 (97 o 98) y aparte las cuotas pendientes del año (662). Rellena el 390 en la sede con las casillas numeradas del resumen anual y comprueba esas tres con tus 303 presentados.";
+
+/**
+ * Códigos de actividad del 303 para los exonerados del 390 (instrucciones del 303, apartado
+ * «Exclusivamente a cumplimentar en el último periodo…», letra B). También los usa el formulario
+ * de la descarga.
+ */
+export const MODELO_303_ACTIVITY_LABELS = {
+  A01: "Arrendadores de bienes inmuebles",
+  A02: "Ganadería independiente",
+  A03: "Resto de actividades empresariales",
+  A04: "Actividades profesionales de carácter artístico o deportivo",
+  A05: "Resto de actividades profesionales",
+  B01: "Actividad agrícola",
+  B02: "Actividad ganadera dependiente",
+  B03: "Actividad forestal",
+  B04: "Producción del mejillón en batea",
+  B05: "Actividad pesquera (excepto mejillón en batea)",
+  B06: "Otras actividades no sujetas al IAE",
+  C: "Actividades no iniciadas",
+} as const;
+export const MODELO_303_ACTIVITY_CODES = Object.keys(MODELO_303_ACTIVITY_LABELS) as Array<keyof typeof MODELO_303_ACTIVITY_LABELS>;
+
+/** Modelos informativos de retenciones: la descarga admite la provincia de los perceptores sin ficha. */
+export const PROVINCE_PARAMETER_MODELS: readonly PresentationFileModel[] = ["190", "180", "193"];
