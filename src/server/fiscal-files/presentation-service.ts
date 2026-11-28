@@ -6,7 +6,6 @@ import { fiscalTimeZoneFor, isSpanishFiscalModelCode, parseSpanishFiscalPeriod }
 import { HttpError } from "@/lib/http";
 import { recordAudit } from "@/server/audit";
 import { FiscalFileError, normalizeSpanishNif, toCents, type Declarant, type FiscalFile } from "@/server/fiscal-files/fields";
-import { MODELO_390_FILE_REASON } from "@/server/fiscal-files/models";
 import { buildPresentationFile, hasPresentationFile, type PresentationExtras, type PresentationOptions } from "@/server/fiscal-files/presentation";
 import { assertCountryFeature } from "@/server/fiscal/country-guard";
 import { getFiscalReport, resolveFiscalReportSummary, type FiscalSummarySource } from "@/server/fiscal/service";
@@ -125,7 +124,7 @@ export async function generatePresentationFile(input: {
   const report = await getFiscalReport(input.companyId, input.reportId);
   if (!report) throw new HttpError(404, "Modelo no encontrado.");
   if (!isSpanishFiscalModelCode(report.code) || !hasPresentationFile(report.code)) {
-    throw new HttpError(422, report.code === "390" ? MODELO_390_FILE_REASON : `El modelo ${report.code} no tiene fichero de presentación en el programa.`);
+    throw new HttpError(422, `El modelo ${report.code} no tiene fichero de presentación en el programa.`);
   }
   const [companyRow] = await db
     .select({ name: company.name, legalName: company.legalName, vatNumber: company.vatNumber, phone: company.phone, countryCode: company.countryCode })

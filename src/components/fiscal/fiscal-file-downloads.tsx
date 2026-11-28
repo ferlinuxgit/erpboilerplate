@@ -30,9 +30,11 @@ type DownloadParams = {
   iaeCode: string;
   has347Operations: boolean;
   cnae: string;
+  activityDescription: string;
+  lastPeriodResult: "" | "compensar" | "devolver";
 };
 
-const EMPTY_PARAMS: DownloadParams = { province: "", exemptFrom390: false, activityCode: "", iaeCode: "", has347Operations: false, cnae: "" };
+const EMPTY_PARAMS: DownloadParams = { province: "", exemptFrom390: false, activityCode: "", iaeCode: "", has347Operations: false, cnae: "", activityDescription: "", lastPeriodResult: "" };
 
 /** Parámetros de la descarga (los datos que el programa no guarda) a la consulta de la ruta. */
 function queryOf(code: string, params: DownloadParams) {
@@ -47,13 +49,21 @@ function queryOf(code: string, params: DownloadParams) {
     }
     if (params.cnae.trim()) query.set("cnae", params.cnae.trim());
   }
+  if (code === "390") {
+    if (params.activityDescription.trim()) query.set("descripcion", params.activityDescription.trim());
+    if (params.activityCode) query.set("actividad", params.activityCode);
+    if (params.iaeCode.trim()) query.set("iae", params.iaeCode.trim());
+    if (params.has347Operations) query.set("con347", "1");
+    if (params.lastPeriodResult) query.set("ultimo", params.lastPeriodResult);
+    if (params.cnae.trim()) query.set("cnae", params.cnae.trim());
+  }
   const text = query.toString();
   return text ? `?${text}` : "";
 }
 
 /**
- * Descarga del fichero de presentación de un modelo (303, 111, 115, 123, 130, 347, 349, 190, 180 y
- * 193) para importarlo en la sede de la AEAT. Los datos que el programa no guarda (provincia de los
+ * Descarga del fichero de presentación de un modelo (303, 111, 115, 123, 130, 347, 349, 390, 190,
+ * 180 y 193) para importarlo en la sede de la AEAT. Los datos que el programa no guarda (provincia de los
  * perceptores sin ficha; en el 303 del último periodo, exoneración del 390 y CNAE de la prorrata)
  * se piden en un desplegable opcional y la ruta los valida. No pinta nada en los modelos sin fichero.
  */
@@ -106,7 +116,7 @@ export function FiscalFileDownloads({ code, reportId }: { code: string; reportId
           Impórtalo en la sede y revísalo antes de firmar. <span className="text-xs">{PRESENTATION_FILE_DESIGNS[code]}.</span>
         </p>
       </div>
-      {asksProvince || code === "303" ? (
+      {asksProvince || code === "303" || code === "390" ? (
         <details className="rounded-md border border-border p-2 text-sm">
           <summary className="cursor-pointer font-medium">Datos para el fichero que el programa no guarda (opcional)</summary>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -147,6 +157,42 @@ export function FiscalFileDownloads({ code, reportId }: { code: string; reportId
                   <Label htmlFor={`ff-cnae-${reportId}`}>CNAE-2025 de la actividad (si aplicas prorrata)</Label>
                   <Input id={`ff-cnae-${reportId}`} inputMode="numeric" maxLength={4} onChange={(event) => set({ cnae: event.target.value.replace(/\D/g, "") })} placeholder="6201" value={params.cnae} />
                 </div>
+              </>
+            ) : null}
+            {code === "390" ? (
+              <>
+                <p className="text-xs text-muted-foreground sm:col-span-2">El 390 pide la actividad principal (apartado 3). Sin ella el fichero no se genera.</p>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor={`ff-description-${reportId}`}>Descripción de la actividad principal</Label>
+                  <Input id={`ff-description-${reportId}`} maxLength={40} onChange={(event) => set({ activityDescription: event.target.value })} placeholder="Consultoría informática" value={params.activityDescription} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`ff-activity-390-${reportId}`}>Código de la actividad</Label>
+                  <Select id={`ff-activity-390-${reportId}`} onChange={(event) => set({ activityCode: event.target.value })} value={params.activityCode}>
+                    <option value="">Elige la actividad…</option>
+                    {MODELO_303_ACTIVITY_CODES.map((activity) => <option key={activity} value={activity}>{activity} · {MODELO_303_ACTIVITY_LABELS[activity]}</option>)}
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`ff-iae-390-${reportId}`}>Epígrafe del IAE</Label>
+                  <Input id={`ff-iae-390-${reportId}`} inputMode="numeric" maxLength={5} onChange={(event) => set({ iaeCode: event.target.value })} placeholder="8499" value={params.iaeCode} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`ff-last-${reportId}`}>Si el último 303 del año salió negativo</Label>
+                  <Select id={`ff-last-${reportId}`} onChange={(event) => set({ lastPeriodResult: event.target.value as DownloadParams["lastPeriodResult"] })} value={params.lastPeriodResult}>
+                    <option value="">No salió negativo</option>
+                    <option value="compensar">Lo dejé a compensar (casilla 97)</option>
+                    <option value="devolver">Pedí la devolución (casilla 98)</option>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`ff-cnae-390-${reportId}`}>CNAE-2025 (si aplicas prorrata)</Label>
+                  <Input id={`ff-cnae-390-${reportId}`} inputMode="numeric" maxLength={4} onChange={(event) => set({ cnae: event.target.value.replace(/\D/g, "") })} placeholder="6201" value={params.cnae} />
+                </div>
+                <label className="flex items-center gap-2 sm:col-span-2">
+                  <input checked={params.has347Operations} onChange={(event) => set({ has347Operations: event.target.checked })} type="checkbox" />
+                  He hecho operaciones que hay que declarar en el 347
+                </label>
               </>
             ) : null}
           </div>

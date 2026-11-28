@@ -12,7 +12,9 @@ import { generatePresentationFile } from "@/server/fiscal-files/presentation-ser
  * - `?provincia=` (dos dígitos): provincia de los perceptores sin ficha con código postal (190, 180, 193);
  * - `?exonerado390=1`, `?actividad=` (A01…C), `?iae=` y `?con347=1`: volumen de operaciones del
  *   303 del último periodo para quien no presenta el 390;
- * - `?cnae=` (cuatro dígitos): página de prorratas del 303 del último periodo.
+ * - `?cnae=` (cuatro dígitos): página de prorratas del 303 del último periodo y prorrata del 390;
+ * - 390: `?descripcion=` (actividad principal), `?actividad=`, `?iae=`, `?con347=1` y
+ *   `?ultimo=compensar|devolver` (casilla 97 o 98 del resultado negativo del último 303).
  * Los avisos que conviene revisar viajan en la cabecera `X-Fiscal-File-Warnings` (JSON codificado
  * en URI). Si faltan datos responde 422 con el detalle.
  */
@@ -36,6 +38,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         iaeCode: searchParams.get("iae"),
         has347Operations: isYes(searchParams.get("con347")),
         cnae: searchParams.get("cnae"),
+        activityDescription: searchParams.get("descripcion"),
+        lastPeriodResult: searchParams.get("ultimo"),
       },
     });
     return new Response(new Uint8Array(file.bytes), {
