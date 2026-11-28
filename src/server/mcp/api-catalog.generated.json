@@ -11,14 +11,16 @@
   "method": "GET",
   "path": "/api/accounting/annual-accounts/export",
   "area": "accounting",
-  "summary": "Cuentas anuales de un ejercicio (balance, pérdidas y ganancias, estado de cambios en el patrimonio neto y memoria) en PDF o Excel. `?year=<id del ejercicio>&format=pdf|xlsx&model=abbreviated|pymes|normal`.",
+  "summary": "Cuentas anuales de un ejercicio (balance, pérdidas y ganancias, estados de cambios en el patrimonio neto y de flujos de efectivo, y memoria) en PDF, Excel o Word. `?year=<id del ejercicio>&format=pdf|xlsx|docx&model=abbreviated|pymes|normal`; `part=notes` solo la memoria; `cashFlow=1` añade el estado de flujos de efectivo aunque el modelo no lo exija.",
   "permissions": [
    "accounting.read"
   ],
   "query": [
    "format",
+   "part",
    "model",
-   "year"
+   "year",
+   "cashFlow"
   ]
  },
  {

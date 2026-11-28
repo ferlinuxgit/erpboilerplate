@@ -21,6 +21,8 @@ type Props = {
   notes: NoteView[];
   averageEmployees: number | null;
   taxData: Record<string, string>;
+  /** La conciliación fiscal sale de la liquidación del Impuesto sobre Sociedades del ejercicio. */
+  taxFromLiquidation?: boolean;
 };
 
 const money = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" });
@@ -36,7 +38,7 @@ const TAX_FIELDS: Array<[string, string]> = [
  * Memoria del ejercicio: cada apartado con su texto editable y sus cuadros (calculados de la
  * contabilidad). Un apartado sin texto guardado muestra el texto de partida.
  */
-export function AnnualAccountsNotesEditor({ averageEmployees, canEdit, fiscalYearId, notes, taxData }: Props) {
+export function AnnualAccountsNotesEditor({ averageEmployees, canEdit, fiscalYearId, notes, taxData, taxFromLiquidation = false }: Props) {
   const router = useRouter();
   const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(notes.map((note) => [note.id, note.text])));
   const [dirty, setDirty] = useState<Set<string>>(new Set());
@@ -87,14 +89,16 @@ export function AnnualAccountsNotesEditor({ averageEmployees, canEdit, fiscalYea
           <Label htmlFor="notes-employees">Plantilla media del ejercicio</Label>
           <Input disabled={!canEdit} id="notes-employees" inputMode="decimal" onChange={(event) => { setEmployees(event.target.value); setDataDirty(true); }} placeholder="p. ej. 3,5" value={employees} />
         </div>
-        {TAX_FIELDS.map(([key, label]) => (
+        {taxFromLiquidation ? null : TAX_FIELDS.map(([key, label]) => (
           <div className="space-y-1" key={key}>
             <Label htmlFor={`notes-tax-${key}`}>{label}</Label>
             <Input disabled={!canEdit} id={`notes-tax-${key}`} inputMode="decimal" onChange={(event) => { setTax((current) => ({ ...current, [key]: event.target.value })); setDataDirty(true); }} placeholder="Sin indicar" value={tax[key] ?? ""} />
           </div>
         ))}
         <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-4">
-          Datos que no están en la contabilidad. La plantilla media va en la nota 10 y decide qué modelo te corresponde; los otros tres completan la conciliación fiscal de la nota 8.
+          {taxFromLiquidation
+            ? "Dato que no está en la contabilidad: la plantilla media va en la nota 10 y decide qué modelo te corresponde. La conciliación fiscal de la nota 8 se toma de la liquidación del Impuesto sobre Sociedades de este ejercicio (Fiscalidad)."
+            : "Datos que no están en la contabilidad. La plantilla media va en la nota 10 y decide qué modelo te corresponde; los otros tres completan la conciliación fiscal de la nota 8 (si liquidas el Impuesto sobre Sociedades en Fiscalidad, se toman de ahí)."}
         </p>
       </div>
 

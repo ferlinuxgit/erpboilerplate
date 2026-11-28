@@ -1,7 +1,9 @@
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
-import { accountChart, annualAccountsNotes, company, companySettings, fixedAsset, journalEntry, journalLine, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
+import { accountChart, annualAccountsNotes, company, corporateTaxReturn, companySettings, fixedAsset, journalEntry, journalLine, supplierInvoice, supplierInvoicePayment, supplierPayment } from "@/db/schema";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import { buildCashFlowStatement } from "@/server/accounting/annual-accounts/cash-flow-model";
 import {
   buildEquityChangesStatement,
   buildRecognizedIncomeStatement,
@@ -19,7 +21,9 @@ import {
   noteText,
   supplierPaymentPeriod,
   supplierPaymentTable,
+  taxReconciliationFromLiquidation,
   taxReconciliationTable,
+  type CorporateTaxLiquidationSummary,
   type FixedAssetRegisterSummary,
   type NotesContext,
   type NoteTable,
@@ -40,6 +44,7 @@ import {
 import { loadStatementAccountRows } from "@/server/accounting/statements";
 import type { StatementAccountRow } from "@/server/accounting/statements-model";
 import { recordAudit } from "@/server/audit";
+import { getCorporateTaxYear, isCorporateTaxCompany } from "@/server/corporate-tax/service";
 
 type YearRow = { id: string; code: string; startsAt: Date; endsAt: Date; isClosed: boolean };
 
@@ -155,6 +160,42 @@ async function loadSupplierInvoicesForPayment(companyId: string, toExclusive: Da
   return [...invoices.values()];
 }
 
+/**
+ * Liquidación del Impuesto sobre Sociedades guardada para el ejercicio (si la sociedad la ha hecho en
+ * Fiscalidad), resumida para la nota de situación fiscal. null si no hay o no se puede calcular: la
+ * memoria vuelve entonces a los importes indicados a mano.
+ */
+async function loadCorporateTaxLiquidation(companyId: string, countryCode: string | null, fiscalYearId: string): Promise<CorporateTaxLiquidationSummary | null> {
+  const [stored] = await db
+    .select({ id: corporateTaxReturn.id })
+    .from(corporateTaxReturn)
+    .where(and(eq(corporateTaxReturn.companyId, companyId), eq(corporateTaxReturn.fiscalYearId, fiscalYearId)))
+    .limit(1);
+  if (!stored || !(await isCorporateTaxCompany(companyId, countryCode))) return null;
+  try {
+    const view = await getCorporateTaxYear(companyId, fiscalYearId);
+    const { result } = view;
+    return {
+      status: view.status,
+      accountingResultBeforeTaxCents: result.accountingResultBeforeTaxCents,
+      adjustments: view.inputs.adjustments,
+      capitalizationReserveCents: result.capitalizationReserve.appliedCents,
+      lossCompensationCents: result.losses.appliedCents,
+      taxableBaseCents: result.taxableBaseCents,
+      levelingReductionCents: result.leveling.reductionAppliedCents,
+      levelingAdditionCents: result.leveling.additionCents,
+      grossQuotaCents: result.grossQuotaCents,
+      creditsCents: result.creditsAppliedCents,
+      netQuotaCents: result.netQuotaCents,
+      withholdingsAndInstallmentsCents: result.withholdingsCents + result.installmentsCents,
+      differentialCents: result.differentialCents,
+    };
+  } catch (error) {
+    logger.error({ companyId, fiscalYearId, error: error instanceof Error ? error.message : String(error) }, "accounting.annual_accounts.corporate_tax_failed");
+    return null;
+  }
+}
+
 type SavedNotes = { sections: Record<string, string>; averageEmployees: number | null; taxData: Record<string, string> };
 
 async function loadSavedNotes(companyId: string, fiscalYearId: string): Promise<SavedNotes> {
@@ -196,7 +237,7 @@ export async function loadAnnualAccounts(companyId: string, fiscalYearId: string
   const configuredModel = options.model ? await getAnnualAccountsModel(companyId) : model;
 
   const fullYear = (candidate: YearRow) => ({ yearStart: candidate.startsAt, from: candidate.startsAt, toExclusive: dayAfter(candidate.endsAt) });
-  const [rows, previousRows, entries, previousEntries, saved, previousSaved, assetSummary, supplierInvoices] = await Promise.all([
+  const [rows, previousRows, entries, previousEntries, saved, previousSaved, assetSummary, supplierInvoices, corporateTax] = await Promise.all([
     loadStatementAccountRows(companyId, fullYear(year), timeZone),
     previousYear ? loadStatementAccountRows(companyId, fullYear(previousYear), timeZone) : Promise.resolve(null),
     loadEquityEntries(companyId, year, timeZone),
@@ -205,6 +246,7 @@ export async function loadAnnualAccounts(companyId: string, fiscalYearId: string
     previousYear ? loadSavedNotes(companyId, previousYear.id) : Promise.resolve(null),
     loadFixedAssetSummary(companyId, year),
     loadSupplierInvoicesForPayment(companyId, dayAfter(year.endsAt)),
+    loadCorporateTaxLiquidation(companyId, companyRow.countryCode, year.id),
   ]);
 
   const statements = buildOfficialStatements(rows, previousRows, model);
@@ -220,6 +262,10 @@ export async function loadAnnualAccounts(companyId: string, fiscalYearId: string
       { yearResultCents: yearResultCents(rows), accounts: rows },
       previousRows ? { yearResultCents: yearResultCents(previousRows), accounts: previousRows } : null,
     );
+
+  // Estado de flujos de efectivo: obligatorio con el modelo normal (art. 257.3 LSC); con los demás
+  // se calcula igual y se ofrece como informe voluntario.
+  const cashFlow = buildCashFlowStatement(rows, previousRows);
 
   // Límites de tamaño: siempre con las magnitudes del modelo abreviado (activo total y cifra de negocios).
   const abbreviated = model === "abbreviated" ? statements : buildOfficialStatements(rows, previousRows, "abbreviated");
@@ -264,13 +310,15 @@ export async function loadAnnualAccounts(companyId: string, fiscalYearId: string
     "5": financialAssetTables(rows),
     "6": [debtTable(rows)],
     "7": [fundsTable],
-    "8": [taxReconciliationTable({
-      result: statements.totals.result,
-      incomeTaxExpense,
-      permanentDifferences: optionalNumber(saved.taxData.permanentDifferences),
-      temporaryDifferences: optionalNumber(saved.taxData.temporaryDifferences),
-      lossCarryforward: optionalNumber(saved.taxData.lossCarryforward),
-    })],
+    "8": [corporateTax
+      ? taxReconciliationFromLiquidation({ result: statements.totals.result, incomeTaxExpense, liquidation: corporateTax })
+      : taxReconciliationTable({
+        result: statements.totals.result,
+        incomeTaxExpense,
+        permanentDifferences: optionalNumber(saved.taxData.permanentDifferences),
+        temporaryDifferences: optionalNumber(saved.taxData.temporaryDifferences),
+        lossCarryforward: optionalNumber(saved.taxData.lossCarryforward),
+      })],
     "10": [employeesTable(saved.averageEmployees, previousSaved?.averageEmployees ?? null, labels), grantsTable(rows)],
     pmp: [supplierPaymentTable(paymentPeriod, previousPaymentPeriod, labels)],
   };
@@ -291,9 +339,11 @@ export async function loadAnnualAccounts(companyId: string, fiscalYearId: string
     statements,
     equityChanges,
     recognizedIncome,
+    cashFlow,
+    cashFlowRequired: model === "normal",
     size: { ...size, assessment },
     notes,
-    notesData: { averageEmployees: saved.averageEmployees, taxData: saved.taxData },
+    notesData: { averageEmployees: saved.averageEmployees, taxData: saved.taxData, taxFromLiquidation: corporateTax !== null },
   };
 }
 

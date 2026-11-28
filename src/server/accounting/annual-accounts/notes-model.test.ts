@@ -10,6 +10,7 @@ import {
   noteText,
   supplierPaymentPeriod,
   supplierPaymentTable,
+  taxReconciliationFromLiquidation,
   taxReconciliationTable,
   type NotesContext,
 } from "@/server/accounting/annual-accounts/notes-model";
@@ -83,9 +84,56 @@ describe("otros cuadros", () => {
     const empty = taxReconciliationTable({ result: 3000, incomeTaxExpense: 1000, permanentDifferences: null, temporaryDifferences: null, lossCarryforward: null });
     expect(empty.rows[2].values).toEqual([4000]);
     expect(empty.rows.at(-1)?.values).toEqual([null]);
-    expect(empty.note).toContain("no liquida el Impuesto sobre Sociedades");
+    expect(empty.note).toContain("No hay liquidación del Impuesto sobre Sociedades");
     const filled = taxReconciliationTable({ result: 3000, incomeTaxExpense: 1000, permanentDifferences: 500, temporaryDifferences: -200, lossCarryforward: 1300 });
     expect(filled.rows.map((item) => item.values[0])).toEqual([3000, 1000, 4000, 500, -200, 4300, -1300, 3000]);
+  });
+});
+
+describe("conciliación fiscal desde la liquidación del Impuesto sobre Sociedades", () => {
+  const liquidation = {
+    status: "filed" as const,
+    accountingResultBeforeTaxCents: 400_000,
+    adjustments: [
+      { sign: "increase" as const, amountCents: 50_000, nature: "permanent" as const },
+      { sign: "decrease" as const, amountCents: 10_000, nature: "permanent" as const },
+      { sign: "increase" as const, amountCents: 20_000, nature: "temporaryOrigin" as const },
+      { sign: "decrease" as const, amountCents: 5_000, nature: "temporaryReversal" as const },
+    ],
+    capitalizationReserveCents: 15_000,
+    lossCompensationCents: 100_000,
+    taxableBaseCents: 340_000,
+    levelingReductionCents: 0,
+    levelingAdditionCents: 0,
+    grossQuotaCents: 85_000,
+    creditsCents: 5_000,
+    netQuotaCents: 80_000,
+    withholdingsAndInstallmentsCents: 30_000,
+    differentialCents: 50_000,
+  };
+
+  it("toma los ajustes, la compensación de bases y la cuota de la liquidación", () => {
+    const table = taxReconciliationFromLiquidation({ result: 3000, incomeTaxExpense: 1000, liquidation });
+    const byLabel = Object.fromEntries(table.rows.map((item) => [item.label, item.values[0]]));
+    expect(byLabel["Resultado contable antes de impuestos"]).toBe(4000);
+    expect(byLabel["Diferencias permanentes: aumentos"]).toBe(500);
+    expect(byLabel["Diferencias permanentes: disminuciones"]).toBe(-100);
+    expect(byLabel["Diferencias temporarias con origen en el ejercicio: aumentos"]).toBe(200);
+    expect(byLabel["Diferencias temporarias con origen en ejercicios anteriores: disminuciones"]).toBe(-50);
+    expect(byLabel["Reserva de capitalización"]).toBe(-150);
+    expect(byLabel["Compensación de bases imponibles negativas de ejercicios anteriores"]).toBe(-1000);
+    expect(byLabel["Base imponible (resultado fiscal)"]).toBe(3400);
+    expect(byLabel["Cuota líquida"]).toBe(800);
+    expect(byLabel["Cuota diferencial (positiva: a ingresar; negativa: a devolver)"]).toBe(500);
+    expect(table.rows.some((item) => item.label.startsWith("Reserva de nivelación"))).toBe(false);
+    expect(table.note).toContain("presentada");
+    expect(table.note).not.toContain("Atención");
+  });
+
+  it("avisa si la liquidación parte de otro resultado", () => {
+    const table = taxReconciliationFromLiquidation({ result: 3500, incomeTaxExpense: 1000, liquidation: { ...liquidation, status: "draft" } });
+    expect(table.note).toContain("borrador");
+    expect(table.note).toContain("4.000,00 €");
   });
 });
 
