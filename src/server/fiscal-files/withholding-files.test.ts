@@ -210,6 +210,113 @@ describe("modelo 190", () => {
   });
 });
 
+describe("modelo 190: datos adicionales de la clave A y clave L.05", () => {
+  const employee: Modelo190FileRecipient = {
+    taxId: "12345678Z", name: "García López, María", key: "A", subkey: null,
+    cashCents: 3_000_000, withheldCents: 450_000, inKindCents: 0, inKindWithheldCents: 0, deductibleExpensesCents: 190_500,
+    personal: {
+      birthYear: 1980, familySituation: 1, disability: 0, contractType: 1,
+      extra: {
+        geographicMobility: true,
+        reductionsCents: 120_000,
+        deductibleExpensesCents: 200_000,
+        compensatoryPensionCents: 30_000,
+        childSupportCents: 40_000,
+        descendantsUnder3: { total: 1, whole: 1 },
+        descendantsRest: { total: 12, whole: 2 },
+        descendantsDisability: { from33: { total: 1, whole: 0 }, reducedMobility: { total: 1, whole: 1 }, from65: { total: 0, whole: 0 } },
+        ascendantsUnder75: { total: 1, whole: 0 },
+        ascendantsFrom75: { total: 2, whole: 1 },
+        ascendantsDisability: { from33: { total: 1, whole: 1 }, reducedMobility: { total: 0, whole: 0 }, from65: { total: 1, whole: 0 } },
+        firstThreeChildren: [1, 2, 1],
+        housingLoanCommunication: true,
+      },
+    },
+  };
+  const severance: Modelo190FileRecipient = { taxId: "12345678Z", name: "García López, María", key: "L", subkey: "05", cashCents: 1_500_000, withheldCents: 0, inKindCents: 0, inKindWithheldCents: 0 };
+  const file = buildModelo190File({ declarant: company, year: 2026, recipients: [employee, severance], defaultProvince: "28" });
+  const [head, row, rowL] = linesOf(file.text);
+
+  it("coloca los datos adicionales en las posiciones 170 a 254", () => {
+    expect(at(row, 170, 1)).toBe("1");
+    expect(at(row, 171, 13)).toBe("0000000120000");
+    // Gastos deducibles de la ficha (prevalecen sobre las cotizaciones de las nóminas).
+    expect(at(row, 184, 13)).toBe("0000000200000");
+    expect(at(row, 197, 13)).toBe("0000000030000");
+    expect(at(row, 210, 13)).toBe("0000000040000");
+    expect(at(row, 223, 6)).toBe("111202");
+    expect(at(row, 229, 12)).toBe("010001010000");
+    expect(at(row, 241, 4)).toBe("1021");
+    expect(at(row, 245, 6)).toBe("110010");
+    expect(at(row, 251, 3)).toBe("121");
+    expect(at(row, 254, 1)).toBe("1");
+    expect(at(row, 255, 1)).toBe(" ");
+  });
+
+  it("genera la indemnización exenta como clave L.05 sin retención ni datos adicionales", () => {
+    expect(at(head, 136, 9)).toBe("000000002");
+    expect(at(head, 145, 16)).toBe(" 000000004500000");
+    expect(at(rowL, 78, 3)).toBe("L05");
+    expect(at(rowL, 81, 14)).toBe(" 0000001500000");
+    expect(at(rowL, 95, 13)).toBe("0".repeat(13));
+    expect(at(rowL, 153, 5)).toBe("00000");
+    expect(at(rowL, 158, 9)).toBe(" ".repeat(9));
+    expect(at(rowL, 170, 85)).toBe("0".repeat(85));
+    expect(file.warnings.join(" ")).toMatch(/L\.05/);
+  });
+
+  it("sin datos del ejercicio usa las cotizaciones de las nóminas como gastos deducibles y lo avisa", () => {
+    const plain = buildModelo190File({ declarant: company, year: 2026, recipients: [{ ...employee, personal: { ...employee.personal, extra: null } }], defaultProvince: "28" });
+    const line = linesOf(plain.text)[1];
+    expect(at(line, 184, 13)).toBe("0000000190500");
+    expect(at(line, 170, 1)).toBe("0");
+    expect(at(line, 223, 32)).toBe("0".repeat(32));
+    expect(plain.warnings.join(" ")).toMatch(/no tienen en su ficha los datos del 190/);
+  });
+
+  it("valida la clave L, los recuentos y el cómputo de los hijos", () => {
+    expect(problemsOf(() => buildModelo190File({ declarant: company, year: 2026, recipients: [{ ...severance, withheldCents: 100 }], defaultProvince: "28" })).join(" ")).toMatch(/L\.05/);
+    expect(problemsOf(() => buildModelo190File({ declarant: company, year: 2026, recipients: [{ ...severance, subkey: "01" }], defaultProvince: "28" })).join(" ")).toMatch(/subclave/);
+    const extra = employee.personal!.extra!;
+    const withExtra = (patch: object) => problemsOf(() => buildModelo190File({ declarant: company, year: 2026, recipients: [{ ...employee, personal: { ...employee.personal, extra: { ...extra, ...patch } } }], defaultProvince: "28" })).join(" ");
+    expect(withExtra({ descendantsUnder3: { total: 10, whole: 0 } })).toMatch(/no cabe/);
+    expect(withExtra({ ascendantsUnder75: { total: 1, whole: 2 } })).toMatch(/por entero que en total/);
+    expect(withExtra({ firstThreeChildren: [3, 0, 0] })).toMatch(/hijo 1/);
+    expect(withExtra({ reductionsCents: -1 })).toMatch(/negativas/);
+  });
+});
+
+describe("modelo 180 con un registro por inmueble", () => {
+  const base: Modelo180FileRecipient = {
+    taxId: "12345678Z", name: "Martínez Ruiz, Juan", modality: "1", baseCents: 600_000, rate: 19, withheldCents: 114_000,
+    property: { situation: "1", cadastralReference: "9872023VH5797S0001WX", address: "Calle Mayor 5", postalCode: "28013", city: "Madrid" },
+    propertyCount: 1, propertyId: "prop-1",
+  };
+  const second: Modelo180FileRecipient = {
+    ...base, baseCents: 400_000, withheldCents: 76_000, propertyId: "prop-2",
+    property: { situation: "1", cadastralReference: "1234567VK4713S0002AB", address: "Calle Real 3", postalCode: "08001", city: "Barcelona" },
+  };
+  const file = buildModelo180File({ declarant: company, year: 2026, recipients: [base, second], defaultProvince: "28" });
+  const lines = linesOf(file.text);
+
+  it("cuenta cada inmueble como un perceptor y suma los totales", () => {
+    expect(lines).toHaveLength(3);
+    expect(at(lines[0], 136, 9)).toBe("000000002");
+    expect(at(lines[0], 145, 16)).toBe(" 000000001000000");
+    expect(at(lines[0], 161, 15)).toBe("000000000190000");
+    expect(at(lines[1], 115, 20)).toBe("9872023VH5797S0001WX");
+    expect(at(lines[2], 115, 20)).toBe("1234567VK4713S0002AB");
+    expect(at(lines[2], 79, 14)).toBe(" 0000000400000");
+    expect(at(lines[2], 321, 7)).toBe("0808001");
+    expect(file.warnings.join(" ")).not.toMatch(/varios inmuebles/);
+  });
+
+  it("avisa solo cuando hay facturas sin asociar a un arrendador con varios inmuebles", () => {
+    const unlinked = buildModelo180File({ declarant: company, year: 2026, recipients: [{ ...base, propertyId: null, propertyCount: 2 }], defaultProvince: "28" });
+    expect(unlinked.warnings.join(" ")).toMatch(/varios inmuebles/);
+  });
+});
+
 describe("modelo 180", () => {
   const recipient: Modelo180FileRecipient = {
     taxId: "12345678Z", name: "Martínez Ruiz, Juan", modality: "1", baseCents: 1_200_000, rate: 19, withheldCents: 228_000,
