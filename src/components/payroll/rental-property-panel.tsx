@@ -16,7 +16,7 @@ type RentalPropertyFormProps = {
   landlords: Array<{ id: string; name: string; taxId: string | null }>;
 };
 
-const EMPTY = { supplierPartnerId: "", situation: "1", cadastralReference: "", address: "", postalCode: "", city: "", province: "" };
+const EMPTY = { supplierPartnerId: "", situation: "1", cadastralReference: "", address: "", postalCode: "", city: "", province: "", matchAccountCode: "", matchText: "" };
 
 /** Alta del inmueble alquilado a un proveedor: lo que pide el modelo 180 de cada arrendador. */
 export function RentalPropertyForm({ landlords }: RentalPropertyFormProps) {
@@ -42,6 +42,8 @@ export function RentalPropertyForm({ landlords }: RentalPropertyFormProps) {
           postalCode: values.postalCode || null,
           city: values.city || null,
           province: values.province || null,
+          matchAccountCode: values.matchAccountCode.trim() || null,
+          matchText: values.matchText.trim() || null,
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "No se pudo guardar el inmueble."));
@@ -92,6 +94,15 @@ export function RentalPropertyForm({ landlords }: RentalPropertyFormProps) {
       </AccessibleField>
       <AccessibleField className="md:col-span-2" id="rental-province" label="Provincia">
         <Input maxLength={120} onChange={(event) => set({ province: event.target.value })} value={values.province} />
+      </AccessibleField>
+      <p className="text-xs text-muted-foreground md:col-span-6">
+        Si el arrendador te alquila varios inmuebles, indica cómo reconocer las facturas de este para que el 180 lleve un registro por inmueble. Sin regla, las facturas del arrendador van a su primer inmueble.
+      </p>
+      <AccessibleField className="md:col-span-2" helperText="Subcuenta de gasto exacta de la línea (p. ej. 6210001)." id="rental-match-account" label="Regla: subcuenta">
+        <Input className="font-mono" inputMode="numeric" maxLength={12} onChange={(event) => set({ matchAccountCode: event.target.value.trim() })} value={values.matchAccountCode} />
+      </AccessibleField>
+      <AccessibleField className="md:col-span-4" helperText="Texto de la descripción de la línea o del número de factura del proveedor (sin distinguir mayúsculas ni tildes)." id="rental-match-text" label="Regla: texto">
+        <Input maxLength={120} onChange={(event) => set({ matchText: event.target.value })} placeholder="Calle Mayor 1" value={values.matchText} />
       </AccessibleField>
       {error ? <InlineAlert className="md:col-span-6" role="alert" tone="danger">{error}</InlineAlert> : null}
       <div className="md:col-span-6">

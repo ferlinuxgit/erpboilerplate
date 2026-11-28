@@ -6,7 +6,7 @@ import { requireContext } from "@/lib/current-context";
 import { formatDecimalInput } from "@/lib/format";
 import { can } from "@/lib/rbac";
 import { requireCountryFeaturePage } from "@/server/fiscal/country-guard";
-import { periodLabel } from "@/server/payroll/model";
+import { isSlipType, periodLabel } from "@/server/payroll/model";
 import { getSlip, listEmployees } from "@/server/payroll/service";
 
 export default async function PayrollSlipPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,6 +51,11 @@ export default async function PayrollSlipPage({ params }: { params: Promise<{ id
               advancesAmount: input(slip.advancesAmount),
               netAmount: input(slip.netAmount),
               notes: slip.notes ?? "",
+              slipType: isSlipType(slip.slipType) ? slip.slipType : "monthly",
+              severanceAmount: input(slip.severanceAmount),
+              severanceExemptAmount: input(slip.severanceExemptAmount),
+              otherDeductions: (slip.otherDeductions ?? []).map((item) => ({ kind: item.kind, concept: item.concept, amount: input(String(item.amountCents / 100)), accountCode: item.accountCode })),
+              inKindPosting: slip.inKindPosting ?? null,
             }}
             slipId={slip.id}
           />

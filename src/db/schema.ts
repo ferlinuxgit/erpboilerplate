@@ -1540,6 +1540,8 @@ export const payrollEmployee = pgTable("payroll_employee", {
   // 1 a 4 (contrato o relación).
   contractType: integer("contractType"),
   spouseTaxId: text("spouseTaxId"),
+  // Datos adicionales opcionales de la clave A del 190, por ejercicio («2026» → datos; ver `Modelo190ExtraData`).
+  model190Extra: jsonb("model190Extra").$type<Record<string, Record<string, unknown>>>().notNull().default({}),
   notes: text("notes"),
   isActive: boolean("isActive").notNull().default(true),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -1598,6 +1600,15 @@ export const payrollSlip = pgTable("payroll_slip", {
   advancesAmount: numeric("advancesAmount", { precision: 12, scale: 2 }).notNull().default("0"),
   // Líquido a percibir.
   netAmount: numeric("netAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // monthly (nómina) | extra (paga extraordinaria) | settlement (finiquito).
+  slipType: text("slipType").notNull().default("monthly"),
+  // Parte del bruto que es indemnización (cuenta 641) y, de ella, la exenta (190, clave L.05).
+  severanceAmount: numeric("severanceAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  severanceExemptAmount: numeric("severanceExemptAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Otras deducciones del trabajador (embargos, cuotas sindicales, préstamos): importe y cuenta.
+  otherDeductions: jsonb("otherDeductions").$type<Array<{ kind: "garnishment" | "union" | "loan" | "other"; concept: string; amountCents: number; accountCode: string }>>().notNull().default([]),
+  // Retribución en especie contabilizada en la nómina (64x contra cuenta puente); null = no se contabiliza.
+  inKindPosting: jsonb("inKindPosting").$type<{ expenseAccount: string; counterAccount: string }>(),
   // draft (sin asiento) | posted (contabilizada).
   status: text("status").notNull().default("draft"),
   journalEntryId: text("journalEntryId").references((): AnyPgColumn => journalEntry.id, { onDelete: "set null" }),
@@ -1615,6 +1626,8 @@ export const payrollSlip = pgTable("payroll_slip", {
   check("payroll_slip_status_valid", sql`${table.status} IN ('draft', 'posted')`),
   check("payroll_slip_period_valid", sql`${table.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
   check("payroll_slip_amounts_valid", sql`${table.grossAmount} >= 0 AND ${table.inKindAmount} >= 0 AND ${table.inKindWithholdingAmount} >= 0 AND ${table.withholdingAmount} >= 0 AND ${table.employeeSocialSecurity} >= 0 AND ${table.employerSocialSecurity} >= 0 AND ${table.advancesAmount} >= 0 AND ${table.netAmount} >= 0`),
+  check("payroll_slip_type_valid", sql`${table.slipType} IN ('monthly', 'extra', 'settlement')`),
+  check("payroll_slip_severance_valid", sql`${table.severanceAmount} >= 0 AND ${table.severanceExemptAmount} >= 0 AND ${table.severanceExemptAmount} <= ${table.severanceAmount}`),
 ]);
 
 /**
@@ -1655,6 +1668,11 @@ export const rentalProperty = pgTable("rental_property", {
   postalCode: text("postalCode"),
   city: text("city"),
   province: text("province"),
+  // Regla para asociar las facturas del alquiler a este inmueble (modelo 180): subcuenta de gasto
+  // exacta de la línea y/o texto que aparece en la descripción de la línea o en el número de factura
+  // del proveedor. Sin regla, las facturas del arrendador van a su primer inmueble.
+  matchAccountCode: text("matchAccountCode"),
+  matchText: text("matchText"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
@@ -1775,6 +1793,8 @@ export type CorporateTaxReturnInputs = {
   /** null = saldo de la cuenta 473 y pagos fraccionados registrados en el programa. */
   withholdingsOverrideCents: number | null;
   installmentsOverrideCents: number | null;
+  /** Registrar el crédito fiscal por bases negativas (4745) en el asiento del impuesto. Ausente = no. */
+  recognizeLossCredit?: boolean;
 };
 
 /** Liquidación del modelo 200 de un ejercicio: datos, asiento del impuesto y foto de lo presentado. */

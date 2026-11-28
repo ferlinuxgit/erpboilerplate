@@ -42,6 +42,23 @@ export const payrollSlipSchema = z.object({
   employerSocialSecurity: amount("La Seguridad Social de la empresa no puede ser negativa.").optional(),
   advancesAmount: amount("Los anticipos no pueden ser negativos.").optional(),
   netAmount: amount("El líquido no puede ser negativo."),
+  /** Nómina mensual, paga extra o finiquito (por defecto, mensual). */
+  slipType: z.enum(["monthly", "extra", "settlement"]).optional(),
+  /** Parte del bruto que es indemnización (641) y, de ella, la exenta. */
+  severanceAmount: amount("La indemnización no puede ser negativa.").optional(),
+  severanceExemptAmount: amount("La indemnización exenta no puede ser negativa.").optional(),
+  /** Embargos, cuotas sindicales, préstamos… que se restan del líquido. Importes en euros. */
+  otherDeductions: z.array(z.object({
+    kind: z.enum(["garnishment", "union", "loan", "other"]),
+    concept: z.string().trim().min(1, "Indica el concepto de la deducción.").max(120),
+    amount: z.number().positive("El importe de la deducción debe ser mayor que cero.").max(9_999_999_999),
+    accountCode: z.string().trim().regex(/^[0-9]{3,12}$/, "La cuenta de la deducción tiene de 3 a 12 dígitos."),
+  })).max(10, "Como mucho 10 deducciones por nómina.").optional(),
+  /** Contabilizar la retribución en especie (64x contra una cuenta puente); null u omitido = no. */
+  inKindPosting: z.object({
+    expenseAccount: z.string().trim().regex(/^64[0-9]{1,10}$/, "El gasto de la especie va en una cuenta del subgrupo 64."),
+    counterAccount: z.string().trim().regex(/^[0-9]{3,12}$/, "La contrapartida tiene de 3 a 12 dígitos."),
+  }).nullable().optional(),
   notes: optionalText(2000),
   /** Contabilizar al guardar. */
   post: z.boolean().optional(),
@@ -96,6 +113,9 @@ export const rentalPropertySchema = z.object({
   postalCode: optionalText(10),
   city: optionalText(120),
   province: optionalText(120),
+  /** Regla para asociar las facturas a este inmueble (180): subcuenta de gasto exacta y/o texto. */
+  matchAccountCode: z.string().trim().regex(/^[0-9]{3,12}$/, "La subcuenta de la regla tiene de 3 a 12 dígitos.").nullable().optional(),
+  matchText: optionalText(120),
 }).refine((value) => value.situation === "4" || Boolean(value.cadastralReference), { message: "Indica la referencia catastral, o elige «Sin referencia catastral».", path: ["cadastralReference"] });
 export type RentalPropertyInput = z.infer<typeof rentalPropertySchema>;
 
@@ -105,3 +125,40 @@ export const payrollSettingsSchema = z.object({
   enabledModels: z.array(z.enum(["190", "180", "123", "193"])).max(4),
 });
 export type PayrollSettingsInput = z.infer<typeof payrollSettingsSchema>;
+
+const count = z.number().int().min(0).max(99);
+const countPair = z.object({ total: count, whole: count }).refine((value) => value.whole <= value.total, { message: "Los computados por entero no pueden ser más que el total." });
+const disabilityCounts = z.object({ from33: countPair, reducedMobility: countPair, from65: countPair });
+const extraCents = z.number().int().min(0).max(99_999_999_999);
+
+/**
+ * Datos adicionales de la clave A del 190 de un trabajador y un ejercicio (todos opcionales). Importes
+ * en céntimos. Ver `Modelo190ExtraData` en `@/server/fiscal/withholdings`.
+ */
+export const modelo190ExtraSchema = z.object({
+  geographicMobility: z.boolean().optional(),
+  reductionsCents: extraCents.optional(),
+  deductibleExpensesCents: extraCents.optional(),
+  compensatoryPensionCents: extraCents.optional(),
+  childSupportCents: extraCents.optional(),
+  descendantsUnder3: countPair.optional(),
+  descendantsRest: countPair.optional(),
+  descendantsDisability: disabilityCounts.optional(),
+  ascendantsUnder75: countPair.optional(),
+  ascendantsFrom75: countPair.optional(),
+  ascendantsDisability: disabilityCounts.optional(),
+  firstThreeChildren: z.tuple([z.number().int().min(0).max(2), z.number().int().min(0).max(2), z.number().int().min(0).max(2)]).optional(),
+  housingLoanCommunication: z.boolean().optional(),
+});
+
+/** Guardar (o borrar, con `data: null`) los datos adicionales del 190 de un ejercicio. */
+export const employeeModelo190ExtraSchema = z.object({
+  year: z.number().int().min(2000).max(2100),
+  data: modelo190ExtraSchema.nullable(),
+});
+
+/** Lee lo guardado en `payroll_employee.model190Extra` para un ejercicio; null si no hay o no es válido. */
+export function readModelo190Extra(stored: Record<string, unknown> | null | undefined, year: number) {
+  const parsed = modelo190ExtraSchema.safeParse(stored?.[String(year)]);
+  return parsed.success ? parsed.data : null;
+}

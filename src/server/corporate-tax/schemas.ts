@@ -40,6 +40,7 @@ export const corporateTaxReturnSchema = z.object({
   credits: z.array(creditSchema).max(50, "Demasiadas deducciones."),
   withholdingsOverrideCents: optionalCents(),
   installmentsOverrideCents: optionalCents(),
+  recognizeLossCredit: z.boolean().optional(),
 }).refine((value) => value.regime !== "custom" || (value.customRatePct !== null && value.customRatePct !== undefined), {
   message: "Indica el tipo de gravamen.",
   path: ["customRatePct"],

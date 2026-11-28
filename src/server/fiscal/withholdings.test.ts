@@ -155,6 +155,20 @@ describe("computeModelo190", () => {
   });
 });
 
+describe("indemnización exenta (clave L.05)", () => {
+  it("va al 190 en la clave L y no entra en el 111", () => {
+    const items = [
+      payroll({ baseCents: 200_000, withheldCents: 30_000 }),
+      payroll({ baseCents: 500_000, withheldCents: 0, key190: "L", subkey190: "05", excludedFrom111: true }),
+    ];
+    const m111 = computeModelo111(items);
+    expect(m111.blocks.find((block) => block.block === "work")?.cash.baseCents).toBe(200_000);
+    const m190 = computeModelo190(items, { periods: [{ period: "2026-Q1", resultCents: 30_000, filed: true }] });
+    expect(m190.recipients.map((row) => [row.key, row.subkey, row.cashCents])).toEqual([["A", null, 200_000], ["L", "05", 500_000]]);
+    expect(m190.reconciliation.balanced).toBe(true);
+  });
+});
+
 describe("computeModelo180 y computeModelo193", () => {
   it("180: un registro por arrendador con su inmueble y el último tipo aplicado", () => {
     const rent = (overrides: Partial<WithholdingItem>) => item({ model: "115", recipientTaxId: "B12345678", recipientName: "Locales SL", rate: 19, baseCents: 100_000, withheldCents: 19_000, ...overrides });
@@ -168,6 +182,20 @@ describe("computeModelo180 y computeModelo193", () => {
     expect(result.recipients.find((row) => row.taxId === "B12345678")).toMatchObject({ baseCents: 200_000, withheldCents: 38_000, rate: 19, modality: "1", property: { cadastralReference: "9872023VH5797S0001WX" } });
     expect(result.reconciliation.balanced).toBe(true);
     expect(result.checks.find((check) => check.code === "model-180-missing-property")?.status).toBe("warning");
+  });
+
+  it("180: un registro por inmueble cuando las facturas están asociadas a él", () => {
+    const rent = (overrides: Partial<WithholdingItem>) => item({ model: "115", recipientTaxId: "B12345678", recipientName: "Locales SL", rate: 19, baseCents: 100_000, withheldCents: 19_000, ...overrides });
+    const property = (id: string, cadastralReference: string) => ({ id, situation: "1", cadastralReference, address: null, postalCode: null, city: null, province: null });
+    const result = computeModelo180(
+      [rent({ propertyId: "local" }), rent({ propertyId: "nave" }), rent({ propertyId: "nave" })],
+      {
+        periods: [{ period: "2026-Q1", resultCents: 57_000, filed: false }],
+        properties: new Map([["B12345678", [property("local", "9872023VH5797S0001WX"), property("nave", "1111111VH5797S0001AB")]]]),
+      },
+    );
+    expect(result.recipients.map((row) => [row.property?.cadastralReference, row.baseCents])).toEqual([["9872023VH5797S0001WX", 100_000], ["1111111VH5797S0001AB", 200_000]]);
+    expect(result.checks.some((check) => check.code === "model-180-several-properties")).toBe(false);
   });
 
   it("193: dividendos con clave A/02 e intereses con clave B/03, y cuadre con los 123", () => {

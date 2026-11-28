@@ -1007,7 +1007,7 @@
   "permissions": [
    "fiscal.read"
   ],
-  "body": "const corporateTaxReturnSchema = z.object({\n  regime: z.enum(CORPORATE_TAX_REGIMES as unknown as [string, ...string[]]),\n  customRatePct: z.number().min(0, \"El tipo no puede ser negativo.\").max(100, \"El tipo no puede superar el 100 %.\").nullable().optional(),\n  priorYearRevenueCents: optionalCents(),\n  adjustments: z.array(adjustmentSchema).max(100, \"Demasiados ajustes.\"),\n  capitalizationReserveCents: cents(),\n  lossCompensationCents: optionalCents(),\n  levelingReductionCents: cents(),\n  levelingAdditionCents: cents(),\n  credits: z.array(creditSchema).max(50, \"Demasiadas deducciones.\"),\n  withholdingsOverrideCents: optionalCents(),\n  installmentsOverrideCents: optionalCents(),\n}).refine((value) => value.regime !== \"custom\" || (value.customRatePct !== null && value.customRatePct !== undefined), {\n  message: \"Indica el tipo de gravamen.\",\n  path: [\"customRatePct\"],\n})\n\nconst adjustmentSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  kind: z.string().trim().min(1).max(60),\n  concept: z.string().trim().min(1, \"Indica el concepto del ajuste.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  sign: z.enum([\"increase\", \"decrease\"]),\n  amountCents: cents(),\n  nature: z.enum([\"permanent\", \"temporaryOrigin\", \"temporaryReversal\"]),\n})\n\nconst creditSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  concept: z.string().trim().min(1, \"Indica el concepto de la deducción o bonificación.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  amountCents: cents(),\n})"
+  "body": "const corporateTaxReturnSchema = z.object({\n  regime: z.enum(CORPORATE_TAX_REGIMES as unknown as [string, ...string[]]),\n  customRatePct: z.number().min(0, \"El tipo no puede ser negativo.\").max(100, \"El tipo no puede superar el 100 %.\").nullable().optional(),\n  priorYearRevenueCents: optionalCents(),\n  adjustments: z.array(adjustmentSchema).max(100, \"Demasiados ajustes.\"),\n  capitalizationReserveCents: cents(),\n  lossCompensationCents: optionalCents(),\n  levelingReductionCents: cents(),\n  levelingAdditionCents: cents(),\n  credits: z.array(creditSchema).max(50, \"Demasiadas deducciones.\"),\n  withholdingsOverrideCents: optionalCents(),\n  installmentsOverrideCents: optionalCents(),\n  recognizeLossCredit: z.boolean().optional(),\n}).refine((value) => value.regime !== \"custom\" || (value.customRatePct !== null && value.customRatePct !== undefined), {\n  message: \"Indica el tipo de gravamen.\",\n  path: [\"customRatePct\"],\n})\n\nconst adjustmentSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  kind: z.string().trim().min(1).max(60),\n  concept: z.string().trim().min(1, \"Indica el concepto del ajuste.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  sign: z.enum([\"increase\", \"decrease\"]),\n  amountCents: cents(),\n  nature: z.enum([\"permanent\", \"temporaryOrigin\", \"temporaryReversal\"]),\n})\n\nconst creditSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  concept: z.string().trim().min(1, \"Indica el concepto de la deducción o bonificación.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  amountCents: cents(),\n})"
  },
  {
   "method": "GET",
@@ -1026,7 +1026,7 @@
   "permissions": [
    "fiscal.write"
   ],
-  "body": "const corporateTaxReturnSchema = z.object({\n  regime: z.enum(CORPORATE_TAX_REGIMES as unknown as [string, ...string[]]),\n  customRatePct: z.number().min(0, \"El tipo no puede ser negativo.\").max(100, \"El tipo no puede superar el 100 %.\").nullable().optional(),\n  priorYearRevenueCents: optionalCents(),\n  adjustments: z.array(adjustmentSchema).max(100, \"Demasiados ajustes.\"),\n  capitalizationReserveCents: cents(),\n  lossCompensationCents: optionalCents(),\n  levelingReductionCents: cents(),\n  levelingAdditionCents: cents(),\n  credits: z.array(creditSchema).max(50, \"Demasiadas deducciones.\"),\n  withholdingsOverrideCents: optionalCents(),\n  installmentsOverrideCents: optionalCents(),\n}).refine((value) => value.regime !== \"custom\" || (value.customRatePct !== null && value.customRatePct !== undefined), {\n  message: \"Indica el tipo de gravamen.\",\n  path: [\"customRatePct\"],\n})\n\nconst adjustmentSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  kind: z.string().trim().min(1).max(60),\n  concept: z.string().trim().min(1, \"Indica el concepto del ajuste.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  sign: z.enum([\"increase\", \"decrease\"]),\n  amountCents: cents(),\n  nature: z.enum([\"permanent\", \"temporaryOrigin\", \"temporaryReversal\"]),\n})\n\nconst creditSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  concept: z.string().trim().min(1, \"Indica el concepto de la deducción o bonificación.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  amountCents: cents(),\n})"
+  "body": "const corporateTaxReturnSchema = z.object({\n  regime: z.enum(CORPORATE_TAX_REGIMES as unknown as [string, ...string[]]),\n  customRatePct: z.number().min(0, \"El tipo no puede ser negativo.\").max(100, \"El tipo no puede superar el 100 %.\").nullable().optional(),\n  priorYearRevenueCents: optionalCents(),\n  adjustments: z.array(adjustmentSchema).max(100, \"Demasiados ajustes.\"),\n  capitalizationReserveCents: cents(),\n  lossCompensationCents: optionalCents(),\n  levelingReductionCents: cents(),\n  levelingAdditionCents: cents(),\n  credits: z.array(creditSchema).max(50, \"Demasiadas deducciones.\"),\n  withholdingsOverrideCents: optionalCents(),\n  installmentsOverrideCents: optionalCents(),\n  recognizeLossCredit: z.boolean().optional(),\n}).refine((value) => value.regime !== \"custom\" || (value.customRatePct !== null && value.customRatePct !== undefined), {\n  message: \"Indica el tipo de gravamen.\",\n  path: [\"customRatePct\"],\n})\n\nconst adjustmentSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  kind: z.string().trim().min(1).max(60),\n  concept: z.string().trim().min(1, \"Indica el concepto del ajuste.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  sign: z.enum([\"increase\", \"decrease\"]),\n  amountCents: cents(),\n  nature: z.enum([\"permanent\", \"temporaryOrigin\", \"temporaryReversal\"]),\n})\n\nconst creditSchema = z.object({\n  id: z.string().trim().min(1).max(80),\n  concept: z.string().trim().min(1, \"Indica el concepto de la deducción o bonificación.\").max(200, \"El concepto no puede superar 200 caracteres.\"),\n  amountCents: cents(),\n})"
  },
  {
   "method": "GET",
@@ -2625,6 +2625,15 @@
   ]
  },
  {
+  "method": "PUT",
+  "path": "/api/payroll/employees/{id}/model-190",
+  "area": "payroll",
+  "summary": "Guarda (o borra, con `data: null`) los datos adicionales de la clave A del 190 de un ejercicio.",
+  "permissions": [
+   "accounting.write"
+  ]
+ },
+ {
   "method": "PATCH",
   "path": "/api/payroll/employees/{id}",
   "area": "payroll",
@@ -2766,6 +2775,15 @@
   "summary": "Anula el asiento de la nómina con un contraasiento y la deja en borrador.",
   "permissions": [
    "accounting.write"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/payroll/slips/{id}/receipt",
+  "area": "payroll",
+  "summary": "Recibo de salarios sencillo en PDF con los importes de la nómina (no calcula la nómina).",
+  "permissions": [
+   "accounting.read"
   ]
  },
  {

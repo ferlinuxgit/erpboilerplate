@@ -76,6 +76,51 @@ describe("asiento de la nómina", () => {
   });
 });
 
+describe("otras deducciones, especie contabilizada y finiquitos", () => {
+  const deductions = [
+    { kind: "garnishment" as const, concept: "Embargo Juzgado n.º 3", amountCents: 20_000, accountCode: "4659" },
+    { kind: "loan" as const, concept: "Devolución del préstamo", amountCents: 5_000, accountCode: "544" },
+  ];
+
+  it("las otras deducciones restan del líquido y van al haber de su cuenta", () => {
+    const withDeductions = slipCents({ grossAmount: 2000, withholdingAmount: 300, employeeSocialSecurity: 127, netAmount: 1323, otherDeductions: deductions });
+    expect(expectedNetCents(withDeductions)).toBe(132_300);
+    expect(validateSlip(withDeductions)).toEqual({ ok: true });
+    const lines = buildSlipPostingLines(withDeductions);
+    expect(lines.filter((line) => line.role === "otherDeduction")).toEqual([
+      { role: "otherDeduction", debitCents: 0, creditCents: 20_000, accountCode: "4659", concept: "Embargo Juzgado n.º 3" },
+      { role: "otherDeduction", debitCents: 0, creditCents: 5_000, accountCode: "544", concept: "Devolución del préstamo" },
+    ]);
+    expect(postingIsBalanced(lines)).toBe(true);
+  });
+
+  it("rechaza deducciones sin cuenta válida", () => {
+    const bad = slipCents({ grossAmount: 100, netAmount: 90, otherDeductions: [{ kind: "union", concept: "Cuota", amountCents: 1_000, accountCode: "46" }] });
+    expect(validateSlip(bad)).toMatchObject({ ok: false, code: "PAYROLL_DEDUCTION" });
+  });
+
+  it("la especie contabilizada va a la 64x contra la cuenta puente, sin cambiar el líquido", () => {
+    const withKind = slipCents({ grossAmount: 2000, inKindAmount: 200, inKindWithholdingAmount: 30, withholdingAmount: 300, employeeSocialSecurity: 127, netAmount: 1543, inKindPosting: { expenseAccount: "649", counterAccount: "555" } });
+    expect(validateSlip(withKind)).toEqual({ ok: true });
+    const lines = buildSlipPostingLines(withKind);
+    expect(lines.find((line) => line.role === "inKindExpense")).toMatchObject({ debitCents: 20_000, accountCode: "649" });
+    expect(lines.find((line) => line.role === "inKindCounter")).toMatchObject({ creditCents: 20_000, accountCode: "555" });
+    expect(postingIsBalanced(lines)).toBe(true);
+    expect(validateSlip({ ...withKind, inKindPosting: { expenseAccount: "629", counterAccount: "555" } })).toMatchObject({ ok: false, code: "PAYROLL_IN_KIND_POSTING" });
+  });
+
+  it("la indemnización del finiquito va a la 641 y forma parte del bruto", () => {
+    const settlement = slipCents({ grossAmount: 5000, severanceAmount: 3000, severanceExemptAmount: 3000, withholdingAmount: 200, netAmount: 4800 });
+    expect(validateSlip(settlement)).toEqual({ ok: true });
+    const lines = buildSlipPostingLines(settlement);
+    expect(lines.find((line) => line.role === "wages")?.debitCents).toBe(200_000);
+    expect(lines.find((line) => line.role === "severance")?.debitCents).toBe(300_000);
+    expect(postingIsBalanced(lines)).toBe(true);
+    expect(validateSlip(slipCents({ grossAmount: 100, severanceAmount: 200, netAmount: 100 }))).toMatchObject({ code: "PAYROLL_SEVERANCE" });
+    expect(validateSlip(slipCents({ grossAmount: 300, severanceAmount: 200, severanceExemptAmount: 250, netAmount: 300 }))).toMatchObject({ code: "PAYROLL_SEVERANCE_EXEMPT" });
+  });
+});
+
 describe("ayudas", () => {
   it("propone IRPF = bruto × tipo", () => {
     expect(proposeWithholdingCents(200_000, 15)).toBe(30_000);

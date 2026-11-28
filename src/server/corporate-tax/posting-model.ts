@@ -13,8 +13,11 @@
  *   nace una diferencia imponible (ajuste negativo):     (6301) a (479)
  *   revierte una diferencia imponible (ajuste positivo): (479) a (6301)
  *
- * No se registra el crédito fiscal por bases negativas (4745): exige valorar si habrá beneficios
- * futuros para recuperarlo, y eso lo decide la empresa con un asiento manual.
+ * Crédito fiscal por bases negativas (4745), solo si la empresa lo pide (`lossCredit`): reconocerlo
+ * exige que sea probable que haya beneficios futuros para recuperarlo (NRV 13.ª, apartado 2.3), y eso
+ * lo decide la empresa. Si lo pide:
+ *   nace una base negativa:              (4745) Crédito por pérdidas a compensar a (6301)
+ *   se compensan bases de años previos:  (6301) a (4745), hasta el saldo que tenga la 4745
  */
 
 import type { TaxAdjustment } from "@/server/corporate-tax/liquidation";
@@ -27,6 +30,7 @@ export const CORPORATE_TAX_ACCOUNTS = {
   refund: "4709",
   deferredAsset: "4740",
   deferredLiability: "479",
+  lossCredit: "4745",
 } as const;
 
 export type CorporateTaxAccountRole = keyof typeof CORPORATE_TAX_ACCOUNTS;
@@ -62,6 +66,25 @@ export function computeDeferredTax(adjustments: readonly TaxAdjustment[], ratePc
   return { assetChangeCents, liabilityChangeCents, expenseCents: liabilityChangeCents - assetChangeCents };
 }
 
+export type LossCredit = { recognizeCents: number; reverseCents: number };
+
+/**
+ * Crédito por bases negativas del ejercicio, al tipo indicado: se reconoce la base negativa que nace y
+ * se da de baja lo que se compensa ahora, sin pasar del saldo que ya tenga la 4745.
+ */
+export function computeLossCredit(input: { generatedLossCents: number; compensatedCents: number; ratePct: number; ledgerBalanceCents: number }): LossCredit {
+  const atRate = (cents: number) => Math.round((Math.max(Math.round(cents), 0) * input.ratePct) / 100);
+  return {
+    recognizeCents: atRate(input.generatedLossCents),
+    reverseCents: Math.min(atRate(input.compensatedCents), Math.max(Math.round(input.ledgerBalanceCents), 0)),
+  };
+}
+
+/** Gasto (+) o ingreso (−) por impuesto diferido del crédito por bases negativas. */
+export function lossCreditExpenseCents(lossCredit: LossCredit | null | undefined) {
+  return lossCredit ? lossCredit.reverseCents - lossCredit.recognizeCents : 0;
+}
+
 export function hasDeferredTax(deferred: DeferredTax | null | undefined) {
   return Boolean(deferred && (deferred.assetChangeCents !== 0 || deferred.liabilityChangeCents !== 0));
 }
@@ -71,6 +94,8 @@ export function buildCorporateTaxEntryLines(input: {
   withholdingsCents: number;
   installmentsCents: number;
   deferred?: DeferredTax | null;
+  /** Crédito por bases negativas: lo que se reconoce (base negativa del año × tipo) y lo que se aplica. */
+  lossCredit?: LossCredit | null;
   yearCode: string;
 }): CorporateTaxEntryLine[] {
   const lines: CorporateTaxEntryLine[] = [];
@@ -97,6 +122,13 @@ export function buildCorporateTaxEntryLines(input: {
     credit("deferredLiability", deferred.liabilityChangeCents, `${label} · pasivo por impuesto diferido`);
     debit("deferredTax", deferred.expenseCents, `${label} · impuesto diferido`);
     credit("deferredTax", -deferred.expenseCents, `${label} · impuesto diferido`);
+  }
+  const lossCredit = input.lossCredit;
+  if (lossCredit) {
+    debit("lossCredit", lossCredit.recognizeCents, `${label} · crédito por la base imponible negativa del ejercicio`);
+    credit("deferredTax", lossCredit.recognizeCents, `${label} · crédito por pérdidas a compensar`);
+    debit("deferredTax", lossCredit.reverseCents, `${label} · aplicación del crédito por pérdidas a compensar`);
+    credit("lossCredit", lossCredit.reverseCents, `${label} · bases negativas compensadas`);
   }
   return lines;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { addMonthsUtc, corporateReminders, corporateTaxReturnWindow, installmentDueDate, periodDays } from "@/server/corporate-tax/deadlines";
-import { baseMethodMandatory, baseMethodPct, computeBaseInstallment, computeQuotaInstallment, type BaseInstallmentInput } from "@/server/corporate-tax/installments-model";
+import { baseMethodMandatory, baseMethodPct, computeBaseInstallment, computeQuotaInstallment, groupBracketsByPct, type BaseInstallmentInput } from "@/server/corporate-tax/installments-model";
 
 const eur = (amount: number) => Math.round(amount * 100);
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
@@ -82,6 +82,17 @@ describe("pago fraccionado, modalidad del art. 40.3", () => {
     // 2026: 19 % → 13 % hasta 50.000 y 21 % → 15 % el resto.
     expect(result.brackets.map((bracket) => [bracket.baseCents, bracket.pct])).toEqual([[eur(50_000), 13], [eur(30_000), 15]]);
     expect(result.amountCents).toBe(eur(11_000));
+  });
+
+  it("agrupa los tramos con el mismo porcentaje (2025: 21 % y 22 % → 15 % en ambos)", () => {
+    const result = computeBaseInstallment(baseInput({ regime: "micro", startYear: 2025, accountingResultBeforeTaxCents: eur(80_000) }));
+    expect(result.brackets.map((bracket) => bracket.pct)).toEqual([15, 15]);
+    expect(result.groupedBrackets).toEqual([{ baseCents: eur(80_000), pct: 15, quotaCents: eur(12_000) }]);
+    expect(result.amountCents).toBe(eur(12_000));
+  });
+
+  it("groupBracketsByPct deja como están los porcentajes distintos", () => {
+    expect(groupBracketsByPct([{ baseCents: 100, pct: 13, quotaCents: 13 }, { baseCents: 200, pct: 15, quotaCents: 30 }])).toHaveLength(2);
   });
 
   it("desde 10 millones: 24 % y mínimo del 23 % del resultado contable", () => {

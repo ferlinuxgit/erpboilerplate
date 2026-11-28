@@ -34,7 +34,62 @@ export const PAYROLL_ACCOUNTS = {
   dividendPayable: "526",
   /** (662) Intereses de deudas. */
   interestExpense: "662",
+  /** (641) Indemnizaciones. */
+  severance: "641",
 } as const;
+
+/**
+ * Tipo de nómina: la mensual, una paga extraordinaria o el finiquito. Solo cambia el concepto por
+ * defecto y cómo se muestra; los importes los da la gestoría igual en los tres casos.
+ */
+export type SlipType = "monthly" | "extra" | "settlement";
+
+export const SLIP_TYPE_LABELS: Record<SlipType, string> = {
+  monthly: "Nómina",
+  extra: "Paga extra",
+  settlement: "Finiquito",
+};
+
+export function isSlipType(value: unknown): value is SlipType {
+  return value === "monthly" || value === "extra" || value === "settlement";
+}
+
+/**
+ * Otras deducciones del trabajador que se restan del líquido y no son ni IRPF ni Seguridad Social.
+ * Cada una va al haber de la cuenta que indique el usuario (a quien hay que pagársela o el crédito
+ * que cancela). Cuentas propuestas (PGC):
+ * - embargo de salario: (4659) subcuenta de remuneraciones pendientes para el juzgado u organismo;
+ * - cuota sindical: (4659) igual, hasta que se ingresa al sindicato;
+ * - devolución de un préstamo al trabajador: (544) Créditos a corto plazo al personal;
+ * - otra: la que indique el usuario.
+ */
+export type OtherDeductionKind = "garnishment" | "union" | "loan" | "other";
+
+export const OTHER_DEDUCTION_KINDS: Record<OtherDeductionKind, { label: string; defaultAccount: string }> = {
+  garnishment: { label: "Embargo de salario", defaultAccount: "4659" },
+  union: { label: "Cuota sindical", defaultAccount: "4659" },
+  loan: { label: "Devolución de préstamo al trabajador", defaultAccount: "544" },
+  other: { label: "Otra deducción", defaultAccount: "4659" },
+};
+
+export type OtherDeduction = { kind: OtherDeductionKind; concept: string; amountCents: number; accountCode: string };
+
+/**
+ * Retribución en especie que NO llega por factura (producto propio, vivienda de la empresa…): si el
+ * usuario lo pide, se apunta su gasto en una cuenta del subgrupo 64 contra una cuenta puente, que
+ * se cancela después con el ingreso o el gasto que corresponda. Sin esta opción, la especie solo
+ * cuenta para el 111/190 (su gasto ya está en la factura del renting, el seguro…).
+ */
+export type InKindPosting = { expenseAccount: string; counterAccount: string };
+
+export const IN_KIND_POSTING_DEFAULTS: InKindPosting = { expenseAccount: "649", counterAccount: "555" };
+
+const ACCOUNT_CODE = /^[0-9]{3,12}$/;
+
+/** Código de cuenta válido para el usuario: de 3 a 12 dígitos. */
+export function isAccountCode(value: unknown): value is string {
+  return typeof value === "string" && ACCOUNT_CODE.test(value);
+}
 
 export type RecipientKind = "employee" | "director";
 
@@ -91,6 +146,11 @@ export type SlipAmounts = {
   employerSocialSecurity?: number | string | null;
   advancesAmount?: number | string | null;
   netAmount: number | string;
+  /** Parte del bruto que es indemnización (641) y, de ella, la exenta (190, clave L.05). */
+  severanceAmount?: number | string | null;
+  severanceExemptAmount?: number | string | null;
+  otherDeductions?: readonly OtherDeduction[] | null;
+  inKindPosting?: InKindPosting | null;
 };
 
 export type SlipCents = {
@@ -102,7 +162,16 @@ export type SlipCents = {
   employerSocialSecurityCents: number;
   advancesCents: number;
   netCents: number;
+  severanceCents: number;
+  severanceExemptCents: number;
+  otherDeductions: OtherDeduction[];
+  inKindPosting: InKindPosting | null;
 };
+
+/** Suma de las otras deducciones. */
+export function otherDeductionsCents(slip: Pick<SlipCents, "otherDeductions">) {
+  return slip.otherDeductions.reduce((total, item) => total + item.amountCents, 0);
+}
 
 export function slipCents(amounts: SlipAmounts): SlipCents {
   return {
@@ -114,16 +183,21 @@ export function slipCents(amounts: SlipAmounts): SlipCents {
     employerSocialSecurityCents: toCents(amounts.employerSocialSecurity),
     advancesCents: toCents(amounts.advancesAmount),
     netCents: toCents(amounts.netAmount),
+    severanceCents: toCents(amounts.severanceAmount),
+    severanceExemptCents: toCents(amounts.severanceExemptAmount),
+    otherDeductions: (amounts.otherDeductions ?? []).map((item) => ({ ...item, amountCents: Math.round(item.amountCents), concept: item.concept.trim(), accountCode: item.accountCode.trim() })),
+    inKindPosting: amounts.inKindPosting ?? null,
   };
 }
 
 /**
  * Líquido que corresponde a los importes: bruto dinerario − IRPF − ingreso a cuenta de la especie
- * (se repercute al trabajador) − Seguridad Social del trabajador − anticipos. La retribución en
- * especie no se cobra en dinero, así que no suma al líquido.
+ * (se repercute al trabajador) − Seguridad Social del trabajador − anticipos − otras deducciones
+ * (embargos, cuotas sindicales, préstamos). La retribución en especie no se cobra en dinero, así
+ * que no suma al líquido. La indemnización va dentro del bruto.
  */
 export function expectedNetCents(slip: SlipCents) {
-  return slip.grossCents - slip.withholdingCents - slip.inKindWithholdingCents - slip.employeeSocialSecurityCents - slip.advancesCents;
+  return slip.grossCents - slip.withholdingCents - slip.inKindWithholdingCents - slip.employeeSocialSecurityCents - slip.advancesCents - otherDeductionsCents(slip);
 }
 
 export type SlipValidation = { ok: true } | { ok: false; code: string; message: string };
@@ -132,8 +206,28 @@ const money = (cents: number) => `${centsToAmount(cents).replace(".", ",")} €`
 
 /** Comprueba que la nómina cuadra antes de guardarla o contabilizarla. */
 export function validateSlip(slip: SlipCents): SlipValidation {
-  const negative = Object.values(slip).some((cents) => cents < 0);
+  const numbers = [slip.grossCents, slip.inKindCents, slip.inKindWithholdingCents, slip.withholdingCents, slip.employeeSocialSecurityCents, slip.employerSocialSecurityCents, slip.advancesCents, slip.netCents, slip.severanceCents, slip.severanceExemptCents];
+  const negative = numbers.some((cents) => cents < 0) || slip.otherDeductions.some((item) => item.amountCents < 0);
   if (negative) return { ok: false, code: "PAYROLL_NEGATIVE", message: "Los importes de la nómina no pueden ser negativos." };
+  if (slip.severanceCents > slip.grossCents) {
+    return { ok: false, code: "PAYROLL_SEVERANCE", message: "La indemnización forma parte del bruto: no puede ser mayor que los devengos brutos." };
+  }
+  if (slip.severanceExemptCents > slip.severanceCents) {
+    return { ok: false, code: "PAYROLL_SEVERANCE_EXEMPT", message: "La parte exenta de la indemnización no puede ser mayor que la indemnización." };
+  }
+  const badDeduction = slip.otherDeductions.find((item) => item.amountCents === 0 || !item.concept || !isAccountCode(item.accountCode));
+  if (badDeduction) {
+    return { ok: false, code: "PAYROLL_DEDUCTION", message: "Cada deducción necesita concepto, importe y una cuenta de 3 a 12 dígitos." };
+  }
+  if (slip.inKindPosting) {
+    if (slip.inKindCents === 0) return { ok: false, code: "PAYROLL_IN_KIND_POSTING", message: "Para contabilizar la retribución en especie indica su valoración." };
+    if (!slip.inKindPosting.expenseAccount.startsWith("64") || !isAccountCode(slip.inKindPosting.expenseAccount)) {
+      return { ok: false, code: "PAYROLL_IN_KIND_POSTING", message: "El gasto de la retribución en especie va en una cuenta del subgrupo 64 (gastos de personal)." };
+    }
+    if (!isAccountCode(slip.inKindPosting.counterAccount)) {
+      return { ok: false, code: "PAYROLL_IN_KIND_POSTING", message: "Indica la cuenta de contrapartida de la retribución en especie (de 3 a 12 dígitos)." };
+    }
+  }
   if (slip.grossCents === 0 && slip.inKindCents === 0) {
     return { ok: false, code: "PAYROLL_EMPTY", message: "Indica los devengos brutos de la nómina." };
   }
@@ -142,13 +236,13 @@ export function validateSlip(slip: SlipCents): SlipValidation {
   }
   const expected = expectedNetCents(slip);
   if (expected < 0) {
-    return { ok: false, code: "PAYROLL_NEGATIVE_NET", message: "Los descuentos superan el bruto: revisa la retención, la Seguridad Social y los anticipos." };
+    return { ok: false, code: "PAYROLL_NEGATIVE_NET", message: "Los descuentos superan el bruto: revisa la retención, la Seguridad Social, los anticipos y las otras deducciones." };
   }
   if (expected !== slip.netCents) {
     return {
       ok: false,
       code: "PAYROLL_UNBALANCED",
-      message: `La nómina no cuadra: bruto − IRPF − ingreso a cuenta − Seguridad Social del trabajador − anticipos da ${money(expected)}, pero el líquido indicado es ${money(slip.netCents)} (diferencia de ${money(Math.abs(expected - slip.netCents))}).`,
+      message: `La nómina no cuadra: bruto − IRPF − ingreso a cuenta − Seguridad Social del trabajador − anticipos − otras deducciones da ${money(expected)}, pero el líquido indicado es ${money(slip.netCents)} (diferencia de ${money(Math.abs(expected - slip.netCents))}).`,
     };
   }
   return { ok: true };
@@ -160,9 +254,14 @@ export function proposeWithholdingCents(baseCents: number, ratePct: number) {
   return Math.round((baseCents * Math.min(ratePct, 100)) / 100);
 }
 
-export type PayrollAccountRole = "wages" | "employerSocialSecurity" | "withholding" | "socialSecurity" | "payable" | "advances";
+export type PayrollAccountRole = "wages" | "employerSocialSecurity" | "withholding" | "socialSecurity" | "payable" | "advances" | "severance";
 
-export type SlipPostingLine = { role: PayrollAccountRole; debitCents: number; creditCents: number };
+/** Líneas con cuenta elegida por el usuario (otras deducciones y especie contabilizada). */
+export type PayrollDynamicRole = "otherDeduction" | "inKindExpense" | "inKindCounter";
+
+export type SlipPostingLine =
+  | { role: PayrollAccountRole; debitCents: number; creditCents: number }
+  | { role: PayrollDynamicRole; debitCents: number; creditCents: number; accountCode: string; concept: string };
 
 /**
  * Asiento de la nómina:
@@ -173,18 +272,34 @@ export type SlipPostingLine = { role: PayrollAccountRole; debitCents: number; cr
  *        (460)  Anticipos de remuneraciones                              al haber
  *        (465)  Remuneraciones pendientes de pago (líquido)              al haber
  *
- * La retribución en especie no se apunta aquí: su gasto ya está contabilizado con la factura de
- * quien presta el servicio (renting, seguro…). Solo su ingreso a cuenta, que se descuenta del líquido.
+ * La indemnización (finiquito) va a la (641) en lugar de la (640). Las otras deducciones del
+ * trabajador van al haber de su cuenta.
+ *
+ * La retribución en especie, por defecto, no se apunta aquí: su gasto ya está contabilizado con la
+ * factura de quien presta el servicio (renting, seguro…); solo su ingreso a cuenta, que se descuenta
+ * del líquido. Con `inKindPosting` se apunta además (64x) a la cuenta puente indicada.
  */
 export function buildSlipPostingLines(slip: SlipCents): SlipPostingLine[] {
   const lines: SlipPostingLine[] = [
-    { role: "wages", debitCents: slip.grossCents, creditCents: 0 },
+    { role: "wages", debitCents: slip.grossCents - slip.severanceCents, creditCents: 0 },
+    { role: "severance", debitCents: slip.severanceCents, creditCents: 0 },
     { role: "employerSocialSecurity", debitCents: slip.employerSocialSecurityCents, creditCents: 0 },
+  ];
+  if (slip.inKindPosting && slip.inKindCents > 0) {
+    lines.push({ role: "inKindExpense", debitCents: slip.inKindCents, creditCents: 0, accountCode: slip.inKindPosting.expenseAccount, concept: "Retribución en especie" });
+  }
+  lines.push(
     { role: "withholding", debitCents: 0, creditCents: slip.withholdingCents + slip.inKindWithholdingCents },
     { role: "socialSecurity", debitCents: 0, creditCents: slip.employeeSocialSecurityCents + slip.employerSocialSecurityCents },
     { role: "advances", debitCents: 0, creditCents: slip.advancesCents },
-    { role: "payable", debitCents: 0, creditCents: slip.netCents },
-  ];
+  );
+  for (const item of slip.otherDeductions) {
+    lines.push({ role: "otherDeduction", debitCents: 0, creditCents: item.amountCents, accountCode: item.accountCode, concept: item.concept });
+  }
+  if (slip.inKindPosting && slip.inKindCents > 0) {
+    lines.push({ role: "inKindCounter", debitCents: 0, creditCents: slip.inKindCents, accountCode: slip.inKindPosting.counterAccount, concept: "Retribución en especie (contrapartida)" });
+  }
+  lines.push({ role: "payable", debitCents: 0, creditCents: slip.netCents });
   return lines.filter((line) => line.debitCents !== 0 || line.creditCents !== 0);
 }
 
@@ -203,7 +318,7 @@ export type PayrollImportRow = {
   taxId: string;
   employeeId: string | null;
   employeeName: string | null;
-  amounts: Required<{ [K in keyof SlipAmounts]: number }>;
+  amounts: Required<{ [K in Exclude<keyof SlipAmounts, "severanceAmount" | "severanceExemptAmount" | "otherDeductions" | "inKindPosting">]: number }>;
   /** null si la fila es válida. */
   error: string | null;
 };

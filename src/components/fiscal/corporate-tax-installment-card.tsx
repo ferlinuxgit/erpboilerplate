@@ -14,7 +14,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableContainer, TableRow } from "@/components/ui/table";
 import { getCsrfHeader } from "@/lib/csrf-client";
 import { formatMoney } from "@/lib/format";
-import { INSTALLMENT_METHOD_LABELS, type InstallmentMethod } from "@/server/corporate-tax/installments-model";
+import { INSTALLMENT_METHOD_LABELS, type BaseInstallmentResult, type InstallmentMethod } from "@/server/corporate-tax/installments-model";
 import type { InstallmentsView, InstallmentView } from "@/server/corporate-tax/service";
 import { formatIsoDate } from "@/server/fixed-assets/schedule";
 
@@ -40,6 +40,14 @@ const SOURCE_LABELS = {
 } as const;
 
 /** Un periodo del modelo 202: modalidad, cálculo, presentación y asiento del pago. */
+/** Casillas del modelo 202 para entidades con más de un porcentaje: base, porcentaje e importe de cada tipo. */
+const MULTI_RATE_BOXES: ReadonlyArray<readonly [string, string, string]> = [["20", "21", "22"], ["23", "24", "25"], ["61", "62", "63"], ["64", "65", "66"]];
+
+/** Los cálculos guardados antes de agrupar porcentajes no traen `groupedBrackets`. */
+function groupedOf(result: { brackets: BaseInstallmentResult["brackets"]; groupedBrackets?: BaseInstallmentResult["groupedBrackets"] }) {
+  return result.groupedBrackets ?? result.brackets;
+}
+
 export function CorporateTaxInstallmentCard({ bankAccounts, canPost, canWrite, currencyCode, fiscalYearId, initial, methodLocked, today, yearClosed }: Props) {
   const router = useRouter();
   const [view, setView] = useState(initial);
@@ -190,10 +198,19 @@ export function CorporateTaxInstallmentCard({ bankAccounts, canPost, canWrite, c
                       <TableRow><TableCell>Resultado contable antes de impuestos hasta el {formatIsoDate(view.coveredUntil)}</TableCell><TableCell>{money(view.facts.accountingResultBeforeTaxCents)}</TableCell></TableRow>
                       <TableRow><TableCell>Base imponible previa [13]</TableCell><TableCell>{money(result.priorBaseCents)}</TableCell></TableRow>
                       <TableRow><TableCell>(−) Bases negativas [14]</TableCell><TableCell>{money(-result.lossesAppliedCents)}</TableCell></TableRow>
-                      <TableRow className="bg-window-panel font-bold"><TableCell>Base del pago fraccionado [16]</TableCell><TableCell>{money(result.baseCents)}</TableCell></TableRow>
-                      {result.brackets.map((bracket, index) => (
-                        <TableRow key={index}><TableCell className="pl-6 text-xs text-muted-foreground">{pct.format(bracket.pct)} % sobre {money(bracket.baseCents)}</TableCell><TableCell className="text-xs text-muted-foreground">{money(bracket.quotaCents)}</TableCell></TableRow>
-                      ))}
+                      <TableRow className="bg-window-panel font-bold"><TableCell>Base del pago fraccionado {groupedOf(result).length > 1 ? "[19]" : "[16]"}</TableCell><TableCell>{money(result.baseCents)}</TableCell></TableRow>
+                      {groupedOf(result).map((bracket, index, all) => {
+                        // Con un solo porcentaje: casillas [16] y [17]; con varios: base, porcentaje e importe de cada tipo (instrucciones del 202).
+                        const boxes = all.length > 1 ? MULTI_RATE_BOXES[index] : null;
+                        return (
+                          <TableRow key={index}>
+                            <TableCell className="pl-6 text-xs text-muted-foreground">
+                              {pct.format(bracket.pct)} % {boxes ? `[${boxes[1]}]` : "[17]"} sobre {money(bracket.baseCents)}{boxes ? ` [${boxes[0]}]` : ""}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{money(bracket.quotaCents)}{boxes ? ` [${boxes[2]}]` : ""}</TableCell>
+                          </TableRow>
+                        );
+                      })}
                       <TableRow><TableCell>(−) Bonificaciones [27]</TableCell><TableCell>{money(-result.bonusesCents)}</TableCell></TableRow>
                       <TableRow><TableCell>(−) Retenciones e ingresos a cuenta [28]</TableCell><TableCell>{money(-result.withholdingsCents)}</TableCell></TableRow>
                       <TableRow><TableCell>(−) Pagos fraccionados anteriores [30]</TableCell><TableCell>{money(-result.previousInstallmentsCents)}</TableCell></TableRow>

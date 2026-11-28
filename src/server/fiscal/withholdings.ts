@@ -76,6 +76,13 @@ export type WithholdingItem = {
   subkey190?: string | null;
   /** Solo en el 123/193. */
   capitalKind?: CapitalIncomeKind;
+  /**
+   * Renta exenta que solo va al 190 (clave L), no al 111: el 111 recoge los rendimientos «sujetos a
+   * retención o a ingreso a cuenta» (instrucciones del modelo) y las rentas exentas no lo están.
+   */
+  excludedFrom111?: boolean;
+  /** Solo en el 115/180: inmueble al que corresponde el alquiler, si se conoce (regla del inmueble). */
+  propertyId?: string | null;
 };
 
 /** Casilla de un modelo. `count`: número de perceptores o de rentas (no es un importe). */
@@ -231,7 +238,7 @@ export type Modelo111Result = {
  * complementaria (resultado a ingresar de las anteriores del mismo ejercicio y periodo).
  */
 export function computeModelo111(items: WithholdingItem[], options: { previousCents?: number } = {}): Modelo111Result {
-  const own = items.filter((item) => item.model === "111");
+  const own = items.filter((item) => item.model === "111" && !item.excludedFrom111);
   const boxes: WithholdingBox[] = [];
   const blocks: Modelo111BlockTotals[] = [];
   let totalCents = 0;
@@ -412,6 +419,15 @@ export const MODELO_190_KEYS: Record<string, string> = {
   A: "Rendimientos del trabajo: empleados por cuenta ajena en general",
   E: "Rendimientos del trabajo: consejeros y administradores",
   G: "Rendimientos de actividades económicas: actividades profesionales",
+  L: "Rentas exentas y dietas exceptuadas de gravamen",
+};
+
+/**
+ * Subclaves de la clave L que asigna el programa (diseños lógicos del 190 de 2025, contrastados el
+ * 28-11-2026: https://sede.agenciatributaria.gob.es/static_files/Sede/Disenyo_registro/DR_100_199/archivos_25/DISENOS_LOGICOS_190_2025.pdf).
+ */
+export const MODELO_190_L_SUBKEYS: Record<string, string> = {
+  "05": "Indemnizaciones por despido o cese del trabajador exentas (art. 7.e de la Ley del IRPF)",
 };
 
 /** Subclaves de la clave E (texto de los diseños de 2025). */
@@ -446,6 +462,40 @@ export type Modelo190PersonalData = {
   /** 1 a 4 (contrato o relación). */
   contractType?: number | null;
   spouseTaxId?: string | null;
+  /** Datos adicionales de la clave A del ejercicio (opcionales; ver `Modelo190ExtraData`). */
+  extra?: Modelo190ExtraData | null;
+};
+
+/**
+ * Datos adicionales de la clave A (posiciones 170 a 254 del registro de perceptor, diseños lógicos
+ * del 190 de 2025). Importes en céntimos; recuentos como números enteros. Todos opcionales: lo que
+ * falte se declara a cero.
+ */
+export type Modelo190ExtraData = {
+  /** 170: movilidad geográfica (art. 19.2.f LIRPF). */
+  geographicMobility?: boolean;
+  /** 171-183: reducciones aplicables (art. 18.2 y 18.3, DT 11.ª y 12.ª LIRPF). */
+  reductionsCents?: number;
+  /** 184-196: gastos deducibles (art. 19.2 a, b y d LIRPF). */
+  deductibleExpensesCents?: number;
+  /** 197-209: pensiones compensatorias al cónyuge. */
+  compensatoryPensionCents?: number;
+  /** 210-222: anualidades por alimentos a los hijos por decisión judicial. */
+  childSupportCents?: number;
+  /** 223-228: descendientes menores de 3 años y resto (total y computados por entero). */
+  descendantsUnder3?: { total: number; whole: number };
+  descendantsRest?: { total: number; whole: number };
+  /** 229-240: descendientes con discapacidad (≥ 33 % y < 65 %, movilidad reducida, ≥ 65 %). */
+  descendantsDisability?: { from33: { total: number; whole: number }; reducedMobility: { total: number; whole: number }; from65: { total: number; whole: number } };
+  /** 241-244: ascendientes menores y mayores de 75 años. */
+  ascendantsUnder75?: { total: number; whole: number };
+  ascendantsFrom75?: { total: number; whole: number };
+  /** 245-250: ascendientes con discapacidad. */
+  ascendantsDisability?: { from33: { total: number; whole: number }; reducedMobility: { total: number; whole: number }; from65: { total: number; whole: number } };
+  /** 251-253: cómputo de los 3 primeros hijos (1 por entero, 2 por mitad, 0 si no hay). */
+  firstThreeChildren?: [number, number, number];
+  /** 254: comunicación de préstamos para la vivienda habitual (reducción del tipo, art. 86.1 RIRPF). */
+  housingLoanCommunication?: boolean;
 };
 
 export type Modelo190Recipient = {
@@ -497,6 +547,7 @@ export function computeModelo190(
       withheldCents: 0,
       inKindCents: 0,
       inKindWithheldCents: 0,
+      // Los datos personales y adicionales solo se declaran en la clave A.
       personal: key === "A" ? options.personalData?.get(recipientKey(item)) : undefined,
     };
     if (item.inKind) {
@@ -531,7 +582,7 @@ export function computeModelo190(
       status: "warning",
       title: "Faltan datos personales de empleados (clave A)",
       detail: `${incomplete.length} empleado(s) sin año de nacimiento, situación familiar o tipo de contrato: ${incomplete.slice(0, 5).map((row) => row.name).join(", ")}.`,
-      action: "Complétalos en la ficha del trabajador. Los demás datos de la clave A (hijos, ascendientes, reducciones, gastos deducibles, pensiones) no se guardan en el programa: los aporta la gestoría.",
+      action: "Complétalos en la ficha del trabajador. Los demás datos de la clave A (hijos, ascendientes, reducciones, gastos deducibles, pensiones) son opcionales: puedes anotarlos en la ficha, en «Datos adicionales del 190», o aportarlos la gestoría.",
     });
   }
   return { recipients, recordCount: recipients.length, totalIncomeCents, totalWithheldCents, reconciliation, checks };
@@ -550,6 +601,8 @@ export const RENTAL_PROPERTY_SITUATIONS: Record<string, string> = {
 };
 
 export type RentalPropertyData = {
+  /** Identificador del inmueble (opcional: permite un registro por inmueble). */
+  id?: string;
   /** 1 a 4. */
   situation: string;
   cadastralReference: string | null;
@@ -572,6 +625,8 @@ export type Modelo180Recipient = {
   property: RentalPropertyData | null;
   /** Inmuebles del arrendador (si hay varios, la base no se puede repartir sola). */
   propertyCount: number;
+  /** Identificador del inmueble cuando las facturas se han asociado a él por su regla. */
+  propertyId?: string | null;
 };
 
 export type Modelo180Result = {
@@ -584,9 +639,10 @@ export type Modelo180Result = {
 };
 
 /**
- * Modelo 180: resumen anual de los arrendamientos del 115. El diseño pide un registro por inmueble;
- * como las facturas no dicen a qué inmueble corresponden, se genera un registro por arrendador con
- * su primer inmueble y se avisa cuando tiene varios o ninguno.
+ * Modelo 180: resumen anual de los arrendamientos del 115. El diseño pide un registro por inmueble.
+ * Las partidas asociadas a un inmueble (`propertyId`, por la regla del propio inmueble) forman su
+ * registro; las demás se agrupan por arrendador con su primer inmueble, y se avisa cuando tiene
+ * varios o ninguno.
  */
 export function computeModelo180(
   items: WithholdingItem[],
@@ -594,8 +650,11 @@ export function computeModelo180(
 ): Modelo180Result {
   const groups = new Map<string, Modelo180Recipient & { lastDate: string }>();
   for (const item of items.filter((candidate) => candidate.model === "115")) {
-    const id = recipientKey(item);
-    const properties = options.properties?.get(id) ?? [];
+    const recipientId = recipientKey(item);
+    const properties = options.properties?.get(recipientId) ?? [];
+    // Si la factura está asociada a uno de los inmuebles del arrendador, registro propio para ese inmueble.
+    const linked = item.propertyId ? properties.find((property) => property.id === item.propertyId) ?? null : null;
+    const id = linked ? `${recipientId}|${linked.id}` : recipientId;
     const recipient = groups.get(id) ?? {
       taxId: normalizeRecipientTaxId(item.recipientTaxId) || null,
       name: item.recipientName,
@@ -603,8 +662,9 @@ export function computeModelo180(
       baseCents: 0,
       rate: null,
       withheldCents: 0,
-      property: properties[0] ?? null,
-      propertyCount: properties.length,
+      property: linked ?? properties[0] ?? null,
+      propertyCount: linked ? 1 : properties.length,
+      propertyId: linked?.id ?? null,
       lastDate: "",
     };
     recipient.baseCents += item.baseCents;
@@ -638,14 +698,15 @@ export function computeModelo180(
       action: "Da de alta el inmueble en Nóminas y retenciones › Inmuebles alquilados.",
     });
   }
-  const severalProperties = recipients.filter((row) => row.propertyCount > 1);
+  // Un arrendador con varios inmuebles cuyas facturas no se han asociado a ninguno por su regla.
+  const severalProperties = recipients.filter((row) => row.propertyCount > 1 && !row.propertyId);
   if (severalProperties.length > 0) {
     checks.push({
       code: "model-180-several-properties",
       status: "warning",
       title: "Arrendadores con varios inmuebles",
       detail: `${names(severalProperties)}: el 180 lleva un registro por inmueble y el programa no sabe repartir el alquiler entre ellos.`,
-      action: "Reparte tú la base y la retención entre los inmuebles al presentar.",
+      action: "Indica en cada inmueble el texto que identifica sus facturas (regla del inmueble), o reparte tú la base y la retención entre los inmuebles al presentar.",
     });
   }
   return { recipients, recordCount: recipients.length, totalBaseCents, totalWithheldCents, reconciliation, checks };
