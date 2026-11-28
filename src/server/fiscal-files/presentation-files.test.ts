@@ -176,7 +176,7 @@ describe("modelo 303", () => {
   const did = file.text.slice(328 + 1581 + 1017, 328 + 1581 + 1017 + 823);
 
   it("tiene las tres páginas con su longitud y sus marcas", () => {
-    expect(MODELO_303_PAGE_LENGTHS).toEqual({ page1: 1581, page3: 1017, did: 823 });
+    expect(MODELO_303_PAGE_LENGTHS).toEqual({ page1: 1581, page3: 1017, page4: 998, page5: 1528, did: 823 });
     expect(file.text.length).toBe(328 + 1581 + 1017 + 823 + 18);
     expect(at(file.text, 1, 17)).toBe("<T303020261T0000>");
     expect(file.text.endsWith("</T303020261T0000>")).toBe(true);
@@ -263,7 +263,8 @@ describe("modelo 303", () => {
     expect(problemsOf(() => buildModelo303File({ declarant: company, period: q1, boxes: { ...boxes, "27": 99 } })).join(" ")).toMatch(/casilla 27/);
     expect(problemsOf(() => buildModelo303File({ declarant: company, period: q1, boxes: { ...boxes, REV: 500 } })).join(" ")).toMatch(/no tiene casilla/);
     expect(problemsOf(() => buildModelo303File({ declarant: company, period: parseFilePeriod("2025-Q4") as FilePeriod, boxes })).join(" ")).toMatch(/2026 en adelante/);
-    expect(problemsOf(() => buildModelo303File({ declarant: company, period: q1, boxes, cashAccounting: true })).join(" ")).toMatch(/criterio de caja/);
+    // Casillas 62-63 con importe sin estar acogido al criterio de caja: incoherente.
+    expect(problemsOf(() => buildModelo303File({ declarant: company, period: q1, boxes: { ...boxes, "62": 1_000, "63": 210 } })).join(" ")).toMatch(/criterio de caja/);
     expect(problemsOf(() => buildModelo303File({ declarant: company, period: q1, boxes, declarationType: "C" })).join(" ")).toMatch(/no corresponde/);
   });
 
@@ -391,5 +392,86 @@ describe("modelo 349", () => {
     expect(problemsOf(() => buildModelo349File({ declarant: company, period: q1, operators: [{ ...operators[0], amountCents: -1 }] })).join(" ")).toMatch(/negativo/);
     expect(problemsOf(() => buildModelo349File({ declarant: company, period: q1, operators: [{ ...operators[0], taxId: "ESB12345674" }] })).join(" ")).toMatch(/NIF-IVA/);
     expect(problemsOf(() => buildModelo349File({ declarant: company, period: parseFilePeriod("2026") as FilePeriod, operators })).join(" ")).toMatch(/mensual o trimestral/);
+  });
+});
+
+describe("modelo 303: criterio de caja, regularizaciones y páginas del último periodo", () => {
+  const q4 = parseFilePeriod("2026-Q4") as FilePeriod;
+  // 1.000 € al 21 % cobrados; compras con 40-41 (rectificación −50 € de cuota), 43 (+10 €) y 44 (−20 €).
+  const boxes = {
+    "07": 100_000, "09": 21_000, "27": 21_000, "28": 40_000, "29": 8_400, "40": -25_000, "41": -5_000, "43": 1_000, "44": -2_000,
+    "45": 2_400, "46": 18_600, "62": 200_000, "63": 42_000, "74": 50_000, "75": 10_500, "71": 18_600,
+    "80": 400_000, "81": 200_000, "93": 50_000, "88": 650_000,
+  };
+  const file = buildModelo303File({ declarant: company, period: q4, boxes, cashAccounting: true, exemptFrom390: { activityCode: "a03", iaeCode: "849.9", has347Operations: true }, prorrata: { cnae: "6201", totalCents: 650_000, deductibleCents: 520_000, pct: 80 } });
+  const page1 = file.text.slice(328, 328 + 1581);
+  const page3 = file.text.slice(328 + 1581, 328 + 1581 + 1017);
+  const page4 = file.text.slice(328 + 1581 + 1017, 328 + 1581 + 1017 + 998);
+  const page5 = file.text.slice(328 + 1581 + 1017 + 998, 328 + 1581 + 1017 + 998 + 1528);
+  const did = file.text.slice(328 + 1581 + 1017 + 998 + 1528);
+
+  it("incluye las páginas 04 y 05 en el último periodo, en su orden", () => {
+    expect(file.text.length).toBe(328 + 1581 + 1017 + 998 + 1528 + 823 + 18);
+    expect(at(page4, 1, 11)).toBe("<T30304000>");
+    expect(at(page4, 987, 12)).toBe("</T30304000>");
+    expect(at(page5, 1, 11)).toBe("<T30305000>");
+    expect(at(page5, 1517, 12)).toBe("</T30305000>");
+    expect(at(did, 1, 11)).toBe("<T303DID00>");
+  });
+
+  it("marca el criterio de caja (propio y como destinatario) y la exoneración del 390", () => {
+    expect(at(page1, 113, 2)).toBe("11");
+    expect(at(page1, 128, 3)).toBe("110");
+    expect(file.warnings.join(" ")).toMatch(/criterio de caja/);
+  });
+
+  it("lleva 40-41 y 43-44 con signo en la página 1", () => {
+    expect(at(page1, 917, 17)).toBe("N0000000000025000");
+    expect(at(page1, 934, 17)).toBe("N0000000000005000");
+    expect(at(page1, 968, 17)).toBe("00000000000001000");
+    expect(at(page1, 985, 17)).toBe("N0000000000002000");
+    expect(at(page1, 1002, 17)).toBe("00000000000002400");
+  });
+
+  it("lleva las casillas 62-63 y 74-75 en la página 3", () => {
+    expect(at(page3, 114, 17)).toBe("00000000000200000");
+    expect(at(page3, 131, 17)).toBe("00000000000042000");
+    expect(at(page3, 148, 17)).toBe("00000000000050000");
+    expect(at(page3, 165, 17)).toBe("00000000000010500");
+    expect(at(page3, 408, 17)).toBe("00000000000018600");
+  });
+
+  it("lleva actividad, IAE, marca del 347, territorio y volumen de operaciones en la página 4", () => {
+    expect(at(page4, 13, 7)).toBe("A038499");
+    expect(at(page4, 20, 35)).toBe(" ".repeat(35));
+    expect(at(page4, 55, 1)).toBe("X");
+    expect(at(page4, 56, 25)).toBe("00000000000000000000" + "10000");
+    expect(at(page4, 81, 17)).toBe("00000000000400000");
+    expect(at(page4, 98, 17)).toBe("00000000000200000");
+    expect(at(page4, 115, 17)).toBe("00000000000050000");
+    expect(at(page4, 370, 17)).toBe("00000000000650000");
+  });
+
+  it("lleva la prorrata general en la página 5", () => {
+    expect(at(page5, 13, 4)).toBe("6201");
+    expect(at(page5, 17, 17)).toBe("00000000000650000");
+    expect(at(page5, 34, 17)).toBe("00000000000520000");
+    expect(at(page5, 51, 6)).toBe("G08000");
+    expect(at(page5, 57, 4)).toBe("    ");
+    expect(at(page5, 233, 612)).toBe("0".repeat(612));
+  });
+
+  it("sin exoneración ni prorrata no incluye las páginas 04 y 05 y marca «no exonerado»", () => {
+    const plain = buildModelo303File({ declarant: company, period: q4, boxes, cashAccounting: true });
+    expect(plain.text.length).toBe(328 + 1581 + 1017 + 823 + 18);
+    expect(at(plain.text.slice(328), 128, 2)).toBe("20");
+    expect(plain.warnings.join(" ")).toMatch(/NO estás exonerado/);
+  });
+
+  it("valida el código de actividad, el CNAE y el cuadre del volumen", () => {
+    expect(problemsOf(() => buildModelo303File({ declarant: company, period: q4, boxes, cashAccounting: true, exemptFrom390: { activityCode: "Z9" } })).join(" ")).toMatch(/código de la actividad/);
+    expect(problemsOf(() => buildModelo303File({ declarant: company, period: q4, boxes, cashAccounting: true, prorrata: { cnae: "62", totalCents: 1, deductibleCents: 1, pct: 100 } })).join(" ")).toMatch(/CNAE/);
+    expect(problemsOf(() => buildModelo303File({ declarant: company, period: q4, boxes: { ...boxes, "88": 1 }, cashAccounting: true, exemptFrom390: { activityCode: "A03" } })).join(" ")).toMatch(/casilla 88/);
+    expect(problemsOf(() => buildModelo303File({ declarant: company, period: q1, boxes: {}, exemptFrom390: { activityCode: "A03" } })).join(" ")).toMatch(/último periodo/);
   });
 });

@@ -361,6 +361,8 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
 
       {summary && !summary.modelo130 && !summary.modelo349 && !thirdParties ? (
         <section className="grid gap-4 lg:grid-cols-2">
+          {/* Los modelos de retenciones no tienen IVA: su detalle son las casillas y los perceptores. */}
+          {summary.withholdingModel ? null : (
           <PageSection title="Desglose de IVA" description="Bases y cuotas por tipo. El soportado muestra la cuota íntegra, antes de prorrata.">
             <TableContainer>
               <Table className="[&_td:nth-child(n+3)]:whitespace-nowrap">
@@ -373,6 +375,7 @@ export default async function FiscalReportDetailPage({ params }: { params: Promi
               </Table>
             </TableContainer>
           </PageSection>
+          )}
 
           <PageSection title="Conciliación contable" description="Si algo no cuadra, revisa asientos manuales en esas cuentas o documentos anulados en otro periodo." contentClassName="space-y-3">
             {([

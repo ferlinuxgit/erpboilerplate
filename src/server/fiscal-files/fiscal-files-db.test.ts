@@ -24,9 +24,12 @@ vi.mock("@/lib/db", async () => {
 });
 
 import * as schema from "@/db/schema";
-import { accountChart, company, companySettings, customer, fiscalReport, fixedAsset, invoice, invoiceLine, invoiceLineTax, partner, supplierInvoice, supplierInvoiceLine, tenant, user } from "@/db/schema";
+import { accountChart, capitalIncomePayment, company, companySettings, customer, fiscalReport, fixedAsset, invoice, invoiceLine, invoiceLineTax, partner, rentalProperty, supplierInvoice, supplierInvoiceLine, tenant, user } from "@/db/schema";
 import { buildLsiBooks } from "@/server/fiscal-files/lsi-service";
 import { generatePresentationFile } from "@/server/fiscal-files/presentation-service";
+import { fiscalSummaryToCsv } from "@/server/fiscal/export";
+import { calculateSpanishFiscalSummary } from "@/server/fiscal/spain";
+import { renderFiscalReportPdf } from "@/server/pdf/render";
 
 const COMPANY = "company-1";
 const noon = (iso: string) => new Date(`${iso}T12:00:00.000Z`);
@@ -82,7 +85,15 @@ beforeAll(async () => {
   ]);
   await db.insert(fixedAsset).values({ id: "fa-1", companyId: COMPANY, code: "BI-0001", description: "Ordenador portátil", assetAccountId: "acc-217", acquisitionDate: "2026-03-05", inServiceDate: "2026-03-05", acquisitionCost: "1000.00", annualPct: "25", supplierInvoiceId: "si-3" });
 
+  // Inmueble del arrendador (180) y un dividendo de marzo con retención del 19 % (123 y 193).
+  await db.insert(rentalProperty).values({ companyId: COMPANY, supplierPartnerId: "p-landlord", situation: "1", cadastralReference: "9872023VH5797S0001WX", address: "Calle Mayor 5", postalCode: "28013", city: "Madrid" });
+  await db.insert(capitalIncomePayment).values({ companyId: COMPANY, recipientName: "Socia Uno", recipientTaxId: "87654321X", kind: "dividend", paymentDate: "2026-03-20", grossAmount: "1000.00", withholdingRate: "19", withholdingAmount: "190.00" });
+
   await db.insert(fiscalReport).values([
+    { id: "r-123", companyId: COMPANY, code: "123", period: "2026-Q1" },
+    { id: "r-190", companyId: COMPANY, code: "190", period: "2026" },
+    { id: "r-180", companyId: COMPANY, code: "180", period: "2026" },
+    { id: "r-193", companyId: COMPANY, code: "193", period: "2026" },
     { id: "r-111", companyId: COMPANY, code: "111", period: "2026-Q1" },
     { id: "r-115", companyId: COMPANY, code: "115", period: "2026-Q1" },
     { id: "r-303", companyId: COMPANY, code: "303", period: "2026-Q1" },
@@ -124,7 +135,7 @@ describe("libros registro en formato AEAT (con base de datos)", () => {
 });
 
 describe("ficheros de presentación (con base de datos)", () => {
-  const generate = (reportId: string) => generatePresentationFile({ companyId: COMPANY, tenantId: "tenant-1", actorUserId: "user-1", reportId });
+  const generate = (reportId: string, options?: Parameters<typeof generatePresentationFile>[0]["options"]) => generatePresentationFile({ companyId: COMPANY, tenantId: "tenant-1", actorUserId: "user-1", reportId, options });
 
   it("genera el 111 con los perceptores profesionales del periodo", async () => {
     const file = await generate("r-111");
@@ -167,4 +178,48 @@ describe("ficheros de presentación (con base de datos)", () => {
     await expect(generate("r-390")).rejects.toThrow(/390/);
     await expect(generate("no-existe")).rejects.toThrow(/no encontrado/);
   });
+
+  it("genera el 123 del trimestre con el dividendo", async () => {
+    const page = (await generate("r-123")).text.slice(328);
+    expect(at(page, 109, 15)).toBe("000000000000001");
+    expect(at(page, 154, 17)).toBe("00000000000100000");
+    expect(at(page, 205, 17)).toBe("00000000000019000");
+    expect(at(page, 324, 17)).toBe("00000000000019000");
+  });
+
+  it("genera el 190 con la abogada (clave G) y la provincia de su ficha", async () => {
+    const lines = (await generate("r-190")).text.split("\r\n");
+    expect(at(lines[0], 1, 17)).toBe("1190202612345678Z");
+    expect(at(lines[0], 136, 9)).toBe("000000001");
+    expect(at(lines[1], 18, 9)).toBe("00000000T");
+    expect(at(lines[1], 76, 5)).toBe("28G01");
+    expect(at(lines[1], 81, 14)).toBe(" 0000000100000");
+    expect(at(lines[1], 95, 13)).toBe("0000000015000");
+  });
+
+  it("genera el 180 con el inmueble del arrendador", async () => {
+    const lines = (await generate("r-180")).text.split("\r\n");
+    expect(at(lines[1], 18, 9)).toBe("B12345674");
+    expect(at(lines[1], 76, 3)).toBe("281");
+    expect(at(lines[1], 93, 4)).toBe("1900");
+    expect(at(lines[1], 115, 20)).toBe("9872023VH5797S0001WX");
+    expect(at(lines[1], 323, 5)).toBe("28013");
+  });
+
+  it("genera el 193 con la fecha de pago del dividendo y pide la provincia si falta", async () => {
+    await expect(generate("r-193")).rejects.toThrow(/provincia/);
+    const lines = (await generate("r-193", { defaultProvince: "46" })).text.split("\r\n");
+    expect(at(lines[1], 77, 2)).toBe("46");
+    expect(at(lines[1], 92, 3)).toBe("A02");
+    expect(at(lines[1], 331, 8)).toBe("20032026");
+  });
+
+  it("exporta el 190 a CSV y a PDF con las casillas y los perceptores", async () => {
+    const summary = await calculateSpanishFiscalSummary(COMPANY, "190", "2026");
+    const csv = fiscalSummaryToCsv(summary);
+    expect(csv).toMatch(/Perceptores 190 · dinerario;G\.01;Abogada Núñez;00000000T;1000,00/);
+    expect(csv).toMatch(/Cuadre con las autoliquidaciones/);
+    const pdf = await renderFiscalReportPdf({ companyName: "Taller Peñón", summary });
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  }, 60_000);
 });
